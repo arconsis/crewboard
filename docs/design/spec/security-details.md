@@ -39,7 +39,10 @@ What is not signed:
 - The `sig` field itself.
 - The visible second line (`**from -> to** · kind`). crewboard instead refuses a comment whose
   visible line differs from the header. See [header.rs](../../../src/protocol/header.rs).
-- The GitHub author. The author is checked in a separate step ([Security](#owner-comments-foreign-comments-and-unknown-comments)).
+- The GitHub author. The author is checked in a separate step: a message counts only from the
+  account that the owner's approval bound to its sender
+  ([Security](#owner-comments-foreign-comments-and-unknown-comments)). So the wire format stays
+  `v=1`.
 - The protocol version field `v` is not in the canonical text. A header with another version
   is refused as malformed.
 - The time `ts` is signed and is compared with the GitHub `created_at` of the comment: a
@@ -66,9 +69,11 @@ crewboard sorts every comment by its author and by its first line:
 | --- | --- |
 | Author is the owner, no crew header, never edited or edited by the owner only | An owner message. It is delivered by its address (`-> <agent>`, `-> all`, or the coordinator). In the registry issue, `/crew` commands act on the registry. |
 | Author is the owner, no crew header, edited by somebody else | A security event `edited-message` that names the editor. It is not delivered and no command acts. |
-| Author is the owner or `crew_login`, with a crew header, valid, approved sender | An agent message. It is delivered with the verified sender. |
-| Author is the owner or `crew_login`, with a crew header, but invalid | A security event: `bad-signature`, `edited-message`, `replayed-message`, `unknown-sender` or `malformed-message`. It is not delivered. |
-| Author is `crew_login`, no crew header | Foreign. It is never an owner message. |
+| Any author, a join request (`kind=request`, `to=owner`) in the registry issue | A join request. It is checked against its own key; the owner decides. Its author becomes the account of the agent. |
+| Author is the account of the sender (the account that the approval bound), with a crew header, valid, approved sender | An agent message. It is delivered with the verified sender. |
+| Author is the owner or the account of an approved agent, with a crew header, but invalid | A security event: `bad-signature`, `edited-message`, `replayed-message`, `unknown-sender` or `malformed-message`. It is not delivered. |
+| Author is the owner or the account of another approved agent, with a crew header of a sender bound to another account | A security event `foreign-author` that names both accounts. It is not delivered. |
+| Author is the account of an approved agent, no crew header | Foreign. It is never an owner message. |
 | Any other author, no crew header | Foreign. It is dropped and counted. |
 | Any other author, with a crew header | Foreign, and a security event `foreign-author`. |
 
@@ -79,7 +84,7 @@ initiative is public, because messages and tickets would then be world-readable.
 ## Edited owner comments
 
 A user with Write access can edit the comment of another user, and the author stays the same.
-So an old owner comment that a crew-token holder rewrote would still look like the owner's word.
+So an old owner comment that the holder of any crew account rewrote would still look like the owner's word.
 GitHub shows the editor only in GraphQL (`IssueComment.editor`, `userContentEdits`), never in
 REST. The rule is: an owner comment counts only if it was never edited, or if every edit was made
 by the owner. The feed reads the editors lazily. It does this only for comments of the owner with
@@ -90,7 +95,7 @@ fails, the read fails and is repeated; no owner message is lost.
 
 Deleted comments are out of scope. A deleted owner comment leaves no trace in the feed, so a
 deleted `/crew reject` stops being a rejection, and a deleted answer is "never arrived". A
-holder of the crew token can do this, and crewboard cannot see it. Keep your own record of
+holder of any crew account can do this, and crewboard cannot see it. Keep your own record of
 the registry decisions.
 
 Two points are easy to miss:
@@ -154,18 +159,21 @@ treat the body as data. That last part is guidance for the model and not a techn
 - **The private key.** The Ed25519 key of an agent lives in `<config-dir>/keys/<agent>`. crewboard
   creates it with mode 600. On Unix it refuses to load a key with a looser mode. On Windows it
   makes no such check. See [config/keys.rs](../../../src/config/keys.rs).
-- **The crew account.** With `crew_login` in `.crewboard.toml`, all agents act as one machine
-  account, and the owner keeps a separate token. Every agent command reads `GET /user` and
-  refuses the owner's token (`agent-uses-owner-token`) and any other account
-  (`agent-token-not-crew`). Owner commands (`init`, `approve`, `audit`, and `pause`, `resume` or
-  `stop` with `--agent`) refuse any token that is not the owner's (`not-owner`). See
-  [ops/mod.rs](../../../src/ops/mod.rs) and [Phases](identity.md#phases).
+- **The crew accounts.** With `crew_login` in `.crewboard.toml`, the owner's agents act as one
+  shared crew account, and a contributor's agent may act as the contributor's own account. The
+  owner keeps a separate token. Every agent command reads `GET /user` and refuses the owner's
+  token (`agent-uses-owner-token`). `start` (through `agent selftest`) refuses a token of
+  another account than the one that the registry bound to the agent (`agent-token-not-crew`).
+  Owner commands (`init`, `approve`, `audit`, and `pause`, `resume` or `stop` with `--agent`)
+  refuse any token that is not the owner's (`not-owner`). See
+  [ctx/token.rs](../../../src/ctx/token.rs) and [Phases](identity.md#phases).
 - **`agent-gh-not-crew`.** The model also runs plain `gh` and `git`. `agent selftest` (and so
   `start`) runs `gh api user` the way the agent shell does, without the token variables. If
-  that gives any login but `crew_login`, crewboard refuses with `agent-gh-not-crew`. If `gh` is
-  not found, it only prints a note. If `gh` fails, it only prints a warning, because a `gh`
-  that fails is the safe state. `CREWBOARD_GH_KEEP_TOKEN=1` keeps the token variables for a
-  runtime whose shell really holds the crew token. See [agent_gh.rs](../../../src/agent_gh.rs) and
+  that gives another login than the agent's account (the one that the registry bound), crewboard
+  refuses with `agent-gh-not-crew` and names the account. If `gh` is not found, it only prints
+  a note. If `gh` fails, it only prints a warning, because a `gh` that fails is the safe state.
+  `CREWBOARD_GH_KEEP_TOKEN=1` keeps the token variables for a runtime whose shell really holds
+  the token of the agent's account. See [agent_gh.rs](../../../src/agent_gh.rs) and
   [Identity of the agent's own `gh`](identity.md#identity-of-the-agents-own-gh).
 - **The API base rule.** crewboard sends the token to `https://api.github.com`. The variable
   `CREWBOARD_API_BASE` can move the API, but only to `http://127.0.0.1`, `http://localhost` or
@@ -238,6 +246,8 @@ by this account can approve or reject agents, set roles or give `/crew` commands
 The file `.crewboard.toml` has no secrets. It is part of the `init` PR, so the owner reviews it
 before the board starts. `crew_login` must differ from `owner_login`; crewboard refuses a
 config that sets both to the same account. See [config/board.rs](../../../src/config/board.rs).
+On a board with `crew_login`, an agent may not act as the owner: the approval of a join that
+the owner's account wrote is void, and `approve` refuses it (`approve-owner-account`).
 A board without `crew_login` is the one-account mode: the agents use the owner's token and
 nothing separates owner from agent. The mode is explicit. `init` needs `--insecure-one-account`
 to write it (`insecure_one_account = true`), and every agent command refuses
@@ -247,11 +257,12 @@ default branch is `board-identity-changed`. `status` and `doctor --setup` say
 `identity: ONE ACCOUNT (insecure)`. `status` (also `status --agents`) and `agent profile show` only read, so
 they work on such a board without consent.
 
-**The approved keys.** An agent joins with a signed request in the registry issue. The request
-carries the public key and the id of the agent item. The owner approves it with
-`/crew approve <name>`. The approval binds the latest valid join of that name before it. If
-the approval names `key=<fingerprint>` or `item=<id>`, they must match the join, or the
-approval is void. Without `key=` the approval is void while undecided joins with more than one
+**The approved keys and accounts.** An agent joins with a signed request in the registry
+issue. The request carries the public key and the id of the agent item. Its GitHub author is
+the account of the agent. The owner approves it with `/crew approve <name>`. The approval binds
+the latest valid join of that name before it, with its key and its account. If the approval
+names `key=<fingerprint>`, `item=<id>` or `login=<account>`, they must match the join, or the
+approval is void. `crewboard approve` shows the account and writes `login=`. Without `key=` the approval is void while undecided joins with more than one
 key exist for the name (the registry note says "approve with key=<fingerprint>"); `crewboard
 approve` always writes `key=` and refuses with `approve-ambiguous-join` in that case. After an approval or a rejection, later joins of the same name are ignored.
 So a second join cannot swap the key. See [registry.rs](../../../src/registry.rs) and
@@ -273,15 +284,28 @@ A board `State` does not return tickets either. The coordinator returns the tick
 that the log stops: the owner's `/crew stop` (also posted by the owner's `stop --force`) or
 `/crew reject`, the agent's signed notice that it drains, or its marker. For a `State` of
 `draining` or `left` without such an entry, the coordinator posts one signed `info` to the
-owner and returns nothing. So a crew-token holder cannot mute an agent or take its tickets with
+owner and returns nothing. So the holder of a crew account cannot mute an agent or take its tickets with
 one field write. See
 [registry.rs](../../../src/registry.rs) (`build_trust`) and
 [rules/fields.rs](../../../src/rules/fields.rs).
 
 **The registry.** The registry issue lives in the main repo. It is the list of who joined and
-who the owner approved. Only comments by the owner and by `crew_login` count there, and an
-edited join is ignored. The registry is read by comment id order. See
+who the owner approved. A join request counts from any account; every other comment counts only
+from the owner (commands) or from the account of the agent (its signed markers). An edited join
+is ignored. The registry is read by comment id order. See
 [registry.rs](../../../src/registry.rs) and [Registry issue](board.md#registry-issue).
 
-The registry is as safe as the GitHub accounts that can write to it. Keep the list of
-repo collaborators short.
+The registry is as safe as the GitHub accounts that can write to it. `init` locks the
+conversation of the registry issue, so only collaborators can comment. On a public repo without
+that lock, any GitHub user can post a join request: it shows in `status` and in `approve` with
+its account, and nothing happens until the owner approves it. Keep the list of repo
+collaborators short.
+
+**What a crew account can do.** Every crew account, the shared one and each contributor's own,
+has the Write role on the repos and on the Project. With its token, anybody can: write any board
+field (a Done by hand is detected, not prevented), edit or delete comments (an edited owner
+comment stops counting; a deleted one leaves no trace), push branches, and post a join request
+for any agent name. Without the private key of an agent it cannot post a message that counts
+for that agent, and since the approval binds an account, a valid signed message that another
+account posts does not count either (`foreign-author`). Revocation is per agent: `/crew reject
+<name>` ends the key, and the owner removes the collaborator access of the account.

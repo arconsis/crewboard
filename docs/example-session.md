@@ -14,7 +14,8 @@ The build was older than 0.6. It shows `priority: P2`; crewboard 0.6 has no `Pri
 position.
 
 This was a trial: one GitHub account, no crew account (`--insecure-one-account`). On a crew the
-comments below come from the crew account, and your own account posts no agent messages. The
+comments below come from the crew accounts of the agents, and your own account posts no agent
+messages. The
 [Quick try](quick-try.md) runs the same path with an interactive coordinator instead of
 `claude -p` calls.
 
@@ -55,11 +56,12 @@ owner checklist (web UI, the API cannot do these):
 
 The owner set `coordinator_may_merge` to `true` and merged the pull request. Each agent then
 joined with one `agent add` command. The join is a comment in the registry issue. The owner
-approved both agents, which froze the key of each. A second `agent add` ran `start`:
+approved both agents, which froze the key and the account of each (in this trial, the owner's
+account). A second `agent add` ran `start`:
 
 ```text
 $ crewboard approve claude-2@host-a --initiative demo
-claude-2@host-a approved as dev; key SHA256:ACLzRC[...] is frozen; State=approved
+claude-2@host-a approved as dev; key SHA256:ACLzRC[...] and account demo are frozen; State=approved
 $ crewboard agent add demo/app [...]
 agent add: [7/7] start: done (claude-2@host-a is active)
 ```

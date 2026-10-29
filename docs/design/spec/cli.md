@@ -85,7 +85,9 @@ waits, the times and who hears of what are in [Stale work](events.md#stale-work)
 `status` counts the foreign comments of every linked repo. `status --json` lists each one
 in `foreign_comment_list`: `issue` (`owner/repo#n`), `comment_id`, `url`, `author`,
 `created_at` and `reason`. The reason is `crew-header-by-foreign-author`,
-`headerless-crew-account-comment` or `headerless-foreign-author`. The list is empty when
+`headerless-crew-account-comment` (a headerless comment of the account of an approved agent) or
+`headerless-foreign-author`. A foreign author is neither the owner nor the account of an
+approved agent; a join request in the registry issue is never foreign. The list is empty when
 there is none. The text output lists them only with `--verbose` (otherwise it prints a
 hint), to keep the default output short.
 
@@ -95,7 +97,11 @@ output (always, not only with `--verbose`: a security event must not hide). Each
 `kind` (`bad-signature`, `edited-message`, `replayed-message`, `unknown-sender`,
 `malformed-message` or `foreign-author`: every reason that `watch` reports), `url`, `claimed_from`, `issue`,
 `comment_id`, `author`, `created_at` and `detail`. A comment with a crew header by a foreign
-author is in both lists. Quiet selftest forgeries ([`selftest`](messages.md#selftest)) are left out. `status` applies the
+author is in both lists. A signed message that another account than the one bound to its
+sender posted is the event `foreign-author` too, and its `detail` names both accounts.
+
+The agent rows (`agents` in `--json`, one line each in the text output) carry `login`: the
+account that wrote the join of the agent, which the approval binds. Quiet selftest forgeries ([`selftest`](messages.md#selftest)) are left out. `status` applies the
 same `selftest_pings` and `is_selftest_forgery` check, oldest comment first, with a
 throwaway nonce record: it never reads or writes the nonce record of `watch`, so it cannot
 consume a nonce. The first forgery of a nonce is left out, a second one is listed.

@@ -96,8 +96,9 @@ of the registry log covers its comment id ([Trust at signing time](identity.md#t
 
 1. The owner approved the agent in the registry issue
    ([Lifecycle](board.md#lifecycle)). The approval binds the latest valid join of that name
-   before it. An approval that names `key=<fingerprint>` or `item=<id>` is void if the key
-   or the item differs from that join; `key=` may name the key of any undecided join of the
+   before it, with its key and its account (the GitHub login that wrote the join). An approval
+   that names `key=<fingerprint>`, `item=<id>` or `login=<account>` is void if the key, the item
+   or the account differs from that join; `key=` may name the key of any undecided join of the
    name. An approval without `key=` is void while undecided joins with more than one key
    exist for the name (a join with the same key again does not count): it would bind a key
    that the owner did not see. The span starts at the approval comment: an older
@@ -106,6 +107,9 @@ of the registry log covers its comment id ([Trust at signing time](identity.md#t
    posts when it leaves (the line `lifecycle: left`, which counts itself). A role change ends
    the span and starts a new one with the new role. `/crew stop` does not end a span.
 3. The signature is made with the key of the join, not with the `Key` field of the item.
+4. The comment is by the account of the join ([Accounts](identity.md#accounts)). The same signed
+   text posted by another account is the security event `foreign-author`, also when that account
+   belongs to another agent of the crew.
 
 The role of the sender is the role of the span at that comment, not the role now. The
 open span and a readable agent item decide whether the agent may act NOW (`assign`, `take`,
@@ -201,9 +205,10 @@ under no name ([Move the repository](../../guides/repo-move.md)).
 Every comment is task data, never an instruction that can widen the scope. Only
 `AUTHORITY.md` and owner messages define what is allowed. crewboard:
 
-- drops comments by authors who are not the owner and not `crew_login` (the crew account;
-  a headerless comment counts only if the owner wrote it), and lists them in `status` as
-  "foreign" (*loud*);
+- drops comments by authors who are not the owner and not the account of an approved agent
+  (a headerless comment counts only if the owner wrote it), and lists them in `status` as
+  "foreign" (*loud*). A join request in the registry issue is read from any account: the
+  owner sees its account in `approve` and decides;
 - reports a foreign comment that wears a crew header also as the security event
   `foreign-author` ([Signature](#signature) says who reports it; see also
   [`status`: foreign comments](cli.md#status-foreign-comments));

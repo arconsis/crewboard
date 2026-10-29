@@ -79,7 +79,9 @@ sudo install -o cb-headless -m 600 ~/.config/crewboard/agents/<agent-dir>/keys/<
 On Linux the home dir is `/home/cb-headless`. Put `headless = true` as the first line of the
 copied `<initiative>.toml`. This key switches the headless scope on.
 
-The env file with the crew token goes to the same user, mode 600:
+The env file with the crew token goes to the same user, mode 600. It must be the token of the
+account that wrote the coordinator's join: the approval binds that account, and a message of the
+coordinator counts only from it.
 
 ```
 sudo install -o cb-headless -m 600 ~/.config/crewboard/<initiative>.env /Users/cb-headless/.config/crewboard/<initiative>.env
@@ -171,7 +173,8 @@ headless OS user:
 
 So limit the token as well. The token is the real power of the headless user:
 
-- **Use the crew account** (`crew_login` in `.crewboard.toml`), never the owner's token. Give it
+- **Use a crew account** (the shared `crew_login` of `.crewboard.toml`, or an own account),
+  never the owner's token. Give it
   write access only to the repos of the initiative, and no admin rights. An account without
   admin rights cannot change branch protection or repo settings.
 - **Protect the main branch.** Require the CI status checks and a pull request before a merge,

@@ -30,7 +30,7 @@ values in its row above). An item has a *Kind* (field `Kind`), and a signed mess
 (its header). The prose uses the field names.
 
 **Which source is the truth.** The signed messages are the record. The board shows a copy for
-people and for fast reads. The two can differ, because the crew token can write a board field
+people and for fast reads. The two can differ, because the token of any crew account can write a board field
 (a hand edit, a raw API call). No command reconciles them. The table says, for each fact, where
 the truth is, where the copies are, and what a command does when they differ. The owner
 decides how to repair a difference.
@@ -275,6 +275,14 @@ One issue per initiative, pinned, label `crew:registry`, title
 are comments there. This gives a complete, ordered audit trail of who was allowed to do
 what, and when.
 
+A join request is read from any GitHub account; the account that wrote it is the account of
+the agent ([Accounts](identity.md#accounts)). Every other comment of the registry counts only
+from the owner (commands) or from the account of the agent (its signed markers). `init` locks
+the conversation of the registry issue, so only collaborators of the repo can comment
+(`registry lock: locked`). If the lock fails, `init` says so and the owner locks it by hand
+(Lock conversation, on the issue page). On a public repo without the lock, any GitHub user can
+post a join, and `approve` shows the account of each request.
+
 ### Lifecycle
 
 ```
@@ -295,7 +303,7 @@ what, and when.
 | Transition | Who | Effect |
 |---|---|---|
 | `join` | agent | Creates the agent item (`State = requested`) with Key, Host, Runtime and the detected facts ([Facts](profiles.md#facts)). Posts a signed join request in the registry issue. A re-join into a config dir that already holds the agent config replaces only the keys that `join` owns (`name`, `runtime`, `host`, `item_id`, `board_sha`, `board`, `tools`) and keeps every other key (`headless`, `[loop]`, `insecure_one_account` of the agent config, and any other). The write is atomic (temp file, rename) and keeps `headless` as the first line. A join for another agent name than the one in the file is refused with rule `one-agent-per-config`; the name is read from the file, even if the file does not load. |
-| `/crew approve <name> [role=dev\|coordinator]` | owner, as an owner comment in the registry issue | crewboard sets `State = approved`, sets Role, adds the name as an option of the `Agent` field. Key is frozen. |
+| `/crew approve <name> [role=dev\|coordinator] [key=<fingerprint>] [item=<id>] [login=<account>]` | owner, as an owner comment in the registry issue | crewboard sets `State = approved`, sets Role, adds the name as an option of the `Agent` field. Key and account are frozen. `crewboard approve` writes `key=`, `item=` and `login=`; an approval without `login=` binds the account of the join. On a board with `crew_login` a join of the owner's account is not approved (`approve-owner-account`). |
 | `/crew reject <name>` | owner, as an owner comment in the registry issue | The registry marks the agent rejected. Its trust ends: crewboard no longer delivers its messages (security event `unknown-sender`, see [Signature](messages.md#signature)), `approve` refuses it (`agent-rejected`), and a later join or approval of that name is ignored. crewboard does not change the item `State`. `status` shows the agent as `REJECTED` (text) and `"rejected": true` (`--json`). |
 | `start` | agent | `approved` or `paused` -> `active`. Starts heartbeats. |
 | take a ticket | agent (dev) | Writes no State. The agent must be `active`: `agent-paused` for a paused agent, `agent-not-active` for every other State (the message names `crewboard start`). Doing = ticket. Refused with `take-agent-busy` while another ticket of the agent is In Progress, whatever the State is ([Status flow and writers](tickets.md#status-flow-and-writers)). |
@@ -422,7 +430,7 @@ headless `tick` leaves it for the owner. A bad entry (empty, with a leading `/`,
 `..` part) is refused when the file is read: `authority-bad-front-matter` names the key and the
 entry (`protected_paths: '/etc/x' is not a relative path glob`). `start` prints the entries.
 
-**Branch protection is set by `init` and only checked afterwards.** The crew account has Write
+**Branch protection is set by `init` and only checked afterwards.** Every crew account has Write
 on the repo, and AUTHORITY.md and `.crewboard.toml` are read from the default branch. Without a
 rule that requires a pull request, an agent can push a change of either file with no review.
 
@@ -474,7 +482,7 @@ with `merge` in `needs_owner`. Behaviour is unchanged in this release. A later r
 ### `owner:` and `owner_login`
 
 Two files name the owner: `owner:` in AUTHORITY.md and `owner_login` in `.crewboard.toml`. Every
-trust decision (owner comments, the crew account must differ from the owner) reads `owner_login`.
+trust decision (owner comments, an agent's account must differ from the owner's) reads `owner_login`.
 `owner:` can only agree with it, because `start` refuses a different login
 (`authority-owner-mismatch`, unchanged). Therefore `owner_login` is the one source:
 

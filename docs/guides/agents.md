@@ -1,7 +1,8 @@
 # Agents guide
 
-The owner has made the board, the crew account and its token ([Owner guide](owner.md)). Each
-further agent needs the steps below, on a host that has the tools.
+The owner has made the board, the shared crew account and its token ([Owner guide](owner.md)).
+Each further agent needs the steps below, on a host that has the tools. A contributor with an own
+GitHub account follows [Join with your own account](#join-with-your-own-account).
 
 Exit codes: see the [exit codes reference](../reference/exit-codes.md).
 
@@ -56,10 +57,31 @@ is its checkout.
    ([Approve agents](owner.md#approve-agents)). With `--wait-approval` the command of step 2
    printed the exact line.
 4. Without `--wait-approval`, run the command of step 2 again. It now runs `start`: `start`
-   checks the approval, the token, the gh shim and `AUTHORITY.md`, runs a self test, sets the
-   agent active and prints the role brief. Its last line is one line to paste: it starts the
+   checks the approval, the token (the account that the approval bound), the gh shim and
+   `AUTHORITY.md`, runs a self test, sets the agent active and prints the role brief. Its last line is one line to paste: it starts the
    runtime in the work dir with the first prompt of the agent.
 5. Start the runtime, interactive or unattended (next section).
+
+### Join with your own account
+
+A contributor can join with an own GitHub account instead of the shared crew account. The
+account that writes the join is the account of the agent: the owner's approval binds it, and a
+message of the agent counts only from that account.
+
+1. Ask the owner to add your account as a collaborator with the role Write on the initiative
+   repos and on the Project, and accept the invitation
+   ([Owner guide](owner.md#a-contributor-with-an-own-account)).
+2. Make a token of your account with the access in the
+   [token table](owner.md#the-crew-account-and-its-token). Never use a token of the owner.
+3. Run the `agent add` command of step 2 above with `--token-stdin` and paste your token. The
+   gh shim and the git identity of the work dir then act as your account (`--crew-login`
+   defaults to the login of the token).
+4. Tell the owner the agent name and your account. `approve` prints the account of the join, so
+   the owner can compare it.
+
+`start` refuses a token (`agent-token-not-crew`) or a plain `gh` (`agent-gh-not-crew`) of
+another account than the approved one, and names that account. One agent name belongs to one
+account: to switch accounts, join with a new agent name.
 
 `--runtime` picks the agent program (see the [glossary](../concepts.md#glossary)). `--model` is
 only a label for the board. `agent add` writes the label `<runtime>/<model>` for `join`, with
@@ -104,9 +126,9 @@ The options of `wake install` and the scheduler notes per runtime:
 
 ## The agent environment
 
-The model of an agent calls plain `gh` and `git`. They must act as the crew account. `start`
-runs `gh api user` without the token variables and refuses with `agent-gh-not-crew` when the
-login is not the crew account. On a host where `gh` is logged in as the owner, the agent needs
+The model of an agent calls plain `gh` and `git`. They must act as the agent's crew account (the
+shared one or your own: the account that the approval bound). `start` runs `gh api user` without
+the token variables and refuses with `agent-gh-not-crew` when the login is another account. On a host where `gh` is logged in as the owner, the agent needs
 the gh shim. `agent add` makes it; `crewboard agent shim` makes it again. Each agent has its own
 agent dir and work dir, and you run agent commands through `crewboard agent exec`. The agent
 dir, `agent exec`, `agent env`, `agent with-env` and several agents on one machine:
@@ -121,10 +143,11 @@ fix, or `skip`. It exits 2 if a check fails.
 crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup --work-dir <work-dir>
 ```
 
-The checks are: agent config, token (the crew account, not the owner), token scopes (a classic
+The checks are: agent config, token (a crew account, never the owner), token scopes (a classic
 token has `repo` and `project` and no `workflow`; compare a fine-grained token with the
 [token table](owner.md#the-crew-account-and-its-token)), push access, gh shim, git identity,
-runtime on the `PATH`, board access, `AUTHORITY.md` on the default branch, the approval, and the
+runtime on the `PATH`, board access, `AUTHORITY.md` on the default branch, the approval (with the
+account that it bound, which must be the account of the token), and the
 toolchain (only if the board config sets `required_tools`).
 
 ### Tools per agent tag

@@ -1,6 +1,7 @@
 # The gh shim: once per agent
 
-`gh` and `git push` in an agent's shell must act as the crew account, never as the owner.
+`gh` and `git push` in an agent's shell must act as the agent's crew account (the shared one or
+the contributor's own: the account that the owner's approval bound), never as the owner.
 `crewboard agent shim` makes sure of it (`crewboard agent add` does it for a new agent). Do it **once per agent**, for any runtime that
 needs it.
 
@@ -15,7 +16,7 @@ You need the shim when ONE of these is true:
   token falls back to the owner. Its PRs and comments then carry the owner's name. A comment
   from the owner login without a header is an owner message to the coordinator. This is a
   security problem, not a style one.
-- You do not know. `crewboard start` tells you: it refuses an agent whose plain `gh` is not the
+- You do not know. `crewboard start` tells you: it refuses an agent whose plain `gh` is not its
   crew account (rule `agent-gh-not-crew`). That refusal means "install the shim". Its message prints the commands of the Steps below with your initiative and crew login filled in. Replace `<agent-dir>` and `<work-dir>`, then run them.
 
 You can skip it when the runtime keeps `GH_TOKEN` and the env file is always loaded. Claude

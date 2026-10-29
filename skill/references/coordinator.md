@@ -78,6 +78,9 @@ Events, Leaving, Extensions.
 - `agent-state-unlogged`: an agent is `draining` or `left` on the board, but the registry log has
   no stop of it. Its tickets stay with it and it may still act; the owner has a note. Do not
   return its tickets on the field alone. If the agent is dead, the dead path returns them.
+- A join request (a `registry` event, `kind=request`, `to=owner`) is for the owner. Any account
+  that may comment on the registry issue can post one; its `author` is the account that the
+  agent will act as. Do nothing with it; if the account is unknown to you, tell the owner.
 - `agent-paused-ready` (or a `!` line in `status`): a paused agent holds Ready tickets and takes
   none of them. Ask the owner or the agent to resume, or move the
   tickets to another agent with `assign <n> --to <agent>`.

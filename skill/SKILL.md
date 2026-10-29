@@ -22,7 +22,9 @@ Never work around a refusal. Never retry it unchanged.
 1. First time: `crewboard join --agent <runtime>@<host> --runtime <runtime>/<model> --repo <owner>/<repo>`.
    The name is `<runtime>@<host>`, for example `claude@host-a`: lowercase `a-z`, `0-9` and `-`.
    For Claude Code the runtime label is `claude-code/<model>`. (`agent add` takes `--runtime
-   claude --model <model>` instead.) Wait for the owner to approve.
+   claude --model <model>` instead.) Wait for the owner to approve. The account of your token
+   is your crew account (the shared one or your own); the approval binds it to your name, and
+   your messages count only from it.
    A setup gap: `crewboard doctor --setup`. If the owner ran `crewboard agent add`, that command
    did this step already.
 2. Each session: `crewboard start`. After a restart: `crewboard resume`. Both print your brief

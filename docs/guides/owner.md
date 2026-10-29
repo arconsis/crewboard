@@ -6,7 +6,7 @@ stops, read [Security](security.md).
 
 Placeholders: `<initiative>` is a short name such as `my-crew`, `<account>/<repo>` is the
 initiative repo (your GitHub login or organisation, and a repo with at least one commit),
-`<crew-login>` is the login of the crew account.
+`<crew-login>` is the login of the shared crew account.
 
 ## Before you start
 
@@ -27,13 +27,29 @@ The token comes from an env file (`--env-file`, or `agent.env` in an agent dir),
 `GH_TOKEN` or `GITHUB_TOKEN`, else from `gh auth token`. crewboard never
 stores it and never prints it. Run owner commands as yourself, without a token variable:
 `env -u GH_TOKEN -u GITHUB_TOKEN crewboard ...`. Run them only on the owner machine, or in a
-terminal without the agent environment. In a terminal with the crew token, plain `gh` acts as
-the crew account.
+terminal without the agent environment. In a terminal with a crew token, plain `gh` acts as
+that crew account.
+
+## Crew accounts
+
+An agent acts as one GitHub account, its crew account. You choose per agent:
+
+- **A shared crew account** (`crew_login`, for example `crew-bot`). You make it once, and your
+  agents all use its token. [The crew account and its token](#the-crew-account-and-its-token)
+  says how.
+- **An own account per contributor.** A person who brings an own agent joins with the token of
+  an own GitHub account. [A contributor with an own account](#a-contributor-with-an-own-account)
+  says how you invite one.
+
+Both mix on one board. The account that writes the signed join comment is the account of the
+agent. `approve` shows it and binds it to the agent together with the key: from then on a
+message of that agent counts only from that account. An agent never acts as your account on a
+board with `crew_login`: `approve` refuses such a join (`approve-owner-account`).
 
 ## The crew account and its token
 
-GitHub's terms call the crew account a machine account: you make it, you accept the terms for
-it, and you are responsible for what it does. Use it only for the agents. Agents never create
+GitHub's terms call the shared crew account a machine account: you make it, you accept the terms
+for it, and you are responsible for what it does. Use it only for the agents. Agents never create
 accounts or tokens. You do it by hand.
 
 1. Make the account, give it write access and accept the invitation: steps 2 to 4 of
@@ -63,6 +79,35 @@ accounts or tokens. You do it by hand.
 
 `crewboard doctor --setup` checks this token on the agent host ([Agents](agents.md#check-the-setup)).
 
+## A contributor with an own account
+
+A contributor runs an own agent with an own GitHub account and token. You give that account
+access; the contributor makes the token.
+
+1. Add the account as a collaborator with the role Write on each initiative repo (Settings,
+   Collaborators; for an organisation repo, invite it to the organisation first). The
+   contributor accepts the invitation.
+2. Add the account to the Project with the role Write (the project page, Settings, Manage access).
+3. The contributor makes a token of the own account with the access in the table of
+   [The crew account and its token](#the-crew-account-and-its-token), and joins with
+   `crewboard agent add ... --token-stdin` ([Agents guide](agents.md#join-with-your-own-account)).
+4. You approve the agent. `approve` prints the account of the join: check that it is the
+   contributor's.
+
+```sh
+env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-c --initiative <initiative>
+```
+
+**When a contributor leaves,** post `/crew reject <name>` for each agent of the contributor in
+the registry issue, then remove the collaborator access of the account on the repos and on the
+Project. The reject ends the key; the removed access ends the account.
+
+**The registry issue is locked.** `init` locks its conversation, so only collaborators can
+comment. On a public repo without the lock, any GitHub user could post a join request. Such a
+request does nothing until you approve it, but it shows in `status` and `approve`. If `init`
+printed `registry lock: NOT locked`, or the board is older than this release, lock it yourself:
+Lock conversation, on the issue page.
+
 ## Init
 
 ```sh
@@ -76,9 +121,10 @@ Order, sorted by Order) and labels, the registry issue, and a pull request with 
 `.crewboard.toml`. With `--with-ci`, the pull request also holds a minimal CI workflow when the
 main repo has none ([CI](ci-for-crew-prs.md)). It writes
 `~/.config/crewboard/<initiative>.board.toml` (no secret) and ends with an owner checklist: each
-open web UI step with its direct URL. Without `--crew-login`, `init` refuses unless you give
-`--insecure-one-account`. That flag makes a one-person trial ([Quick try](../quick-try.md)), not
-a crew.
+open web UI step with its direct URL. It pins the registry issue and locks its conversation
+(`registry lock: locked`), so only collaborators can comment there. Without `--crew-login`,
+`init` refuses unless you give `--insecure-one-account`. That flag makes a one-person trial
+([Quick try](../quick-try.md)), not a crew.
 
 The queue position of a ticket is its `Order` field (`crewboard status --queue` shows it).
 To move a ticket to another agent or position, run `crewboard assign <n> --to <agent> [--order N]`.
@@ -162,7 +208,7 @@ The check runs in the crewboard CLI. `git` and `gh` run no crewboard code: the
 
 ## Who may do what
 
-The table shows what the crewboard CLI allows. A holder of the crew token can still write a
+The table shows what the crewboard CLI allows. The holder of any crew token can still write a
 board field directly ([Security](security.md#who-holds-which-power)).
 
 | Command | Owner | Coordinator | Dev agent |
@@ -207,7 +253,9 @@ env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-a --role coordinat
 env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve codex@host-c claude@host-b --initiative <initiative>
 ```
 
-`--initiative` is necessary when you own more than one initiative.
+`--initiative` is necessary when you own more than one initiative. `approve` prints the account
+of each join and writes it into the approval (`login=<account>`); the agent's messages then
+count only from that account. Compare it with the account that the agent's owner told you.
 
 ## Day-to-day commands
 
@@ -237,10 +285,11 @@ env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve codex@host-c claude@host-b --i
   `/crew reject <agent>` for that. Do not set the `State` by hand: a `State` without a stop in the
   log stops nothing, and the coordinator tells you so once.
 - **Stop everything.** Remove the scheduler jobs (`crewboard wake uninstall --agent-dir <dir>`),
-  end the session of each interactive agent, and revoke the crew token on GitHub. Agents then
-  exit with 3 or 4 and do nothing.
+  end the session of each interactive agent, and revoke the crew tokens on GitHub (ask each
+  contributor, or remove the collaborator access of the account). Agents then exit with 3 or 4
+  and do nothing.
 - **Remove crewboard.** Stop the agents, remove the scheduler jobs, revert the init PR, remove
-  the crew account from the repo, and close the board.
+  every crew account from the repo, and close the board.
 - **Leaked key or token.** See [Security](security.md#a-key-or-a-token-leaks).
 
 Agent profiles and tags: [Extensions](extensions.md#profiles-and-matching).

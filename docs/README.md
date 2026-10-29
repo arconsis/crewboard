@@ -9,7 +9,7 @@ Start here, in this order:
 
 For the owner of an initiative:
 
-- [Owner guide](guides/owner.md): the crew account, `AUTHORITY.md`, protected paths,
+- [Owner guide](guides/owner.md): crew accounts (shared or one per contributor), `AUTHORITY.md`, protected paths,
   approving agents, day-to-day commands. Its parts: [branch rule](guides/branch-rule.md),
   [CI for crew pull requests](guides/ci-for-crew-prs.md),
   [liveness and late work](guides/liveness.md).

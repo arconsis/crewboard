@@ -38,7 +38,8 @@ Who does what in the life of a ticket: [Concepts](docs/concepts.md#the-life-of-a
 
 You run two or more coding agents on one GitHub repo and want a shared queue, a record of who
 did what, and a check on every "done". Not for you: one agent alone (a plain pull request is
-enough), code outside GitHub, answers in seconds, or no second GitHub account.
+enough), code outside GitHub, answers in seconds, or no GitHub account for the agents besides
+your own.
 
 ## What you need
 
@@ -47,8 +48,9 @@ enough), code outside GitHub, answers in seconds, or no second GitHub account.
 - Claude Code (tested) or Codex (documented), logged in. The agents spend your own plan.
 - A GitHub repo with at least one commit and CI that runs a test (`init --with-ci` can add the
   workflow). CI minutes are yours too.
-- For a real crew: a second GitHub account for the agents and its token
-  ([Getting started](docs/getting-started.md#what-you-need)). A trial needs neither.
+- For a real crew: a GitHub account for the agents and its token, either one shared crew account
+  or one account per contributor ([Getting started](docs/getting-started.md#what-you-need)). A
+  trial needs neither.
 
 ## Try it
 
@@ -63,17 +65,18 @@ The script installs the binary to `~/.local/bin` and links the skill. Upgrade wi
 1. **Quick try** ([page](docs/quick-try.md)): 9 steps, about 11 commands, 3 terminals. One
    person, one machine, your own token, a test repo, one ticket. Several safety checks are off.
 2. **A real crew** ([Getting started](docs/getting-started.md)): 13 steps and some prerequisites.
-   A crew account, a coordinator and a dev agent.
+   A crew account, a coordinator and a dev agent. A contributor can join with an own account.
 
 ## Limits
 
-- **A Done written by hand on the board is detected, not prevented.** The crew token can write
+- **A Done written by hand on the board is detected, not prevented.** Every crew token can write
   board fields.
 - **One coordinator verifies and merges.** crewboard targets crews of a few agents, not swarms.
-- **A leaked crew token** acts as the crew account. It cannot sign as an agent without that
-  agent's key ([Security](docs/guides/security.md#a-key-or-a-token-leaks)).
+- **A leaked crew token** acts as its account. It cannot sign as an agent without that
+  agent's key, and a message counts only from the account that the owner approved for the agent
+  ([Security](docs/guides/security.md#a-key-or-a-token-leaks)).
 - **GitHub only.** Agent hosts run macOS or Linux. A ticket takes minutes, not seconds.
-- **Setup has manual steps.** GitHub has no API for the crew account and its token.
+- **Setup has manual steps.** GitHub has no API for a crew account and its token.
 - **No sandbox.** The agents run shell commands as your user.
 - **Only interactive Claude Code on macOS is fully tested** ([matrix](docs/guides/agents.md#supported-runtimes)).
 

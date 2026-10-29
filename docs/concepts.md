@@ -9,15 +9,15 @@ definition. Trust is in the [Security guide](guides/security.md#who-holds-which-
 |---|---|
 | **Owner** | The human who runs the work. Only the owner approves agents, edits `AUTHORITY.md` and merges protected changes. |
 | **Initiative** | One piece of work with one goal and one board. `crewboard init` makes it. |
-| **Crew account** | One extra GitHub account that all agents use for GitHub calls. You make it and own its token. The signature, not the account, names the agent. |
-| **Crew token** | The access token of the crew account. It is not an agent key. `agent token` writes it to the **env file** (mode 600) on each agent host. |
+| **Crew account** | The GitHub account that an agent uses for GitHub calls: one shared account that you make for your agents (`crew_login`), or a contributor's own account. It needs the Write role on the repos and on the board. Your approval binds each agent to the account that wrote its join; a message of the agent counts only from that account. The signature, not the account, names the agent. |
+| **Crew token** | The access token of a crew account. It is not an agent key. `agent token` writes it to the **env file** (mode 600) on each agent host. |
 | **Agent** | One AI instance with a name `<runtime>@<host>` (for example `claude@host-b`), a key and a role. |
 | **Runtime** | The agent program: `claude` (Claude Code), `codex` or `hermes`. The **model** is the language model that it calls. |
 | **Host** | A machine that runs agents. The **owner machine** is where you run owner commands. |
 | **Agent dir** | The config dir of one agent: its key, its config and the `gh` wrapper. The **work dir** is its checkout of the repo. The **state dir** (`~/.local/state/crewboard/agents/`) holds its cursor, locks and logs. |
 | **Coordinator** | The one agent that assigns tickets, verifies evidence and keeps work moving. It writes no code. The **no-model coordinator** (`crewboard tick`) is an optional second program that starts no model (see Gate). |
 | **Dev agent** | An agent that takes tickets and delivers pull requests. |
-| **Approve** | The owner's command that lets an agent and its key join. An agent that is not approved has no authority. |
+| **Approve** | The owner's command that lets an agent, its key and its crew account join. An agent that is not approved has no authority. |
 | **Ticket** | The unit of work. A GitHub issue backs it. |
 | **Gate** | The one line that decides whether a ticket is done. It must be able to fail, for example "CI is green for the head SHA, and `grep` finds the new heading". A Gate that is only `ci` lets the no-model coordinator merge ([details](design/spec/agents.md#headless-coordinator)). |
 | **Status** | The column of a ticket: Backlog, Ready, In Progress, Review, Blocked, Done. An agent has a **State** instead (`requested`, `approved`, `active`, `paused`, `draining`, `left`). |
@@ -31,7 +31,7 @@ definition. Trust is in the [Security guide](guides/security.md#who-holds-which-
 | **`needs-owner`** | The label on a ticket with an open question to you; the view Needs Owner shows them. Not the key `needs_owner` of [`AUTHORITY.md`](guides/owner.md#authoritymd), and not the line `Needs:` of a [ticket](design/spec/tickets.md#ticket-content). |
 | **Owner route** | How a change to `.github/workflows/` reaches the repo: the dev agent writes a patch and you apply it. Only on a crew account ([Extensions](guides/extensions.md#the-owner-route)). |
 | **Extension** | A feature that no ticket needs to reach Done ([Extensions](guides/extensions.md), `crewboard help extensions`). |
-| **Registry issue** | The pinned issue where agents ask to join. |
+| **Registry issue** | The pinned issue where agents ask to join. `init` locks it, so only collaborators can comment. |
 | **Trial** | A one-person run with one GitHub account and no crew account ([Quick try](quick-try.md)). Several safety checks are off. |
 
 ## The life of a ticket: who does what
@@ -73,7 +73,7 @@ Any other Done is a mismatch. Done means "accepted", not "merged".
 ## Done without proof is detected
 
 The signed messages are the record. The board field `Status` is the view that commands read
-([which source wins](design/spec/board.md#fields)). A holder of the crew token can set
+([which source wins](design/spec/board.md#fields)). The holder of any crew token can set
 `Status = Done` with one call, and crewboard cannot stop that. It detects it. `crewboard status`
 lists every ticket whose Status no signed message supports (`board against signed log`).
 `crewboard audit` reports it as a `field-mismatch`. The coordinator's watch cycle tells the
