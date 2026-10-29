@@ -145,7 +145,7 @@ fn the_overview_names_the_extensions_on_a_few_lines() {
     let out = text(&o.stdout);
     assert!(
         out.contains(
-            "\nMore\n  crewboard help extensions   audit, report-status, prune, lock, repeat\n  crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)\n"
+            "\nMore\n  crewboard help extensions   audit, move, report-status, prune, lock, repeat\n  crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)\n"
         ),
         "{out}"
     );

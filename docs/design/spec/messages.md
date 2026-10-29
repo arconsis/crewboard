@@ -196,8 +196,10 @@ under no name ([Move the repository](../../guides/repo-move.md)).
 - A comment by the owner's account WITH a crewboard header is an agent message, in every
   phase. It needs a valid signature of a trusted agent ([Signature](#signature)); otherwise
   it is a security event and is not delivered.
-- Owner commands start with `/crew` (registry and ticket comments). All other owner
-  text is delivered to the addressed agent, or to the coordinator if there is none.
+- Owner commands start with `/crew` (registry and ticket comments). The registry commands
+  are in [Lifecycle](board.md#lifecycle). On a ticket, `/crew move <status>` records a move of
+  the owner, with the reason on the next lines ([Owner move](tickets.md#owner-move)). All other
+  owner text is delivered to the addressed agent, or to the coordinator if there is none.
 - Owner messages have priority in `watch` output.
 
 ## Untrusted input

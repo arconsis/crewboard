@@ -2,6 +2,19 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Added:
+
+- `crewboard move <issue> <status> [--why <text>]`: the owner moves a ticket by hand, in the
+  signed log. It posts the owner command `/crew move <status>` on the ticket and then writes the
+  board `Status`. The log reads the move as the owner's, also after a close: a Done ticket moved
+  back to Ready counts as open again. `status` and `audit` show no mismatch after it; a drag on
+  the board without the command is still reported. Ready, In Progress, Review and Blocked need a
+  signed assignment (`move-needs-assignee`); Done is refused (`move-done-needs-close`), and a name
+  that is not a board status too (`move-bad-status`). It is an owner command (the owner's token,
+  `owner-command-not-owner`). The wire format stays `v=1`.
+
 ## v0.6.1 (2026-10-29)
 
 Added:

@@ -138,6 +138,7 @@ fn a_gh_login_that_is_not_the_board_owner_is_refused() {
             "--initiative",
             INITIATIVE,
         ],
+        vec!["move", "7", "Ready", "--initiative", INITIATIVE],
     ] {
         let o = cb(&fake, owner.path(), &args, &[GH_LOGIN]);
         assert_eq!(o.code, 2, "{args:?}: {}", o.all());

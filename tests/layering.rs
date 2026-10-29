@@ -214,6 +214,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ("ticket", "config"),
     ("ticket", "events"),
     ("ticket", "items"),
+    ("ticket", "owner_cmd"),
     ("ticket", "protocol"),
     ("ticket", "registry"),
     ("ticket", "rules"),

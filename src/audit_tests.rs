@@ -639,6 +639,44 @@ fn blocked_after_a_question_to_the_owner_is_no_mismatch() {
 }
 
 #[test]
+fn an_owner_move_is_in_the_log_and_an_edited_or_foreign_one_is_not() {
+    let w = w();
+    let (cs, key) = taken(&w);
+    let backlog = view(&[(&key, "Backlog", Some("hermes@b"))], vec![]);
+    // control: a drag to Backlog without the command is a mismatch
+    assert_eq!(with_board(&w, &cs, &backlog).len(), 1);
+    let mv = |author: &str, editors: Option<&[&str]>| {
+        let mut c = at(
+            comment(12, author, "/crew move Backlog\nnot this sprint"),
+            12,
+        );
+        if let Some(e) = editors {
+            c.updated = "2026-10-15T14:09:00Z".into();
+            c.editors = Some(e.iter().map(|x| x.to_string()).collect());
+        }
+        let mut all = cs.clone();
+        all.push(c);
+        all
+    };
+    // the owner's move supports Backlog, also after an edit by the owner
+    assert!(with_board(&w, &mv("owner-login", None), &backlog).is_empty());
+    assert!(with_board(&w, &mv("owner-login", Some(&["owner-login"])), &backlog).is_empty());
+    // a board that did not follow the move is a mismatch against the move
+    let ready = view(&[(&key, "Ready", Some("hermes@b"))], vec![]);
+    let got = with_board(&w, &mv("owner-login", None), &ready);
+    assert!(
+        got.len() == 1 && got[0].contains("board Status is Ready, the log shows Backlog"),
+        "{got:?}"
+    );
+    // an edit by another account, and the line of another account, are not the owner's move
+    assert_eq!(
+        with_board(&w, &mv("owner-login", Some(&["crew-bot"])), &backlog).len(),
+        1
+    );
+    assert_eq!(with_board(&w, &mv("crew-bot", None), &backlog).len(), 1);
+}
+
+#[test]
 fn a_ticket_without_a_status_in_the_log_is_not_judged() {
     let w = w();
     let none = view(&[("x/y#99", "Done", None)], vec![]);

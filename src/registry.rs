@@ -537,9 +537,12 @@ fn apply_owner(reg: &mut Registry, cfg: &BoardConfig, comment_id: u64, cmd: Owne
                 }
             }
         }
-        // a profile change is applied to the item by the command; it does not decide who may speak
-        OwnerCommand::Profile { .. } | OwnerCommand::Pause { .. } | OwnerCommand::Resume { .. } => {
-        }
+        // a profile change is applied to the item by the command; it does not decide who may
+        // speak. A move belongs on a ticket; in the registry issue it changes nothing.
+        OwnerCommand::Profile { .. }
+        | OwnerCommand::Pause { .. }
+        | OwnerCommand::Resume { .. }
+        | OwnerCommand::Move { .. } => {}
     }
 }
 

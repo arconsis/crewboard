@@ -46,7 +46,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
 /// `crewboard help extensions` lists the groups with the `about` line of each command. No basic
 /// crew needs one of them.
 pub const EXTENSIONS: &[(&str, &[&str])] = &[
-    ("Owner checks", &["audit"]),
+    ("Owner tools", &["audit", "move"]),
     ("Reports and upkeep", &["report-status", "prune"]),
     ("Heavy jobs on a shared host", &["lock", "repeat"]),
 ];
@@ -62,7 +62,7 @@ pub const SCHEDULER: &[(&str, &[&str])] = &[
 ];
 
 /// The commands that the overview names for `help extensions` (a subset of `EXTENSIONS`).
-const EXTENSIONS_LINE: &str = "audit, report-status, prune, lock, repeat";
+const EXTENSIONS_LINE: &str = "audit, move, report-status, prune, lock, repeat";
 /// The commands that the overview names for `help scheduler`.
 const SCHEDULER_LINE: &str = "wake, poll, tick, heartbeat (called by schedulers)";
 
@@ -345,7 +345,7 @@ Coordinator: tickets
   close          Close a ticket (Done is final)
 
 More
-  crewboard help extensions   audit, report-status, prune, lock, repeat
+  crewboard help extensions   audit, move, report-status, prune, lock, repeat
   crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)
 New crew (owner): `crewboard agent token`, `crewboard init`,
 `crewboard approve`, then `crewboard agent add` for each agent.

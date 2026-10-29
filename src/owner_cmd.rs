@@ -1,11 +1,13 @@
 //! Owner commands (spec/board#lifecycle, spec/messages#owner-messages): `/crew
-//! approve|reject|role|pause|resume|stop ...`.
+//! approve|reject|role|profile|pause|resume|stop ...` in the registry issue, and `/crew move
+//! <status>` on a ticket (spec/tickets#owner-move).
 //!
 //! An owner command is the first line of an owner comment (a comment of the
 //! owner's account without a crew header). Parsing is pure. Whether the author may issue
 //! it is decided by the caller from the GitHub login.
 
 use crate::protocol::names::AgentName;
+use crate::rules::status::Status;
 use crate::rules::{Refusal, Role};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +51,12 @@ pub enum OwnerCommand {
     },
     Stop {
         name: AgentName,
+    },
+    /// `/crew move <status>` on a ticket: the owner moved the ticket by hand
+    /// (spec/tickets#owner-move). The lines after the first are the reason. Done is not a
+    /// target: a ticket ends through the coordinator's signed close.
+    Move {
+        status: Status,
     },
 }
 
@@ -228,6 +236,15 @@ pub fn parse(comment: &str) -> Result<Option<OwnerCommand>, Refusal> {
         "stop" => OwnerCommand::Stop {
             name: name(toks.next())?,
         },
+        "move" => {
+            let words: Vec<&str> = toks.by_ref().collect();
+            if words.is_empty() {
+                return Err(bad("`/crew move` needs a status"));
+            }
+            OwnerCommand::Move {
+                status: move_target(&words.join(" ")).map_err(|r| bad(r.message))?,
+            }
+        }
         other => return Err(bad(format!("unknown command '/crew {other}'"))),
     };
     if toks.next().is_some() {
@@ -307,6 +324,51 @@ pub fn approve_text(name: &AgentName, role: Role, key_fp: &str, item: &str, logi
         "/crew approve {name} role={} key={key_fp} item={item} login={login}",
         role_name(role)
     )
+}
+
+/// The rule of a target status that is not one of the board statuses.
+pub const MOVE_BAD_STATUS: &str = "move-bad-status";
+/// The rule of the target Done: a ticket ends through the coordinator's signed close.
+pub const MOVE_DONE_NEEDS_CLOSE: &str = "move-done-needs-close";
+
+/// The status that an owner move names: a board status by its name, in any case, with `-` or `_`
+/// for the space (`in-progress`). Done and an unknown name are refused. Pure.
+pub fn move_target(s: &str) -> Result<Status, Refusal> {
+    let want = s
+        .replace(['-', '_'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let status = Status::ALL
+        .into_iter()
+        .find(|x| x.name().to_lowercase() == want)
+        .ok_or_else(|| {
+            Refusal::new(
+                MOVE_BAD_STATUS,
+                format!(
+                    "'{s}' is not a status: use Backlog, Ready, In Progress, Review or Blocked"
+                ),
+            )
+        })?;
+    if status == Status::Done {
+        return Err(Refusal::new(
+            MOVE_DONE_NEEDS_CLOSE,
+            "the owner does not move a ticket to Done: merge its PR or close its issue, and the coordinator posts the signed close (`crewboard close <n>`, or `close <n> --why` without a PR)",
+        ));
+    }
+    Ok(status)
+}
+
+/// The comment that `crewboard move` posts: the command line, and the reason after it.
+pub fn move_text(status: Status, why: Option<&str>) -> String {
+    let mut t = format!("/crew move {}", status.name());
+    if let Some(w) = why.map(str::trim).filter(|w| !w.is_empty()) {
+        t.push('\n');
+        t.push_str(w);
+        t.push('\n');
+    }
+    t
 }
 
 /// A GitHub login as an owner command names it: letters, digits and `-`, at most 39 characters,
@@ -404,6 +466,55 @@ mod tests {
             parse("/crew stop claude@host-a").unwrap(),
             Some(OwnerCommand::Stop { .. })
         ));
+    }
+
+    #[test]
+    fn a_move_names_one_board_status_and_keeps_the_reason_on_the_next_lines() {
+        for (text, want) in [
+            ("/crew move Ready", Status::Ready),
+            ("/crew move In Progress", Status::InProgress),
+            ("/crew move in-progress", Status::InProgress),
+            ("/crew move  backlog ", Status::Backlog),
+            ("/crew move Review\nthe fix was wrong", Status::Review),
+            ("/crew move Blocked", Status::Blocked),
+        ] {
+            assert_eq!(
+                parse(text).unwrap(),
+                Some(OwnerCommand::Move { status: want }),
+                "{text}"
+            );
+        }
+        // the writer and the parser agree, with and without a reason
+        for why in [None, Some("reopened: the release needs it")] {
+            let t = move_text(Status::InProgress, why);
+            assert_eq!(
+                parse(&t).unwrap(),
+                Some(OwnerCommand::Move {
+                    status: Status::InProgress
+                })
+            );
+            assert_eq!(t.lines().nth(1), why);
+        }
+        assert_eq!(move_text(Status::Ready, Some("  ")), "/crew move Ready");
+        // Done, an unknown status and no status are refused, not guessed
+        for t in [
+            "/crew move Done",
+            "/crew move done",
+            "/crew move Needs Human",
+            "/crew move Readyy",
+            "/crew move",
+        ] {
+            assert_eq!(parse(t).unwrap_err().rule, "owner-command-malformed", "{t}");
+        }
+        assert_eq!(move_target("Done").unwrap_err().rule, MOVE_DONE_NEEDS_CLOSE);
+        assert_eq!(move_target("Elsewhere").unwrap_err().rule, MOVE_BAD_STATUS);
+        // the reason line is free text: a status word in it changes nothing
+        assert_eq!(
+            parse("/crew move Ready\nDone is wrong here").unwrap(),
+            Some(OwnerCommand::Move {
+                status: Status::Ready
+            })
+        );
     }
 
     #[test]

@@ -115,7 +115,8 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         Command::Review(ReviewCmd::Close { .. }) => Allow,
         Command::Crew(CrewCmd::Init { .. })
         | Command::Crew(CrewCmd::Join { .. })
-        | Command::Crew(CrewCmd::Approve { .. }) => Deny(headless::DENY_OWNER),
+        | Command::Crew(CrewCmd::Approve { .. })
+        | Command::Crew(CrewCmd::Move { .. }) => Deny(headless::DENY_OWNER),
         Command::Dev(DevCmd::Say { .. })
         | Command::Dev(DevCmd::Take { .. })
         | Command::Dev(DevCmd::Done { .. })
@@ -223,6 +224,8 @@ mod tests {
         (&["heartbeat"], true),
         (&["tick"], true),
         (&["audit"], true),
+        // the owner moves a ticket by hand; a model must not write the owner's word
+        (&["move", "7", "Ready"], false),
         (&["doctor"], true),
         // the host lock changes files of the host, not the board
         (&["lock", "status", "/x/lock.d"], true),
