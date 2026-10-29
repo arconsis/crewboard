@@ -50,7 +50,7 @@ Coordinator: tickets
   close          Close a ticket (Done is final)
 
 More
-  crewboard help extensions   audit, report-status, prune, lock, repeat
+  crewboard help extensions   audit, move, report-status, prune, lock, repeat
   crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)
 New crew (owner): `crewboard agent token`, `crewboard init`,
 `crewboard approve`, then `crewboard agent add` for each agent.
@@ -66,9 +66,9 @@ Options for all commands:
       Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or
       GITHUB_TOKEN and have mode 600). Its token wins over the token variables
       of the caller. Without it, the `agent.env` of the config dir is loaded
-      when there is one. An owner command (init, approve, audit, and pause,
-      resume, stop or agent profile set with --agent) outside an agent dir
-      reads only this file: without it, it runs with your own gh login and
+      when there is one. An owner command (init, approve, audit, move, and
+      pause, resume, stop or agent profile set with --agent) outside an agent
+      dir reads only this file: without it, it runs with your own gh login and
       ignores GH_TOKEN and GITHUB_TOKEN.
   -V, --version
       Print the version.
@@ -79,8 +79,9 @@ Options for all commands:
 ```text
 crewboard extensions: optional commands. A basic crew needs none of them.
 
-Owner checks
+Owner tools
   audit          Find unsigned, forged or edited messages
+  move           Move a ticket by hand, in the signed log
 
 Reports and upkeep
   report-status  Post a project status update
@@ -1304,6 +1305,33 @@ Options:
 
       --since <SINCE>
           Only findings of comments created since this time (`2026-10-16T08:00:00Z`) or this long ago (`90m`, `2h`)
+
+      --initiative <INITIATIVE>
+          Initiative name (default: the only one in the config dir)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+### `crewboard move`
+
+```text
+Move a ticket by hand, in the signed log.
+
+Owner: post `/crew move <status>` on the ticket, then write the board Status, so `status` and `audit` see the move as the owner's and not as a board edit. Backlog keeps the Agent. Ready, In Progress, Review and Blocked need a signed assignment; a board Agent that differs is set to that assignee. A closed issue is reopened. Done is refused (`move-done-needs-close`): merge the PR or close the issue, and the coordinator closes the ticket. Runs with the owner's token (like approve and audit).
+
+Usage: crewboard move [OPTIONS] <ISSUE> <STATUS>
+
+Arguments:
+  <ISSUE>
+          The ticket: an issue number, or `<owner>/<repo>#<n>`
+
+  <STATUS>
+          The new status: Backlog, Ready, "In Progress" (or in-progress), Review or Blocked
+
+Options:
+      --why <WHY>
+          Why you move it. It goes on the lines after the command in the comment
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
