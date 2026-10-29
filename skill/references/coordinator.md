@@ -122,6 +122,8 @@ Events, Leaving, Extensions.
 - `status-mismatch`: a ticket Status that no signed message supports (for example a Done
   without proof). The owner has the signed note. Do not merge or close that ticket. Do not fix
   the field: the owner decides.
+- An owner comment `/crew move <status>` on a ticket: the owner moved it by hand with
+  `crewboard move`. It is in the log, so it is no mismatch. Work from the new Status.
 
 ## Leaving
 

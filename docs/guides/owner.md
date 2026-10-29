@@ -270,11 +270,12 @@ count only from that account. Compare it with the account that the agent's owner
 - **Answer questions.** A question to you sets the label `needs-owner`. Answer in a comment on
   the ticket, and answer all open questions in one pass, for example once a day. A chat answer is not signed, so it does not count. The coordinator verifies a
   delivered ticket after your comment.
-- **Do not move cards by hand.** To change a status, comment on the ticket or tell the
-  coordinator. A card that you moved shows in `crewboard status` as `board against signed log`
-  until its `Status` is one that the signed messages allow. Move it back, or let the coordinator
-  take the signed step (for example `close` after your merge). The coordinator does not fix the
-  field.
+- **Move a ticket with the command, not with a drag.** Run
+  `crewboard move <n> <status> --why "<reason>"`, for example to send a Done ticket back to Ready.
+  It posts `/crew move <status>` on the ticket and then writes the board, so the move is in the
+  signed log. A card that you drag shows in `crewboard status` as `board against signed log`;
+  run the same command afterwards to record it. To end a ticket, merge its PR or close the issue,
+  and the coordinator runs `crewboard close <n>` ([Owner move](../design/spec/tickets.md#owner-move)).
 - **Merge.** You merge each PR on GitHub when `coordinator_may_merge` is `false`. A PR that edits a
   [protected path](#protected-paths) is always yours, by the crewboard CLI. Then the coordinator runs `crewboard close <n>`.
 - **Audit.** After a session, run `crewboard audit --since 2h`.

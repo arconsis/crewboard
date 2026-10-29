@@ -245,5 +245,16 @@ pub(super) fn dispatch(cli: &Cli, c: &CrewCmd) -> Outcome {
             *json,
             since.as_deref(),
         )),
+        CrewCmd::Move {
+            issue,
+            status,
+            why,
+            sel,
+        } => done(ops::owner_move::run(
+            &global(cli, sel, false),
+            issue,
+            status,
+            why.as_deref(),
+        )),
     }
 }

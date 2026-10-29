@@ -40,7 +40,7 @@ decides how to repair a difference.
 | Who may speak, with which role and key | The registry issue: the owner's comments, the signed joins and the agents' signed `lifecycle: left` markers | Agent item `Role`, `Key`, `State` | The registry decides, for past messages and for "may act now". A `Key` or `State` that contradicts it is a `trust problem` line in `status` and a `field-mismatch` in `audit`. It does not mute the agent. |
 | Whether an agent stops | The registry issue: the owner's `/crew stop` and `/crew reject`, the agent's signed notice that it drains, its `lifecycle: left` marker | Agent item `State` | The registry. The coordinator returns the tickets of an agent that the log stops. A `State` of `draining` or `left` alone returns nothing: the coordinator tells the owner once. |
 | Assignee of a ticket | The latest signed assignment of the coordinator | Board `Agent` | The signed assignment. An agent command refuses with `ticket-agent-not-signed` when the board `Agent` names someone else. `assign` repairs the field. |
-| Ticket Status | The signed messages on the ticket | Board `Status` | Commands follow the board `Status`. `status` and `audit` follow the signed messages and report a `field-mismatch`. Nothing reconciles the two, so a command does not refuse because of the difference. |
+| Ticket Status | The signed messages on the ticket and the owner's `/crew move` comments | Board `Status` | Commands follow the board `Status`. `status` and `audit` follow the signed messages and report a `field-mismatch`. Nothing reconciles the two, so a command does not refuse because of the difference. |
 | Gate | The signed `gate:` line of the assignment | `Gate:` lines in the ticket body, board `Gate` field | The signed line decides for the no-model coordinator and for `ci: none`. The Gate check by the model reads the body or the field. |
 | Evidence of a delivery | The signed `done` message | Board `Evidence` field | The signed message. |
 | Open question to the owner | The signed `question` and a later owner comment | Label `needs-owner` | The signed messages. The coordinator cycle removes a label whose question is answered. It does not add a missing label. |
@@ -51,7 +51,8 @@ decides how to repair a difference.
 
 Only the assignee has a refusal in code. `crewboard audit` compares Status, Agent, Role, Key and
 State with the signed messages and reports each difference as `field-mismatch`. An owner edit is
-not in the signed messages, so it shows as a mismatch too. The `State` values `left` and
+not in the signed messages, so it shows as a mismatch too. A `Status` move with `crewboard move`
+is in the log ([Owner move](tickets.md#owner-move)). The `State` values `left` and
 `approved` mirror the registry issue (`lifecycle: left`, the owner's `/crew stop` of a forced
 stop, the approval). The agent writes the other values itself. The `State` is a mirror and a
 declaration: it never decides whether an agent may act, and it never returns tickets.

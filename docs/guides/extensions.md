@@ -14,7 +14,7 @@ full text of each command. The commands that only a scheduler or a wrapper scrip
 | [The owner route](#the-owner-route) | `Route:` line | a ticket changes a workflow file |
 | [Ticket split](#ticket-split) | `ticket split` | one ticket has independent causes |
 | [Reports and upkeep](#reports-and-upkeep) | `report-status`, `prune` | you want status updates, or the Agent field is full |
-| [Checks](#checks) | `audit`, `agent selftest` | you review a session or debug liveness |
+| [Checks](#checks) | `audit`, `move`, `agent selftest` | you review a session, move a ticket by hand, or debug liveness |
 
 ## Profiles and matching
 
@@ -67,6 +67,8 @@ Spec: [Status updates](../design/spec/board.md#status-updates) and
 
 - `audit` is an owner command. It reads the comments of the initiative repos and lists unsigned,
   forged or edited messages. Run it after a session. See [Security](../design/spec/security-details.md#selftest-audit-and-status).
+- `move <n> <status>` is an owner command. It moves a ticket by hand and records the move in the
+  signed log, so `status` and `audit` show no mismatch. See [Owner move](../design/spec/tickets.md#owner-move).
 - `heartbeat` sends one heartbeat. Wake loops and the commands of an agent send it for you. Run
   it by hand only to debug liveness. It is a scheduler command: `crewboard help scheduler` lists
   it with `wake`, `poll`, `tick` and `monitor`. Spec: [Headless dev agents keep working](../design/spec/agents.md#headless-dev-agents-keep-working).

@@ -68,6 +68,7 @@ const ARGV: &[(&str, &[&str])] = &[
         &["acted", "--events-file", "/nonexistent/events.txt"],
     ),
     ("audit", &["audit"]),
+    ("move", &["move", "7", "In Progress", "--why", "x"]),
     ("doctor", &["doctor"]),
     ("lock", &["lock", "status", "/nonexistent/lock.d"]),
     ("skill", &["skill", "path"]),

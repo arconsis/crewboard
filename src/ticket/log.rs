@@ -6,6 +6,7 @@
 //!
 //! Pure: no reads, no writes.
 
+use crate::owner_cmd::{self, OwnerCommand};
 use crate::protocol::names::Kind;
 use crate::registry::{Registry, fingerprint};
 use crate::rules::Role;
@@ -53,14 +54,25 @@ pub struct LogTicket {
 /// ([`crate::protocol::acts::parse`]) decide what it does; any other message changes nothing.
 ///
 /// Done is final (spec/tickets#status-flow-and-writers): after a coordinator close, a later
-/// message of the assignee changes nothing. Only the owner moves a Done ticket, on the board; a
-/// later coordinator act (an announcement, an assignment, a reassign, a failed verify) then sets
-/// the status again.
+/// message of the assignee changes nothing. Only the owner moves a Done ticket. The owner's
+/// `/crew move <status>` ([`OwnerCommand::Move`], spec/tickets#owner-move) sets the status and
+/// opens a closed ticket again, so later acts of the assignee count. A later coordinator act (an
+/// announcement, an assignment, a reassign, a failed verify) also sets the status again. An owner
+/// move keeps the agent. The caller passes only owner comments that count
+/// ([`crate::ticket::verified_messages`]: no edit by another account).
 pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
     let mut agent: Option<String> = None;
     let mut status = Expected::Unknown;
     let mut closed = false;
     for m in msgs {
+        if m.sender == Sender::Owner {
+            if let Ok(Some(OwnerCommand::Move { status: s })) = owner_cmd::parse(&m.body) {
+                // a move never names Done (`owner_cmd::move_target`), so it never closes
+                status = Expected::Is(s);
+                closed = false;
+            }
+            continue;
+        }
         let coordinator = m.sender.actor().is_coordinator();
         let from = match &m.sender {
             Sender::Agent { name, .. } => Some(name.as_str()),
@@ -482,6 +494,88 @@ mod tests {
         ));
         m.push(coord(4, "agent-b@host-b", Kind::Request, ASSIGN));
         m.push(dev(5, "coordinator", Kind::Ack, "Taken again."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+    }
+
+    fn owner_says(id: u64, body: &str) -> VMsg {
+        VMsg {
+            ts: String::new(),
+            comment_id: id,
+            created: id as i64,
+            sender: Sender::Owner,
+            to: "coordinator".into(),
+            kind: None,
+            re: Re::None,
+            body: body.into(),
+        }
+    }
+
+    #[test]
+    fn an_owner_move_sets_the_status_and_keeps_the_agent() {
+        let mut m = assigned();
+        m.push(owner_says(3, "/crew move Backlog\nnot now"));
+        assert_eq!(
+            fold_ticket(&m),
+            LogTicket {
+                agent: Some("agent-b@host-b".into()),
+                status: Expected::Is(Status::Backlog)
+            }
+        );
+        // the board that follows the move has no mismatch; a plain drag elsewhere still has one
+        let log = fold_ticket(&m);
+        assert!(!status_contradicts(&log, Some("Backlog")));
+        assert!(status_contradicts(&log, Some("Ready")));
+        // later acts fold as before: the coordinator assigns, the assignee takes
+        m.push(coord(4, "agent-b@host-b", Kind::Request, ASSIGN));
+        assert_eq!(status_of(&m), Expected::Is(Status::Ready));
+        m.push(dev(5, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+    }
+
+    #[test]
+    fn an_owner_move_after_a_close_opens_the_ticket_again_for_the_assignee() {
+        let mut m = assigned();
+        m.push(coord(
+            3,
+            "owner",
+            Kind::Info,
+            "Closed after a passed verify",
+        ));
+        assert_eq!(status_of(&m), Expected::Is(Status::Done));
+        m.push(owner_says(4, "/crew move Ready"));
+        assert_eq!(
+            fold_ticket(&m),
+            LogTicket {
+                agent: Some("agent-b@host-b".into()),
+                status: Expected::Is(Status::Ready)
+            }
+        );
+        // the assignee's acts count again after the move
+        m.push(dev(5, "coordinator", Kind::Ack, "Taken again."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        m.push(dev(6, "coordinator", Kind::Done, EVIDENCE));
+        assert_eq!(status_of(&m), Expected::Is(Status::Review));
+        // a second close is Done again, and Done is final again
+        m.push(coord(
+            7,
+            "owner",
+            Kind::Info,
+            "Closed after a passed verify",
+        ));
+        m.push(dev(8, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::Done));
+    }
+
+    #[test]
+    fn a_move_line_that_is_not_an_owner_command_changes_nothing() {
+        let mut m = assigned();
+        // a signed message of the coordinator or of the assignee with the owner's words
+        m.push(coord(3, "owner", Kind::Info, "/crew move Backlog"));
+        m.push(dev(4, "owner", Kind::Info, "/crew move Ready"));
+        // an owner comment that is not a valid move: Done, an unknown status, a word before it
+        m.push(owner_says(5, "/crew move Done"));
+        m.push(owner_says(6, "/crew move Somewhere"));
+        m.push(owner_says(7, "please /crew move Backlog"));
         assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
     }
 

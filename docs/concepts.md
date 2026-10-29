@@ -79,7 +79,8 @@ The signed messages are the record. The board field `Status` is the view that co
 lists every ticket whose Status no signed message supports (`board against signed log`).
 `crewboard audit` reports it as a `field-mismatch`. The coordinator's watch cycle tells the
 owner once. A repair is the owner's decision. The mismatch ends when the board `Status` is one
-that the signed messages allow ([Owner guide](guides/owner.md#day-to-day-commands)).
+that the signed messages allow ([Owner guide](guides/owner.md#day-to-day-commands)). The owner
+moves a ticket with `crewboard move`, which posts `/crew move <status>`: that move is in the log.
 
 The assignee is stricter. The latest signed assignment of the coordinator decides who works on
 a ticket. When the board `Agent` names someone else, agent commands refuse with
