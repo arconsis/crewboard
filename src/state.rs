@@ -13,6 +13,10 @@
 //! - `deferred` ([`LivenessState`]) holds events that a `poll --quiet` found. Nothing else
 //!   holds them, so a lost file loses those events.
 //!
+//! A third part is memory that GitHub cannot give back: `posted_notes` ([`NoteState`]), the ids of
+//! the signed notes that this agent posted on tickets. A lost file loses it: a deletion of an
+//! earlier note is then not seen (spec/security-details#deleted-notes).
+//!
 //! Only a cache (rebuilt by the next `watch` or read from GitHub): `etags`, `registry`, `polls`,
 //! `last_ok`, `last_cursor` (statistics and ETags), the ticket index and snapshots, the
 //! late-work memory (`late_*`), `liveness` (the last finding per agent, only to avoid
@@ -24,8 +28,9 @@
 //! same agent can run at once. [`StateCache::save`] takes an advisory lock (`<file>.lock`), reads
 //! the file again, merges `selftest_used` (union) and `deferred` (the events this copy added are
 //! added, the ones it consumed are removed, the ones a concurrent writer added stay), and writes
-//! the result atomically. Every other key is cache: the copy that saves last wins, and a lost
-//! value costs one read.
+//! the result atomically. `posted_notes` is merged too (`NoteState::merge_disk`): a note that
+//! a concurrent writer recorded stays, a note that it forgot stays forgotten. Every other key is
+//! cache: the copy that saves last wins, and a lost value costs one read.
 
 pub use crate::events::TicketSnap;
 use serde::{Deserialize, Serialize};
@@ -49,6 +54,8 @@ pub struct StateCache {
     pub tick: TickState,
     #[serde(flatten)]
     pub owner: OwnerState,
+    #[serde(flatten)]
+    pub notes: NoteState,
 }
 
 /// ETags, poll statistics and cursors of `poll` and `watch`.
@@ -191,6 +198,144 @@ pub struct OwnerState {
     pub needs_owner_checked: Option<i64>,
 }
 
+/// Per ticket, at most this many notes are remembered (the newest by comment id).
+pub const MAX_NOTES_PER_TICKET: usize = 20;
+/// At most this many tickets are remembered; above it, the ticket whose newest note is the oldest
+/// goes first.
+pub const MAX_NOTE_TICKETS: usize = 300;
+/// A ticket whose newest note is older than this (90 days, in seconds) is forgotten. A closed
+/// ticket gets no new note, so its memory ends 90 days after the close.
+pub const NOTE_KEEP_SECS: i64 = 90 * 24 * 3600;
+
+/// One signed note that this agent posted on a ticket.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PostedNote {
+    /// The GitHub comment id.
+    pub id: u64,
+    /// What the note is: `close`, `verify-pass`, `verify-fail`, `assignment`, `reassign` or
+    /// `creation` (`ops::own_notes::note_kind`).
+    pub kind: String,
+    /// When it was posted (Unix seconds).
+    pub at: i64,
+}
+
+/// The signed notes that this agent posted on tickets (`owner/repo#n` -> notes, oldest first), so
+/// that the coordinator sees when one of them is deleted (`ops::own_notes`,
+/// spec/security-details#deleted-notes). GitHub cannot give this back: a lost file loses it.
+///
+/// Bound: per ticket the newest [`MAX_NOTES_PER_TICKET`] notes; at most [`MAX_NOTE_TICKETS`]
+/// tickets; a ticket whose newest note is older than [`NOTE_KEEP_SECS`] is forgotten.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NoteState {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub posted_notes: BTreeMap<String, Vec<PostedNote>>,
+    /// Tickets (`owner/repo#n`) whose comments the next cycle reads again: the last read failed,
+    /// or the board Status contradicts the signed log while a remembered note is still there.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub notes_recheck: BTreeSet<String>,
+    /// The note ids of the file when this copy last read it, so that a merge can tell what a
+    /// concurrent writer added or forgot. Not part of the file.
+    #[serde(skip)]
+    pub(crate) notes_loaded: BTreeSet<u64>,
+}
+
+impl NoteState {
+    /// The remembered notes of one ticket, oldest first.
+    pub fn of(&self, ticket: &str) -> &[PostedNote] {
+        self.posted_notes.get(ticket).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every remembered note id.
+    pub fn ids(&self) -> BTreeSet<u64> {
+        self.posted_notes.values().flatten().map(|n| n.id).collect()
+    }
+
+    /// Remember a note, then apply the bound.
+    pub fn record(&mut self, ticket: &str, note: PostedNote, now: i64) {
+        let list = self.posted_notes.entry(ticket.to_string()).or_default();
+        if !list.iter().any(|n| n.id == note.id) {
+            list.push(note);
+        }
+        self.bound(now);
+    }
+
+    /// Forget one note (it was reported, or it is gone for another reason).
+    pub fn forget(&mut self, ticket: &str, id: u64) {
+        if let Some(list) = self.posted_notes.get_mut(ticket) {
+            list.retain(|n| n.id != id);
+            if list.is_empty() {
+                self.posted_notes.remove(ticket);
+                self.notes_recheck.remove(ticket);
+            }
+        }
+    }
+
+    /// Forget the tickets whose repo is not one of `repos` (a transfer or a rename).
+    pub fn drop_foreign(&mut self, repos: &[String]) {
+        let ours = |key: &str| {
+            key.rsplit_once('#')
+                .is_some_and(|(repo, _)| repos.iter().any(|r| r.eq_ignore_ascii_case(repo)))
+        };
+        self.posted_notes.retain(|k, _| ours(k));
+        self.notes_recheck.retain(|k| ours(k));
+    }
+
+    /// Apply the bound of the type text.
+    pub fn bound(&mut self, now: i64) {
+        for list in self.posted_notes.values_mut() {
+            list.sort_by_key(|n| n.id);
+            let extra = list.len().saturating_sub(MAX_NOTES_PER_TICKET);
+            list.drain(..extra);
+        }
+        let newest = |l: &Vec<PostedNote>| l.iter().map(|n| n.at).max().unwrap_or(i64::MIN);
+        self.posted_notes
+            .retain(|_, l| !l.is_empty() && newest(l) > now - NOTE_KEEP_SECS);
+        if self.posted_notes.len() > MAX_NOTE_TICKETS {
+            let mut by_age: Vec<(i64, String)> = self
+                .posted_notes
+                .iter()
+                .map(|(k, l)| (newest(l), k.clone()))
+                .collect();
+            by_age.sort();
+            for (_, k) in by_age
+                .iter()
+                .take(self.posted_notes.len() - MAX_NOTE_TICKETS)
+            {
+                self.posted_notes.remove(k);
+            }
+        }
+        let kept: BTreeSet<String> = self.posted_notes.keys().cloned().collect();
+        self.notes_recheck.retain(|k| kept.contains(k));
+    }
+
+    /// Merge the notes of the file (`disk`) into this copy. A note that the file has and this
+    /// copy did not know at its last read was recorded by a concurrent writer: it is added. A
+    /// note that this copy knew from the file and that the file does not have any more was
+    /// forgotten by a concurrent writer: it goes. A note that this copy forgot stays forgotten.
+    /// Afterwards this copy counts the file's ids as read.
+    pub(crate) fn merge_disk(&mut self, disk: &NoteState, now: i64) {
+        let on_disk = disk.ids();
+        let known = std::mem::take(&mut self.notes_loaded);
+        for list in self.posted_notes.values_mut() {
+            list.retain(|n| on_disk.contains(&n.id) || !known.contains(&n.id));
+        }
+        let here = self.ids();
+        for (ticket, list) in &disk.posted_notes {
+            for n in list
+                .iter()
+                .filter(|n| !known.contains(&n.id) && !here.contains(&n.id))
+            {
+                self.posted_notes
+                    .entry(ticket.clone())
+                    .or_default()
+                    .push(n.clone());
+            }
+        }
+        self.bound(now);
+        self.notes_loaded = on_disk;
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CachedComments {
     pub etag: String,
@@ -240,6 +385,7 @@ impl StateCache {
                 Ok(text) => match serde_json::from_str::<Self>(&text) {
                     Ok(mut s) => {
                         s.liveness.deferred_loaded = s.liveness.deferred.clone();
+                        s.notes.notes_loaded = s.notes.ids();
                         return s;
                     }
                     Err(e) => {
@@ -311,7 +457,22 @@ impl StateCache {
             }
         }
         out.liveness.deferred = merged;
+        out.notes.merge_disk(&disk.notes, crate::clock::now_epoch());
         out
+    }
+
+    /// Take into this copy the notes that a concurrent writer recorded or forgot since this copy
+    /// read the file (`NoteState::merge_disk`). A long `watch` calls it at each cycle, so a note
+    /// that a ticket command posted meanwhile is compared too. A missing or unreadable file
+    /// changes nothing.
+    pub fn refresh_notes(&mut self, path: &Path) {
+        if let Some(disk) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Self>(&t).ok())
+        {
+            self.notes
+                .merge_disk(&disk.notes, crate::clock::now_epoch());
+        }
     }
 
     /// Write the state atomically (temp file, sync, rename), under the lock of the file and merged
@@ -801,5 +962,81 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn posted(id: u64, at: i64) -> PostedNote {
+        PostedNote {
+            id,
+            kind: "close".into(),
+            at,
+        }
+    }
+
+    #[test]
+    fn the_note_memory_keeps_its_bound() {
+        let now = 2_000_000_000;
+        let mut n = NoteState::default();
+        for id in 0..(MAX_NOTES_PER_TICKET as u64 + 5) {
+            n.record("o/r#1", posted(id, now), now);
+        }
+        let ids: Vec<u64> = n.of("o/r#1").iter().map(|x| x.id).collect();
+        assert_eq!(ids.len(), MAX_NOTES_PER_TICKET);
+        assert_eq!(ids[0], 5, "the oldest notes go first");
+        // a ticket whose newest note is too old is forgotten, with its recheck
+        n.record(
+            "o/r#2",
+            posted(900, now - NOTE_KEEP_SECS - 1),
+            now - NOTE_KEEP_SECS - 1,
+        );
+        n.notes_recheck.insert("o/r#2".into());
+        n.bound(now);
+        assert!(n.of("o/r#2").is_empty() && !n.notes_recheck.contains("o/r#2"));
+        // above the ticket cap, the ticket with the oldest newest note goes first
+        let mut m = NoteState::default();
+        for t in 0..(MAX_NOTE_TICKETS as i64 + 2) {
+            m.record(
+                &format!("o/r#{}", t + 10),
+                posted(t as u64, now - 1000 + t),
+                now,
+            );
+        }
+        assert_eq!(m.posted_notes.len(), MAX_NOTE_TICKETS);
+        assert!(m.of("o/r#10").is_empty() && m.of("o/r#11").is_empty());
+        assert!(!m.of("o/r#12").is_empty());
+        // control: forget removes one note, and the empty ticket with it
+        m.forget("o/r#12", 2);
+        assert!(!m.posted_notes.contains_key("o/r#12"));
+    }
+
+    #[test]
+    fn a_save_keeps_the_notes_of_a_concurrent_writer_and_what_this_copy_forgot_stays_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let now = crate::clock::now_epoch();
+        let mut first = StateCache::default();
+        first.notes.record("o/r#1", posted(10, now), now);
+        first.notes.record("o/r#1", posted(11, now), now);
+        first.save(&p).unwrap();
+        // a long `watch` loaded the file
+        let mut watch = StateCache::load(&p);
+        // a ticket command records a new note meanwhile
+        let mut cmd = StateCache::load(&p);
+        cmd.notes.record("o/r#2", posted(20, now), now);
+        cmd.save(&p).unwrap();
+        // the watch reported note 10 and forgets it, then saves its older copy
+        watch.notes.forget("o/r#1", 10);
+        watch.save(&p).unwrap();
+        let back = StateCache::load(&p);
+        assert_eq!(back.notes.ids(), [11, 20].into());
+        // a refresh brings the concurrent note into the copy in memory
+        let mut stale = StateCache::default();
+        stale.refresh_notes(&p);
+        assert_eq!(stale.notes.ids(), [11, 20].into());
+        // a copy that forgot 11 after its refresh does not get it back from the file
+        stale.notes.forget("o/r#1", 11);
+        stale.refresh_notes(&p);
+        assert_eq!(stale.notes.ids(), [20].into());
+        stale.save(&p).unwrap();
+        assert_eq!(StateCache::load(&p).notes.ids(), [20].into());
     }
 }

@@ -170,6 +170,9 @@ pub fn send_signed(
         body,
     )?;
     let (id, url) = feed::post_comment(&ac.ctx.client, repo, issue, &msg.to_comment())?;
+    // The one place that every signed post passes: a note of the coordinator on a ticket is
+    // remembered here, so that its deletion is seen (spec/security-details#deleted-notes).
+    super::own_notes::record(ac, repo, issue, kind, body, id);
     Ok(Posted {
         id,
         url,
