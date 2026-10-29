@@ -87,7 +87,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
    crewboard agent token --initiative my-crew --crew-login crew-bot
    ```
 
-7. **Make the board** (command, host A, as the owner, without a token variable). `init` makes
+7. **Make the board** (command, host A, as the owner, with your own `gh` login). `init` makes
    the board, its fields, views and labels, and the registry issue. It deletes the four
    built-in project workflows that write `Status` behind crewboard. It opens one pull request
    with `AUTHORITY.md`, `.crewboard.toml` and, with `--with-ci`, a CI workflow if the repo has
@@ -96,7 +96,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
    before it writes anything and prints the fix.
 
    ```sh
-   env -u GH_TOKEN -u GITHUB_TOKEN crewboard init --initiative my-crew \
+   crewboard init --initiative my-crew \
      --repo you/my-repo --crew-login crew-bot --with-ci
    ```
 
@@ -125,7 +125,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
     line to paste.
 
     ```sh
-    env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-a --role coordinator --initiative my-crew
+    crewboard approve claude@host-a --role coordinator --initiative my-crew
     ```
 
 11. **Start the coordinator** (command, host A, in `tmux`). Paste the last line of step 9. It
@@ -153,7 +153,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
     line, `loginctl enable-linger "$USER"`. Run it on host B, so that the unit survives logout.
 
     ```sh
-    env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-b --initiative my-crew
+    crewboard approve claude@host-b --initiative my-crew
     ```
 
 More options for the loops (`--scheduler`, `--every`, Hermes, a no-model coordinator):

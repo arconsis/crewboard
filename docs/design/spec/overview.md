@@ -146,6 +146,8 @@ linked into each runtime's skill folder. Every wake loads only `SKILL.md` and th
 - Key file mode: on Unix, crewboard creates the key file with mode 600 and refuses to load a
   key file that the group or others can read (configuration error, exit 4). A build for a
   non-Unix host does not check the mode.
-- Credentials: one GitHub token from `GH_TOKEN`, else `GITHUB_TOKEN`, else `gh auth token`,
-  never from the config file ([Author and signature](identity.md#author-and-signature)).
+- Credentials: one GitHub token. An agent command reads the env file of the agent, else
+  `GH_TOKEN`, else `GITHUB_TOKEN`, else `gh auth token`. An owner command reads `--env-file`,
+  else the owner's own `gh auth token`, and ignores the token variables. Never from the config
+  file ([Author and signature](identity.md#author-and-signature)).
   crewboard has no GitHub App credentials.

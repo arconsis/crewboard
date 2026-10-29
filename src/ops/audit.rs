@@ -1,7 +1,7 @@
 //! `audit` (owner, spec/cli#commands): reads every comment of the initiative's repos and lists what
 //! the signed comments show. See [`crate::audit`] for what counts.
 
-use super::{Ctx, Global, World, load_world, new_client, resolve_board_config};
+use super::{Ctx, Global, World, load_world, new_owner_client, resolve_board_config};
 use crate::audit::{
     BoardAgent, BoardTicket, BoardView, FindingKind, Report, audit, reported_events,
 };
@@ -30,7 +30,7 @@ pub fn parse_since(s: &str, now: i64) -> CbResult<i64> {
 
 pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<String> {
     let cfg = resolve_board_config(g)?;
-    let client = new_client()?;
+    let client = new_owner_client()?;
     super::require_owner(&client, &cfg, "may run the audit")?;
     let now = now_epoch();
     let since = since.map(|s| parse_since(s, now)).transpose()?;

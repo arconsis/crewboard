@@ -46,6 +46,16 @@ Fixed:
 - The owner's `stop --force` posts `/crew stop <name>`, so the stop is in the log. The
   coordinator returns the tickets of an agent that the log stops.
 
+Changed:
+
+- Owner commands use your own `gh` login: `init`, `approve`, `audit`, and `pause`, `resume`,
+  `stop` and `agent profile set` with `--agent`. They ignore `GH_TOKEN` and `GITHUB_TOKEN`, and
+  print one note that names a token variable that was set. `--env-file` still wins. The prefix
+  `env -u GH_TOKEN -u GITHUB_TOKEN` is gone from the docs. A token that is not the board
+  owner's is refused with `owner-command-not-owner` (before: `not-owner`); the message names
+  the login. In the config dir of an agent, an owner command keeps the token of the agent and
+  never runs `gh`. Agent commands keep their token order.
+
 ## v0.6.0 (2026-10-29)
 
 The first public release.

@@ -23,12 +23,15 @@ initiative repo (your GitHub login or organisation, and a repo with at least one
 - Organisation repo only: permission to create Projects. If the organisation restricts OAuth
   apps, an organisation owner must allow GitHub CLI.
 
-The token comes from an env file (`--env-file`, or `agent.env` in an agent dir), else from
-`GH_TOKEN` or `GITHUB_TOKEN`, else from `gh auth token`. crewboard never
-stores it and never prints it. Run owner commands as yourself, without a token variable:
-`env -u GH_TOKEN -u GITHUB_TOKEN crewboard ...`. Run them only on the owner machine, or in a
-terminal without the agent environment. In a terminal with a crew token, plain `gh` acts as
-that crew account.
+Owner commands use your own `gh` login. They are `init`, `approve`, `audit`, and `pause`,
+`resume`, `stop` and `agent profile set` with `--agent`. They ignore `GH_TOKEN` and
+`GITHUB_TOKEN`. When a token variable is set, they print one note that names it. To use the
+token of a file instead, pass `--env-file <file>`. Each owner command checks that the token is
+the board owner and refuses another account (`owner-command-not-owner`). In the config dir of an
+agent (`CREWBOARD_CONFIG_DIR` of an agent terminal), an owner command keeps the token of the
+agent, so a crew board refuses it: run owner commands in your own terminal. Agent commands take
+the token of the agent: its env file (`--env-file`, or `agent.env` in an agent dir), else
+`GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token`. crewboard never stores a token and never prints it.
 
 ## Crew accounts
 
@@ -95,7 +98,7 @@ access; the contributor makes the token.
    contributor's.
 
 ```sh
-env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-c --initiative <initiative>
+crewboard approve claude@host-c --initiative <initiative>
 ```
 
 **When a contributor leaves,** post `/crew reject <name>` for each agent of the contributor in
@@ -112,7 +115,7 @@ Lock conversation, on the issue page.
 
 ```sh
 # once per initiative (idempotent; --project adopts an existing project)
-env -u GH_TOKEN -u GITHUB_TOKEN crewboard init --initiative <initiative> \
+crewboard init --initiative <initiative> \
   --repo <account>/<repo> [--repo ...] [--crew-login <crew-login>] [--project 15] [--with-ci]
 ```
 
@@ -250,8 +253,8 @@ you approve it. `agent add --wait-approval` prints the exact line for you. One i
 one coordinator. The default role is dev:
 
 ```sh
-env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@host-a --role coordinator --initiative <initiative>
-env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve codex@host-c claude@host-b --initiative <initiative>
+crewboard approve claude@host-a --role coordinator --initiative <initiative>
+crewboard approve codex@host-c claude@host-b --initiative <initiative>
 ```
 
 `--initiative` is necessary when you own more than one initiative. `approve` prints the account
@@ -274,7 +277,7 @@ count only from that account. Compare it with the account that the agent's owner
   field.
 - **Merge.** You merge each PR on GitHub when `coordinator_may_merge` is `false`. A PR that edits a
   [protected path](#protected-paths) is always yours, by the crewboard CLI. Then the coordinator runs `crewboard close <n>`.
-- **Audit.** After a session, run `env -u GH_TOKEN -u GITHUB_TOKEN crewboard audit --since 2h`.
+- **Audit.** After a session, run `crewboard audit --since 2h`.
   Expect no headerless owner comment that you did not write, and no bad signature.
 - **Pause an agent.** It stays registered and takes nothing new:
   `crewboard pause --agent <agent>`, later `crewboard resume --agent <agent>`.

@@ -371,6 +371,8 @@ impl LateBoard {
             .args(args)
             .env("CREWBOARD_API_BASE", self.front.base())
             .env("GH_TOKEN", "ghp_faketoken")
+            // what the own `gh auth token` of the owner prints (owner commands)
+            .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
             .env_remove("GITHUB_TOKEN")
             .output()
             .expect("run crewboard");
@@ -484,6 +486,8 @@ impl LateBoard {
             .args(args)
             .env("CREWBOARD_API_BASE", self.front.base())
             .env("GH_TOKEN", "ghp_faketoken")
+            // what the own `gh auth token` of the owner prints (owner commands)
+            .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
             .env_remove("GITHUB_TOKEN")
             .output()
             .expect("run crewboard");
@@ -506,6 +510,8 @@ impl LateBoard {
             .args(["poll", "--json"])
             .env("CREWBOARD_API_BASE", self.front.base())
             .env("GH_TOKEN", "ghp_faketoken")
+            // what the own `gh auth token` of the owner prints (owner commands)
+            .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
             .env_remove("GITHUB_TOKEN")
             .env_remove("CREWBOARD_HEARTBEAT_INTERVAL")
             .env_remove("CREWBOARD_TEST_HEARTBEAT_INTERVAL")

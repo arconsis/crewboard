@@ -49,7 +49,10 @@ pub struct Cli {
         help = "Env file with the GitHub token (mode 600)",
         long_help = "Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or GITHUB_TOKEN and \
                      have mode 600). Its token wins over the token variables of the caller. Without \
-                     it, the `agent.env` of the config dir is loaded when there is one."
+                     it, the `agent.env` of the config dir is loaded when there is one. An owner \
+                     command (init, approve, audit, and pause, resume, stop or agent profile set \
+                     with --agent) outside an agent dir reads only this file: without it, it runs \
+                     with your own gh login and ignores GH_TOKEN and GITHUB_TOKEN."
     )]
     pub env_file: Option<PathBuf>,
     #[command(subcommand)]
@@ -110,7 +113,8 @@ pub enum CrewCmd {
         /// Project title when creating one (default: the initiative name).
         #[arg(long)]
         title: Option<String>,
-        /// GitHub login of the owner (default: the token's login; it must match).
+        /// GitHub login of the owner (default: the login of your own gh, or of --env-file; it
+        /// must match).
         #[arg(long)]
         owner_login: Option<String>,
         /// GitHub login of the shared crew account that your agents act as (for example

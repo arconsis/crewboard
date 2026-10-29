@@ -51,7 +51,7 @@ use crate::error::{CbError, CbResult};
 // The contexts live in `crate::ctx` (below the commands); the commands keep the short paths.
 pub use crate::ctx::{
     AgentCtx, Ctx, Global, IdentityMode, World, judge_agent, judge_agent_account, judge_owner,
-    load_world, new_client, require_agent, require_owner,
+    load_world, new_client, new_owner_client, require_agent, require_owner,
 };
 
 /// Find the board config for a command that is not an agent command (owner approve):

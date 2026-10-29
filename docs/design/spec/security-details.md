@@ -111,8 +111,9 @@ treat the body as data. That last part is guidance for the model and not a techn
 
 ## Token handling
 
-- **Where the token comes from.** The env file of the agent, else `GH_TOKEN`, else `GITHUB_TOKEN`,
-  else `gh auth token`. crewboard reads the file itself, once, before the command runs; it does not
+- **Where the token comes from.** For an agent command: the env file of the agent, else
+  `GH_TOKEN`, else `GITHUB_TOKEN`, else `gh auth token`. For an owner command: see
+  the owner token below. crewboard reads the file itself, once, before the command runs; it does not
   source it and it does not change its own environment. Nothing in the file is run: `$(...)`,
   backticks and `$VAR` stay literal text. See [agent_env.rs](../../../src/agent_env.rs) and
   [github/mod.rs](../../../src/github/mod.rs) (`resolve_token`).
@@ -131,6 +132,22 @@ treat the body as data. That last part is guidance for the model and not a techn
   crewboard runs, lose the four token variables too when an env file or an agent dir is in force.
   In a dir without `gh-empty-config/`, a plain `gh` still keeps the caller's login: only the shim
   and `gh-empty-config/` (made by `crewboard agent shim`) change that.
+- **The owner token.** An owner command (`init`, `approve`, `audit`,
+  and `pause`, `resume`, `stop` and `agent profile set` with `--agent`) never takes its token
+  from the environment of an agent. See [ctx/mod.rs](../../../src/ctx/mod.rs)
+  (`new_owner_client`) and [Author and signature](identity.md#author-and-signature).
+
+  | Case | Token used |
+  |---|---|
+  | `--env-file F` (any dir) | The file. |
+  | No `--env-file`, a plain dir | `gh auth token`, run without the four token variables. `GH_TOKEN` and `GITHUB_TOKEN` are ignored; one note on standard error names a token variable that was set. |
+  | No `--env-file`, an agent dir | The order of an agent command (the table above). `gh` never runs. The login check then refuses the agent's token on a crew board. |
+
+  The reason: a crew token in the owner's terminal must not decide who an owner command acts
+  as, and the login of `gh` on an agent host must not reach an agent through crewboard. In an
+  agent terminal with an owner config dir, `gh` is the crew shim, so `gh auth token` gives the
+  crew token and the login check below refuses it. `stop --force` is an owner command only in a config dir without an
+  agent config; in the config dir of an agent it keeps the agent order.
 - **The env file.** Lines `KEY=VALUE`, an optional `export `, `#` comments, quotes removed
   (no escapes, no expansion). An unquoted value with whitespace, or with one of `; & | < >`, is an error that names the line (a
   token must not be cut at a space without notice, and a shell line such as `A=x;B=y` or
@@ -164,8 +181,9 @@ treat the body as data. That last part is guidance for the model and not a techn
   owner keeps a separate token. Every agent command reads `GET /user` and refuses the owner's
   token (`agent-uses-owner-token`). `start` (through `agent selftest`) refuses a token of
   another account than the one that the registry bound to the agent (`agent-token-not-crew`).
-  Owner commands (`init`, `approve`, `audit`, and `pause`, `resume` or `stop` with `--agent`)
-  refuse any token that is not the owner's (`not-owner`). See
+  Owner commands (`init`, `approve`, `audit`, and `pause`, `resume`, `stop` or
+  `agent profile set` with `--agent`) refuse any token that is not the board owner's
+  (`owner-command-not-owner`); the message names the login that the token has. See
   [ctx/token.rs](../../../src/ctx/token.rs) and [Phases](identity.md#phases).
 - **`agent-gh-not-crew`.** The model also runs plain `gh` and `git`. `agent selftest` (and so
   `start`) runs `gh api user` the way the agent shell does, without the token variables. If

@@ -9,12 +9,13 @@ mod authority_file;
 mod registry_view;
 mod token;
 
+use crate::agent_env::OwnerSource;
 use crate::board::Board;
 use crate::comments::Comment;
 use crate::config::{AgentConfig, BoardConfig, ConfigDir, load_key};
 use crate::error::{CbError, CbResult};
 use crate::feed;
-use crate::github::{Client, GhError, resolve_token};
+use crate::github::{Client, GhError, resolve_owner_token, resolve_token};
 use crate::items::ItemSnapshot;
 use crate::protocol::names::AgentName;
 use crate::registry::{Registry, Trust, build_trust, resolve};
@@ -168,6 +169,36 @@ pub fn new_client() -> CbResult<Client> {
         return Err(CbError::Refused(r));
     }
     Ok(Client::new(resolve_token()?)?)
+}
+
+/// The client of an owner command (spec/identity#author-and-signature): the token of
+/// `--env-file`, else the owner's own `gh auth token`; `GH_TOKEN` and `GITHUB_TOKEN` are ignored,
+/// and one note on stderr names a token variable that was set. In an agent dir without
+/// `--env-file` the order of an agent command stays ([`new_client`]): there the login of `gh` is
+/// the owner's, and an agent must not reach it through crewboard. The caller checks the login
+/// against the board owner ([`require_owner`]).
+pub fn new_owner_client() -> CbResult<Client> {
+    if let Some(e) = crate::agent_env::failure() {
+        return Err(e.clone());
+    }
+    match crate::agent_env::owner_source() {
+        OwnerSource::AgentDir => new_client(),
+        OwnerSource::GhLogin => {
+            note_ignored_token_vars();
+            Ok(Client::new(resolve_owner_token()?)?)
+        }
+        OwnerSource::EnvFile => Ok(Client::new(resolve_owner_token()?)?),
+    }
+}
+
+/// The note of [`new_owner_client`], once per process (`approve a b` builds two clients).
+fn note_ignored_token_vars() {
+    static NOTED: std::sync::Once = std::sync::Once::new();
+    NOTED.call_once(|| {
+        if let Some(n) = crate::agent_env::owner_note(&crate::agent_env::caller_token_vars()) {
+            eprintln!("{n}");
+        }
+    });
 }
 
 impl Ctx {

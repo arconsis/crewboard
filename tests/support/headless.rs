@@ -329,6 +329,8 @@ impl Hub {
             .envs(env.iter().copied())
             .env("CREWBOARD_API_BASE", self.front.base())
             .env("GH_TOKEN", "ghp_faketoken")
+            // what the own `gh auth token` of the owner prints (owner commands)
+            .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
             .env_remove("GITHUB_TOKEN")
             .output()
             .expect("run crewboard");

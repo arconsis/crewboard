@@ -46,7 +46,7 @@ The signature is made in-process (Rust `ssh-key` crate), so a host needs no
 `ssh-keygen`. Signatures can still be checked by hand with
 `ssh-keygen -Y verify -n crewboard`.
 
-**The token.** crewboard reads one GitHub token: the `GH_TOKEN` (else `GITHUB_TOKEN`) of the
+**The token.** An agent command reads one GitHub token: the `GH_TOKEN` (else `GITHUB_TOKEN`) of the
 env file of the agent (`<config-dir>/agent.env`, or `--env-file`), else `GH_TOKEN`, else
 `GITHUB_TOKEN` of the environment, else the output of `gh auth token`. In an agent dir the
 file wins and the token variables of the caller are dropped; an agent dir with no `agent.env`
@@ -55,6 +55,21 @@ and no token variable is refused with `owner-token-in-agent-dir` instead of usin
 every agent command refuses the owner's token, and `start` refuses a token of another account than the one
 that the registry bound to the agent (phase 1b). See
 [Token handling](security-details.md#token-handling).
+
+**The owner token.** An owner command (`init`, `approve`, `audit`, and `pause`, `resume`, `stop`
+and `agent profile set` with `--agent`) runs with the owner's own `gh` login. It reads the
+`--env-file` of the call, else the output of `gh auth token`; it runs `gh` without the four token
+variables. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, and prints one note on standard error that
+names a token variable that was set (never its value). So a crew token in the owner's terminal
+never decides who an owner command acts as. The owner command then reads `GET /user` and refuses
+a login that is not the board owner (`owner-command-not-owner`): the `owner_login` of the board
+config, or for `init` the owner that it is about to write. In an agent dir without
+`--env-file`, an owner command keeps the order of an agent command (`agent.env`, else a token
+variable, else `owner-token-in-agent-dir`) and never runs `gh`: there the login of `gh` is the
+owner's, and an agent must not reach it through crewboard. A plain dir has no `agent.env`, so no
+agent env file decides an owner token. `stop --force` is an owner command in a config dir
+without an agent config; in the config dir of an agent it keeps the order of an agent command. `agent token` reads its token
+from standard input and `agent add` the token of the agent: neither is an owner command.
 
 **Not supported: a GitHub App.** A GitHub App would let the agents post as a bot with an App
 private key instead of a user token. crewboard has no App support: no App key, no App token,

@@ -103,11 +103,12 @@ impl Setup {
         let env_file = t.join("crew.env");
         std::fs::write(&env_file, format!("GH_TOKEN={TOKEN}\n")).unwrap();
         std::fs::set_permissions(&env_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        // the fake real gh: says which token it saw, and answers the two lookups of the seam
+        // the fake real gh: says which token it saw, answers the two lookups of the seam, and
+        // prints the owner's own token for `gh auth token` (the owner commands)
         let realgh = t.join("realgh");
         write_exe(
             &realgh.join("gh"),
-            "#!/bin/sh\ncase \"$*\" in\n  \"api user --jq .login\") echo crew-bot ;;\n  \"api users/crew-bot --jq .id\") echo 4242 ;;\n  \"api users/nobody --jq .id\") echo null ;;\n  *) echo \"gh-saw token=${GH_TOKEN:-unset} args=$*\" ;;\nesac\n",
+            "#!/bin/sh\ncase \"$*\" in\n  \"api user --jq .login\") echo crew-bot ;;\n  \"api users/crew-bot --jq .id\") echo 4242 ;;\n  \"api users/nobody --jq .id\") echo null ;;\n  \"auth token\") echo ghp_owner_gh_login ;;\n  *) echo \"gh-saw token=${GH_TOKEN:-unset} args=$*\" ;;\nesac\n",
         );
         // the repo that `https://github.com/<repo>` stands for
         let remote = t.join("remote").join(REPO);

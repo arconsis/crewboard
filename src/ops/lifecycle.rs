@@ -17,7 +17,7 @@
 
 use super::say::send_signed;
 use super::tickets::{load_world_cached, me_of};
-use super::{AgentCtx, Global, World, new_client, resolve_board_config};
+use super::{AgentCtx, Global, World, resolve_board_config};
 use crate::clock::now_ts;
 use crate::comments::Comment;
 use crate::ctx::registry_msgs;
@@ -438,7 +438,7 @@ pub fn apply_owner_commands(
 pub fn run_owner(g: &Global, verb: Verb, agent: &str) -> CbResult<String> {
     let name = crate::protocol::names::AgentName::parse(agent)?;
     let cfg = resolve_board_config(g)?;
-    let client = new_client()?;
+    let client = super::new_owner_client()?;
     super::require_owner(&client, &cfg, "may command another agent")?;
     let ctx = super::Ctx::load(client, cfg, g.dir()?)?;
     let world = super::load_world(&ctx, &[], &mut crate::state::StateCache::default())?;
