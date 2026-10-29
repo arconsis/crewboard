@@ -20,6 +20,9 @@ Added:
   When `poll`, `watch` or `tick` reads the complete comment list of such a ticket and a note is
   gone, it raises the event once and tells the owner once. A fresh host or a lost state file
   remembers nothing, and `audit` cannot see a deletion. No wire change: the format stays `v=1`.
+  option; the rerun keeps every other option id. A view that exists keeps its old filter; the
+  rerun prints how to add `Dropped` to it in the web UI.
+- `doctor --setup` warns when the Status field has no option Dropped.
 
 Changed:
 
@@ -34,6 +37,8 @@ Changed:
   `crewboard merge <n>` as the next command.
 - `crewboard move <n> Dropped` is refused with `move-dropped-needs-close`: the coordinator drops a
   ticket with a signed reason.
+- The owner-route question to the owner says that the coordinator closes the ticket after the
+  owner's merge (it named a second `done` of the dev agent, which the route does not use).
 - Docs: `docs/design/spec/tickets.md` rewritten as a short spec without history. The status
   table `src/rules/status/table.txt` is the matrix; a test keeps its codes and the spec in step.
 
