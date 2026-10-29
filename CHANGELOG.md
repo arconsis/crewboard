@@ -2,7 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.6.1 (2026-10-29)
 
 Added:
 
@@ -14,11 +14,6 @@ Added:
   signed assignment (`move-needs-assignee`); Done is refused (`move-done-needs-close`), and a name
   that is not a board status too (`move-bad-status`). It is an owner command (the owner's token,
   `owner-command-not-owner`). The wire format stays `v=1`.
-
-## v0.6.1 (2026-10-29)
-
-Added:
-
 - One GitHub account per agent. A contributor joins with an own account and token; the shared
   crew account (`crew_login`) is optional and keeps working, and both mix on one board. A board
   has three identity modes: `insecure_one_account` (the one-person trial), `crew_login` (a
@@ -65,6 +60,12 @@ Fixed:
   decides: a `State` that contradicts it is reported (`status`, `audit`, one note to the owner).
 - The owner's `stop --force` posts `/crew stop <name>`, so the stop is in the log. The
   coordinator returns the tickets of an agent that the log stops.
+
+Docs:
+
+- Shorter README, concepts, quick try, owner, agents and security guides. "Headless" now means
+  only a coordinator without a model; Claude Code without a UI is "unattended"
+  (`docs/guides/runtimes/unattended-claude.md`).
 
 ## v0.6.0 (2026-10-29)
 
