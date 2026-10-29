@@ -45,12 +45,12 @@ fn rest_writes(fake: &FakeBoard) -> Vec<String> {
 #[test]
 fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
     let fake = FakeBoard::new();
-    // a board from before two fields and one Status option existed, with the legacy options
+    // a board from before two fields and two Status options existed, with the legacy options
     // `Needs Human` and `working`; one repo is linked
     fake.remove_field("Capabilities");
     let status_before = fake.field_option_ids("Status");
     let mut status = fake.field_options("Status");
-    status.retain(|o| o != "Done");
+    status.retain(|o| o != "Done" && o != "Dropped");
     fake.set_field_options("Status", &status);
     let kept_status = fake.field_option_ids("Status");
     fake.seed_agent_options(&["claude@fake-a".to_string()]);
@@ -88,11 +88,11 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
         o.stdout
             .contains(&format!("registry issue #{reg}: created"))
     );
-    // the merge kept every earlier option id and added the missing option with a new id
+    // the merge kept every earlier option id and added the missing options with new ids
     let ids = fake.field_option_ids("Status");
-    assert_eq!(ids.len(), kept_status.len() + 1, "{ids:?}");
+    assert_eq!(ids.len(), kept_status.len() + 2, "{ids:?}");
     assert!(kept_status.iter().all(|k| ids.contains(k)), "{ids:?}");
-    // the wanted options are 6 and 6; a legacy option stays after them
+    // the wanted options are 7 and 6; a legacy option stays after them
     assert_eq!(
         fake.field_options("Status"),
         [
@@ -102,6 +102,7 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
             "Review",
             "Blocked",
             "Done",
+            "Dropped",
             "Needs Human"
         ]
     );

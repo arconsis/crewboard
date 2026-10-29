@@ -342,7 +342,7 @@ Coordinator: tickets
   reassign       Take a ticket from its agent
   verify         Check evidence and CI of a ticket in Review
   merge          Merge the PR of a verified ticket
-  close          Close a ticket (Done is final)
+  close          Close or drop a ticket (Done and Dropped are final)
 
 More
   crewboard help extensions   audit, move, report-status, prune, lock, repeat

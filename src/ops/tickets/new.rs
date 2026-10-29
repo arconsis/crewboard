@@ -127,17 +127,18 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         &pr.repo,
         parent_n,
     ) {
-        Ok(p) if p.status().is_ok_and(|s| s == Status::Done) => Ok(()),
+        // An ended ticket: Done, or Dropped (a drop leaves its PR open).
+        Ok(p) if p.status().is_ok_and(Status::ended) => Ok(()),
         // The PR of a ticket that went back to the board: its reassign notice names the PR, so
         // the work is left by an earlier agent and the PR may move to a new ticket.
         Ok(p) if returned_with_pr(&p, &pr) => Ok(()),
         Ok(p) => Err(format!(
-            "{parent}, the ticket that branch '{}' names, is {}: a ticket adopts the PR of a DONE ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names",
+            "{parent}, the ticket that branch '{}' names, is {}: a ticket adopts the PR of a DONE or DROPPED ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names",
             pr.head_ref,
             p.item.field("Status").unwrap_or("without a Status")
         )),
         Err(CbError::Refused(r)) => Err(format!(
-            "{parent}, the ticket that branch '{}' names, is not a ticket on the board ({r}): a ticket adopts the PR of a DONE ticket only",
+            "{parent}, the ticket that branch '{}' names, is not a ticket on the board ({r}): a ticket adopts the PR of a DONE or DROPPED ticket only",
             pr.head_ref
         )),
         // the branch names a ticket number that is no issue of the repo

@@ -61,7 +61,7 @@ fn the_label_follows_ask_take_and_close() {
     let _ = fake.poll_json(&c);
     run_ok(&fake, &c, &["close", &ts, "--why", "the owner decided"]);
     assert!(!needs_owner(&fake, t), "{:?}", fake.labels_of(t));
-    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Done"));
+    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Dropped"));
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }
 

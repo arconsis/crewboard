@@ -364,7 +364,7 @@ fn wrong_writers(valid: &[Valid], cfg: &BoardConfig) -> Vec<Finding> {
                 }
                 Act::Closed(_) if !coordinator => {
                     out.push(wrong(format!(
-                        "{} closed the ticket (Review -> Done), but only the coordinator does",
+                        "{} closed or dropped the ticket, but only the coordinator does",
                         v.from
                     )));
                 }

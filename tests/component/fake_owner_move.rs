@@ -1,8 +1,8 @@
 //! `crewboard move <issue> <status>` (spec/tickets#owner-move), against the fake GitHub. The
 //! owner moves a ticket by hand: the command posts `/crew move <status>` on the ticket, then
 //! writes the board. `status` and `audit` then show no mismatch. A plain board drag without the
-//! command is still reported. Done, an unknown status and a work status without a signed
-//! assignment are refused, and a refusal writes nothing.
+//! command is still reported. Done, Dropped, an unknown status and a work status without a
+//! signed assignment are refused, and a refusal writes nothing.
 
 use crate::support::board::{Agent, FakeBoard, INITIATIVE, REPO};
 use crate::support::cli::{GATE, crew, item_in, no_unhandled, run_ok, writes};
@@ -61,17 +61,24 @@ fn owner_move(
 }
 
 #[test]
-fn the_owner_moves_a_done_ticket_back_to_ready_and_status_and_audit_show_no_mismatch() {
+fn the_owner_moves_a_dropped_ticket_back_to_ready_and_status_and_audit_show_no_mismatch() {
     let (fake, c, b) = crew();
     let owner = fake.owner_dir();
     let t = new_ticket(&fake);
     let ts = t.to_string();
     let item = item_in(&run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]));
     run_ok(&fake, &b, &["take", &ts]);
+    // the coordinator drops the ticket: Dropped, and the log shows Dropped too
     run_ok(&fake, &c, &["close", &ts, "--why", "no PR needed"]);
-    fake.close_issue(t);
-    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Done"));
+    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Dropped"));
     assert!(status_mismatches(&fake, &c).is_empty());
+    assert_eq!(audit_mismatches(&fake, &c), Vec::<String>::new());
+    // a later act of the assignee changes nothing: Dropped is final
+    let o = fake.run(&b.dir, &["take", &ts]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("status-dropped-final"), "{}", o.all());
+    // the owner closed the issue by hand
+    fake.close_issue(t);
 
     let o = owner_move(
         &fake,
@@ -82,7 +89,7 @@ fn the_owner_moves_a_done_ticket_back_to_ready_and_status_and_audit_show_no_mism
     assert!(
         o.stdout.contains("owner command posted: /crew move Ready")
             && o.stdout.contains("issue reopened")
-            && o.stdout.contains("Status Done -> Ready"),
+            && o.stdout.contains("Status Dropped -> Ready"),
         "{}",
         o.all()
     );
@@ -147,6 +154,8 @@ fn a_forbidden_target_is_refused_and_writes_nothing() {
     let before = writes(&fake);
     for (status, rule) in [
         ("Done", "move-done-needs-close"),
+        ("Dropped", "move-dropped-needs-close"),
+        ("dropped", "move-dropped-needs-close"),
         ("Needs Human", "move-bad-status"),
         ("Elsewhere", "move-bad-status"),
         // a Backlog ticket without a signed assignment is nobody's work yet

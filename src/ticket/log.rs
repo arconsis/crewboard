@@ -53,8 +53,10 @@ pub struct LogTicket {
 /// Fold the verified messages of one ticket, in comment order. The kind and the act of a message
 /// ([`crate::protocol::acts::parse`]) decide what it does; any other message changes nothing.
 ///
-/// Done is final (spec/tickets#status-flow-and-writers): after a coordinator close, a later
-/// message of the assignee changes nothing. Only the owner moves a Done ticket. The owner's
+/// Done and Dropped are final (spec/tickets#status-flow-and-writers): after a coordinator close
+/// (`Done`) or drop (`dropped: <reason>`, Dropped), a later message of the assignee changes
+/// nothing. The text `closed: <reason>` of an older build stays Done. Only the owner moves an
+/// ended ticket. The owner's
 /// `/crew move <status>` ([`OwnerCommand::Move`], spec/tickets#owner-move) sets the status and
 /// opens a closed ticket again, so later acts of the assignee count. A later coordinator act (an
 /// announcement, an assignment, a reassign, a failed verify) also sets the status again. An owner
@@ -67,7 +69,8 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
     for m in msgs {
         if m.sender == Sender::Owner {
             if let Ok(Some(OwnerCommand::Move { status: s })) = owner_cmd::parse(&m.body) {
-                // a move never names Done (`owner_cmd::move_target`), so it never closes
+                // a move never names Done or Dropped (`owner_cmd::move_target`), so it never
+                // closes
                 status = Expected::Is(s);
                 closed = false;
             }
@@ -106,7 +109,7 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
             (_, Act::Verify { pass: false }) if coordinator => {
                 status = Expected::OneOf(vec![Status::InProgress, Status::Ready]);
             }
-            (_, Act::Closed(_)) if coordinator => status = Expected::Is(Status::Done),
+            (_, Act::Closed(k)) if coordinator => status = Expected::Is(k.status()),
             (Some(Kind::Ack), _) if assignee => status = Expected::Is(Status::InProgress),
             (Some(Kind::Done), _) if assignee && parse_evidence(&m.body).is_some() => {
                 status = Expected::Is(Status::Review);
@@ -453,6 +456,64 @@ mod tests {
             m.push(coord(3, "owner", Kind::Info, line));
             assert_eq!(status_of(&m), Expected::Is(Status::Done), "{line}");
         }
+    }
+
+    #[test]
+    fn a_drop_of_the_coordinator_is_dropped_and_final_for_the_assignee() {
+        let drop = crate::protocol::acts::dropped_body("superseded by o/r#12");
+        for (kind, body) in [
+            (Kind::Ack, "Taken."),
+            (Kind::Done, EVIDENCE),
+            (Kind::Blocked, "stuck"),
+        ] {
+            let mut m = assigned();
+            m.push(coord(3, "agent-b@host-b", Kind::Info, &drop));
+            assert_eq!(status_of(&m), Expected::Is(Status::Dropped));
+            m.push(dev(4, "coordinator", kind, body));
+            m.push(dev(5, "owner", Kind::Question, "x?"));
+            assert_eq!(
+                fold_ticket(&m),
+                LogTicket {
+                    agent: Some("agent-b@host-b".into()),
+                    status: Expected::Is(Status::Dropped)
+                },
+                "{kind:?}"
+            );
+        }
+        // a drop line of a dev changes nothing
+        let mut m = assigned();
+        m.push(dev(3, "owner", Kind::Info, &drop));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        // the board that shows Dropped has no mismatch, Done has one
+        let mut m = assigned();
+        m.push(coord(3, "agent-b@host-b", Kind::Info, &drop));
+        let log = fold_ticket(&m);
+        assert!(!status_contradicts(&log, Some("Dropped")));
+        assert!(status_contradicts(&log, Some("Done")));
+    }
+
+    #[test]
+    fn an_owner_move_after_a_drop_opens_the_ticket_again_for_the_assignee() {
+        let mut m = assigned();
+        m.push(coord(
+            3,
+            "agent-b@host-b",
+            Kind::Info,
+            &crate::protocol::acts::dropped_body("not needed"),
+        ));
+        m.push(owner_says(4, "/crew move Ready"));
+        assert_eq!(
+            fold_ticket(&m),
+            LogTicket {
+                agent: Some("agent-b@host-b".into()),
+                status: Expected::Is(Status::Ready)
+            }
+        );
+        m.push(dev(5, "coordinator", Kind::Ack, "Taken again."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        // an owner comment that names Dropped is no move
+        m.push(owner_says(6, "/crew move Dropped"));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
     }
 
     #[test]

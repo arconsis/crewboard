@@ -8,7 +8,6 @@ use crate::capabilities::{Caps, is_met, parse_requirement, tier_rank};
 use crate::clock::now_epoch;
 use crate::error::{CbError, CbResult};
 use crate::owner_cmd::role_name;
-use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::StateCache;
 use crate::state::TicketIndex;
@@ -51,11 +50,12 @@ impl Skip {
     }
 }
 
-/// Open tickets of an agent: every ticket on the board with this `Agent` that is not `Done`.
+/// Open tickets of an agent: every ticket on the board with this `Agent` that has not ended
+/// (`Done` or `Dropped`).
 pub fn load_of(rows: &[TicketRow], agent: &str) -> usize {
     rows.iter()
         .filter(|r| r.is_agent(agent))
-        .filter(|r| r.status.is_some() && !r.in_status(Status::Done))
+        .filter(|r| r.status.is_some() && !r.ended())
         .count()
 }
 
@@ -389,6 +389,7 @@ mod tests {
             row(Some("a@x"), Some("In Progress")),
             row(Some("a@x"), Some("Review")),
             row(Some("a@x"), Some("Done")),
+            row(Some("a@x"), Some("Dropped")),
             row(Some("a@x"), None),
             row(Some("b@x"), Some("Ready")),
             row(None, Some("Backlog")),
@@ -396,7 +397,7 @@ mod tests {
         assert_eq!(
             load_of(&rows, "a@x"),
             2,
-            "Done and a missing status do not count"
+            "Done, Dropped and a missing status do not count"
         );
         assert_eq!(load_of(&rows, "b@x"), 1);
         assert_eq!(load_of(&rows, "nobody@x"), 0);

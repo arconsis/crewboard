@@ -58,6 +58,7 @@ pub const SELECT_FIELDS: &[(&str, &[&str], &[&str])] = &[
             "Review",
             "Blocked",
             "Done",
+            "Dropped",
         ],
         &[
             "Backlog",
@@ -66,6 +67,7 @@ pub const SELECT_FIELDS: &[(&str, &[&str], &[&str])] = &[
             "Review",
             "Blocked",
             "Done",
+            "Dropped",
         ],
     ),
     ("Agent", &[], &["unassigned"]),
@@ -998,7 +1000,7 @@ pub fn ensure_views(
         ),
         (
             "By Agent",
-            json!({"layout":"board","filter":"Kind:Work -Status:Done","vertical_group_by":[agent],"visible_fields":ticket_cols,"sort_by":by_order}),
+            json!({"layout":"board","filter":"Kind:Work -Status:Done,Dropped","vertical_group_by":[agent],"visible_fields":ticket_cols,"sort_by":by_order}),
         ),
         (
             "Crew",
@@ -1006,7 +1008,7 @@ pub fn ensure_views(
         ),
         (
             "Needs Owner",
-            json!({"layout":"table","filter":"label:needs-owner -Status:Done","visible_fields":ticket_cols,"sort_by":by_order}),
+            json!({"layout":"table","filter":"label:needs-owner -Status:Done,Dropped","visible_fields":ticket_cols,"sort_by":by_order}),
         ),
     ];
     for (name, spec) in views {
@@ -1248,7 +1250,14 @@ mod tests {
             assert!(TEXT_FIELDS.contains(&f), "{f}");
         }
         let status = SELECT_FIELDS.iter().find(|f| f.0 == "Status").unwrap().1;
-        assert_eq!(status.len(), 6);
+        assert_eq!(status.len(), 7);
+        assert_eq!(status.last(), Some(&"Dropped"));
+        // the options are the statuses of the rules, in their order
+        let names: Vec<&str> = crate::rules::status::Status::ALL
+            .iter()
+            .map(|s| s.name())
+            .collect();
+        assert_eq!(status, names.as_slice());
         let state = SELECT_FIELDS.iter().find(|f| f.0 == "State").unwrap().1;
         assert_eq!(state.len(), 6);
     }

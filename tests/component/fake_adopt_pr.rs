@@ -100,6 +100,32 @@ fn refused_new(k: &Case, who: &Agent, extra: &[&str], rule: &str, text: &str) {
 }
 
 #[test]
+fn a_follow_up_ticket_adopts_the_open_pr_of_a_dropped_ticket() {
+    let k = case();
+    // the coordinator drops the old ticket instead: its PR stays open
+    k.fake.set_item(&k.parent_item, "Status", "Review");
+    k.fake.touch_item(&k.parent_item);
+    let _ = k.fake.poll_json(&k.c);
+    run_ok(
+        &k.fake,
+        &k.c,
+        &[
+            "close",
+            &k.parent.to_string(),
+            "--why",
+            "split into a follow-up",
+        ],
+    );
+    assert_eq!(
+        k.fake.item_field(&k.parent_item, "Status").as_deref(),
+        Some("Dropped")
+    );
+    let o = ticket_new(&k, &k.c, &["--continue-pr", &k.pr.url]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains(&adopts_line(&k)), "{}", o.all());
+}
+
+#[test]
 fn a_follow_up_ticket_adopts_the_open_pr_and_done_and_merge_accept_its_branch() {
     let k = case();
     let o = ticket_new(

@@ -22,8 +22,24 @@ pub enum CloseKind {
     Merged,
     /// `close`: the owner merged the PR by hand.
     OwnerMerged,
-    /// `close --why`: the coordinator closed it by judgment.
+    /// `closed: <reason>`: a close by judgment of a build before Dropped existed. It ended the
+    /// ticket in Done, and the log of an existing board keeps that meaning. No writer posts it
+    /// now.
     Judgment,
+    /// `close --why`: the coordinator dropped the ticket by judgment (`dropped: <reason>`). The
+    /// ticket ends in Dropped, not in Done.
+    Dropped,
+}
+
+impl CloseKind {
+    /// The status that the close ends the ticket in: Dropped for a drop, Done for all others.
+    pub fn status(self) -> crate::rules::status::Status {
+        use crate::rules::status::Status;
+        match self {
+            CloseKind::Dropped => Status::Dropped,
+            _ => Status::Done,
+        }
+    }
 }
 
 /// The meaning of one message.
@@ -41,7 +57,7 @@ pub enum Act {
     },
     /// `info`: the ticket went back to Ready (`reassign`).
     Reassigned,
-    /// `info`: the ticket was closed.
+    /// `info`: the ticket was closed (Done) or dropped (Dropped).
     Closed(CloseKind),
     /// `report`: the verify result of the coordinator.
     Verify { pass: bool },
@@ -84,6 +100,7 @@ pub fn parse(kind: Option<Kind>, body: &str) -> Act {
         Kind::Info if first.starts_with(MERGED_PREFIX) => Act::Closed(CloseKind::Merged),
         Kind::Info if first.starts_with(OWNER_MERGED_PREFIX) => Act::Closed(CloseKind::OwnerMerged),
         Kind::Info if first.starts_with(CLOSED_JUDGMENT_PREFIX) => Act::Closed(CloseKind::Judgment),
+        Kind::Info if first.starts_with(DROPPED_PREFIX) => Act::Closed(CloseKind::Dropped),
         Kind::Info if has_line(body, LEFT_MARKER) => Act::Left,
         Kind::Info if stopping_name(first).is_some() => Act::Stopping {
             name: stopping_name(first).unwrap_or_default().to_string(),
@@ -149,7 +166,10 @@ const MERGED_PREFIX: &str = "Merged by the coordinator.";
 /// The first line of the notice of a close after an owner merge.
 pub const OWNER_MERGED_HEAD: &str = "The ticket is closed: the owner merged the PR by hand.";
 const OWNER_MERGED_PREFIX: &str = "The ticket is closed: the owner merged";
+/// The first line of a close by judgment of an older build (Done). Read, never written.
 const CLOSED_JUDGMENT_PREFIX: &str = "closed:";
+/// The first line of a drop (`close --why`): `dropped: <reason>`.
+const DROPPED_PREFIX: &str = "dropped:";
 const VERIFY_PREFIX: &str = "verify:";
 /// The line that a coordinator `answer` carries to take a question back.
 pub const WITHDRAWS_QUESTION_LINE: &str = "withdraws: question";
@@ -267,9 +287,9 @@ pub fn merged_head(pr: &str, sha: &str, method: impl std::fmt::Display) -> Strin
     format!("{MERGED_PREFIX}\npr: {pr}\nsha: {sha}\nmethod: {method}\nmerge-commit: ")
 }
 
-/// The notice of a close by judgment (`close --why`).
-pub fn closed_judgment_body(reason: &str) -> String {
-    format!("{CLOSED_JUDGMENT_PREFIX} {reason}\n")
+/// The notice of a drop by judgment (`close --why`): `dropped: <reason>`.
+pub fn dropped_body(reason: &str) -> String {
+    format!("{DROPPED_PREFIX} {reason}\n")
 }
 
 /// The body of the answer that takes a question back.
@@ -347,9 +367,10 @@ mod tests {
                 format!("{OWNER_MERGED_HEAD}\n"),
                 "close or merge",
             ),
+            (Kind::Info, dropped_body("not needed"), "close or merge"),
             (
                 Kind::Info,
-                closed_judgment_body("not needed"),
+                "closed: not needed".to_string(),
                 "close or merge",
             ),
             (Kind::Report, format!("{}\nx", verify_head(true)), "verify"),
@@ -381,6 +402,8 @@ mod tests {
             (Kind::Request, "please assign this"),
             (Kind::Answer, "ok\nwithdraws: question"),
             (Kind::Question, "closed: or not?"),
+            (Kind::Info, "we dropped: nothing"),
+            (Kind::Question, "dropped: or not?"),
         ] {
             assert_eq!(reserved_for(kind, text), None, "{text}");
         }
@@ -508,8 +531,32 @@ mod tests {
         );
         assert_eq!(
             close(&judgment_body("superseded by o/r#12")),
+            Act::Closed(CloseKind::Dropped)
+        );
+        assert_eq!(dropped_body("not needed"), "dropped: not needed\n");
+        // the text of a close by judgment of an older build keeps its meaning: Done
+        assert_eq!(
+            close("closed: superseded by o/r#12\n"),
             Act::Closed(CloseKind::Judgment)
         );
+        assert_eq!(
+            CloseKind::Judgment.status(),
+            crate::rules::status::Status::Done
+        );
+        assert_eq!(
+            CloseKind::Dropped.status(),
+            crate::rules::status::Status::Dropped
+        );
+        for k in [
+            CloseKind::Verified,
+            CloseKind::Merged,
+            CloseKind::OwnerMerged,
+        ] {
+            assert_eq!(k.status(), crate::rules::status::Status::Done, "{k:?}");
+        }
+        // a drop in another kind, or by a line that only starts alike, is no close
+        assert_eq!(parse(Some(Kind::Report), &dropped_body("x")), Act::Other);
+        assert_eq!(close("droppedx: y"), Act::Other);
         assert_eq!(
             close(OWNER_MERGED_HEAD),
             Act::Closed(CloseKind::OwnerMerged)

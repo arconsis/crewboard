@@ -21,7 +21,6 @@ use crate::audit::reported_events;
 use crate::events::Event;
 use crate::feed;
 use crate::protocol::names::{Kind, Re, To};
-use crate::rules::status::Status;
 use crate::state::{StateCache, TicketSnap};
 use crate::ticket::log::{fold_ticket, status_contradicts, status_mismatch_text};
 use crate::ticket::{TicketRow, VMsg, verified_messages};
@@ -30,7 +29,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 /// A mismatch counts only when the item has not changed for this long (seconds).
 pub const QUIET_SECS: i64 = 60;
 
-/// The tickets to check this cycle: a Status that changed to Done since the last snapshot, or a
+/// The tickets to check this cycle: a Status that changed to Done or Dropped since the last
+/// snapshot, or a
 /// mismatch that an earlier cycle saw and could not report yet. A ticket that this cycle changed
 /// itself (`own`) is skipped. Pure.
 pub fn candidates<'a>(
@@ -43,7 +43,7 @@ pub fn candidates<'a>(
         .filter(|r| !own.contains(r.item_id.as_str()))
         .filter(|r| {
             pending.contains(&r.item_id)
-                || (r.in_status(Status::Done)
+                || (r.ended()
                     && prev
                         .get(&r.item_id)
                         .is_some_and(|p| p.status.as_deref() != r.status_str()))
@@ -80,7 +80,7 @@ pub fn event_key(repo: &str, issue: u64, board_status: &str) -> String {
 /// The signed `info` to the owner.
 fn report_body(key: &str, ekey: &str, text: &str) -> String {
     format!(
-        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the crew token can). A Done without proof is detected, not prevented. Check the ticket and the board history.\n"
+        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the crew token can). A Done or Dropped without proof is detected, not prevented. Check the ticket and the board history.\n"
     )
 }
 
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_ticket_that_moved_to_done_or_is_pending_is_a_candidate() {
+    fn only_a_ticket_that_moved_to_an_end_or_is_pending_is_a_candidate() {
         let rows = [
             row("same", "Review"),
             row("moved", "Done"),
@@ -205,6 +205,7 @@ mod tests {
             row("late", "Done"),
             row("mine", "Done"),
             row("review", "Review"),
+            row("dropped", "Dropped"),
         ];
         let prev: BTreeMap<_, _> = [
             ("same".to_string(), snap("Review")),
@@ -212,6 +213,7 @@ mod tests {
             ("late".to_string(), snap("Done")),
             ("mine".to_string(), snap("Review")),
             ("review".to_string(), snap("In Progress")),
+            ("dropped".to_string(), snap("Blocked")),
         ]
         .into();
         let pending: BTreeSet<_> = ["late".to_string()].into();
@@ -221,8 +223,9 @@ mod tests {
             .map(|r| r.item_id.as_str())
             .collect();
         // `new` has no snapshot (a fresh cache replays nothing); `mine` was changed by us;
-        // `review` changed, but not to Done (`status` and `audit` cover it)
-        assert_eq!(got, vec!["moved", "late"]);
+        // `review` changed, but not to Done or Dropped (`status` and `audit` cover it); a move to
+        // Dropped ends the ticket like Done
+        assert_eq!(got, vec!["moved", "late", "dropped"]);
     }
 
     #[test]

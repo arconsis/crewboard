@@ -25,10 +25,11 @@
 //! content check that fails closed). `close` then also closes the issue. Reads: the PR once, its
 //! files, then at most 6 for the content check.
 //!
-//! When a condition fails and the coordinator gave `--why "<text>"`, the close is the
-//! coordinator's judgment (the ticket has no PR, or will not be done); `tick` never does that.
-//! Without a reason the close is refused with `close-needs-reason`, and the message names the
-//! failed condition. Nothing is written then.
+//! When a condition fails and the coordinator gave `--why "<text>"`, the coordinator drops the
+//! ticket by judgment (the ticket has no PR, or will not be done): Status Dropped, never Done.
+//! `tick` never does that. A board whose Status field has no option Dropped is refused with
+//! `dropped-option-missing` (rerun `crewboard init`). Without a reason the close is refused with
+//! `close-needs-reason`, and the message names the failed condition. Nothing is written then.
 //!
 //! The PR comes from the evidence of the latest signed `done` of the assignee. If that PR does
 //! not meet the conditions (or there is no `done`), the
@@ -37,7 +38,8 @@
 //!
 //! Writes, in this order: the `merged without verify` note for an owner merge, ONE signed
 //! `info` on the ticket (to the assignee, else to the coordinator) with the line `closed: owner
-//! merged <pr-url>` or `closed: <reason>`, Status Done, the label `needs-owner` removed.
+//! merged <pr-url>` (Status Done) or `dropped: <reason>` (Status Dropped), the label
+//! `needs-owner` removed.
 
 use super::owner_applied::{Proof, names_this_ticket, patch_applied, tied};
 use super::pr_evidence::fetch_pr_files;
@@ -50,7 +52,9 @@ use crate::protocol::names::{Kind, Re, To};
 use crate::rules::Refusal;
 use crate::rules::evidence::parse_pr_url;
 use crate::rules::ids;
-use crate::rules::status::{DoneReason, Status, Transition, check_status_transition};
+use crate::rules::status::{
+    DoneReason, Status, Transition, check_status_transition, dropped_final,
+};
 use crate::rules::text::closes_ticket;
 use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::ticket::latest_done;
@@ -65,7 +69,7 @@ fn no_merge_found(key: &str, why: &str) -> Refusal {
     Refusal::new(
         ids::CLOSE_NEEDS_REASON,
         format!(
-            "crewboard found no owner merge for {key} ({why}); give --why \"<text>\" to close it by your judgment, or --verified after a passed verify"
+            "crewboard found no owner merge for {key} ({why}); give --why \"<text>\" to drop it by your judgment (Status Dropped), or --verified after a passed verify and a merge"
         ),
     )
 }
@@ -85,18 +89,41 @@ pub fn reason_of(reason: Option<&str>) -> CbResult<Option<String>> {
     Ok(Some(one_line))
 }
 
-/// The status check: the owner's merge ends the ticket in any status but Done. The PR checks
-/// (merged by the owner, closes the issue) are the proof; a ticket that went back to Ready or
-/// Backlog after its work was delivered (a `reassign`) ends the same way. A Done ticket is
-/// `status-no-change` (idempotent).
-pub fn judge_status(key: &str, status: Status) -> Result<(), Refusal> {
+/// The status check: the owner's merge ends the ticket in any status but Done and Dropped. The
+/// PR checks (merged by the owner, closes the issue) are the proof; a ticket that went back to
+/// Ready or Backlog after its work was delivered (a `reassign`) ends the same way. A Done ticket
+/// is `status-no-change` (idempotent), and so is a Dropped ticket for a repeat `--why`. A
+/// Dropped ticket is final for a close without `--why`: only the owner moves it.
+pub fn judge_status(key: &str, status: Status, why: bool) -> Result<(), Refusal> {
     match status {
         Status::Done => Err(Refusal::new(
             "status-no-change",
             format!("{key} is already Done"),
         )),
+        Status::Dropped if why => Err(Refusal::new(
+            "status-no-change",
+            format!("{key} is already Dropped"),
+        )),
+        Status::Dropped => Err(dropped_final()),
         _ => Ok(()),
     }
+}
+
+/// The rule of a drop on a board whose Status field has no option Dropped.
+pub const CLOSE_DROPPED_OPTION_MISSING: &str = "dropped-option-missing";
+
+/// A drop needs the option Dropped on the board (an older board lacks it until `init` runs
+/// again). Pure.
+pub fn check_dropped_option(key: &str, has_option: bool) -> Result<(), Refusal> {
+    if has_option {
+        return Ok(());
+    }
+    Err(Refusal::new(
+        CLOSE_DROPPED_OPTION_MISSING,
+        format!(
+            "the Status field of the board has no option Dropped, so {key} cannot be dropped: the owner runs `crewboard init` once more (it adds the option and keeps every other one). Nothing was written"
+        ),
+    ))
 }
 
 /// The conditions on one candidate PR. `Err` holds the failed condition as text.
@@ -205,9 +232,9 @@ pub fn notice_body(pr: &MergedPr, reason: Option<&str>) -> String {
     body
 }
 
-/// The text of the `info` of a close by judgment.
+/// The text of the `info` of a drop by judgment.
 pub fn judgment_body(reason: &str) -> String {
-    crate::protocol::acts::closed_judgment_body(reason)
+    crate::protocol::acts::dropped_body(reason)
 }
 
 /// The login that counts as the owner: `owner_login` of the board config, the one source
@@ -361,7 +388,7 @@ fn require_writer(me: &Me) -> Result<(), Refusal> {
 
 /// The close of a loaded ticket; `reason` is already one line (`reason_of`). The checks come
 /// first (writer, status, issue closed, PR), the writes after. Without an owner merge a reason
-/// closes by judgment, and no reason is `close-needs-reason`.
+/// drops the ticket by judgment, and no reason is `close-needs-reason`.
 pub(super) fn close_loaded(
     ac: &AgentCtx,
     me: &Me,
@@ -371,7 +398,7 @@ pub(super) fn close_loaded(
     require_writer(me)?;
     let key = t.key();
     let from = t.status()?;
-    judge_status(&key, from)?;
+    judge_status(&key, from, reason.is_some())?;
     let route = owner_route_done(t);
     let owner = if !t.info.open || route.is_some() {
         // Read the file for its refusals and warnings; the owner comes from the board config.
@@ -434,7 +461,14 @@ fn close_after_merge(
         pr.url(),
         pr.merge_commit.as_deref().unwrap_or("unknown")
     );
-    finish_close(ac, t, &note, &headline, &gap_line, end_issue)
+    let end = End {
+        to: Status::Done,
+        note: &note,
+        headline: &headline,
+        extra: &gap_line,
+        end_issue,
+    };
+    finish_close(ac, t, &end)
 }
 
 fn close_by_judgment(
@@ -447,31 +481,46 @@ fn close_by_judgment(
     let key = t.key();
     let note = judgment_body(reason);
     check_body_text(&note)?;
-    let close = Transition::Close {
-        reason: Some(DoneReason::ClosedByJudgment),
-        verify: None,
+    check_status_transition(Some(from), Status::Dropped, me.actor, &Transition::Drop)?;
+    let has_option = ac
+        .ctx
+        .board
+        .fields
+        .get("Status")
+        .is_some_and(|f| f.option_id(Status::Dropped.name()).is_some());
+    check_dropped_option(&key, has_option)?;
+    let headline = format!("{key} dropped: Status Dropped (dropped: {reason})");
+    let end = End {
+        to: Status::Dropped,
+        note: &note,
+        headline: &headline,
+        extra: "",
+        end_issue: false,
     };
-    check_status_transition(Some(from), Status::Done, me.actor, &close)?;
-    let headline = format!("{key} closed: Status Done (closed: {reason})");
-    finish_close(ac, t, &note, &headline, "", false)
+    finish_close(ac, t, &end)
 }
 
-/// The writes of every close, in order: the signed `info`, Status Done, the label off. `extra`
-/// is output that comes after the notice line. `end_issue`: close the open issue first.
-fn finish_close(
-    ac: &AgentCtx,
-    t: &Ticket,
-    note: &str,
-    headline: &str,
-    extra: &str,
+/// How a close ends a ticket.
+struct End<'a> {
+    /// Done, or Dropped for a drop.
+    to: Status,
+    /// The signed `info`.
+    note: &'a str,
+    headline: &'a str,
+    /// Output that comes after the notice line.
+    extra: &'a str,
+    /// Close the open issue first.
     end_issue: bool,
-) -> CbResult<String> {
+}
+
+/// The writes of every close, in order: the signed `info`, the Status, the label off.
+fn finish_close(ac: &AgentCtx, t: &Ticket, end: &End<'_>) -> CbResult<String> {
     let (assignee, to) = close_recipient(t)?;
     // The guard runs before the first write: a ticket that moved gets no notice.
     if let Ok(from) = t.status() {
-        super::check_status_unchanged(ac, &t.item_id, &t.key(), from, Some(Status::Done))?;
+        super::check_status_unchanged(ac, &t.item_id, &t.key(), from, Some(end.to))?;
     }
-    if end_issue {
+    if end.end_issue {
         // the owner route: GitHub did not close the issue, because the PR has no closing keyword
         ac.ctx.client.send(
             "PATCH",
@@ -479,12 +528,12 @@ fn finish_close(
             Some(&json!({"state": "closed", "state_reason": "completed"})),
         )?;
     }
-    let p = post(ac, t, to, Kind::Info, Re::None, note)?;
-    super::set_select_status(ac, &t.item_id, Status::Done)?;
-    let mut out = format!("{headline}\nnotice {} ({})\n", p.id, p.url);
-    out.push_str(extra);
+    let p = post(ac, t, to, Kind::Info, Re::None, end.note)?;
+    super::set_select_status(ac, &t.item_id, end.to)?;
+    let mut out = format!("{}\nnotice {} ({})\n", end.headline, p.id, p.url);
+    out.push_str(end.extra);
     out.push_str(&needs_owner_lines(ac, &t.repo, t.issue, false));
-    remember(ac, t, Status::Done, assignee.as_deref());
+    remember(ac, t, end.to, assignee.as_deref());
     Ok(out)
 }
 
@@ -599,17 +648,40 @@ mod tests {
 
     #[test]
     fn the_status_check_names_the_unfinished_statuses_done_and_the_rest() {
-        for s in [Status::Review, Status::InProgress, Status::Blocked] {
-            assert!(judge_status("o/r#12", s).is_ok(), "{s:?}");
+        for why in [false, true] {
+            for s in [Status::Review, Status::InProgress, Status::Blocked] {
+                assert!(judge_status("o/r#12", s, why).is_ok(), "{s:?}");
+            }
+            assert_eq!(
+                judge_status("o/r#12", Status::Done, why).unwrap_err().rule,
+                "status-no-change"
+            );
+            // a ticket that went back to the queue after its work was delivered
+            for s in [Status::Backlog, Status::Ready] {
+                assert!(judge_status("o/r#12", s, why).is_ok(), "{s:?}");
+            }
         }
+        // Dropped: a repeat drop is no change; an owner merge does not end it
         assert_eq!(
-            judge_status("o/r#12", Status::Done).unwrap_err().rule,
+            judge_status("o/r#12", Status::Dropped, true)
+                .unwrap_err()
+                .rule,
             "status-no-change"
         );
-        // a ticket that went back to the queue after its work was delivered
-        for s in [Status::Backlog, Status::Ready] {
-            assert!(judge_status("o/r#12", s).is_ok(), "{s:?}");
-        }
+        assert_eq!(
+            judge_status("o/r#12", Status::Dropped, false)
+                .unwrap_err()
+                .rule,
+            "status-dropped-final"
+        );
+    }
+
+    #[test]
+    fn a_drop_needs_the_option_and_the_refusal_names_init() {
+        assert!(check_dropped_option("o/r#12", true).is_ok());
+        let r = check_dropped_option("o/r#12", false).unwrap_err();
+        assert_eq!(r.rule, CLOSE_DROPPED_OPTION_MISSING);
+        assert!(r.message.contains("crewboard init"), "{}", r.message);
     }
 
     #[test]
@@ -678,7 +750,7 @@ mod tests {
         assert!(notice_body(&pr(), Some("x y")).ends_with("reason: x y\n"));
         assert_eq!(
             judgment_body("no longer needed"),
-            "closed: no longer needed\n"
+            "dropped: no longer needed\n"
         );
     }
 }

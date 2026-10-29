@@ -53,8 +53,8 @@ pub enum OwnerCommand {
         name: AgentName,
     },
     /// `/crew move <status>` on a ticket: the owner moved the ticket by hand
-    /// (spec/tickets#owner-move). The lines after the first are the reason. Done is not a
-    /// target: a ticket ends through the coordinator's signed close.
+    /// (spec/tickets#owner-move). The lines after the first are the reason. Done and Dropped are
+    /// no target: a ticket ends through the coordinator's signed close or drop.
     Move {
         status: Status,
     },
@@ -330,9 +330,11 @@ pub fn approve_text(name: &AgentName, role: Role, key_fp: &str, item: &str, logi
 pub const MOVE_BAD_STATUS: &str = "move-bad-status";
 /// The rule of the target Done: a ticket ends through the coordinator's signed close.
 pub const MOVE_DONE_NEEDS_CLOSE: &str = "move-done-needs-close";
+/// The rule of the target Dropped: a ticket is dropped through the coordinator's signed note.
+pub const MOVE_DROPPED_NEEDS_CLOSE: &str = "move-dropped-needs-close";
 
 /// The status that an owner move names: a board status by its name, in any case, with `-` or `_`
-/// for the space (`in-progress`). Done and an unknown name are refused. Pure.
+/// for the space (`in-progress`). Done, Dropped and an unknown name are refused. Pure.
 pub fn move_target(s: &str) -> Result<Status, Refusal> {
     let want = s
         .replace(['-', '_'], " ")
@@ -351,13 +353,17 @@ pub fn move_target(s: &str) -> Result<Status, Refusal> {
                 ),
             )
         })?;
-    if status == Status::Done {
-        return Err(Refusal::new(
+    match status {
+        Status::Done => Err(Refusal::new(
             MOVE_DONE_NEEDS_CLOSE,
-            "the owner does not move a ticket to Done: merge its PR or close its issue, and the coordinator posts the signed close (`crewboard close <n>`, or `close <n> --why` without a PR)",
-        ));
+            "the owner does not move a ticket to Done: merge its PR, and the coordinator posts the signed close (`crewboard close <n>`)",
+        )),
+        Status::Dropped => Err(Refusal::new(
+            MOVE_DROPPED_NEEDS_CLOSE,
+            "the owner does not move a ticket to Dropped: ask the coordinator to drop it with a signed reason (`crewboard close <n> --why \"<reason>\"`)",
+        )),
+        _ => Ok(status),
     }
-    Ok(status)
 }
 
 /// The comment that `crewboard move` posts: the command line, and the reason after it.
@@ -496,10 +502,12 @@ mod tests {
             assert_eq!(t.lines().nth(1), why);
         }
         assert_eq!(move_text(Status::Ready, Some("  ")), "/crew move Ready");
-        // Done, an unknown status and no status are refused, not guessed
+        // Done, Dropped, an unknown status and no status are refused, not guessed
         for t in [
             "/crew move Done",
             "/crew move done",
+            "/crew move Dropped",
+            "/crew move dropped",
             "/crew move Needs Human",
             "/crew move Readyy",
             "/crew move",
@@ -507,6 +515,10 @@ mod tests {
             assert_eq!(parse(t).unwrap_err().rule, "owner-command-malformed", "{t}");
         }
         assert_eq!(move_target("Done").unwrap_err().rule, MOVE_DONE_NEEDS_CLOSE);
+        assert_eq!(
+            move_target("dropped").unwrap_err().rule,
+            MOVE_DROPPED_NEEDS_CLOSE
+        );
         assert_eq!(move_target("Elsewhere").unwrap_err().rule, MOVE_BAD_STATUS);
         // the reason line is free text: a status word in it changes nothing
         assert_eq!(
