@@ -837,7 +837,7 @@ ok=1; [ "$rc" -eq 0 ] && [ "$(steps "$FAKE_DIR/out" 'done')" -eq 6 ] \
   && grep -q '^agent add: \[7/7\] start: not yet' "$FAKE_DIR/out" && [ "$next" -eq 1 ] \
   && tail -n 1 "$FAKE_DIR/out" | grep -qF "next step: ask the owner to approve dev1@host-b (owner: crewboard approve dev1@host-b --initiative demo;" \
   && tail -n 1 "$FAKE_DIR/out" | grep -qF -- "then run: crewboard agent add demo-owner/demo-repo --agent-dir '$bd'" \
-  && [ "$(cat "$FAKE_DIR/calls")" = "--config-dir $bd join --name dev1@host-b --runtime claude-code --repo demo-owner/demo-repo" ] \
+  && [ "$(cat "$FAKE_DIR/calls")" = "--config-dir $bd join --name dev1@host-b --runtime claude --repo demo-owner/demo-repo" ] \
   && [ "$(cut -d'|' -f4 "$FAKE_DIR/ctx")" = "boot-token-SECRET" ] \
   && [ "$(git -C "$wt" config user.email)" = "4242+crew-bot@users.noreply.github.com" ] \
   && [ "$(git -C "$wt" config user.name)" = "crew-bot" ] \

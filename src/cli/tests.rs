@@ -26,7 +26,9 @@ const ARGV: &[(&str, &[&str])] = &[
             "--agent",
             "claude@host-a",
             "--runtime",
-            "claude-code",
+            "claude",
+            "--model",
+            "sonnet",
         ],
     ),
     (
@@ -83,6 +85,58 @@ fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
     let mut v = vec!["crewboard"];
     v.extend_from_slice(args);
     Cli::try_parse_from(v)
+}
+
+#[test]
+fn join_takes_the_runtime_and_the_model_and_refuses_the_old_label_form() {
+    let cli = parse(&[
+        "join",
+        "--agent",
+        "claude@host-a",
+        "--runtime",
+        "claude",
+        "--model",
+        "sonnet",
+    ])
+    .unwrap();
+    let Command::Crew(CrewCmd::Join { runtime, model, .. }) = &cli.command else {
+        panic!("not join");
+    };
+    assert_eq!(*runtime, crate::ops::agent::AgentRuntime::Claude);
+    assert_eq!(model.as_deref(), Some("sonnet"));
+    // the model is optional
+    let cli = parse(&["join", "--agent", "codex@host-a", "--runtime", "codex"]).unwrap();
+    let Command::Crew(CrewCmd::Join { model, .. }) = &cli.command else {
+        panic!("not join");
+    };
+    assert_eq!(*model, None);
+    // the old form is a usage error (main maps it to exit 4) that shows the new form
+    let e = parse(&[
+        "join",
+        "--agent",
+        "claude@host-a",
+        "--runtime",
+        "claude-code/sonnet",
+    ])
+    .unwrap_err();
+    assert_eq!(e.kind(), clap::error::ErrorKind::ValueValidation);
+    assert!(e.use_stderr());
+    assert!(
+        e.to_string()
+            .contains("use: --runtime claude --model sonnet"),
+        "{e}"
+    );
+    let e = parse(&[
+        "join",
+        "--agent",
+        "claude@host-a",
+        "--runtime",
+        "claude",
+        "--model",
+        "a b",
+    ])
+    .unwrap_err();
+    assert!(e.to_string().contains("--model must not be empty"), "{e}");
 }
 
 #[test]

@@ -28,6 +28,17 @@ Added:
 - `init` locks the conversation of the registry issue, so only collaborators can comment. A
   board made before this release: lock the issue by hand (Lock conversation).
 
+Changed:
+
+- `--runtime` has one meaning: the runtime (`claude`, `codex` or `hermes`), on `join` as on
+  `agent add`. `join` takes the model with the new option `--model`, and builds the runtime
+  label from both, with the same function as `agent add`. The label in the join request is the
+  same as before (`claude-code/<model>`, `codex/<model>`, `hermes/<model>`, or the first word
+  alone without a model), so the wire format and existing registries do not change.
+- `join --runtime <runtime>/<model>` (the old form) is refused as a usage error (exit 4). The
+  message shows the new form, for example `--runtime claude --model sonnet`. `doctor --setup`
+  prints the join line in the new form.
+
 Fixed:
 
 - The board `State` of an agent no longer mutes it or returns its tickets. The registry log

@@ -473,7 +473,7 @@ pub fn judge_agent_gh(
     fail(what, fix)
 }
 
-/// The executable of a runtime (`<runtime>/<model>` of `join`): `claude-code/...` is `claude`,
+/// The executable of a runtime label (that `join` wrote): `claude-code/...` is `claude`,
 /// `codex/...` is `codex`, `hermes/...` is `hermes`; any other runtime is its first part.
 pub fn runtime_binary(runtime: &str) -> String {
     let first = runtime.split('/').next().unwrap_or(runtime).trim();
@@ -1033,10 +1033,10 @@ fn check_board_side(
         rep.warnings.push(w);
     }
     let join_cmd = format!(
-        "crewboard --config-dir {} join --agent {} --runtime {} --repo {}",
+        "crewboard --config-dir {} join --agent {} {} --repo {}",
         cd.0.display(),
         agent.name,
-        agent.runtime,
+        crate::ops::agent::join_options(&agent.runtime),
         cfg.main_repo()
     );
     let mut cache = crate::state::StateCache::default();

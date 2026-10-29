@@ -43,24 +43,6 @@ const CLONE_LIMIT: Duration = Duration::from_secs(900);
 const MIN_SECRET: usize = 8;
 
 impl AgentRuntime {
-    /// The name on the command line, and the executable.
-    pub fn bin(self) -> &'static str {
-        match self {
-            AgentRuntime::Claude => "claude",
-            AgentRuntime::Codex => "codex",
-            AgentRuntime::Hermes => "hermes",
-        }
-    }
-
-    /// The first word of the runtime label that `join` posts.
-    fn join_label(self) -> &'static str {
-        match self {
-            AgentRuntime::Claude => "claude-code",
-            AgentRuntime::Codex => "codex",
-            AgentRuntime::Hermes => "hermes",
-        }
-    }
-
     fn all() -> [AgentRuntime; 3] {
         [
             AgentRuntime::Claude,
@@ -378,15 +360,6 @@ pub(super) struct Plan {
     pub wake: Option<(WakeSpec, Installer)>,
 }
 
-impl Plan {
-    fn join_label(&self) -> String {
-        match &self.model {
-            Some(m) => format!("{}/{m}", self.runtime.join_label()),
-            None => self.runtime.join_label().to_string(),
-        }
-    }
-}
-
 /// The values that come from the host. A test passes its own.
 pub(super) struct HostFacts {
     pub home: Option<PathBuf>,
@@ -496,10 +469,8 @@ pub(super) fn derive(
     {
         return Err(format!("--crew-login: '{l}' is not a GitHub login"));
     }
-    if let Some(m) = &a.model
-        && (m.is_empty() || m.chars().any(|c| c.is_whitespace() || c.is_control()))
-    {
-        return Err("--model must not be empty and must not have white space".into());
+    if let Some(m) = &a.model {
+        super::parse_model(m)?;
     }
     if a.from.is_some() {
         return Err("--from is for --role headless-coordinator".into());
@@ -1273,8 +1244,10 @@ fn step_join(p: &Plan, run: &mut Run) -> Result<(Ok_, Option<PathBuf>, bool), Fa
         code,
     }
     };
-    let label = p.join_label();
-    let title = format!("join --agent {} --runtime {label}", p.name);
+    let mut title = format!("join --agent {} --runtime {}", p.name, p.runtime.bin());
+    if let Some(m) = &p.model {
+        title.push_str(&format!(" --model {m}"));
+    }
     let result: Result<String, (String, u8)> = if let Some(bin) = seam_bin(p) {
         let mut c = agent_command(p, Path::new(bin)).map_err(|m| fail(m, 4))?;
         // the old name on purpose: the seam binary may be an older one, and every version accepts it
@@ -1283,8 +1256,11 @@ fn step_join(p: &Plan, run: &mut Run) -> Result<(Ok_, Option<PathBuf>, bool), Fa
             "--name",
             &p.name,
             "--runtime",
-            &label,
+            p.runtime.bin(),
         ]);
+        if let Some(m) = &p.model {
+            c.args(["--model", m]);
+        }
         match &p.board_file {
             Some(f) => c.arg("--initiative-file").arg(f),
             None => c.args(["--repo", &p.repo]),
@@ -1311,7 +1287,8 @@ fn step_join(p: &Plan, run: &mut Run) -> Result<(Ok_, Option<PathBuf>, bool), Fa
             &g,
             join::JoinArgs {
                 name: &p.name,
-                runtime: &label,
+                runtime: p.runtime,
+                model: p.model.as_deref(),
                 host: None,
                 repo,
                 tools: &[],

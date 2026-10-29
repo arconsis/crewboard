@@ -43,7 +43,13 @@ a `--help` of their own.
 
 ## Flag and command names
 
-One flag name has one meaning. `--why <text>` is the short free-text justification that goes into
+One flag name has one meaning. `--runtime` is the runtime (`claude`, `codex` or `hermes`) on
+`agent add`, `join`, `wake` and `wake install`, and `--model` is the model. `join` builds the
+runtime label of the join request from both (`claude-code/<model>` for `claude`, else
+`<runtime>/<model>`; the first word alone without a model), so the label is the same as before
+and the wire format does not change. `join` refuses a value with a `/` (the old form
+`<runtime>/<model>`) as a usage error, and the message shows the new form. `skill install
+--runtime` and `install.sh --runtime` name the runtime too, and also take `copilot`. `--why <text>` is the short free-text justification that goes into
 the signed message. `--reason <code>` is a typed code and exists on `reassign` only. One
 `--override-unread` passes both unread checks of `done` (unread events, and unread messages on
 the ticket). The refusal text still names what is unread and says to run `watch --timeout 1m`

@@ -151,10 +151,15 @@ pub enum CrewCmd {
         /// The agent name, <runtime>@<host>, for example claude@host-a.
         #[arg(long)]
         agent: String,
-        /// <runtime>/<model>, for example claude-code/<model>. `agent add` writes this label:
-        /// `claude-code/<model>` for the runtime claude, else `codex/<model>` or `hermes/<model>`.
-        #[arg(long)]
-        runtime: String,
+        /// claude, codex or hermes, as `agent add --runtime` takes it. With `--model`, join writes
+        /// the runtime label `claude-code/<model>` for claude, else `codex/<model>` or
+        /// `hermes/<model>`; without it, the label is the first word alone (`claude-code`). The
+        /// old form `<runtime>/<model>` is refused.
+        #[arg(long, value_parser = ops::agent::parse_runtime)]
+        runtime: ops::agent::AgentRuntime,
+        /// The model, for example sonnet: the second part of the runtime label.
+        #[arg(long, value_parser = ops::agent::parse_model)]
+        model: Option<String>,
         /// Host name for the agent item (default: the host part of the agent name).
         #[arg(long)]
         host: Option<String>,
@@ -1143,8 +1148,8 @@ pub enum AgentAction {
         /// login of the token).
         #[arg(long)]
         crew_login: Option<String>,
-        /// The model, written to the runtime label of the join request (`claude-code/<model>` for
-        /// the runtime claude).
+        /// The model, passed to `join --model`: the runtime label of the join request is
+        /// `claude-code/<model>` for the runtime claude, else `codex/<model>` or `hermes/<model>`.
         #[arg(long)]
         model: Option<String>,
         /// The initiative, for the default names (default: that of the board config).

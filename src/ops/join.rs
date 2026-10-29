@@ -1,6 +1,7 @@
 //! `join` (spec/board#lifecycle, spec/board#item-ids-are-the-source-of-truth): create the key, the
 //! agent item and the signed join request.
 
+use super::agent::AgentRuntime;
 use super::{Ctx, Global, World, load_world, new_client, say};
 use crate::clock::{now_epoch, now_ts};
 use crate::config::{
@@ -20,7 +21,9 @@ use ssh_key::PrivateKey;
 
 pub struct JoinArgs<'a> {
     pub name: &'a str,
-    pub runtime: &'a str,
+    pub runtime: AgentRuntime,
+    /// The model; the runtime label is `AgentRuntime::label` of both.
+    pub model: Option<&'a str>,
     pub host: Option<&'a str>,
     /// Fetch `.crewboard.toml` from this repo's default branch.
     pub repo: Option<&'a str>,
@@ -120,6 +123,7 @@ fn check_name_free(world: &World, name: &AgentName, key: &PrivateKey) -> CbResul
 /// of this run is written only after the registration succeeded.
 fn agent_config(
     a: &JoinArgs<'_>,
+    runtime: &str,
     cfg: &BoardConfig,
     existing: Option<&AgentConfig>,
     item_id: String,
@@ -128,7 +132,7 @@ fn agent_config(
 ) -> AgentConfig {
     AgentConfig {
         name: a.name.to_string(),
-        runtime: a.runtime.to_string(),
+        runtime: runtime.to_string(),
         host,
         item_id,
         board_sha,
@@ -192,6 +196,7 @@ fn write_agent_fields(
 
 pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
     let name = AgentName::parse(a.name)?;
+    let runtime = a.runtime.label(a.model);
     let cd = g.dir()?;
     let client = new_client()?;
     let (cfg, board_sha) = board_config_of(g, &client, a.repo)?;
@@ -235,6 +240,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
     };
     let agent = agent_config(
         &a,
+        &runtime,
         &cfg,
         existing.as_ref(),
         item_id.clone(),
@@ -245,7 +251,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
     cd.save_agent(&agent)?;
 
     // 2. the fields
-    write_agent_fields(&ctx, &item_id, approved, &key_line, &host, a.runtime)?;
+    write_agent_fields(&ctx, &item_id, approved, &key_line, &host, &runtime)?;
 
     // 2b. the facts of this host (spec/profiles#facts): never typed, detected here and at every
     // start
@@ -282,7 +288,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
             To::Owner,
             Kind::Request,
             Re::None,
-            &join_body(&item_id, &key_line, a.runtime, &host),
+            &join_body(&item_id, &key_line, &runtime, &host),
             &now_ts(),
         )?)
     };
@@ -292,7 +298,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
     }
     let mut out = format!(
         "agent {name} ({})\nkey: {} ({})\nitem: {item_id}\nboard: project {} of {}\n{facts_out}",
-        a.runtime,
+        runtime,
         fingerprint(ac.key.public_key()),
         if key_created { "created" } else { "existing" },
         ac.ctx.cfg.project_number,

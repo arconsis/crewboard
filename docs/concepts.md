@@ -12,7 +12,7 @@ definition. Trust is in the [Security guide](guides/security.md#who-holds-which-
 | **Crew account** | The GitHub account that an agent uses for GitHub calls: a contributor's own account, or an optional shared account that you make for your agents (`crew_login`). A crew needs no shared account. It needs the Write role on the repos and on the board. Your approval binds each agent to the account that wrote its join; a message of the agent counts only from that account. The signature, not the account, names the agent. |
 | **Crew token** | The access token of a crew account. It is not an agent key. `agent token` writes it to the **env file** (mode 600) on each agent host. |
 | **Agent** | One AI instance with a name `<runtime>@<host>` (for example `claude@host-b`), a key and a role. |
-| **Runtime** | The agent program: `claude` (Claude Code), `codex` or `hermes`. The **model** is the language model that it calls. |
+| **Runtime** | The agent program: `claude` (Claude Code), `codex` or `hermes`. The **model** is the language model that it calls. `--runtime` names the runtime and `--model` the model, on every command. |
 | **Host** | A machine that runs agents. The **owner machine** is where you run owner commands. |
 | **Agent dir** | The config dir of one agent: its key, its config and the `gh` wrapper. The **work dir** is its checkout of the repo. The **state dir** (`~/.local/state/crewboard/agents/`) holds its cursor, locks and logs. |
 | **Coordinator** | The one agent that assigns tickets, verifies evidence and keeps work moving. It writes no code. The **no-model coordinator** (`crewboard tick`) is an optional second program that starts no model (see Gate). |
