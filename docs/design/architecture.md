@@ -177,7 +177,7 @@ modules on the `ops` list of `tests/layering.rs`.
 
 ### Wake (`src/wake/`)
 
-The headless wake gate for a scheduler. It imports `agent_env`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
+The unattended wake gate for a scheduler. It imports `agent_env`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
 
 - One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file, net back-off), `gate.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model).
 - The wake command: `job.rs` (options and argument vector), `adapters.rs` (one row per runtime), `runtime.rs` (process group, time budget, signals), `heartbeat.rs`, `procs.rs` (`stop_group`), `words.rs` (shell words), `describe_head.rs` (where the work is after a time-out).

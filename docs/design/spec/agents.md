@@ -39,13 +39,13 @@ tags and runs for every agent.
 `start` reads the keys from the file `.crewboard.toml` on the default branch of the main repo
 when that file sets at least one of them. Otherwise the copy that `join` saved applies.
 
-## Headless dev agents keep working
+## Unattended dev agents keep working
 
 
-A headless dev agent must not stop after it has handled its events: an In Progress ticket must
+An unattended dev agent must not stop after it has handled its events: an In Progress ticket must
 not stand still, and a busy agent must keep its heartbeat during one long wake.
 
-1. **Skill.** The headless sections (`skill/references/dev.md`, `docs/guides/runtimes/hermes-cron.md`) say: handle every
+1. **Skill.** The sections for an unattended wake (`skill/references/dev.md`, `docs/guides/runtimes/hermes-cron.md`) say: handle every
    event, then continue the In Progress ticket until `done` or `block`, then `take` the next Ready
    ticket (lowest `Order` first), and stop only when there is none or the run budget ends.
 2. **`crewboard mine [--quiet]`** lists the own In Progress and Ready tickets, In Progress first,
@@ -235,7 +235,7 @@ limits it. The prompt does not.
    doubt, the answer is "not CI only". `ticket new --gate-ci` writes `Gate: ci` (a
    body with another `Gate:` line is refused, so no real condition is lost), and the `left`
    line of `tick` names the signed Gate and the flag.
-6. **What the no-model coordinator does with the rest.** `tick` does nothing on the board for
+6. **What the headless coordinator does with the rest.** `tick` does nothing on the board for
    a ticket it leaves. It writes one line per ticket to its own log ("left for the interactive
    coordinator: <ticket>, <reason>") and posts no message. The `watch` and `poll` cycle of a
    coordinator is different: it runs the coordinator duties, in a headless dir too. It returns

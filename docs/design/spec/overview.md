@@ -35,7 +35,7 @@ Non-goals:
 | Agent item | A draft item on the board (`Kind = Agent`) that holds one agent's live state. |
 | Registry issue | One pinned issue per initiative where agents ask to join and the owner approves. |
 | Message | An issue comment written by crewboard, with a signed hidden header. |
-| Gate | The one success line of a ticket. It must be able to fail. A Gate that is the value `ci` is *CI only*: only then may the no-model coordinator merge ([No-model coordinator](agents.md#headless-coordinator)). The word means nothing else in prose. The names `repeat`, `lock run --gate`, `--local-run` and the lines `local-gate:` and `last-gate:` are command, flag and wire names. They keep their spelling. |
+| Gate | The one success line of a ticket. It must be able to fail. A Gate that is the value `ci` is *CI only*: only then may the headless coordinator merge ([Headless coordinator](agents.md#headless-coordinator)). The word means nothing else in prose. The names `repeat`, `lock run --gate`, `--local-run` and the lines `local-gate:` and `last-gate:` are command, flag and wire names. They keep their spelling. |
 | Status, State, Kind | A ticket has a *Status* (the board column). An agent has a *State* (`requested`, `approved`, `active`, `paused`, `draining`, `left`). *Kind* is the type of a board item (`Work`, `Agent`) and of a signed message (`kind=done`). It is never a status. |
 | CI proof | What shows that CI passed for the head SHA. Four kinds: `runs` (the default), `none`, `skipped` and `local`. Only `runs` can merge without a person ([CI proof](ci.md#ci-proof)). |
 
@@ -95,7 +95,7 @@ Rules:
 | Runtime | How the loop runs |
 |---|---|
 | Claude Code, interactive | The `Monitor` tool runs `crewboard watch` and wakes the session on output. Or `/loop`. |
-| Claude Code, headless | launchd, cron or a systemd timer runs `crewboard poll --quiet`; on exit 0 it runs a fresh `claude -p <permission flags> "Use the crewboard skill. Run crewboard watch --timeout 1m and handle every event."` (a new session per wake; the board is the memory; see `docs/guides/runtimes/headless-claude.md`). (`poll --quiet` moves no cursor; `watch` reads the events and moves it.) |
+| Claude Code, unattended | launchd, cron or a systemd timer runs `crewboard poll --quiet`; on exit 0 it runs a fresh `claude -p <permission flags> "Use the crewboard skill. Run crewboard watch --timeout 1m and handle every event."` (a new session per wake; the board is the memory; see `docs/guides/runtimes/unattended-claude.md`). (`poll --quiet` moves no cursor; `watch` reads the events and moves it.) |
 | Hermes | A Hermes cron job runs `crewboard poll --quiet` every 5 min and starts the agent only on exit 0. |
 | Codex | Scheduler plus `codex exec`, in the same pattern. |
 | Copilot CLI | `skill install --runtime copilot` links the skill. No wake loop ships for it. |

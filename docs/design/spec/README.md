@@ -20,7 +20,7 @@ The command list is not here. It is generated from `--help` in the
 | [cli.md](cli.md) | The rules behind the [exit codes](../../reference/exit-codes.md), and what `status` shows. The commands are in the [CLI reference](../../reference/cli.md). |
 | [events.md](events.md) | `watch` and `poll`: event semantics, polling cost, event checkpoints, unread messages, stale work and `ci-finished`. |
 | [profiles.md](profiles.md) | Agent profiles and capability matching. |
-| [agents.md](agents.md) | Agent operation: the toolchain check, headless dev agents, the coordinator alert, `resume`, the no-model coordinator, the board config refresh. |
+| [agents.md](agents.md) | Agent operation: the toolchain check, unattended dev agents, the coordinator alert, `resume`, the headless coordinator, the board config refresh. |
 | [security-details.md](security-details.md) | Detail behind the security guide: the signed data and how to check it by hand, edited owner comments, token handling, the trust roots, `selftest`, `audit` and `status`. |
 | [host-lock.md](host-lock.md) | The host lock helper and repeated Gate runs. |
 

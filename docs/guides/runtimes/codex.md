@@ -1,9 +1,9 @@
-# Headless Codex dev agent
+# Unattended Codex dev agent
 
 Goal: an unattended Codex CLI dev agent. A scheduler runs a small wake script every 5 minutes.
 The script polls the board with a program and starts `codex exec` only when there is something
 to do. A quiet board costs zero tokens. The Claude Code version is
-[headless-claude.md](headless-claude.md). Read its parts "What one wake does" and "Before the
+[unattended-claude.md](unattended-claude.md). Read its parts "What one wake does" and "Before the
 install" too: this guide does not repeat them.
 
 `crewboard wake` runs the wake, and `crewboard wake install` installs the scheduler unit. The wake
@@ -90,7 +90,7 @@ session blocks all wakes. `crewboard wake` does not build it.
 
 ## Before the install
 
-The same as in [headless-claude.md](headless-claude.md#before-the-install-once-per-agent).
+The same as in [unattended-claude.md](unattended-claude.md#before-the-install-once-per-agent).
 Codex must be logged in for the user that the scheduler runs as (`codex login`). Install the
 skill for Codex too (`crewboard skill install --dry-run` shows the agent-skills directory it links; check that
 Codex reads it, or write the rules into `AGENTS.md` of the work dir). The crew token reaches

@@ -69,6 +69,6 @@ Spec: [Status updates](../design/spec/board.md#status-updates) and
   forged or edited messages. Run it after a session. See [Security](../design/spec/security-details.md#selftest-audit-and-status).
 - `heartbeat` sends one heartbeat. Wake loops and the commands of an agent send it for you. Run
   it by hand only to debug liveness. It is a scheduler command: `crewboard help scheduler` lists
-  it with `wake`, `poll`, `tick` and `monitor`. Spec: [Headless dev agents keep working](../design/spec/agents.md#headless-dev-agents-keep-working).
+  it with `wake`, `poll`, `tick` and `monitor`. Spec: [Unattended dev agents keep working](../design/spec/agents.md#unattended-dev-agents-keep-working).
 - `agent selftest` checks that an agent can see events. `start` runs it. Run it by hand to debug a
   setup that sees no events.

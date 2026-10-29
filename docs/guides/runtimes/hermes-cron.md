@@ -113,7 +113,7 @@ Also run `crewboard pause` (agent state) so the coordinator assigns nothing whil
   shows the agent dir. Start a long-running Hermes gateway from a clean shell, never from a
   wake: it would keep the environment of that wake.
 - **What one wake does** (the events file, the work back-off, the heartbeat, the time budget,
-  exit 3 and exit 4) is in [headless-claude.md](headless-claude.md#what-one-wake-does). It is
+  exit 3 and exit 4) is in [unattended-claude.md](unattended-claude.md#what-one-wake-does). It is
   the same wrapper for every runtime.
 - **Host lock.** Add `--host-lock <lock-dir>` to the install command when the agent runs heavy
   jobs on a shared host. The prompt then tells the agent to use `crewboard lock run`, and the

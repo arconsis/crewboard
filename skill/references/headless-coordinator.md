@@ -1,6 +1,6 @@
-# No-model coordinator
+# Headless coordinator
 
-A no-model coordinator (`start` prints a `scope:` line) runs without a model:
+A headless coordinator (`start` prints a `scope:` line) runs without a model:
 `crewboard wake --tick` runs `crewboard tick`.
 
 `tick` merges only a ticket whose signed Gate is `ci` (the body line `Gate: ci`). It leaves every

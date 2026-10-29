@@ -2,17 +2,17 @@
 
 > **Optional hardening.** This page needs `sudo` and a second OS user. A crew of two agents
 > does not need it: the [Getting started](../getting-started.md) path
-> works without it. Use it when a no-model coordinator runs unattended and you want the
+> works without it. Use it when a headless coordinator runs unattended and you want the
 > process to have its own OS user and token.
 
-Read this if a no-model coordinator runs without a person at the keyboard and you do not
+Read this if a headless coordinator runs without a person at the keyboard and you do not
 trust the model with the full rights of the coordinator. The rules are in
-[No-model coordinator](../design/spec/agents.md#headless-coordinator).
+[Headless coordinator](../design/spec/agents.md#headless-coordinator).
 
 The headless scope is switched on by one key: `headless = true` in
 `<config-dir>/<initiative>.toml`. The key is a guardrail, not a boundary. The headless OS user
 can write its config dir, so it can remove the key or pass `--config-dir` to another dir. The
-boundary is the OS user and its token: the steps below give the no-model coordinator its own
+boundary is the OS user and its token: the steps below give the headless coordinator its own
 user, its own config dir and a limited token. `crewboard doctor` tells you whether the key is
 on.
 
@@ -122,7 +122,7 @@ It must print `refused [rule=headless-scope]` and exit 2, with no request to Git
 
 ## 6. Run the wake as the headless user
 
-The no-model coordinator starts no model. The scheduler runs `crewboard wake --tick`
+The headless coordinator starts no model. The scheduler runs `crewboard wake --tick`
 as `cb-headless`. It runs `crewboard tick` under a lock and writes the tick lines to its log
 (`~/.local/state/crewboard/agents/<initiative>-<agent-dir>/wake.log` of `cb-headless`). This is
 the whole job:
@@ -139,11 +139,11 @@ Install the `crewboard` binary where the headless user cannot change it, for exa
 root) with the key `UserName` set to `cb-headless` and `StartInterval` 300, so the headless user
 cannot change the job. For a coordinator without a separate OS user,
 `crewboard wake install --tick --agent-dir <dir>` writes and enables a user unit (see
-[headless-claude.md](runtimes/headless-claude.md#headless-coordinator)).
+[unattended-claude.md](runtimes/unattended-claude.md#headless-coordinator)).
 
 ## A `Gate: ci` merge has no human review
 
-The no-model coordinator merges a ticket whose Gate is `ci` when the evidence, the protected
+The headless coordinator merges a ticket whose Gate is `ci` when the evidence, the protected
 paths and a green CI run for the head SHA pass. No model and no person reads the diff. So a
 `Gate: ci` ticket is as strong as the files that define CI: the workflow files, the test
 config, the build file that names the test target, and the test files themselves. A dev agent

@@ -156,7 +156,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
     crewboard approve claude@host-b --initiative my-crew
     ```
 
-More options for the loops (`--scheduler`, `--every`, Hermes, a no-model coordinator):
+More options for the loops (`--scheduler`, `--every`, Hermes, a headless coordinator):
 [agents.md](guides/agents.md#the-loop).
 
 ## The first ticket

@@ -19,7 +19,7 @@ CI proof*. The other pages link here and keep no list of their own.
 `ci_mode: local` it needs `local`.
 
 Only `runs` can merge without a person. The headless `merge` and `tick` also need a Gate that is
-CI only ([No-model coordinator](agents.md#headless-coordinator)). The three other kinds are a
+CI only ([Headless coordinator](agents.md#headless-coordinator)). The three other kinds are a
 judgment of the interactive coordinator.
 
 The wire strings `ci: local-gate` and `local-gate:` keep their names; the flag is `--local-run`.
@@ -112,7 +112,7 @@ times in one day. crewboard can see this case for itself.
    no run exists. A pass writes the fresh line into the `ci:` line of its result; a fail names
    the reason. The interactive `merge` makes it again, as it runs the `done` checks again
    ([`merge`](tickets.md#merge)). Such a ticket is not CI only for the headless merge and `tick`
-   ([No-model coordinator](agents.md#headless-coordinator)).
+   ([Headless coordinator](agents.md#headless-coordinator)).
 6. **Read cost.** Only in the no-run case, and each read only if the step before passed:
    the workflow directory at the head SHA and each workflow file (1 + W, W at most 40; more
    than 40 workflow files refuse), then the base branch and its rulesets (2). `done` reads the
@@ -215,7 +215,7 @@ moved the ticket by hand.
     - **Headless.** A run by hand is not CI only. The headless `verify` counts the run, but the
       headless `merge` refuses evidence with a named run (`headless-scope`) before any read,
       and `tick` leaves the ticket for the interactive coordinator
-      ([No-model coordinator](agents.md#headless-coordinator)).
+      ([Headless coordinator](agents.md#headless-coordinator)).
 
 ## Jobs that ci_ignore skips
 
@@ -288,7 +288,7 @@ ci_mode: local     # ci (default) or local
    `local-gate-not-enabled` before any write. A local-run `done` from an earlier time does not
    count any more: `verify` fails it (`local-gate-not-enabled` in the failure text, so the ticket
    goes back to In Progress) and `merge` refuses it. The dev runs `done` again with CI.
-7. **No-model coordinator.** `verify --local-run` is refused with `headless-scope`. `tick`
+7. **Headless coordinator.** `verify --local-run` is refused with `headless-scope`. `tick`
    leaves a local-run ticket ("left for the interactive coordinator"), and a headless `merge`
    of one is refused with `headless-scope`: a local run is a judgment
-   ([No-model coordinator](agents.md#headless-coordinator)).
+   ([Headless coordinator](agents.md#headless-coordinator)).
