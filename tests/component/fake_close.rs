@@ -1,5 +1,5 @@
 //! `close <n>` (spec/tickets#close-after-an-owner-merge and
-//! spec/tickets#close-by-judgment), against the fake GitHub of `tests/support/board.rs`.
+//! spec/tickets#close-without-a-pr), against the fake GitHub of `tests/support/board.rs`.
 //!
 //! The case: the owner merges the PR of a crew ticket by hand. GitHub closes the ticket issue,
 //! but the board item stays where it was. The coordinator (and the headless `tick`) moves it to

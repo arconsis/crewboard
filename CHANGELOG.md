@@ -2,6 +2,11 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+- Docs: `docs/design/spec/tickets.md` rewritten as a short spec without history. The status
+  table `src/rules/status/table.txt` is the matrix; a test keeps its codes and the spec in step.
+
 ## v0.6.1 (2026-10-29)
 
 Added:
