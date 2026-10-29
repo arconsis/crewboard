@@ -157,7 +157,7 @@ fn done_with_refs_goes_to_review_with_an_owner_question_and_a_keyword_for_anothe
     );
     assert!(head.contains("Do NOT merge the PR as it is"), "{q}");
     assert!(
-        head.contains("Review after the dev agent's second done"),
+        head.contains("after your merge the coordinator closes it"),
         "{q}"
     );
 

@@ -14,7 +14,9 @@ Added:
   continue the open PR of a Dropped ticket (`ticket new --continue-pr`).
 - `init` adds the Status option `Dropped` after `Done`, and the views By Agent and Needs Owner
   filter `-Status:Done,Dropped`. **An existing board needs one `crewboard init` rerun** for the
-  option; the rerun keeps every other option id. A view that exists keeps its old filter.
+  option; the rerun keeps every other option id. A view that exists keeps its old filter; the
+  rerun prints how to add `Dropped` to it in the web UI.
+- `doctor --setup` warns when the Status field has no option Dropped.
 
 Changed:
 
@@ -29,6 +31,8 @@ Changed:
   `crewboard merge <n>` as the next command.
 - `crewboard move <n> Dropped` is refused with `move-dropped-needs-close`: the coordinator drops a
   ticket with a signed reason.
+- The owner-route question to the owner says that the coordinator closes the ticket after the
+  owner's merge (it named a second `done` of the dev agent, which the route does not use).
 - Docs: `docs/design/spec/tickets.md` rewritten as a short spec without history. The status
   table `src/rules/status/table.txt` is the matrix; a test keeps its codes and the spec in step.
 
