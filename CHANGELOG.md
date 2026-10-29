@@ -2,7 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.6.1 (2026-10-29)
 
 Added:
 
