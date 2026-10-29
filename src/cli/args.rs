@@ -641,8 +641,10 @@ pub enum ReviewCmd {
     /// Close or drop a ticket (Done and Dropped are final).
     ///
     /// Coordinator: close a ticket. Without a flag crewboard looks for the owner's merge of the PR
-    /// (Done); `--why` drops the ticket by your judgment (Dropped, never Done); `--verified` closes
-    /// a PR that is merged at the head of a passed verify (Done). Done and Dropped are final.
+    /// (Done); with `--why` it looks too, and when it finds no owner merge it drops the ticket by
+    /// your judgment (Dropped; with an owner merge the ticket is Done and the text goes into the
+    /// note); `--verified` closes a PR that is merged at the head of a passed verify (Done). Done
+    /// and Dropped are final.
     #[command(display_order = 19)]
     Close {
         /// The ticket: an issue number, or `<owner>/<repo>#<n>`.
@@ -652,8 +654,9 @@ pub enum ReviewCmd {
         #[arg(long, conflicts_with = "why")]
         verified: bool,
         /// Drop the ticket by your judgment when no owner merge exists (no PR, or the ticket will
-        /// not be done): Status Dropped. The text goes into the note on the ticket; name a
-        /// replacing ticket in it.
+        /// not be done): Status Dropped. When `close` finds an owner merge, the ticket is Done and
+        /// the text is a line of the close note. The text goes into the note on the ticket; name
+        /// a replacing ticket in it.
         #[arg(long, value_name = "TEXT")]
         why: Option<String>,
         #[command(flatten)]
@@ -1393,8 +1396,9 @@ pub enum TicketAction {
         /// Assign it to this agent at once (the checks of `assign` run before anything is created).
         #[arg(long)]
         assign: Option<String>,
-        /// Continue the OPEN PR of a Done ticket (a PR URL), or the open PR that the reassign notice
-        /// of a ticket in Backlog or Ready names: `done` then accepts its branch for this ticket.
+        /// Continue the OPEN PR of a Done or Dropped ticket (a PR URL), or the open PR that the
+        /// reassign notice of a ticket in Backlog or Ready names: `done` then accepts its branch
+        /// for this ticket. The status of that ticket is the one of its signed log, not the board.
         /// See spec/tickets#a-follow-up-ticket-continues-an-open-pr.
         #[arg(long = "continue-pr")]
         continue_pr: Option<String>,

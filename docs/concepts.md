@@ -52,7 +52,7 @@ owner moves such a ticket, with `crewboard move`.
 
 ## Done and Dropped
 
-Done means: a PR is merged at a checked head. Two ways lead there:
+Done means: a PR is merged, at a verified head or by the owner. Two ways lead there:
 
 1. **Verified.** `verify` runs on the SHA of `done`. Then `merge` (if `AUTHORITY.md` lets it).
    `close --verified` is for a PR that somebody else merged at the verified head, for example

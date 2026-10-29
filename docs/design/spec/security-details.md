@@ -349,25 +349,37 @@ the last one. So the sender remembers what it posted.
   forgotten.
 - **When it is compared.** Only with a COMPLETE comment list of the ticket. The read of one issue
   gives the whole list or an error (a list cut at the page limit is an error), so a cut list is
-  never compared. A failed read compares nothing and marks the ticket for a read at the next
-  cycle. The comment feed of `poll` and `watch` is a time window and is never compared. The
-  coordinator's `poll` and `watch` read a ticket with remembered notes when its board row changed
-  since the last cycle (not by the cycle itself), or while it is marked: after a failed read, or
-  while the board Status contradicts the signed log and a close note of the coordinator is still
-  there (so "set the board back, then delete the note" is seen at the next cycle). Each such read
-  is one REST call, so a legitimate move of a ticket (`take`, `done`) costs one read in the next
-  cycle of the coordinator. The Status check of the cycle
+  never compared. A failed read compares nothing and marks the ticket for a later read. The
+  comment feed of `poll` and `watch` is a time window and is never compared. The coordinator's
+  `poll` and `watch` read a ticket with remembered notes when its board row changed since the
+  last cycle (not by the cycle itself), or while it is marked: after a failed read, while a gone
+  note waits for its report, or while the board Status contradicts the signed log and a close
+  note of the coordinator is still there (so "set the board back, then delete the note" is seen).
+  A cycle reads at most 5 marked tickets, the oldest mark first; a read that keeps the mark moves
+  it to the back, so every marked ticket is read within `ceil(marked / 5)` cycles. A ticket with
+  remembered notes and no board row any more is read once by its issue number. One read is one
+  comment-list read: up to 50 REST pages of 100 comments, plus one GraphQL lookup of the editors
+  per edited owner comment. A legitimate move of a ticket (`take`, `done`) costs one read in the
+  next cycle of the coordinator. The Status check of the cycle
   ([log_check.rs](../../../src/ops/log_check.rs)) and `tick` compare the lists that they read
   anyway, with no extra read.
+- **The set-back.** A board Status that leaves Done or Dropped without a signed message is a
+  Status mismatch of that check: ONE signed `info` to the owner and ONE `status-mismatch` event
+  for the coordinator ([Events](events.md)). It is no security event: the notes are still there.
 - **The event.** A remembered id that the list does not have is the security event
-  `deleted-message`, with the ticket, the kind of the note and the comment id. It is raised once
-  per (ticket, comment id): the id is forgotten after the event. The coordinator posts ONE
-  signed `info` to the owner, as for the other security events. A `poll --quiet` keeps the
-  memory as it was, so the next real cycle raises the event.
+  `deleted-message`, with the ticket, the kind of the note and the comment id. The id is
+  forgotten only after the event was shown AND its owner report was posted (or was there
+  already). Until then the next cycle raises it again, so a failed post loses nothing. The
+  coordinator posts ONE signed `info` to the owner (the `event=` key), as for the other security
+  events. A `poll --quiet` keeps the memory as it was, so the next real cycle raises the event.
 - **Limits.** Only the coordinator's own notes, and only that coordinator sees the event. A
   headless config dir has its own state file, so it sees the notes of its own `tick` only. A
   fresh host or a lost state file remembers nothing. `audit` and `status`, on any host, cannot
-  see a deletion: they have no memory of what was posted.
+  see a deletion: they have no memory of what was posted. A ticket whose board item was deleted
+  is compared once by its issue number, with one `notes-not-checked` event; after that its notes
+  are forgotten, so a later deletion on it is not seen. A ticket with more than 5000 comments
+  (50 pages) cannot be read complete: its notes are forgotten with one `notes-not-checked`
+  event, and it is not read again.
 
 See [own_notes.rs](../../../src/ops/own_notes.rs) and [state.rs](../../../src/state.rs)
 (`NoteState`).

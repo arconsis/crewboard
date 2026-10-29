@@ -48,13 +48,15 @@ crewboard command made it.
 
 Any crew token can write the board `Status`, so crewboard detects a Done or Dropped without
 proof instead of preventing it. The coordinator's cycle (`poll`, `watch`) checks the tickets that
-another writer moved to Done or Dropped since the last snapshot (both are final; the agent's own
-writes are in its snapshot already), and the tickets that an earlier cycle could not settle.
-`status` and `audit` check every Status.
+another writer moved to Done or Dropped since the last snapshot, the tickets that another writer
+moved out of Done or Dropped (set back behind a close; both are final; the agent's own writes are
+in its snapshot already), and the tickets that an earlier cycle could not settle. `status` and
+`audit` check every Status.
 
-1. One REST read of the comments of that one ticket, then the judgement of `audit` and `status`
-   (`ticket::log::status_contradicts`). No call in a cycle without a new Done or Dropped. A
-   ticket that the cycle changed itself is skipped. A Done that the owner wrote by hand has no
+1. One read of the comment list of that one ticket (up to 50 pages), then the judgement of
+   `audit` and `status` (`ticket::log::status_contradicts`). No call in a cycle without such a
+   move. A ticket that the cycle changed itself is skipped. A list with more than 50 pages cannot
+   be judged: one `notes-not-checked` event, and no read again for that move. A Done that the owner wrote by hand has no
    signed message, so it is reported too; the note to the owner says so.
 2. A legitimate command changes the field a moment before it posts its message, so a mismatch
    seen once is kept (state key `status_pending`) and judged again at the next cycle. It is

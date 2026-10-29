@@ -134,6 +134,25 @@ pub struct SecurityEvent {
     pub detail: String,
 }
 
+impl SecurityEvent {
+    /// The text block of the event in the output of `poll`, `watch` and `tick`: the one format,
+    /// starting with `!! SECURITY EVENT` (the line that `acted` and the skill look for).
+    pub fn render(&self) -> String {
+        format!(
+            "!! SECURITY EVENT: {} !!\nwhere: {}#{} comment {} by {} claiming from={}\ndetail: {}\nurl: {}\n{}\n",
+            self.reason.as_str(),
+            self.repo,
+            self.issue,
+            self.comment_id,
+            self.author,
+            self.claimed_from.as_deref().unwrap_or("(unreadable)"),
+            self.detail,
+            self.url,
+            self.reason.advice()
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
     OwnMessage,

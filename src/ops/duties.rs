@@ -529,7 +529,7 @@ pub fn coordinator_duties(
     // whose board row changed (spec/security-details#deleted-notes).
     let own_ids: HashSet<&str> = own.iter().map(|(i, _)| i.as_str()).collect();
     let mut found = check.security;
-    found.extend(super::own_notes::cycle_duty(
+    let notes = super::own_notes::cycle_duty(
         ac,
         world,
         rows,
@@ -537,7 +537,15 @@ pub fn coordinator_duties(
         &own_ids,
         &check.read,
         &mut cache.notes,
-    ));
+        now,
+    );
+    found.extend(notes.security);
+    duty.events.extend(
+        notes
+            .not_checked
+            .into_iter()
+            .map(|text| liveness_event(ac, super::own_notes::NOT_CHECKED, text)),
+    );
     let all: Vec<SecurityEvent> = security.iter().chain(&found).cloned().collect();
     security_duty(&c, &all, &mut duty)?;
     duty.security = found;

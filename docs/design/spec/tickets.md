@@ -38,7 +38,7 @@ headless "CI only" check read these lines, not the body; without a `ci:` line th
 
 The statuses are Backlog, Ready, In Progress, Review, Blocked, Done and Dropped
 ([Boards of earlier builds](board.md#boards-of-earlier-builds) for older options). Done means a
-PR merged at a checked head. Dropped means that the coordinator ended the ticket by judgment,
+PR merged at a verified head, or merged by the owner. Dropped means that the coordinator ended the ticket by judgment,
 without a merged PR. The writers
 are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 `check_status_transition` in `src/rules/status.rs` judges every move. The allowed moves:
@@ -392,7 +392,9 @@ A follow-up ticket can continue the open PR of a Done or Dropped ticket on its b
 PR URL (`evidence-pr-url`) of a repo of the initiative (`repo-not-in-initiative`) that exists
 (`evidence-pr-missing`); open; a crew branch `<dev_branch_prefix><agent>/<n>-<slug>`; and ticket
 `<n>` is Done or Dropped, or in Backlog or Ready with a reassign notice that names this PR
-(`adopt-pr-parent-not-done`). The signed creation `info` of the new ticket gets
+(`adopt-pr-parent-not-done`). The status of ticket `<n>` is the one of its signed log, as
+`status` and `audit` judge it. A board Status alone does not count: the crew token can write it.
+To end the old ticket first, run `close <n> --why "<text>"`. The signed creation `info` of the new ticket gets
 `adopts-pr: <url> branch: <branch>`. Only that coordinator line lets `done` and `merge` accept
 the branch. The PR body must close the new ticket.
 

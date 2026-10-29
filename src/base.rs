@@ -131,6 +131,9 @@ pub enum GhError {
     },
     /// The answer has a different shape than expected.
     Shape(String),
+    /// A list that the caller needs complete has more pages than crewboard reads
+    /// (`github::paging::MAX_PAGES`). A repeat gives the same answer.
+    PageLimit(String),
     /// "temporary conflict" after the retries were used up.
     ConflictExhausted(String),
 }
@@ -156,6 +159,7 @@ impl fmt::Display for GhError {
                 Ok(())
             }
             GhError::Shape(m) => write!(f, "unexpected GitHub answer: {m}"),
+            GhError::PageLimit(m) => write!(f, "list too long: {m}"),
             GhError::ConflictExhausted(m) => {
                 write!(f, "GitHub write conflict persisted after 3 retries: {m}")
             }

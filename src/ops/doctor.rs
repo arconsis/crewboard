@@ -1041,11 +1041,10 @@ fn check_board_side(
     {
         rep.warnings.push(w);
     }
-    let has_dropped = ctx.board.fields.get("Status").is_some_and(|f| {
-        f.option_id(crate::rules::status::Status::Dropped.name())
-            .is_some()
-    });
-    if let Some(w) = dropped_option_warning(has_dropped) {
+    if let Some(w) = dropped_option_warning(
+        ctx.board
+            .has_status_option(crate::rules::status::Status::Dropped),
+    ) {
         rep.warnings.push(w);
     }
     let join_cmd = format!(

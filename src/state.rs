@@ -29,7 +29,8 @@
 //! the file again, merges `selftest_used` (union) and `deferred` (the events this copy added are
 //! added, the ones it consumed are removed, the ones a concurrent writer added stay), and writes
 //! the result atomically. `posted_notes` is merged too (`NoteState::merge_disk`): a note that
-//! a concurrent writer recorded stays, a note that it forgot stays forgotten. Every other key is
+//! a concurrent writer recorded stays, a note that it forgot stays forgotten. So is
+//! `notes_recheck` (a union; a mark that this copy cleared stays cleared). Every other key is
 //! cache: the copy that saves last wins, and a lost value costs one read.
 
 pub use crate::events::TicketSnap;
@@ -207,14 +208,53 @@ pub const MAX_NOTE_TICKETS: usize = 300;
 /// ticket gets no new note, so its memory ends 90 days after the close.
 pub const NOTE_KEEP_SECS: i64 = 90 * 24 * 3600;
 
+/// The key of a ticket in the note memory ([`NoteState`]): `owner/repo#n` with the repo in lower
+/// case. GitHub owner and repo names are case-insensitive, so `Org/Repo#7` and `org/repo#7` are
+/// one ticket. Every record and every lookup of the memory builds its key here.
+pub fn note_key(repo: &str, issue: u64) -> String {
+    format!("{}#{issue}", repo.to_ascii_lowercase())
+}
+
+/// What a remembered note is (`ops::own_notes::note_kind`). The state file holds the kebab-case
+/// name (`close`, `verify-pass`, `verify-fail`, `assignment`, `reassign`, `creation`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NoteKind {
+    /// A close note of every kind (Done or Dropped).
+    Close,
+    VerifyPass,
+    VerifyFail,
+    Assignment,
+    Reassign,
+    Creation,
+    /// A name that this build does not know (a file of a later build): kept, so that the file
+    /// still loads.
+    #[serde(other)]
+    Other,
+}
+
+impl NoteKind {
+    /// The name in the state file and in the event text.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NoteKind::Close => "close",
+            NoteKind::VerifyPass => "verify-pass",
+            NoteKind::VerifyFail => "verify-fail",
+            NoteKind::Assignment => "assignment",
+            NoteKind::Reassign => "reassign",
+            NoteKind::Creation => "creation",
+            NoteKind::Other => "other",
+        }
+    }
+}
+
 /// One signed note that this agent posted on a ticket.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PostedNote {
     /// The GitHub comment id.
     pub id: u64,
-    /// What the note is: `close`, `verify-pass`, `verify-fail`, `assignment`, `reassign` or
-    /// `creation` (`ops::own_notes::note_kind`).
-    pub kind: String,
+    /// What the note is.
+    pub kind: NoteKind,
     /// When it was posted (Unix seconds).
     pub at: i64,
 }
@@ -229,17 +269,49 @@ pub struct PostedNote {
 pub struct NoteState {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub posted_notes: BTreeMap<String, Vec<PostedNote>>,
-    /// Tickets (`owner/repo#n`) whose comments the next cycle reads again: the last read failed,
-    /// or the board Status contradicts the signed log while a remembered note is still there.
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    pub notes_recheck: BTreeSet<String>,
+    /// Tickets (`owner/repo#n`) whose comments a later cycle reads again (the last read failed,
+    /// a gone note waits until its event is reported, or the board Status contradicts the signed
+    /// log while a remembered close note is still there), with the time (Unix seconds) of the
+    /// mark or of the last read that kept it. A cycle reads at most
+    /// `ops::own_notes::RECHECKS_PER_CYCLE` of them, the oldest first, so the reads rotate.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "recheck_any"
+    )]
+    pub notes_recheck: BTreeMap<String, i64>,
     /// The note ids of the file when this copy last read it, so that a merge can tell what a
     /// concurrent writer added or forgot. Not part of the file.
     #[serde(skip)]
     pub(crate) notes_loaded: BTreeSet<u64>,
+    /// The recheck marks of the file when this copy last read it (see `notes_loaded`). Not part
+    /// of the file.
+    #[serde(skip)]
+    pub(crate) recheck_loaded: BTreeMap<String, i64>,
+}
+
+/// `notes_recheck` as a map, or as the list that an earlier build wrote (each mark then counts as
+/// the oldest).
+fn recheck_any<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, i64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Form {
+        Map(BTreeMap<String, i64>),
+        List(Vec<String>),
+    }
+    Ok(match Form::deserialize(d)? {
+        Form::Map(m) => m,
+        Form::List(l) => l.into_iter().map(|k| (k, 0)).collect(),
+    })
 }
 
 impl NoteState {
+    /// Mark a ticket for a recheck at `now` (a mark that is there already moves to `now`: it
+    /// goes to the back of the rotation).
+    pub fn mark(&mut self, ticket: &str, now: i64) {
+        self.notes_recheck.insert(ticket.to_string(), now);
+    }
+
     /// The remembered notes of one ticket, oldest first.
     pub fn of(&self, ticket: &str) -> &[PostedNote] {
         self.posted_notes.get(ticket).map_or(&[], Vec::as_slice)
@@ -277,11 +349,37 @@ impl NoteState {
                 .is_some_and(|(repo, _)| repos.iter().any(|r| r.eq_ignore_ascii_case(repo)))
         };
         self.posted_notes.retain(|k, _| ours(k));
-        self.notes_recheck.retain(|k| ours(k));
+        self.notes_recheck.retain(|k, _| ours(k));
+    }
+
+    /// Put the keys of a file that an older build wrote ([`note_key`]: the repo in lower case)
+    /// together. The notes of `Org/Repo#7` and `org/repo#7` are one list.
+    pub(crate) fn normalize_keys(&mut self) {
+        let odd: Vec<String> = self
+            .posted_notes
+            .keys()
+            .filter(|k| k.to_ascii_lowercase() != **k)
+            .cloned()
+            .collect();
+        for k in odd {
+            if let Some(list) = self.posted_notes.remove(&k) {
+                let to = self.posted_notes.entry(k.to_ascii_lowercase()).or_default();
+                for n in list {
+                    if !to.iter().any(|x| x.id == n.id) {
+                        to.push(n);
+                    }
+                }
+            }
+        }
+        self.notes_recheck = std::mem::take(&mut self.notes_recheck)
+            .into_iter()
+            .map(|(k, at)| (k.to_ascii_lowercase(), at))
+            .collect();
     }
 
     /// Apply the bound of the type text.
     pub fn bound(&mut self, now: i64) {
+        self.normalize_keys();
         for list in self.posted_notes.values_mut() {
             list.sort_by_key(|n| n.id);
             let extra = list.len().saturating_sub(MAX_NOTES_PER_TICKET);
@@ -305,14 +403,27 @@ impl NoteState {
             }
         }
         let kept: BTreeSet<String> = self.posted_notes.keys().cloned().collect();
-        self.notes_recheck.retain(|k| kept.contains(k));
+        self.notes_recheck.retain(|k, _| kept.contains(k));
+    }
+
+    /// What this copy read from the file: the keys in one spelling, and the ids and marks of the
+    /// file as the base of the next merge.
+    pub(crate) fn loaded(&mut self) {
+        self.normalize_keys();
+        self.notes_loaded = self.ids();
+        self.recheck_loaded = self.notes_recheck.clone();
     }
 
     /// Merge the notes of the file (`disk`) into this copy. A note that the file has and this
     /// copy did not know at its last read was recorded by a concurrent writer: it is added. A
     /// note that this copy knew from the file and that the file does not have any more was
     /// forgotten by a concurrent writer: it goes. A note that this copy forgot stays forgotten.
-    /// Afterwards this copy counts the file's ids as read.
+    ///
+    /// The recheck marks are a union: a mark of the file that this copy did not see at its last
+    /// read was set by a concurrent writer and is added; a mark that this copy set or moved since
+    /// then stays. A mark that this copy cleared on purpose (it read the mark from the file and
+    /// does not have it now) stays cleared, and a mark that a concurrent writer cleared goes when
+    /// this copy did not touch it. Afterwards this copy counts the file's ids and marks as read.
     pub(crate) fn merge_disk(&mut self, disk: &NoteState, now: i64) {
         let on_disk = disk.ids();
         let known = std::mem::take(&mut self.notes_loaded);
@@ -331,8 +442,17 @@ impl NoteState {
                     .push(n.clone());
             }
         }
+        let marked = std::mem::take(&mut self.recheck_loaded);
+        self.notes_recheck
+            .retain(|k, at| disk.notes_recheck.contains_key(k) || marked.get(k) != Some(at));
+        for (k, at) in &disk.notes_recheck {
+            if !self.notes_recheck.contains_key(k) && marked.get(k) != Some(at) {
+                self.notes_recheck.insert(k.clone(), *at);
+            }
+        }
         self.bound(now);
         self.notes_loaded = on_disk;
+        self.recheck_loaded = disk.notes_recheck.clone();
     }
 }
 
@@ -385,7 +505,7 @@ impl StateCache {
                 Ok(text) => match serde_json::from_str::<Self>(&text) {
                     Ok(mut s) => {
                         s.liveness.deferred_loaded = s.liveness.deferred.clone();
-                        s.notes.notes_loaded = s.notes.ids();
+                        s.notes.loaded();
                         return s;
                     }
                     Err(e) => {
@@ -967,9 +1087,31 @@ mod tests {
     fn posted(id: u64, at: i64) -> PostedNote {
         PostedNote {
             id,
-            kind: "close".into(),
+            kind: NoteKind::Close,
             at,
         }
+    }
+
+    #[test]
+    fn the_note_kinds_keep_their_names_in_the_state_file() {
+        let all = [
+            NoteKind::Close,
+            NoteKind::VerifyPass,
+            NoteKind::VerifyFail,
+            NoteKind::Assignment,
+            NoteKind::Reassign,
+            NoteKind::Creation,
+        ];
+        for k in all {
+            let text = serde_json::to_string(&k).unwrap();
+            assert_eq!(text, format!("\"{}\"", k.as_str()));
+            assert_eq!(serde_json::from_str::<NoteKind>(&text).unwrap(), k);
+        }
+        // a name of a later build loads as Other, so the file is not lost
+        assert_eq!(
+            serde_json::from_str::<NoteKind>("\"pin\"").unwrap(),
+            NoteKind::Other
+        );
     }
 
     #[test]
@@ -988,9 +1130,9 @@ mod tests {
             posted(900, now - NOTE_KEEP_SECS - 1),
             now - NOTE_KEEP_SECS - 1,
         );
-        n.notes_recheck.insert("o/r#2".into());
+        n.mark("o/r#2", now);
         n.bound(now);
-        assert!(n.of("o/r#2").is_empty() && !n.notes_recheck.contains("o/r#2"));
+        assert!(n.of("o/r#2").is_empty() && !n.notes_recheck.contains_key("o/r#2"));
         // above the ticket cap, the ticket with the oldest newest note goes first
         let mut m = NoteState::default();
         for t in 0..(MAX_NOTE_TICKETS as i64 + 2) {
@@ -1006,6 +1148,73 @@ mod tests {
         // control: forget removes one note, and the empty ticket with it
         m.forget("o/r#12", 2);
         assert!(!m.posted_notes.contains_key("o/r#12"));
+    }
+
+    #[test]
+    fn a_save_merges_the_recheck_marks_and_a_mark_that_this_copy_cleared_stays_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let now = crate::clock::now_epoch();
+        let mut first = StateCache::default();
+        for t in 1..=3 {
+            first
+                .notes
+                .record(&format!("o/r#{t}"), posted(t * 10, now), now);
+        }
+        first.notes.mark("o/r#1", 100);
+        first.notes.mark("o/r#3", 100);
+        first.save(&p).unwrap();
+        // a long `watch` and a ticket command load the file
+        let mut watch = StateCache::load(&p);
+        let mut cmd = StateCache::load(&p);
+        // the command marks ticket 2 (its read failed) and clears ticket 3
+        cmd.notes.mark("o/r#2", 200);
+        cmd.notes.notes_recheck.remove("o/r#3");
+        cmd.save(&p).unwrap();
+        // the watch read ticket 1 and cleared its mark on purpose; it did not touch ticket 3
+        watch.notes.notes_recheck.remove("o/r#1");
+        watch.save(&p).unwrap();
+        let back = StateCache::load(&p);
+        assert_eq!(
+            back.notes.notes_recheck,
+            [("o/r#2".to_string(), 200)].into(),
+            "the concurrent mark stays, both clears stay"
+        );
+        // a copy that moves a mark after its read keeps it, although the file cleared it
+        let mut stale = StateCache::load(&p);
+        let mut other = StateCache::load(&p);
+        other.notes.notes_recheck.remove("o/r#2");
+        other.save(&p).unwrap();
+        stale.notes.mark("o/r#2", 300);
+        stale.save(&p).unwrap();
+        assert_eq!(
+            StateCache::load(&p).notes.notes_recheck,
+            [("o/r#2".to_string(), 300)].into()
+        );
+        // control: a refresh brings a concurrent mark into a copy in memory
+        let mut mem = StateCache::load(&p);
+        let mut w = StateCache::load(&p);
+        w.notes.mark("o/r#1", 400);
+        w.save(&p).unwrap();
+        mem.refresh_notes(&p);
+        assert_eq!(mem.notes.notes_recheck.get("o/r#1"), Some(&400));
+    }
+
+    #[test]
+    fn the_recheck_marks_of_an_earlier_build_load_as_the_oldest_marks() {
+        // an earlier build wrote the marks as a list; a parse error would empty the whole file
+        let old = r#"{"posted_notes":{"o/r#1":[{"id":10,"kind":"close","at":5}]},"notes_recheck":["o/r#1"]}"#;
+        let s: StateCache = serde_json::from_str(old).unwrap();
+        assert_eq!(s.notes.notes_recheck, [("o/r#1".to_string(), 0)].into());
+        assert_eq!(s.notes.ids(), [10].into());
+        // the current form is a map with the time of the mark, and it round-trips
+        let mut n = StateCache::default();
+        n.notes.record("o/r#2", posted(20, 7), 7);
+        n.notes.mark("o/r#2", 1234);
+        let text = serde_json::to_string(&n).unwrap();
+        assert!(text.contains(r#""notes_recheck":{"o/r#2":1234}"#), "{text}");
+        let back: StateCache = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.notes.notes_recheck, n.notes.notes_recheck);
     }
 
     #[test]

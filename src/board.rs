@@ -192,6 +192,14 @@ fn parse_fields(v: &Value) -> CbResult<BTreeMap<String, FieldInfo>> {
 }
 
 impl Board {
+    /// The Status field of the board has the option of `status` (a board that `init` made
+    /// before the option existed lacks Dropped).
+    pub fn has_status_option(&self, status: crate::rules::status::Status) -> bool {
+        self.fields
+            .get("Status")
+            .is_some_and(|f| f.option_id(status.name()).is_some())
+    }
+
     /// Load the project by owner login and number.
     pub fn load(client: &Client, owner: &str, number: u64) -> CbResult<Board> {
         let kind = owner_info(client, owner)?.kind;

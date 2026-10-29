@@ -5,7 +5,7 @@
 //! `deleted-message` once, and the owner hears of it once. A ticket without a deletion raises
 //! nothing, a failed read raises nothing, and the order "set back, then delete" is seen too.
 
-use crate::support::board::{FakeBoard, REGISTRY};
+use crate::support::board::{FakeBoard, REGISTRY, REPO};
 use crate::support::cli::{GATE, crew, item_in, no_unhandled, run_ok};
 
 /// `(comment id, issue)` of each `deleted-message` event of one `poll --json` of `who`.
@@ -107,8 +107,10 @@ fn a_failed_read_raises_nothing_and_the_next_cycle_reads_again() {
     // the comment list of the ticket cannot be read in this cycle: no event, no false alarm
     fake.fail_once("GET", &format!("issues/{t}/comments"), "");
     let o = fake.run(&c.dir, &["poll", "--json"]);
+    // the move out of Dropped is read by the Status check (`log_check`), which passes its read
+    // to the note check
     assert!(
-        o.stderr.contains("to check the notes of this coordinator"),
+        o.stderr.contains(&format!("cannot read {REPO}#{t}")),
         "{}",
         o.all()
     );
@@ -162,8 +164,9 @@ fn the_headless_tick_sees_a_deleted_verify_report_of_its_own_on_a_ticket_it_load
     std::thread::sleep(std::time::Duration::from_millis(1100));
     let o = h.headless(&["tick"]);
     assert_eq!(o.code, 0, "{}", o.all());
-    let line =
-        format!("SECURITY EVENT deleted-message: fake-owner/fake-repo#{TICKET} comment {report}:");
+    let line = format!(
+        "!! SECURITY EVENT: deleted-message !!\nwhere: fake-owner/fake-repo#{TICKET} comment {report} by (deleted)"
+    );
     assert!(o.stdout.contains(&line), "{}", o.all());
     assert!(o.stdout.contains("told the owner"), "{}", o.all());
     assert_eq!(owner_reports(&h.board), 1);
@@ -174,4 +177,145 @@ fn the_headless_tick_sees_a_deleted_verify_report_of_its_own_on_a_ticket_it_load
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(!o.stdout.contains("deleted-message"), "{}", o.all());
     assert_eq!(owner_reports(&h.board), 1);
+}
+
+/// The owner report of a `deleted-message` event fails once (an injected 500 on the post to the
+/// registry issue).
+fn fail_the_report(fake: &FakeBoard) {
+    fake.fail_once(
+        "POST",
+        &format!("issues/{REGISTRY}/comments"),
+        "Security event: deleted-message",
+    );
+}
+
+#[test]
+fn a_failed_owner_report_in_watch_keeps_the_note_and_the_next_cycle_raises_it_again() {
+    let (fake, c, b) = crew();
+    let (t, item) = dropped_ticket(&fake, &c, &b, "IT failed report watch");
+    assert_eq!(deleted(&fake, &c), vec![]);
+    let note = comment_with(&fake, t, "dropped: no PR needed");
+    fake.delete_comment(note);
+    fake.set_item(&item, "Status", "In Progress");
+    fail_the_report(&fake);
+    // the first cycle cannot report the event and fails; `watch` repeats the cycle with the
+    // same memory, which still holds the note
+    let w = fake.run(
+        &c.dir,
+        &["watch", "--json", "--timeout", "20s", "--interval", "1s"],
+    );
+    assert_eq!(w.code, 0, "{}", w.all());
+    assert!(w.stderr.contains("retrying"), "{}", w.all());
+    assert!(w.stdout.contains("deleted_message"), "{}", w.all());
+    assert!(
+        w.stdout.contains(&format!("\"comment_id\":{note}")),
+        "{}",
+        w.all()
+    );
+    assert_eq!(owner_reports(&fake), 1);
+    // shown and reported: forgotten now, so the next cycle says nothing of it
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(deleted(&fake, &c), vec![]);
+    assert_eq!(owner_reports(&fake), 1);
+    no_unhandled(&fake);
+}
+
+#[test]
+fn a_failed_owner_report_in_poll_keeps_the_note_for_the_next_poll() {
+    let (fake, c, b) = crew();
+    let (t, item) = dropped_ticket(&fake, &c, &b, "IT failed report poll");
+    assert_eq!(deleted(&fake, &c), vec![]);
+    let note = comment_with(&fake, t, "dropped: no PR needed");
+    fake.delete_comment(note);
+    fake.set_item(&item, "Status", "In Progress");
+    fail_the_report(&fake);
+    let o = fake.run(&c.dir, &["poll", "--json"]);
+    assert_ne!(o.code, 0, "{}", o.all());
+    assert!(!o.stdout.contains("deleted_message"), "{}", o.all());
+    assert_eq!(owner_reports(&fake), 0);
+    // the next poll raises it again and reports it once
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(deleted(&fake, &c), vec![(note, t)]);
+    assert_eq!(owner_reports(&fake), 1);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(deleted(&fake, &c), vec![]);
+    no_unhandled(&fake);
+}
+
+#[test]
+fn a_failed_owner_report_in_tick_keeps_the_note_and_the_next_tick_raises_it_again() {
+    use crate::support::headless::{Hub, Scenario, TICKET};
+    let h = Hub::new(Scenario {
+        body: "Goal: fix it\nGate: ci\n",
+        may_merge: true,
+        ci_green: false,
+    });
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let report = comment_with(&h.board, TICKET, "verify: fail");
+    h.board.delete_comment(report);
+    h.board.set_item("PVTI_ticket", "Status", "Review");
+    fail_the_report(&h.board);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // the report fails, so the tick fails and shows nothing of the event
+    let o = h.headless(&["tick"]);
+    assert_ne!(o.code, 0, "{}", o.all());
+    assert!(!o.stdout.contains("deleted-message"), "{}", o.all());
+    assert_eq!(owner_reports(&h.board), 0);
+    // the next tick raises it again, reports it and shows it
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let line = format!(
+        "!! SECURITY EVENT: deleted-message !!\nwhere: fake-owner/fake-repo#{TICKET} comment {report} by (deleted)"
+    );
+    assert!(o.stdout.contains(&line), "{}", o.all());
+    assert!(o.stdout.contains("told the owner"), "{}", o.all());
+    assert_eq!(owner_reports(&h.board), 1);
+    // settled: the next tick says nothing of it
+    h.board.set_item("PVTI_ticket", "Status", "Review");
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(!o.stdout.contains("deleted-message"), "{}", o.all());
+    assert_eq!(owner_reports(&h.board), 1);
+}
+
+#[test]
+fn a_ticket_whose_board_item_was_deleted_is_read_once_by_its_issue_number() {
+    let (fake, c, b) = crew();
+    let (t, item) = dropped_ticket(&fake, &c, &b, "IT item gone");
+    let (_, kept_item) = dropped_ticket(&fake, &c, &b, "IT item gone control");
+    assert_eq!(deleted(&fake, &c), vec![]);
+    // somebody deletes the close note and the board item; the control loses only its item
+    let note = comment_with(&fake, t, "dropped: no PR needed");
+    fake.delete_comment(note);
+    fake.delete_item(&item);
+    fake.delete_item(&kept_item);
+    let not_checked = |v: &serde_json::Value| -> usize {
+        v["events"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .iter()
+            .filter(|e| e["kind"] == "notes-not-checked")
+            .count()
+    };
+    let (v, _) = fake.poll_json(&c);
+    let gone: Vec<u64> = v["security"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter(|s| s["reason"] == "deleted_message")
+        .map(|s| s["comment_id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(gone, vec![note], "{v}");
+    assert_eq!(not_checked(&v), 2, "one note per ticket: {v}");
+    assert_eq!(owner_reports(&fake), 1);
+    // once: the next cycle reads neither ticket again
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let (v, _) = fake.poll_json(&c);
+    assert_eq!(not_checked(&v), 0, "{v}");
+    assert!(!v.to_string().contains("deleted_message"), "{v}");
+    assert_eq!(owner_reports(&fake), 1);
+    no_unhandled(&fake);
 }

@@ -388,18 +388,8 @@ pub fn render_human(c: &Collected, me: &str, cursor_after: &str) -> String {
         ));
     }
     for x in &c.security {
-        s.push_str(&format!(
-            "\n!! SECURITY EVENT: {} !!\nwhere: {}#{} comment {} by {} claiming from={}\ndetail: {}\nurl: {}\n{}\n",
-            x.reason.as_str(),
-            x.repo,
-            x.issue,
-            x.comment_id,
-            x.author,
-            x.claimed_from.as_deref().unwrap_or("(unreadable)"),
-            x.detail,
-            x.url,
-            x.reason.advice()
-        ));
+        s.push('\n');
+        s.push_str(&x.render());
     }
     s
 }
@@ -748,6 +738,11 @@ pub fn cycle(
     let last_ok = now_ts();
     if !collected.is_empty() {
         print_events(out, &collected, &me, &next_text, polls, &last_ok, opts)?;
+    }
+    if !opts.quiet {
+        // Printed, and reported by the duties (a failed report failed the cycle before the
+        // print): a deleted note of this coordinator is forgotten only now.
+        super::own_notes::settle(&mut cache.notes, &collected.security);
     }
     if !opts.quiet {
         store_cursor(ac, cache, &read, &next, &next_text)?;

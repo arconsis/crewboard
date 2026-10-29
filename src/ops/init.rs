@@ -41,6 +41,17 @@ pub struct InitArgs<'a> {
     pub with_ci: bool,
 }
 
+/// The options of the Status field, in board order: required, and the ones a new field gets.
+const STATUS_OPTIONS: &[&str] = &[
+    "Backlog",
+    "Ready",
+    "In Progress",
+    "Review",
+    "Blocked",
+    "Done",
+    "Dropped",
+];
+
 /// The single-select fields of spec/board#fields: name, the options that must exist, and the
 /// options a NEW field is created with. GitHub refuses a single-select field with no option, so
 /// `Agent` (whose options are added at approval) is created with one placeholder,
@@ -49,27 +60,7 @@ pub struct InitArgs<'a> {
 // wanted ones stays.
 pub const SELECT_FIELDS: &[(&str, &[&str], &[&str])] = &[
     ("Kind", &["Work", "Agent"], &["Work", "Agent"]),
-    (
-        "Status",
-        &[
-            "Backlog",
-            "Ready",
-            "In Progress",
-            "Review",
-            "Blocked",
-            "Done",
-            "Dropped",
-        ],
-        &[
-            "Backlog",
-            "Ready",
-            "In Progress",
-            "Review",
-            "Blocked",
-            "Done",
-            "Dropped",
-        ],
-    ),
+    ("Status", STATUS_OPTIONS, STATUS_OPTIONS),
     ("Agent", &[], &["unassigned"]),
     ("Role", &["Coordinator", "Dev"], &["Coordinator", "Dev"]),
     (

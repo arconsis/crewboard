@@ -489,6 +489,13 @@ impl FakeBoard {
         st.items.get_mut(id).expect("item").updated = now_epoch() - secs_ago;
     }
 
+    /// Delete an item from the board, as the web UI does (the issue stays). A read by id then
+    /// gives no node for it.
+    pub fn delete_item(&self, id: &str) {
+        let mut st = self.st.lock().unwrap();
+        assert!(st.items.remove(id).is_some(), "no item {id}");
+    }
+
     /// Mark an item as changed just now, as a board edit does.
     pub fn touch_item(&self, id: &str) {
         let mut st = self.st.lock().unwrap();

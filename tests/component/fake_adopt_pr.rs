@@ -1,8 +1,9 @@
 //! `ticket new --continue-pr <url>` (spec/tickets#a-follow-up-ticket-continues-an-open-pr),
 //! against the fake GitHub of `tests/support/board.rs`.
 //!
-//! The case: the owner set a ticket Done while its PR was still open. The coordinator makes a
-//! follow-up ticket for that PR. The branch of the PR is named for the old ticket, and GitHub
+//! The case: the coordinator dropped a ticket while its PR was still open. The coordinator makes
+//! a follow-up ticket for that PR. The parent counts as ended only by its signed log: a board
+//! Status of Done or Dropped alone does not count. The branch of the PR is named for the old ticket, and GitHub
 //! cannot rename it, so `done` refused it with `evidence-branch-name`. With `--continue-pr` the
 //! coordinator records the branch in the signed creation info of the new ticket, and `done`
 //! (and `merge`) accept it for that ticket. A forged `adopts-pr:` line does not count.
@@ -30,8 +31,8 @@ fn created(o: &Out) -> u64 {
         .unwrap_or_else(|| panic!("no issue number in: {}", o.stdout))
 }
 
-/// The old ticket is Done (the owner set it), and its PR is still open.
-fn case() -> Case {
+/// The old ticket is in Review (its `done` is signed), and its PR is still open.
+fn case_open() -> Case {
     let fake = FakeBoard::new();
     fake.file("AUTHORITY.md", AUTHORITY);
     let c = fake.agent("codex@fake-c", Role::Coordinator);
@@ -48,8 +49,6 @@ fn case() -> Case {
         &b,
         &["done", &ps, "--pr", &pr.url, "--sha", &pr.head],
     );
-    fake.set_item(&parent_item, "Status", "Done");
-    fake.touch_item(&parent_item);
     Case {
         fake,
         c,
@@ -58,6 +57,27 @@ fn case() -> Case {
         parent_item,
         pr,
     }
+}
+
+/// The old ticket is Dropped by a signed `close --why`, and its PR is still open.
+fn case() -> Case {
+    let k = case_open();
+    let _ = k.fake.poll_json(&k.c);
+    run_ok(
+        &k.fake,
+        &k.c,
+        &[
+            "close",
+            &k.parent.to_string(),
+            "--why",
+            "split into a follow-up",
+        ],
+    );
+    assert_eq!(
+        k.fake.item_field(&k.parent_item, "Status").as_deref(),
+        Some("Dropped")
+    );
+    k
 }
 
 /// `ticket new` for the follow-up ticket, run by `who`.
@@ -101,10 +121,8 @@ fn refused_new(k: &Case, who: &Agent, extra: &[&str], rule: &str, text: &str) {
 
 #[test]
 fn a_follow_up_ticket_adopts_the_open_pr_of_a_dropped_ticket() {
-    let k = case();
-    // the coordinator drops the old ticket instead: its PR stays open
-    k.fake.set_item(&k.parent_item, "Status", "Review");
-    k.fake.touch_item(&k.parent_item);
+    let k = case_open();
+    // the coordinator drops the old ticket: its PR stays open
     let _ = k.fake.poll_json(&k.c);
     run_ok(
         &k.fake,
@@ -190,7 +208,7 @@ fn a_follow_up_ticket_adopts_the_open_pr_and_done_and_merge_accept_its_branch() 
     // the old ticket was not touched
     assert_eq!(
         k.fake.item_field(&k.parent_item, "Status").as_deref(),
-        Some("Done")
+        Some("Dropped")
     );
     assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
 }
@@ -217,15 +235,14 @@ fn each_failed_condition_of_the_adoption_is_refused_before_anything_is_created()
         "closed",
     );
 
-    // the ticket that the branch names is not Done
-    let k = case();
-    k.fake.set_item(&k.parent_item, "Status", "Review");
+    // the ticket that the branch names is not Done or Dropped
+    let k = case_open();
     refused_new(
         &k,
         &k.c,
         &["--continue-pr", &k.pr.url],
         "adopt-pr-parent-not-done",
-        "is Review",
+        "is Review by its signed log",
     );
     // ... or it is no ticket at all
     let k = case();
@@ -284,7 +301,7 @@ fn each_failed_condition_of_the_adoption_is_refused_before_anything_is_created()
         "does not exist",
     );
 
-    // control: the same case with a Done ticket and an open PR is accepted
+    // control: the same case with a Dropped ticket and an open PR is accepted
     let k = case();
     let o = ticket_new(&k, &k.c, &["--continue-pr", &k.pr.url]);
     assert_eq!(o.code, 0, "{}", o.all());
@@ -374,5 +391,40 @@ fn a_forged_adopts_pr_line_does_not_open_the_branch_rule() {
     );
     let o = run_ok(&k.fake, &k.b, &done);
     assert!(o.stdout.contains("done: Status Review"), "{}", o.all());
+    assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
+}
+
+#[test]
+fn a_board_status_that_the_signed_log_does_not_end_does_not_open_the_pr_of_a_running_ticket() {
+    let fake = FakeBoard::new();
+    fake.file("AUTHORITY.md", AUTHORITY);
+    let c = fake.agent("codex@fake-c", Role::Coordinator);
+    let b = fake.agent("hermes@fake-b", Role::Dev);
+    let body = format!("Goal: a running ticket.\n\n{GATE}CI: none\n");
+    let parent = fake.ticket_issue("IT running", &body, &["crew:work"]);
+    let ps = parent.to_string();
+    let parent_item = item_in(&run_ok(&fake, &c, &["assign", &ps, "--to", &b.name]));
+    run_ok(&fake, &b, &["take", &ps]);
+    let pr = fake.pr_for(parent, &b.name);
+    let k = Case {
+        fake,
+        c,
+        b,
+        parent,
+        parent_item,
+        pr,
+    };
+    // a crew-token holder writes Dropped (and then Done) on the board; the log says In Progress
+    for board in ["Dropped", "Done"] {
+        k.fake.set_item(&k.parent_item, "Status", board);
+        k.fake.touch_item(&k.parent_item);
+        refused_new(
+            &k,
+            &k.c,
+            &["--continue-pr", &k.pr.url],
+            "adopt-pr-parent-not-done",
+            &format!("is In Progress by its signed log (board: {board})"),
+        );
+    }
     assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
 }
