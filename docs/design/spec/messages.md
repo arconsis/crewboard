@@ -117,7 +117,9 @@ open span and a readable agent item decide whether the agent may act NOW (`assig
 `status`); the item `Key` and `State` do not. That does not void an old message.
 
 A message from a sender that is not trusted (`unknown-sender`) or with a bad signature
-(`bad-signature`) is not delivered to the model (*loud*). The agent that sees it prints
+(`bad-signature`) is not delivered to the model (*loud*). A signed note of the coordinator that
+is gone from its ticket is the security event `deleted-message`; only that coordinator sees it
+([Deleted notes](security-details.md#deleted-notes)). The agent that sees it prints
 `!! SECURITY EVENT` in the output of `watch` (and of `poll` without `--quiet`). The coordinator posts ONE signed `info`
 to the owner in the registry issue per event. Without a coordinator on the board, the agent
 that sees the event posts it. The `event=` line of that `info` keeps a second agent from

@@ -94,7 +94,8 @@ the comment. A run without such a comment makes no extra call. An editor that is
 deleted account) or a history longer than 100 edits counts as "somebody else". If the query
 fails, the read fails and is repeated; no owner message is lost.
 
-Deleted comments are out of scope. A deleted owner comment leaves no trace in the feed, so a
+Deleted comments are out of scope, except a deleted note of the coordinator
+([Deleted notes](#deleted-notes)). A deleted owner comment leaves no trace in the feed, so a
 deleted `/crew reject` stops being a rejection, and a deleted answer is "never arrived". A
 holder of any crew account can do this, and crewboard cannot see it. Keep your own record of
 the registry decisions.
@@ -325,11 +326,51 @@ collaborators short.
 **What a crew account can do.** Every crew account, the shared one and each contributor's own,
 has the Write role on the repos and on the Project. With its token, anybody can: write any board
 field (a Done by hand is detected, not prevented), edit or delete comments (an edited owner
-comment stops counting; a deleted one leaves no trace), push branches, and post a join request
+comment stops counting; a deleted one leaves no trace; a deleted note of the coordinator is
+detected by that coordinator, [Deleted notes](#deleted-notes)), push branches, and post a join request
 for any agent name. Without the private key of an agent it cannot post a message that counts
 for that agent, and since the approval binds an account, a valid signed message that another
 account posts does not count either (`foreign-author`). Revocation is per agent: `/crew reject
 <name>` ends the key, and the owner removes the collaborator access of the account.
+
+## Deleted notes
+
+A holder of a crew token can delete a signed note of the coordinator and set the board back. The
+signed log then agrees with the board, so `status` and `audit` find nothing. A sequence number in
+the header would not help: it cannot show a deleted LAST message, and the close note is usually
+the last one. So the sender remembers what it posted.
+
+- **What is remembered.** `say::send_signed` is the one place that every signed post passes. For
+  a note on a ticket it stores the comment id in the state cache of the agent
+  (`posted_notes`): the close notes of every kind (`dropped:` too), the verify reports (pass and
+  fail), the assignments, the reassign notices and the creation info. Other messages are not
+  stored. The bound: the newest 20 notes per ticket, at most 300 tickets (the ticket with the
+  oldest newest note goes first), and a ticket whose newest note is older than 90 days is
+  forgotten.
+- **When it is compared.** Only with a COMPLETE comment list of the ticket. The read of one issue
+  gives the whole list or an error (a list cut at the page limit is an error), so a cut list is
+  never compared. A failed read compares nothing and marks the ticket for a read at the next
+  cycle. The comment feed of `poll` and `watch` is a time window and is never compared. The
+  coordinator's `poll` and `watch` read a ticket with remembered notes when its board row changed
+  since the last cycle (not by the cycle itself), or while it is marked: after a failed read, or
+  while the board Status contradicts the signed log and a close note of the coordinator is still
+  there (so "set the board back, then delete the note" is seen at the next cycle). Each such read
+  is one REST call, so a legitimate move of a ticket (`take`, `done`) costs one read in the next
+  cycle of the coordinator. The Status check of the cycle
+  ([log_check.rs](../../../src/ops/log_check.rs)) and `tick` compare the lists that they read
+  anyway, with no extra read.
+- **The event.** A remembered id that the list does not have is the security event
+  `deleted-message`, with the ticket, the kind of the note and the comment id. It is raised once
+  per (ticket, comment id): the id is forgotten after the event. The coordinator posts ONE
+  signed `info` to the owner, as for the other security events. A `poll --quiet` keeps the
+  memory as it was, so the next real cycle raises the event.
+- **Limits.** Only the coordinator's own notes, and only that coordinator sees the event. A
+  headless config dir has its own state file, so it sees the notes of its own `tick` only. A
+  fresh host or a lost state file remembers nothing. `audit` and `status`, on any host, cannot
+  see a deletion: they have no memory of what was posted.
+
+See [own_notes.rs](../../../src/ops/own_notes.rs) and [state.rs](../../../src/state.rs)
+(`NoteState`).
 
 ## Who holds which power
 

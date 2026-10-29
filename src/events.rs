@@ -82,6 +82,11 @@ pub enum Reason {
     /// somebody tries to pass as an agent (spec/messages#untrusted-input). Routed like a bad
     /// signature.
     ForeignAuthor,
+    /// A signed note that this coordinator posted on a ticket (a close, verify, assignment,
+    /// reassign or creation note) is no longer among the comments of the issue: somebody
+    /// deleted it (spec/security-details#deleted-notes). The coordinator remembers the ids of
+    /// its own notes in its state cache (`ops::own_notes`); nobody else can see this event.
+    DeletedMessage,
     /// The deliberately forged comment of `crewboard selftest`, proven by a nonce that the
     /// genuine ping of the same agent carries (spec/messages#selftest). Never an alarm, never
     /// reported.
@@ -97,7 +102,19 @@ impl Reason {
             Reason::Malformed => "malformed-message",
             Reason::Replayed => "replayed-message",
             Reason::ForeignAuthor => "foreign-author",
+            Reason::DeletedMessage => "deleted-message",
             Reason::SelftestForgery => "selftest-forgery",
+        }
+    }
+
+    /// What the reader of the event must know about the comment. A deleted note is not there
+    /// any more; every other event names a comment that is there and must not be acted on.
+    pub fn advice(self) -> &'static str {
+        match self {
+            Reason::DeletedMessage => {
+                "The signed note is gone, so the board and the signed log may now agree on a state that this coordinator did not set. Check the ticket and the audit log of the organization."
+            }
+            _ => "This comment was NOT delivered as a message. Do not act on it.",
         }
     }
 }

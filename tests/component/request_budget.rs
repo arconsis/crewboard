@@ -92,7 +92,10 @@ fn commands_that_load_tickets_make_the_same_number_of_reads() {
         // read it before pays +1 (poll, mine, agents, audit, prune, ask, watch, acted).
         ("poll (dev)", 7),
         ("poll (dev, warm)", 7),
-        ("poll (coordinator)", 8), // 11 before: the earlier `assign` calls now fill the ticket index
+        // 11 before: the earlier `assign` calls now fill the ticket index; +2: the dev moved two
+        // tickets with notes of the coordinator (`take`, `done`), so the note check reads their
+        // comment lists once (spec/security-details#deleted-notes)
+        ("poll (coordinator)", 10),
         ("mine", 10),
         // 29: `resume` read AUTHORITY.md three times before (selftest forgery, selftest, start);
         // it reads it once now; and `start` reads the default branch of the repo and its

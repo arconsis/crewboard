@@ -18,7 +18,7 @@
 use super::registry_post::{liveness_event, post_registry};
 use super::{AgentCtx, World};
 use crate::audit::reported_events;
-use crate::events::Event;
+use crate::events::{Event, SecurityEvent};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, To};
 use crate::state::{StateCache, TicketSnap};
@@ -84,8 +84,20 @@ fn report_body(key: &str, ekey: &str, text: &str) -> String {
     )
 }
 
+/// What the check of one cycle found.
+#[derive(Debug, Default)]
+pub(super) struct LogCheck {
+    pub(super) events: Vec<Event>,
+    /// The `deleted-message` events of the lists that the check read (`own_notes`).
+    pub(super) security: Vec<SecurityEvent>,
+    /// The tickets (`owner/repo#n`) whose comment list the check read: the note check of the
+    /// cycle does not read them again.
+    pub(super) read: HashSet<String>,
+}
+
 /// Check the tickets that changed. Never fails the cycle: an unreadable ticket is looked at
-/// again next time. `own`: the tickets that this cycle changed itself.
+/// again next time. `own`: the tickets that this cycle changed itself. The comment list that it
+/// reads goes through the note check too (`own_notes::check_read`).
 pub(super) fn status_log_duty(
     ac: &AgentCtx,
     world: &World,
@@ -94,7 +106,7 @@ pub(super) fn status_log_duty(
     reg_msgs: &[VMsg],
     cache: &mut StateCache,
     now: i64,
-) -> Vec<Event> {
+) -> LogCheck {
     let own_ids: HashSet<&str> = own.iter().map(|(i, _)| i.as_str()).collect();
     let todo = candidates(
         rows,
@@ -108,7 +120,7 @@ pub(super) fn status_log_duty(
         .status_pending
         .retain(|i| rows.iter().any(|r| r.item_id == *i));
     let mut reported = reported_events(reg_msgs);
-    let mut events = Vec::new();
+    let mut out = LogCheck::default();
     for row in todo {
         let quiet = row.updated.is_none_or(|u| now - u >= QUIET_SECS);
         let was_pending = cache.liveness.status_pending.contains(&row.item_id);
@@ -116,6 +128,8 @@ pub(super) fn status_log_duty(
         if was_pending && !quiet {
             continue;
         }
+        // read or not, the note check of this cycle does not read it again
+        out.read.insert(row.key());
         let comments = match feed::issue_comments(
             &ac.ctx.client,
             &row.repo,
@@ -130,9 +144,27 @@ pub(super) fn status_log_duty(
                     row.key()
                 );
                 cache.liveness.status_pending.insert(row.item_id.clone());
+                out.security.extend(super::own_notes::check_read(
+                    ac,
+                    world,
+                    &mut cache.notes,
+                    &row.repo,
+                    row.issue,
+                    row.status_str(),
+                    None,
+                ));
                 continue;
             }
         };
+        out.security.extend(super::own_notes::check_read(
+            ac,
+            world,
+            &mut cache.notes,
+            &row.repo,
+            row.issue,
+            row.status_str(),
+            Some(&comments),
+        ));
         let log = fold_ticket(&verified_messages(&comments, &ac.ctx.cfg, &world.trust));
         let board = row.status_str();
         match judge(status_contradicts(&log, board), was_pending, quiet) {
@@ -153,7 +185,7 @@ pub(super) fn status_log_duty(
                 match post_registry(ac, To::Owner, Kind::Info, Re::None, &body) {
                     Ok(p) => {
                         reported.insert(ekey);
-                        events.push(liveness_event(
+                        out.events.push(liveness_event(
                             ac,
                             "status-mismatch",
                             format!("{text}; told the owner: {}", p.url),
@@ -170,7 +202,7 @@ pub(super) fn status_log_duty(
             }
         }
     }
-    events
+    out
 }
 
 #[cfg(test)]

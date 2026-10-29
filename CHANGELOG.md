@@ -14,6 +14,12 @@ Added:
   continue the open PR of a Dropped ticket (`ticket new --continue-pr`).
 - `init` adds the Status option `Dropped` after `Done`, and the views By Agent and Needs Owner
   filter `-Status:Done,Dropped`. **An existing board needs one `crewboard init` rerun** for the
+  option; the rerun keeps every other option id. A view that exists keeps its old filter.
+- The security event `deleted-message`. The coordinator remembers the comment ids of its own
+  signed notes on a ticket (close, verify, assignment, reassign, creation) in its state file.
+  When `poll`, `watch` or `tick` reads the complete comment list of such a ticket and a note is
+  gone, it raises the event once and tells the owner once. A fresh host or a lost state file
+  remembers nothing, and `audit` cannot see a deletion. No wire change: the format stays `v=1`.
   option; the rerun keeps every other option id. A view that exists keeps its old filter; the
   rerun prints how to add `Dropped` to it in the web UI.
 - `doctor --setup` warns when the Status field has no option Dropped.

@@ -411,6 +411,15 @@ impl FakeBoard {
         c.editors.push(c.login.clone());
     }
 
+    /// Delete a comment, as any account with Write on the repo can (the crew token can). Panics
+    /// when there is no such comment.
+    pub fn delete_comment(&self, id: u64) {
+        let mut st = self.st.lock().unwrap();
+        let before = st.comments.len();
+        st.comments.retain(|c| c.id != id);
+        assert_eq!(st.comments.len() + 1, before, "no comment {id}");
+    }
+
     /// Like [`FakeBoard::edit_comment`], but `editor` made the edit (a user with Write can edit
     /// the comment of another user; the author stays the same).
     pub fn edit_comment_by(&self, id: u64, body: &str, editor: &str) {
