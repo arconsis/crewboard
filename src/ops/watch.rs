@@ -379,7 +379,7 @@ pub fn render_human(c: &Collected, me: &str, cursor_after: &str) -> String {
         ));
     }
     for p in &c.trust_problems {
-        s.push_str(&format!("\nWARNING: not trusted: {p}\n"));
+        s.push_str(&format!("\nWARNING: trust problem: {p}\n"));
     }
     if !c.selftest_forgeries.is_empty() {
         s.push_str(&format!(
@@ -443,22 +443,44 @@ pub struct CycleOut {
     pub no_events_line: Option<String>,
 }
 
-/// The state of the agent item: a departed agent stops (exit 2, not "no events"), and a running
-/// one writes its heartbeat once per interval (spec/board#fields), also when paused or draining:
-/// a paused agent is alive.
+/// The state of the agent: a departed agent stops (exit 2, not "no events"), and a running one
+/// writes its heartbeat once per interval (spec/board#fields), also when paused or draining: a
+/// paused agent is alive. The registry log decides who departed: its marker or a reject ends
+/// the agent; State `left` stops the loop only when the log stops the agent too (the owner's
+/// `/crew stop` of a forced stop). A State `left` alone (a hand edit) does not stop it.
 fn check_state_and_heartbeat(
     ac: &AgentCtx,
+    world: &World,
     me: &str,
     item_id: &str,
     my_item: &crate::items::ItemSnapshot,
     now: i64,
 ) -> CbResult<()> {
     let state = my_item.field("State");
-    if state == Some("left") {
-        return Err(CbError::refused(
-            "agent-left",
-            format!("{me} has left (State left); stop this loop"),
-        ));
+    let departure = world.reg.agents.get(me).and_then(|e| e.departure);
+    match departure {
+        Some(d) if d.ended() => {
+            return Err(CbError::refused(
+                "agent-left",
+                format!(
+                    "the registry log ended {me}: it {}; stop this loop",
+                    d.reason()
+                ),
+            ));
+        }
+        Some(d) if state == Some("left") => {
+            return Err(CbError::refused(
+                "agent-left",
+                format!(
+                    "{me} has left (State left; the log: it {}); stop this loop",
+                    d.reason()
+                ),
+            ));
+        }
+        None if state == Some("left") => eprintln!(
+            "crewboard: {me} is left on the board, but the registry log has no stop of it; the log decides, so this loop goes on"
+        ),
+        _ => {}
     }
     if state.is_some_and(heartbeat_state)
         && heartbeat_due(
@@ -666,7 +688,7 @@ fn no_events_line(
         .to_string()
     } else {
         format!(
-            "no events: {} (foreign comments dropped this cycle: {}; agents not trusted: {})",
+            "no events: {} (foreign comments dropped this cycle: {}; trust problems: {})",
             status_line(&cursor.encode(), polls, Some(last_ok)),
             collected.foreign,
             collected.trust_problems.len()
@@ -694,7 +716,7 @@ pub fn cycle(
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
-    check_state_and_heartbeat(ac, &me, &item_id, my_item, now)?;
+    check_state_and_heartbeat(ac, &world, &me, &item_id, my_item, now)?;
     let read = read_cursor(ac, cache, my_item, opts, now)?;
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();
@@ -1013,7 +1035,7 @@ mod tests {
         assert!(t.contains("from: claude@a (verified)"));
         assert!(t.contains("SECURITY EVENT: bad-signature"));
         assert!(t.contains("NOT delivered"));
-        assert!(t.contains("WARNING: not trusted: x@y"));
+        assert!(t.contains("WARNING: trust problem: x@y"));
         assert!(t.contains("2 foreign comment(s) dropped"));
         // an unverified-looking event would not carry the marker
         let mut c = sample();

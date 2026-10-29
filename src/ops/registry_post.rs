@@ -52,3 +52,10 @@ pub(super) fn post_registry(
         &now_ts(),
     )
 }
+
+/// The key (`event=` line) of the owner note on a board `State` that the registry log does not
+/// support. The coordinator's own `stop --force` writes it into its notice, so that notice is
+/// the report and the cycle does not repeat it.
+pub(super) fn state_event_key(agent: &str, state: &str) -> String {
+    format!("{agent}/state:{state}")
+}

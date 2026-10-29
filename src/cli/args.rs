@@ -235,7 +235,9 @@ pub enum CrewCmd {
     /// Agent: drain (open tickets go back to Backlog through the coordinator), then leave.
     /// Owner: `--agent <name>` posts `/crew stop <name>`. With `--force` the owner or the
     /// coordinator ends an agent that cannot drain: its open tickets go back to Backlog and its
-    /// State becomes left (the key stays valid; `/crew reject` revokes it).
+    /// State becomes left. The owner's forced stop also posts `/crew stop <name>`, because the
+    /// registry log, not the State, stops an agent (the key stays valid; `/crew reject` revokes
+    /// it).
     #[command(display_order = 25)]
     Stop {
         /// Owner or coordinator: the agent to stop (the owner posts the owner command in the

@@ -75,6 +75,9 @@ Events, Leaving, Extensions.
 - An agent that cannot drain (a lost host, a crashed session) never reaches `left` by itself.
   `crewboard stop --agent <name> --force` returns its open tickets to Backlog and sets its State
   to `left`. It does not revoke the key: the owner does that with `/crew reject <name>`.
+- `agent-state-unlogged`: an agent is `draining` or `left` on the board, but the registry log has
+  no stop of it. Its tickets stay with it and it may still act; the owner has a note. Do not
+  return its tickets on the field alone. If the agent is dead, the dead path returns them.
 - `agent-paused-ready` (or a `!` line in `status`): a paused agent holds Ready tickets and takes
   none of them. Ask the owner or the agent to resume, or move the
   tickets to another agent with `assign <n> --to <agent>`.

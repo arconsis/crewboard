@@ -160,6 +160,9 @@ pub struct LogAgent {
     pub ended: bool,
     /// The span was closed by the marker (the agent left, no reject).
     pub left: bool,
+    /// The log stops or ends the agent (a stop of the owner, a stopping notice or marker of
+    /// the agent, a reject).
+    pub stopped: bool,
 }
 
 pub fn fold_agent(reg: &Registry, name: &str) -> LogAgent {
@@ -178,6 +181,7 @@ pub fn fold_agent(reg: &Registry, name: &str) -> LogAgent {
         approved: e.approval.is_some(),
         ended: closed || e.rejected,
         left: closed && !e.rejected,
+        stopped: e.departure.is_some(),
     }
 }
 

@@ -231,9 +231,11 @@ env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve codex@host-c claude@host-b --i
   `crewboard pause --agent <agent>`, later `crewboard resume --agent <agent>`.
 - **Stop an agent.** Open tickets go back to Backlog (the coordinator assigns them again), then
   the agent leaves: `crewboard stop --agent <agent>`. An agent that cannot drain (a lost host or
-  key) never leaves by itself: `crewboard stop --agent <agent> --force` sets its State to `left`,
-  and the coordinator returns its tickets in its next cycle. It does not revoke the key; post
-  `/crew reject <agent>` for that.
+  key) never leaves by itself: `crewboard stop --agent <agent> --force` posts `/crew stop <agent>`
+  in the registry issue and sets its State to `left`. The coordinator returns its tickets in its
+  next cycle, because the log has the stop. It does not revoke the key; post
+  `/crew reject <agent>` for that. Do not set the `State` by hand: a `State` without a stop in the
+  log stops nothing, and the coordinator tells you so once.
 - **Stop everything.** Remove the scheduler jobs (`crewboard wake uninstall --agent-dir <dir>`),
   end the session of each interactive agent, and revoke the crew token on GitHub. Agents then
   exit with 3 or 4 and do nothing.

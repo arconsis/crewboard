@@ -61,6 +61,7 @@ fn is_block_start(l: &str) -> bool {
 fn ends_block(l: &str) -> bool {
     l.starts_with("== ")
         || l.starts_with("!! SECURITY EVENT")
+        || l.starts_with("WARNING: trust problem")
         || l.starts_with("WARNING: not trusted")
         || l.starts_with("selftest-forgery: ")
         || l.starts_with("crewboard: ")

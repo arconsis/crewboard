@@ -2,7 +2,7 @@
 //! paused agent with Ready tickets (spec/tickets#status-flow-and-writers, spec/board#lifecycle),
 //! against the fake GitHub.
 
-use crate::support::board::{Agent, FakeBoard, INITIATIVE, REGISTRY, REPO};
+use crate::support::board::{Agent, FakeBoard, INITIATIVE, OWNER, REGISTRY, REPO};
 use crate::support::cli::{GATE, no_unhandled, run_ok, run_refused, writes};
 use crewboard::rules::Role;
 
@@ -214,7 +214,156 @@ fn stop_force_by_the_coordinator_returns_the_tickets_and_the_agent_has_left() {
         "stop-force-already-left",
     );
     assert_eq!(writes(&fake), before);
+    // the coordinator cannot end the span of an agent: the log has no stop of b, and the notice
+    // above is the one report of that (its `event=` key), so the cycle adds no second note
+    let _ = fake.poll_json(&c);
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 0);
+    assert!(
+        fake.comments_of(REGISTRY)
+            .iter()
+            .any(|(_, _, body)| body.contains("event=hermes@fake-b/state:left")),
+        "the notice carries the key"
+    );
+    // b keeps its span: it may still act (it reads the reassign notice first)
+    let _ = fake.run(&b.dir, &["watch", "--timeout", "1s"]);
+    run_ok(
+        &fake,
+        &b,
+        &[
+            "say",
+            &busy.to_string(),
+            "--to",
+            "coordinator",
+            "--kind",
+            "info",
+            "--body",
+            "still here",
+        ],
+    );
+    // the owner records the stop in the log: the State is left already, so only the command
+    let owner = fake.owner_dir();
+    let o = fake.run(
+        owner.path(),
+        &[
+            "stop",
+            "--agent",
+            &b.name,
+            "--force",
+            "--initiative",
+            INITIATIVE,
+        ],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout
+            .contains("owner command posted: /crew stop hermes@fake-b"),
+        "{}",
+        o.stdout
+    );
     no_unhandled(&fake);
+}
+
+/// The signed notes to the owner on a board State that the log does not support.
+fn unlogged_notes(fake: &FakeBoard) -> usize {
+    fake.comments_of(REGISTRY)
+        .iter()
+        .filter(|(_, _, body)| body.contains("Board State without a stop in the log: "))
+        .count()
+}
+
+#[test]
+fn a_hand_written_state_left_neither_mutes_the_agent_nor_returns_its_tickets_and_is_reported() {
+    let (fake, c, _a, b) = crew();
+    let t = in_progress(&fake, &c, &b, "IT hand-written left");
+    // a crew-token holder writes the field: one write, no log entry
+    fake.set_item(&b.item_id, "State", "left");
+    fake.touch_item_ago(&b.item_id, 300);
+    // the agent is not muted: it still speaks, and `status` lists it as trusted with the problem
+    run_ok(
+        &fake,
+        &b,
+        &[
+            "say",
+            &t.to_string(),
+            "--to",
+            "coordinator",
+            "--kind",
+            "info",
+            "--body",
+            "still working",
+        ],
+    );
+    let o = run_ok(&fake, &c, &["status", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(o.stdout.trim()).unwrap();
+    let problems = v["trust_problems"].as_array().unwrap();
+    assert!(
+        problems.iter().any(|p| p
+            .as_str()
+            .unwrap()
+            .contains("hermes@fake-b: item State is 'left' but the registry log has not stopped or ended this agent")),
+        "{v}"
+    );
+    // its own loop goes on (the log has not ended it)
+    let o = fake.run(&b.dir, &["poll"]);
+    assert_ne!(o.code, 2, "{}", o.all());
+    assert!(!o.stderr.contains("agent-left"), "{}", o.all());
+    // the coordinator returns nothing and tells the owner once: the first sight may be a write
+    // in flight, the next cycle that still sees it reports it
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 0);
+    let (v, _) = fake.poll_json(&c);
+    assert_eq!(status(&fake, t).as_deref(), Some("In Progress"), "{v}");
+    assert_eq!(agent_of(&fake, t).as_deref(), Some(b.name.as_str()));
+    assert!(
+        v["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["kind"] == "agent-state-unlogged"),
+        "{v}"
+    );
+    assert!(
+        !v["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["kind"] == "agent-stopped"),
+        "{v}"
+    );
+    assert_eq!(unlogged_notes(&fake), 1);
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 1, "reported once");
+    // a derived reassign is not justified by the field either
+    run_refused(
+        &fake,
+        &c,
+        &["reassign", &t.to_string(), "--derived"],
+        "status-reassign-not-justified",
+    );
+    assert_eq!(status(&fake, t).as_deref(), Some("In Progress"));
+    no_unhandled(&fake);
+}
+
+#[test]
+fn a_state_write_that_the_log_follows_at_once_is_not_reported() {
+    let (fake, c, _a, b) = crew();
+    let _ = fake.poll_json(&c);
+    fake.set_item(&b.item_id, "State", "draining");
+    // a write in flight: the agent signs its notice a moment after the field
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 0);
+    run_ok(&fake, &b, &["stop"]);
+    let _ = fake.poll_json(&c);
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 0);
+    // control: a field that the log never follows is reported at the second sight
+    let x = fake.agent("claude@fake-x", Role::Dev);
+    fake.set_item(&x.item_id, "State", "left");
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 0);
+    let _ = fake.poll_json(&c);
+    assert_eq!(unlogged_notes(&fake), 1);
 }
 
 #[test]
@@ -275,6 +424,19 @@ fn stop_force_by_the_owner_writes_the_state_and_the_coordinator_returns_the_tick
         fake.item_field(&b.item_id, "State").as_deref(),
         Some("left")
     );
+    // the stop is in the registry log: the owner command, as the owner account
+    assert!(
+        o.stdout
+            .contains("owner command posted: /crew stop hermes@fake-b"),
+        "{}",
+        o.stdout
+    );
+    let stops: Vec<_> = fake
+        .comments_of(REGISTRY)
+        .into_iter()
+        .filter(|(_, login, body)| login == OWNER && body == "/crew stop hermes@fake-b")
+        .collect();
+    assert_eq!(stops.len(), 1, "{:?}", fake.comments_of(REGISTRY));
     // the owner has no signing identity: the ticket waits for the coordinator's cycle
     assert_eq!(status(&fake, t).as_deref(), Some("In Progress"));
     let (v, _) = fake.poll_json(&c);
@@ -284,10 +446,33 @@ fn stop_force_by_the_owner_writes_the_state_and_the_coordinator_returns_the_tick
             .unwrap()
             .iter()
             .any(|e| e["kind"] == "agent-stopped"
-                && e["body"].as_str().unwrap().contains("to Backlog")),
+                && e["body"].as_str().unwrap().contains("to Backlog")
+                && e["body"]
+                    .as_str()
+                    .unwrap()
+                    .contains("the owner's /crew stop")),
         "{v}"
     );
     assert_eq!(status(&fake, t).as_deref(), Some("Backlog"));
+    // a State left with the stop in the log: no report, and the loop of the agent stops
+    assert_eq!(unlogged_notes(&fake), 0);
+    let o = fake.run(&b.dir, &["poll"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("agent-left"), "{}", o.all());
+    // a repeat has nothing to do
+    let o = fake.run(
+        owner.path(),
+        &[
+            "stop",
+            "--agent",
+            &b.name,
+            "--force",
+            "--initiative",
+            INITIATIVE,
+        ],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("stop-force-already-left"), "{}", o.all());
 }
 
 #[test]

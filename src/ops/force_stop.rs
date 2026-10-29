@@ -4,31 +4,36 @@
 //!
 //! A normal `stop` needs the agent itself: it drains, the coordinator returns the tickets, and
 //! the agent signs the `left` marker. A dead agent does none of this, so a plain `stop` waits
-//! for ever. The forced stop writes the State field from outside and does NOT end the key's span
-//! in the registry (only the agent can sign the marker): the key stays valid. To revoke it, the
-//! owner runs `/crew reject <name>`.
+//! for ever. The forced stop does NOT end the key's span in the registry (only the agent's
+//! marker and the owner's `/crew reject` do): the key stays valid. To revoke it, the owner runs
+//! `/crew reject <name>`.
 //!
-//! The coordinator returns the tickets at once and signs one notice to the owner. The owner has
-//! no signing identity, so the owner's forced stop writes the State only: the coordinator's next
-//! cycle returns the tickets of an agent in State `left` (the duty of departed agents).
+//! The coordinator returns the tickets at once, writes `State = left`, and signs one notice to
+//! the owner. The owner has no signing identity, so the owner's forced stop posts the owner
+//! command `/crew stop <name>` in the registry issue (the log records the stop) and writes
+//! `State = left` as the board mirror. The coordinator's next cycle returns the tickets of an
+//! agent that the log stops. A board `State = left` alone returns nothing (spec/board#lifecycle).
 
 use super::lifecycle::{open_tickets, rows_of};
+use super::registry_post::state_event_key;
 use super::tickets::{load_world_cached, me_of, reassign_derived, tag_earlier_work};
 use super::{AgentCtx, Global, World, new_client, resolve_board_config};
 use crate::clock::now_ts;
 use crate::ctx::Ctx;
 use crate::error::{CbError, CbResult};
+use crate::feed;
 use crate::protocol::names::{AgentName, Kind, Re, To};
+use crate::registry::Departure;
 use crate::rules::Role;
 use crate::rules::lifecycle::{State, check_force_stop};
 
-/// The target agent: approved, a dev agent, and in a state that can be forced. Returns its item
-/// id and its State.
+/// The target agent: approved, a dev agent, not ended by the registry log. Returns its item id,
+/// its State and what the log says about it. The State checks are the caller's.
 fn target<'a>(
     world: &'a World,
     name: &str,
     me: Option<&str>,
-) -> CbResult<(&'a str, Option<State>)> {
+) -> CbResult<(&'a str, Option<State>, Option<Departure>)> {
     if me == Some(name) {
         return Err(CbError::refused(
             "stop-force-self",
@@ -69,13 +74,18 @@ fn target<'a>(
                 format!("{name} has no agent item on the board"),
             )
         })?;
+    if let Some(d) = entry.departure.filter(|d| d.ended()) {
+        return Err(CbError::refused(
+            "stop-force-already-left",
+            format!("the registry log ended {name} already: it {}", d.reason()),
+        ));
+    }
     let state = world
         .items
         .get(item_id)
         .and_then(|i| i.field("State"))
         .and_then(State::parse);
-    check_force_stop(state)?;
-    Ok((item_id, state))
+    Ok((item_id, state, entry.departure))
 }
 
 /// Write `State left` and `Doing left` on the item of the agent.
@@ -106,14 +116,43 @@ pub fn run(g: &Global, agent: &str) -> CbResult<String> {
     coordinator_stop(&AgentCtx::load(g)?, &name)
 }
 
+/// The owner's forced stop: `/crew stop <name>` in the registry issue (unless the log has the
+/// owner's stop already), then `State = left` as the mirror. A State `left` without a stop in the
+/// log (a hand edit, the coordinator's forced stop) is what this command is for, so it is not
+/// refused; with the stop in the log and State `left` there is nothing left to do.
 fn owner_stop(ctx: &Ctx, name: &AgentName) -> CbResult<String> {
     let world = crate::ctx::load_world(ctx, &[], &mut crate::state::StateCache::default())?;
-    let (item_id, state) = target(&world, name.as_str(), None)?;
-    mark_left(ctx, item_id)?;
-    Ok(format!(
-        "{name} stopped by force (was {}): State left\nthe coordinator returns the open tickets of {name} to Backlog at its next watch or poll cycle\nthe key of {name} stays valid: `/crew reject {name}` revokes it\n",
+    let (item_id, state, departure) = target(&world, name.as_str(), None)?;
+    let logged = matches!(departure, Some(Departure::OwnerStop(_)));
+    if state == Some(State::Left) && logged {
+        return Err(CbError::refused(
+            "stop-force-already-left",
+            format!(
+                "{name} is stopped already: the log has the owner's /crew stop and State is left"
+            ),
+        ));
+    }
+    if state != Some(State::Left) {
+        check_force_stop(state)?;
+    }
+    let posted = if logged {
+        "the registry log has the owner's /crew stop already\n".to_string()
+    } else {
+        let text = format!("/crew stop {name}");
+        let (id, url) =
+            feed::post_comment(&ctx.client, ctx.main_repo(), ctx.cfg.registry_issue, &text)?;
+        format!(
+            "owner command posted: {text} (comment {id}, {url}): the registry log records the stop\n"
+        )
+    };
+    if state != Some(State::Left) {
+        mark_left(ctx, item_id)?;
+    }
+    let out = format!(
+        "{name} stopped by force (was {}): State left\n{posted}the coordinator returns the open tickets of {name} to Backlog at its next watch or poll cycle\nthe key of {name} stays valid: `/crew reject {name}` revokes it\n",
         state.map_or("?", State::name)
-    ))
+    );
+    Ok(out)
 }
 
 fn coordinator_stop(ac: &AgentCtx, name: &AgentName) -> CbResult<String> {
@@ -125,7 +164,8 @@ fn coordinator_stop(ac: &AgentCtx, name: &AgentName) -> CbResult<String> {
             "stop --force is for the coordinator or the owner; a dev agent stops itself with `crewboard stop`",
         ));
     }
-    let (item_id, state) = target(&world, name.as_str(), Some(ac.name.as_str()))?;
+    let (item_id, state, _) = target(&world, name.as_str(), Some(ac.name.as_str()))?;
+    check_force_stop(state)?;
     let rows = rows_of(ac, &world, name.as_str())?;
     let why =
         format!("agent {name} is stopping: the coordinator stopped it by force (it cannot drain)");
@@ -148,8 +188,9 @@ fn coordinator_stop(ac: &AgentCtx, name: &AgentName) -> CbResult<String> {
         Kind::Info,
         Re::None,
         &format!(
-            "{name} was stopped by force by {}: State left. Tickets returned to Backlog: {list}. The key stays valid until `/crew reject {name}`.",
-            ac.name
+            "{name} was stopped by force by {}: State left. Tickets returned to Backlog: {list}. The registry log does not stop {name} (a coordinator cannot end the span of an agent): the key stays valid until `/crew reject {name}`, and `crewboard stop --agent {name} --force` records the stop in the log.\nevent={}",
+            ac.name,
+            state_event_key(name.as_str(), State::Left.name())
         ),
         &now_ts(),
     )?;

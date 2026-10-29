@@ -207,17 +207,18 @@ pub fn stop(
         .iter()
         .map(|r| format!("{} ({})", r.key(), r.status_str().unwrap_or("?")))
         .collect();
+    // The signed notice is the stop in the registry log: the coordinator returns the tickets of
+    // an agent that the log stops, never of a board State `draining` alone.
     notice(
         ac,
         world,
-        &format!(
-            "{} is stopping (draining). Open tickets that the coordinator returns to Backlog: {}",
-            ac.name,
-            if list.is_empty() {
+        &crate::protocol::acts::stopping_body(
+            ac.name.as_str(),
+            &if list.is_empty() {
                 "none".to_string()
             } else {
                 list.join(", ")
-            }
+            },
         ),
     )?;
     if open.is_empty() {
@@ -253,7 +254,9 @@ fn finish(
     Ok((State::Left, format!("{} left (State left)\n", ac.name)))
 }
 
-/// In a `watch`/`poll` cycle: a draining agent that holds no open ticket any more leaves.
+/// In a `watch`/`poll` cycle: a draining agent that holds no open ticket any more leaves. Only
+/// when the registry log stops it (its own signed notice, the owner's `/crew stop`): a board
+/// State `draining` alone (a hand edit) must not make the agent end its own span.
 pub fn finish_draining(
     ac: &AgentCtx,
     world: &World,
@@ -261,6 +264,13 @@ pub fn finish_draining(
     rows: &[TicketRow],
 ) -> CbResult<Option<String>> {
     if state != Some(State::Draining) || !open_tickets(rows, ac.name.as_str()).is_empty() {
+        return Ok(None);
+    }
+    let me = ac.name.as_str();
+    if world.reg.agents.get(me).and_then(|e| e.departure).is_none() {
+        eprintln!(
+            "crewboard: {me} is draining on the board, but the registry log has no stop of it; it does not leave. `crewboard stop` signs the stop, or set the State back"
+        );
         return Ok(None);
     }
     let (_, text) = finish(ac, world, state, Who::SelfAgent)?;

@@ -154,7 +154,7 @@ pub fn check_force_stop(state: Option<State>) -> Verdict {
         Some(Approved | Active | Paused | Draining) => Ok(()),
         Some(Left) => Err(Refusal::new(
             "stop-force-already-left",
-            "the agent has left already (State left); the coordinator returns tickets that it still holds at its next cycle",
+            "the agent has left already (State left); without a stop in the registry log its tickets stay, and the owner records the stop with `crewboard stop --agent <name> --force`",
         )),
         Some(Requested) | None => Err(Refusal::new(
             "stop-force-not-running",
