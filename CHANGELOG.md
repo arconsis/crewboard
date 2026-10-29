@@ -38,16 +38,6 @@ Changed:
 - `join --runtime <runtime>/<model>` (the old form) is refused as a usage error (exit 4). The
   message shows the new form, for example `--runtime claude --model sonnet`. `doctor --setup`
   prints the join line in the new form.
-
-Fixed:
-
-- The board `State` of an agent no longer mutes it or returns its tickets. The registry log
-  decides: a `State` that contradicts it is reported (`status`, `audit`, one note to the owner).
-- The owner's `stop --force` posts `/crew stop <name>`, so the stop is in the log. The
-  coordinator returns the tickets of an agent that the log stops.
-
-Changed:
-
 - Owner commands use your own `gh` login: `init`, `approve`, `audit`, and `pause`, `resume`,
   `stop` and `agent profile set` with `--agent`. They ignore `GH_TOKEN` and `GITHUB_TOKEN`, and
   print one note that names a token variable that was set. `--env-file` still wins. The prefix
@@ -55,6 +45,13 @@ Changed:
   owner's is refused with `owner-command-not-owner` (before: `not-owner`); the message names
   the login. In the config dir of an agent, an owner command keeps the token of the agent and
   never runs `gh`. Agent commands keep their token order.
+
+Fixed:
+
+- The board `State` of an agent no longer mutes it or returns its tickets. The registry log
+  decides: a `State` that contradicts it is reported (`status`, `audit`, one note to the owner).
+- The owner's `stop --force` posts `/crew stop <name>`, so the stop is in the log. The
+  coordinator returns the tickets of an agent that the log stops.
 
 ## v0.6.0 (2026-10-29)
 
