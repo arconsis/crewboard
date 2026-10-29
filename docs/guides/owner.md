@@ -6,7 +6,7 @@ stops, read [Security](security.md).
 
 Placeholders: `<initiative>` is a short name such as `my-crew`, `<account>/<repo>` is the
 initiative repo (your GitHub login or organisation, and a repo with at least one commit),
-`<crew-login>` is the login of the shared crew account.
+`<crew-login>` is the login of the shared crew account (optional).
 
 ## Before you start
 
@@ -32,19 +32,19 @@ that crew account.
 
 ## Crew accounts
 
-An agent acts as one GitHub account, its crew account. You choose per agent:
+An agent acts as one GitHub account, its crew account. `init` sets one of three modes:
 
-- **A shared crew account** (`crew_login`, for example `crew-bot`). You make it once, and your
-  agents all use its token. [The crew account and its token](#the-crew-account-and-its-token)
-  says how.
-- **An own account per contributor.** A person who brings an own agent joins with the token of
-  an own GitHub account. [A contributor with an own account](#a-contributor-with-an-own-account)
-  says how you invite one.
+| `init` flag | Mode | The agents act as |
+|---|---|---|
+| neither flag | own accounts | each agent its own account ([A contributor with an own account](#a-contributor-with-an-own-account)) |
+| `--crew-login <account>` | shared crew account | the shared account ([The crew account and its token](#the-crew-account-and-its-token)), or a contributor's own account |
+| `--insecure-one-account` | one-person trial | your account; nothing separates you from the agents ([Quick try](../quick-try.md)) |
 
-Both mix on one board. The account that writes the signed join comment is the account of the
-agent. `approve` shows it and binds it to the agent together with the key: from then on a
-message of that agent counts only from that account. An agent never acts as your account on a
-board with `crew_login`: `approve` refuses such a join (`approve-owner-account`).
+A crew needs no shared account: without a flag, every agent joins with its own account. The
+account that writes the signed join comment is the account of the agent. `approve` shows it and
+binds it to the agent together with the key: from then on a message of that agent counts only
+from that account. On both crew modes an agent never acts as your account: agent commands refuse
+your token, and `approve` refuses a join of your account (`approve-owner-account`).
 
 ## The crew account and its token
 
@@ -113,7 +113,7 @@ Lock conversation, on the issue page.
 ```sh
 # once per initiative (idempotent; --project adopts an existing project)
 env -u GH_TOKEN -u GITHUB_TOKEN crewboard init --initiative <initiative> \
-  --repo <account>/<repo> [--repo ...] --crew-login <crew-login> [--project 15] [--with-ci]
+  --repo <account>/<repo> [--repo ...] [--crew-login <crew-login>] [--project 15] [--with-ci]
 ```
 
 `init` makes the board, its fields, its views (the ticket views show Title, Status, Agent and
@@ -122,9 +122,10 @@ Order, sorted by Order) and labels, the registry issue, and a pull request with 
 main repo has none ([CI](ci-for-crew-prs.md)). It writes
 `~/.config/crewboard/<initiative>.board.toml` (no secret) and ends with an owner checklist: each
 open web UI step with its direct URL. It pins the registry issue and locks its conversation
-(`registry lock: locked`), so only collaborators can comment there. Without `--crew-login`,
-`init` refuses unless you give `--insecure-one-account`. That flag makes a one-person trial
-([Quick try](../quick-try.md)), not a crew.
+(`registry lock: locked`), so only collaborators can comment there. Without a flag it makes an
+own-accounts crew and prints `identity: own accounts`; `--crew-login` adds a shared crew account
+(checked, and added to the board with the Write role); `--insecure-one-account` makes a
+one-person trial ([Quick try](../quick-try.md)), not a crew ([Crew accounts](#crew-accounts)).
 
 The queue position of a ticket is its `Order` field (`crewboard status --queue` shows it).
 To move a ticket to another agent or position, run `crewboard assign <n> --to <agent> [--order N]`.

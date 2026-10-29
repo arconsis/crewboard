@@ -24,10 +24,19 @@ fn crew_toml() -> String {
     )
 }
 
+/// The board file of a crew where each agent uses its own account: no key at all.
+fn own_toml() -> String {
+    FakeBoard::board_toml().replace("insecure_one_account = true\n", "")
+}
+
 /// A fake board whose default branch holds the crew board file.
 fn crew_board() -> FakeBoard {
+    board_with(&crew_toml())
+}
+
+fn board_with(toml: &str) -> FakeBoard {
     let fake = FakeBoard::new();
-    fake.set_file(REPO, FILE, &crew_toml());
+    fake.set_file(REPO, FILE, toml);
     fake
 }
 
@@ -42,10 +51,14 @@ fn on_crew_board(a: &Agent) {
 
 /// A config dir of the owner with the crew board file.
 fn owner_dir() -> tempfile::TempDir {
+    owner_dir_with(&crew_toml())
+}
+
+fn owner_dir_with(toml: &str) -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::write(
         ConfigDir(tmp.path().to_path_buf()).board_config_path(INITIATIVE),
-        crew_toml(),
+        toml,
     )
     .unwrap();
     tmp
@@ -197,6 +210,133 @@ fn two_contributors_join_with_their_own_accounts_get_approved_take_and_deliver()
     no_unhandled(&fake);
 }
 
+/// A crew without any shared account: `init` without `--crew-login` and without
+/// `--insecure-one-account`, then every agent joins with its own account.
+#[cfg(unix)]
+#[test]
+fn an_own_accounts_board_from_init_to_delivered_tickets() {
+    let fake = FakeBoard::new();
+    let owner = tempfile::tempdir().unwrap();
+    let o = fake.run(
+        owner.path(),
+        &[
+            "init",
+            "--initiative",
+            INITIATIVE,
+            "--repo",
+            REPO,
+            "--project",
+            "15",
+            "--no-pr",
+        ],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("identity: own accounts"), "{}", o.stdout);
+    let toml = std::fs::read_to_string(
+        ConfigDir(owner.path().to_path_buf()).board_config_path(INITIATIVE),
+    )
+    .unwrap();
+    assert!(
+        !toml.contains("crew_login") && !toml.contains("insecure_one_account"),
+        "{toml}"
+    );
+    // the init pull request is merged: the default branch holds the board file
+    fake.set_file(REPO, FILE, &toml);
+
+    // an agent with the owner's token cannot join
+    let stray = tempfile::tempdir().unwrap();
+    fake.set_viewer(OWNER);
+    let o = fake.run(
+        stray.path(),
+        &[
+            "join",
+            "--agent",
+            "claude@fake-o",
+            "--runtime",
+            "fake/it",
+            "--repo",
+            REPO,
+        ],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("agent-uses-owner-token"), "{}", o.all());
+
+    // three contributors, three accounts
+    let agents = [
+        ("codex@fake-c", "dev-c", tempfile::tempdir().unwrap()),
+        ("hermes@fake-a", "dev-a", tempfile::tempdir().unwrap()),
+        ("hermes@fake-b", "dev-b", tempfile::tempdir().unwrap()),
+    ];
+    for (name, login, dir) in &agents {
+        join_as(&fake, dir.path(), name, login);
+    }
+    for (name, login, _) in &agents {
+        fake.set_viewer(OWNER);
+        let role = if name.starts_with("codex") {
+            "coordinator"
+        } else {
+            "dev"
+        };
+        let o = fake.run(
+            owner.path(),
+            &["approve", name, "--initiative", INITIATIVE, "--role", role],
+        );
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(
+            o.stdout.contains(&format!("account {login}")),
+            "{}",
+            o.stdout
+        );
+    }
+    let tools = tempfile::tempdir().unwrap();
+    for (_, login, dir) in &agents {
+        fake.set_viewer(login);
+        let o = fake.run_env(
+            dir.path(),
+            dir.path(),
+            &["start"],
+            &[("CREWBOARD_AGENT_GH", &gh_says(tools.path(), login))],
+        );
+        assert_eq!(o.code, 0, "{}", o.all());
+    }
+    let (coord, coord_login, coord_dir) = (&agents[0].0, agents[0].1, agents[0].2.path());
+    let body = format!("Goal: own accounts ticket.\n\n{GATE}CI: none\n");
+    for (name, login, dir) in &agents[1..] {
+        let t = fake.ticket_issue(name, &body, &["crew:work"]);
+        let ts = t.to_string();
+        fake.set_viewer(coord_login);
+        let o = fake.run(coord_dir, &["assign", &ts, "--to", name]);
+        assert_eq!(o.code, 0, "{coord}: {}", o.all());
+        let item = item_in(&o);
+        fake.set_viewer(login);
+        let o = fake.run(dir.path(), &["take", &ts]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        let pr = fake.pr_for(t, name);
+        let _ = fake.run(dir.path(), &["poll", "--json"]);
+        let o = fake.run(
+            dir.path(),
+            &["done", &ts, "--pr", &pr.url, "--sha", &pr.head],
+        );
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Review"));
+    }
+    fake.set_viewer(OWNER);
+    let o = fake.run(owner.path(), &["status", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let v: Value = serde_json::from_str(o.stdout.trim()).unwrap();
+    assert_eq!(v["status_log_mismatches"], serde_json::json!([]), "{v}");
+    assert_eq!(v["security_event_count"], 0, "{v}");
+    let logins: Vec<String> = v["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["login"].as_str().unwrap_or("-").to_string())
+        .collect();
+    assert_eq!(logins, ["dev-c", "dev-a", "dev-b"], "{v}");
+    assert!(!o.stdout.contains("ONE ACCOUNT"), "{}", o.stdout);
+    no_unhandled(&fake);
+}
+
 #[test]
 fn a_message_posted_from_another_agents_account_is_dropped_and_reported() {
     let fake = crew_board();
@@ -264,11 +404,17 @@ fn a_message_posted_from_another_agents_account_is_dropped_and_reported() {
 }
 
 #[test]
-fn approve_shows_the_login_and_refuses_a_join_of_the_owner_account_on_a_crew_board() {
-    let fake = crew_board();
+fn approve_shows_the_login_and_refuses_a_join_of_the_owner_account_on_both_crew_modes() {
+    for toml in [crew_toml(), own_toml()] {
+        approve_on(&toml);
+    }
+}
+
+fn approve_on(toml: &str) {
+    let fake = board_with(toml);
     let z = fake.joined_as("hermes@fake-z", "dev-z");
     let y = fake.joined("hermes@fake-y");
-    let owner = owner_dir();
+    let owner = owner_dir_with(toml);
     // the owner's account wrote the join of y: agents may not act as the owner
     let o = approve(&fake, owner.path(), &y.name);
     assert_eq!(o.code, 2, "{}", o.all());

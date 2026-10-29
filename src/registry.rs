@@ -560,13 +560,13 @@ pub fn wrong_account(author: &str, from: &str, login: &str) -> String {
     )
 }
 
-/// Why a join of `login` may not be approved: the owner's account on a board with a crew login
-/// (agents may not act as the owner). A board without one is the one-person trial, where the
-/// agents use the owner's account (spec/identity#phases). `None`: the account may be approved.
+/// Why a join of `login` may not be approved: the owner's account on a crew board (agents may
+/// not act as the owner). Only the one-person trial (`insecure_one_account`) lets the agents use
+/// the owner's account (spec/identity#identity-modes). `None`: the account may be approved.
 pub fn owner_account_refusal(cfg: &BoardConfig, login: &str) -> Option<String> {
-    (cfg.crew_login.is_some() && login.eq_ignore_ascii_case(&cfg.owner_login)).then(|| {
+    (!cfg.insecure_one_account && login.eq_ignore_ascii_case(&cfg.owner_login)).then(|| {
         format!(
-            "the join is a comment of the owner account {login}; agents may not act as the owner on a board with a crew login"
+            "the join is a comment of the owner account {login}; agents may not act as the owner on a crew board (only a one-person trial with insecure_one_account allows it)"
         )
     })
 }
@@ -751,6 +751,8 @@ pub(crate) mod tests {
     use crate::protocol::signature::{Outgoing, generate_key, sign_message};
     use ssh_key::PrivateKey;
 
+    /// A one-person trial board (`insecure_one_account`): the agents use the owner's account,
+    /// so the helpers below post every comment as `owner-login`.
     pub fn cfg() -> BoardConfig {
         BoardConfig::parse(
             r#"
@@ -760,9 +762,19 @@ project_number = 15
 repos = ["example-org/app", "example-org/app-2"]
 owner_login = "owner-login"
 registry_issue = 2
+insecure_one_account = true
 "#,
         )
         .unwrap()
+    }
+
+    /// The same board as a crew: with the shared crew account `crew` (`crew_login`), or with
+    /// `None` one own account per agent.
+    pub fn crew_cfg(crew: Option<&str>) -> BoardConfig {
+        let mut c = cfg();
+        c.insecure_one_account = false;
+        c.crew_login = crew.map(str::to_string);
+        c
     }
 
     pub fn pub_line(k: &PrivateKey, name: &str) -> String {
@@ -913,8 +925,7 @@ registry_issue = 2
 
     #[test]
     fn with_a_crew_login_the_crew_account_joins_but_only_the_owner_approves() {
-        let mut c = cfg();
-        c.crew_login = Some("crew-bot".into());
+        let c = crew_cfg(Some("crew-bot"));
         let k = generate_key().unwrap();
         let mut join = join_comment(1, "claude@a", &k, "PVTI_a");
         join.author = "crew-bot".into();
@@ -1519,13 +1530,6 @@ registry_issue = 2
         }
     }
 
-    /// A board with a shared crew account.
-    fn crew_cfg() -> BoardConfig {
-        let mut c = cfg();
-        c.crew_login = Some("crew-bot".into());
-        c
-    }
-
     fn by(mut c: Comment, login: &str) -> Comment {
         c.author = login.into();
         c
@@ -1535,7 +1539,7 @@ registry_issue = 2
     fn a_join_of_any_account_is_read_and_the_approval_binds_its_account() {
         let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
         let reg = resolve(
-            &crew_cfg(),
+            &crew_cfg(Some("crew-bot")),
             &[
                 by(join_comment(1, "claude@a", &ka, "PVTI_a"), "dev-a"),
                 by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "dev-b"),
@@ -1567,7 +1571,7 @@ registry_issue = 2
     fn the_shared_crew_account_still_works_for_every_agent() {
         let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
         let reg = resolve(
-            &crew_cfg(),
+            &crew_cfg(Some("crew-bot")),
             &[
                 by(join_comment(1, "claude@a", &ka, "PVTI_a"), "crew-bot"),
                 by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "crew-bot"),
@@ -1592,7 +1596,10 @@ registry_issue = 2
                 &format!("/crew approve claude@a key={} login={login}", fp(&k)),
             )
         };
-        let reg = resolve(&crew_cfg(), &[join.clone(), approve("dev-b")]);
+        let reg = resolve(
+            &crew_cfg(Some("crew-bot")),
+            &[join.clone(), approve("dev-b")],
+        );
         assert!(!reg.agents["claude@a"].approved());
         assert!(
             reg.notes
@@ -1602,29 +1609,50 @@ registry_issue = 2
             reg.notes
         );
         // control: the account of the join approves, in any case
-        let reg = resolve(&crew_cfg(), &[join, approve("Dev-A")]);
+        let reg = resolve(&crew_cfg(Some("crew-bot")), &[join, approve("Dev-A")]);
         assert!(reg.agents["claude@a"].approved(), "{:?}", reg.notes);
     }
 
     #[test]
-    fn a_join_of_the_owner_account_is_refused_on_a_crew_board_only() {
+    fn a_join_of_the_owner_account_is_refused_on_both_crew_modes_and_approved_in_the_trial() {
         let k = generate_key().unwrap();
         let comments = [
             join_comment(1, "claude@a", &k, "PVTI_a"),
             owner(2, "/crew approve claude@a"),
         ];
-        let reg = resolve(&crew_cfg(), &comments);
-        assert!(!reg.agents["claude@a"].approved());
-        assert!(
-            reg.notes
-                .iter()
-                .any(|n| n.contains("void") && n.contains("owner account")),
-            "{:?}",
-            reg.notes
-        );
-        // the one-person trial (no crew login): the agents act as the owner
+        // a shared crew account, and one own account per agent (no crew_login)
+        for board in [crew_cfg(Some("crew-bot")), crew_cfg(None)] {
+            let reg = resolve(&board, &comments);
+            assert!(!reg.agents["claude@a"].approved());
+            assert!(
+                reg.notes
+                    .iter()
+                    .any(|n| n.contains("void") && n.contains("owner account")),
+                "{:?}",
+                reg.notes
+            );
+        }
+        // the one-person trial (insecure_one_account): the agents act as the owner
         let reg = resolve(&cfg(), &comments);
         assert!(reg.agents["claude@a"].approved(), "{:?}", reg.notes);
+    }
+
+    #[test]
+    fn own_accounts_without_a_crew_login_join_and_are_bound() {
+        let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+        let reg = resolve(
+            &crew_cfg(None),
+            &[
+                by(join_comment(1, "claude@a", &ka, "PVTI_a"), "dev-a"),
+                by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "dev-b"),
+                owner(3, "/crew approve claude@a role=coordinator login=dev-a"),
+                owner(4, "/crew approve hermes@b"),
+            ],
+        );
+        assert!(reg.notes.is_empty(), "{:?}", reg.notes);
+        assert_eq!(reg.agents["claude@a"].login(), Some("dev-a"));
+        assert_eq!(reg.agents["hermes@b"].login(), Some("dev-b"));
+        assert!(reg.agents.values().all(AgentEntry::approved));
     }
 
     #[test]
@@ -1639,12 +1667,15 @@ registry_issue = 2
         // a's own marker, posted from the account of b: ends nothing
         let mut cs = base.clone();
         cs.push(by(left_marker(5, "claude@a", &ka), "dev-b"));
-        assert_eq!(resolve(&crew_cfg(), &cs).agents["claude@a"].departure, None);
+        assert_eq!(
+            resolve(&crew_cfg(Some("crew-bot")), &cs).agents["claude@a"].departure,
+            None
+        );
         // control: from a's account it ends a's span
         let mut cs = base;
         cs.push(by(left_marker(5, "claude@a", &ka), "dev-a"));
         assert_eq!(
-            resolve(&crew_cfg(), &cs).agents["claude@a"].departure,
+            resolve(&crew_cfg(Some("crew-bot")), &cs).agents["claude@a"].departure,
             Some(Departure::Left(5))
         );
     }

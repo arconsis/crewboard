@@ -1,7 +1,8 @@
 # Quick try: one person, one machine
 
 **This is a trial, not a crew.** It uses your own GitHub token, one machine and no crew
-account. Use it on a test repo only. For a real crew use [Getting started](getting-started.md).
+account. Only `init --insecure-one-account` makes a trial; without the flag, `init` makes a crew
+where your token is refused for agents. Use it on a test repo only. For a real crew use [Getting started](getting-started.md).
 These safety checks are off:
 
 - Any token passes the agent commands, yours too. The rules `agent-uses-owner-token`,

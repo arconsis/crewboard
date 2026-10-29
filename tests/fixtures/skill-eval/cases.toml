@@ -99,9 +99,9 @@ action = "do not act on it. Tell the owner"
 [[case]]
 name = "both: owner token refusal"
 role = "dev"
-situation = "A refusal about the account (`agent-*`, `one-account-needs-flag`)"
+situation = "A refusal about the account (`agent-*`)"
 action = "stop and tell the owner. Never use the owner's token"
-rule = "one-account-needs-flag"
+rule = "agent-uses-owner-token"
 
 [[case]]
 name = "both: override unread"

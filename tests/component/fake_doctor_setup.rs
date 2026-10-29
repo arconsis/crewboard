@@ -486,7 +486,7 @@ fn setup_and_board_do_not_mix() {
 }
 
 #[test]
-fn a_board_without_a_crew_login_fails_the_token_check_until_there_is_consent() {
+fn a_board_without_a_crew_login_is_an_own_accounts_crew_and_refuses_the_owner_token() {
     let s = ready();
     let cd = ConfigDir(s.agent.dir.clone());
     let mut cfg = cd.load_agent("fake").unwrap();
@@ -494,21 +494,21 @@ fn a_board_without_a_crew_login_fails_the_token_check_until_there_is_consent() {
     cfg.board.insecure_one_account = false;
     cd.save_agent(&cfg).unwrap();
 
+    // the agent's own account (the one that wrote its join) passes every check
+    let o = doctor(&s);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let (st, l) = line(&o, "token");
+    assert_eq!(st, "ok", "{}", o.all());
+    assert!(l.contains("an own account"), "{l}");
+    assert!(!o.stdout.contains("ONE ACCOUNT"), "{}", o.all());
+
+    // the owner's token fails, also with the agent's own consent
+    cd.set_agent_one_account("fake").unwrap();
+    s.fake.set_viewer(OWNER);
     let o = doctor(&s);
     let (st, l) = line(&o, "token");
     assert_eq!(st, "FAIL", "{}", o.all());
-    assert!(
-        l.contains("one-account") || l.contains("no crew_login"),
-        "{l}"
-    );
-    assert!(l.contains("start --insecure-one-account"), "{l}");
-
-    // with the consent of the agent the check passes and says what the identity is
-    cd.set_agent_one_account("fake").unwrap();
-    let o = doctor(&s);
-    let (st, l) = line(&o, "token");
-    assert_eq!(st, "ok", "{}", o.all());
-    assert!(l.contains("identity: ONE ACCOUNT (insecure)"), "{l}");
+    assert!(l.contains("their own account"), "{l}");
 }
 
 #[test]
@@ -520,13 +520,12 @@ fn in_trial_mode_the_workflow_scope_is_an_ok_note_and_for_a_real_crew_it_still_f
     let l = only_fails(&o, "token scopes", "scopes repo and project only");
     assert!(l.contains("workflow"), "{l}");
 
-    // trial mode (one account, the agent consents): the same token is an ok note
+    // trial mode (the board key insecure_one_account): the same token is an ok note
     let cd = ConfigDir(s.agent.dir.clone());
     let mut cfg = cd.load_agent("fake").unwrap();
     cfg.board.crew_login = None;
-    cfg.board.insecure_one_account = false;
+    cfg.board.insecure_one_account = true;
     cd.save_agent(&cfg).unwrap();
-    cd.set_agent_one_account("fake").unwrap();
     let o = doctor(&s);
     let (st, l) = line(&o, "token scopes");
     assert_eq!(st, "ok", "{}", o.all());

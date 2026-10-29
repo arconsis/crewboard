@@ -107,31 +107,30 @@ impl GhIdentityProbe for ShellGh {
     }
 }
 
-/// Not checked: the one-person trial, where the agent's account is the owner's on a board
-/// without a crew login (spec/identity#phases).
-fn one_account(cfg: &BoardConfig, account: &str) -> bool {
-    cfg.crew_login.is_none() && account.eq_ignore_ascii_case(&cfg.owner_login)
+/// Not checked: the one-person trial (`insecure_one_account`), where the agents use the owner's
+/// login (spec/identity#identity-modes).
+fn one_account(cfg: &BoardConfig) -> bool {
+    cfg.insecure_one_account
 }
 
 /// Judge the login. `account` is the agent's own account: the login that the registry bound to
 /// it (the author of its join). Returns a line for the user (may be empty) or the refusal.
 ///
-/// - the account is the owner's on a board without `crew_login`: not checked (one-account mode:
-///   the agents use the owner's login);
+/// - a trial board (`insecure_one_account`): not checked (the agents use the owner's login);
 /// - login is the agent's account: pass;
 /// - any other login (the owner, or a third account): refused, `agent-gh-not-crew`;
 /// - `gh` not installed: skipped with a note;
 /// - `gh` fails (not logged in): a warning only, because a bare `gh` that fails is the safe
 ///   state; the agent then cannot use `gh` at all.
 pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String> {
-    if one_account(cfg, account) {
+    if one_account(cfg) {
         return Ok(String::new());
     }
     if account.eq_ignore_ascii_case(&cfg.owner_login) {
         return Err(CbError::refused(
             "agent-gh-not-crew",
             format!(
-                "the registry binds this agent to the owner account {account}; on a board with a crew login an agent never acts as the owner. Join again with the token of the crew account or of your own account"
+                "the registry binds this agent to the owner account {account}; on a crew board an agent never acts as the owner. Join again with the token of the crew account or of your own account"
             ),
         ));
     }
@@ -166,7 +165,7 @@ pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String
 
 /// Run the probe and judge it. `account` is the agent's own account (see [`judge`]).
 pub fn check(cfg: &BoardConfig, account: &str, probe: &dyn GhIdentityProbe) -> CbResult<String> {
-    if one_account(cfg, account) {
+    if one_account(cfg) {
         return Ok(String::new());
     }
     judge(cfg, account, &probe.login())
@@ -178,10 +177,9 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    /// A crew board: a shared crew account, or (`None`) one own account per agent.
     fn cfg(crew: Option<&str>) -> BoardConfig {
-        let mut c = crate::registry::tests::cfg();
-        c.crew_login = crew.map(str::to_string);
-        c
+        crate::registry::tests::crew_cfg(crew)
     }
 
     fn refusal(r: CbResult<String>) -> Option<&'static str> {
@@ -267,8 +265,8 @@ mod tests {
 
     #[test]
     fn the_one_person_trial_is_not_checked_and_an_own_account_is() {
-        // a board without a crew login, and the agent acts as the owner: the trial
-        let c = cfg(None);
+        // the one-person trial (insecure_one_account): the agent acts as the owner
+        let c = crate::registry::tests::cfg();
         assert_eq!(
             judge(&c, "owner-login", &GhLogin::Login("owner-login".into())).unwrap(),
             ""
@@ -293,16 +291,17 @@ mod tests {
                 r.message
             );
         }
-        // on a crew board the owner's account is never the agent's, whatever gh says
-        let c = cfg(Some("crew-bot"));
-        assert_eq!(
-            refusal(judge(
-                &c,
-                "owner-login",
-                &GhLogin::Login("owner-login".into())
-            )),
-            Some("agent-gh-not-crew")
-        );
+        // on both crew modes the owner's account is never the agent's, whatever gh says
+        for c in [cfg(Some("crew-bot")), cfg(None)] {
+            assert_eq!(
+                refusal(judge(
+                    &c,
+                    "owner-login",
+                    &GhLogin::Login("owner-login".into())
+                )),
+                Some("agent-gh-not-crew")
+            );
+        }
     }
 
     #[cfg(unix)]

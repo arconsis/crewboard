@@ -96,14 +96,14 @@ fn mark_left(ctx: &Ctx, item_id: &str) -> CbResult<()> {
 }
 
 /// `stop --force --agent <name>`. A config dir without an agent config is the owner's, and so
-/// is the token of the owner on a board with a crew account: the owner path. Any other call is
+/// is the token of the owner on a crew board (not a trial): the owner path. Any other call is
 /// the coordinator's (a dev agent is refused there).
 pub fn run(g: &Global, agent: &str) -> CbResult<String> {
     let name = AgentName::parse(agent)?;
     let cd = g.dir()?;
     let cfg = resolve_board_config(g)?;
     let client = new_client()?;
-    let owner_token = cfg.crew_login.is_some()
+    let owner_token = !cfg.insecure_one_account
         && client
             .viewer_login()?
             .eq_ignore_ascii_case(&cfg.owner_login);

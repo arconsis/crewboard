@@ -27,8 +27,7 @@ use std::path::PathBuf;
 pub use authority_file::{authority_text, load_authority, load_authority_quiet};
 pub use registry_view::{agent_liveness, agent_since, is_coordinator, registry_msgs};
 pub use token::{
-    ONE_ACCOUNT_INIT_REFUSAL, ONE_ACCOUNT_REFUSAL, ONE_ACCOUNT_RULE, judge_agent,
-    judge_agent_account, judge_owner, require_agent, require_owner,
+    IdentityMode, judge_agent, judge_agent_account, judge_owner, require_agent, require_owner,
 };
 
 /// The text of the authority file on the default branch of the main repo; `None` if it is not
@@ -106,8 +105,8 @@ pub struct Global {
     pub config_dir: Option<PathBuf>,
     pub initiative: Option<String>,
     pub initiative_file: Option<PathBuf>,
-    /// `start` or `join` with `--insecure-one-account`: the agent's consent to a board without
-    /// `crew_login`, for this run.
+    /// `start` or `join` with `--insecure-one-account`: the agent's consent to a trial board
+    /// (`insecure_one_account`), for this run. It never makes a crew board a trial.
     pub insecure_one_account: bool,
 }
 
@@ -222,11 +221,7 @@ impl AgentCtx {
         let name = agent.agent_name()?;
         let key = load_key(&cd.key_path(&name))?;
         let client = new_client()?;
-        require_agent(
-            &client,
-            &agent.board,
-            agent.insecure_one_account || g.insecure_one_account,
-        )?;
+        require_agent(&client, &agent.board)?;
         let ctx = Ctx::load(client, agent.board.clone(), cd)?;
         Ok(AgentCtx {
             ctx,

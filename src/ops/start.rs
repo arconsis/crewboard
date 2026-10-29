@@ -310,9 +310,9 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             out.push_str("state: active\n");
         }
     }
-    // The consent of `--insecure-one-account` outlives this run. A crew board has nothing to
-    // consent to.
-    if ac.consent_flag && ac.ctx.cfg.crew_login.is_none() {
+    // The consent of `--insecure-one-account` outlives this run. Only a trial board (the board
+    // key) has something to consent to.
+    if ac.consent_flag && ac.ctx.cfg.insecure_one_account {
         ac.ctx.cd.set_agent_one_account(&ac.ctx.cfg.initiative)?;
     }
     out.push_str(&brief(role, &me, &ac.ctx.cfg.initiative));

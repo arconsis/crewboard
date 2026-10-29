@@ -66,7 +66,7 @@ Non-goals:
 | Tickets and messages | Issues and comments in the initiative's repos. |
 | Registry issue | The initiative's main repo. |
 | `AUTHORITY.md` | Root of the initiative's main repo. |
-| `.crewboard.toml` | Root of the initiative's main repo: project number, linked repos, owner login, `crew_login` (the shared crew account; a contributor's agent may act as an own account, which the owner's approval binds), or `insecure_one_account = true` (the owner's consent to a one-person trial without a crew account; never together with `crew_login`). No secrets. Agents find the board through it. |
+| `.crewboard.toml` | Root of the initiative's main repo: project number, linked repos, owner login, the identity mode: `crew_login` (an optional shared crew account), `insecure_one_account = true` (the owner's consent to a one-person trial without a crew account; never together with `crew_login`), or neither (each agent acts as its own account, which the owner's approval binds). No secrets. Agents find the board through it. |
 | Agent key and credentials | Only on the agent host ([Build and distribution](#build-and-distribution)). |
 
 Rules:

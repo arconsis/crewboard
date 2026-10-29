@@ -196,10 +196,11 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
     let client = new_client()?;
     let (cfg, board_sha) = board_config_of(g, &client, a.repo)?;
     let existing = cd.load_agent(&cfg.initiative).ok();
-    // the consent of an existing config, or the flag of this run; a crew board ignores both
+    // the consent of an existing config, or the flag of this run. Only the board key makes a
+    // trial; a crew board (with or without crew_login) ignores the consent.
     let consent = existing.as_ref().is_some_and(|e| e.insecure_one_account)
-        || (g.insecure_one_account && cfg.crew_login.is_none());
-    super::require_agent(&client, &cfg, consent)?;
+        || (g.insecure_one_account && cfg.insecure_one_account);
+    super::require_agent(&client, &cfg)?;
     check_one_agent_per_config(&cd, &cfg, &name)?;
     let (key, key_created) = load_or_create_key(&cd.key_path(&name))?;
     let key_line = public_line(&key, &name)?;
@@ -286,7 +287,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
         )?)
     };
     // The registration is done: the consent of `--insecure-one-account` stays.
-    if consent && cfg.crew_login.is_none() {
+    if consent && cfg.insecure_one_account {
         cd.set_agent_one_account(&cfg.initiative)?;
     }
     let mut out = format!(

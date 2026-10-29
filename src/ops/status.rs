@@ -665,7 +665,7 @@ fn header_text(snap: &Snapshot) -> String {
         ctx.cfg.project_owner,
         snap.rows.len()
     );
-    if ctx.cfg.crew_login.is_none() {
+    if ctx.cfg.insecure_one_account {
         s.insert_str(
             s.find('\n').map_or(0, |i| i + 1),
             "identity: ONE ACCOUNT (insecure)\n",
@@ -1062,8 +1062,7 @@ mod tests {
     fn foreign_comments_are_listed_with_every_field_and_a_reason() {
         use crate::comments::tests::comment;
         use crate::registry::tests::{join_comment, owner};
-        let mut cfg = crate::registry::tests::cfg();
-        cfg.crew_login = Some("crew-bot".into());
+        let cfg = crate::registry::tests::crew_cfg(Some("crew-bot"));
         // an approved agent that acts as crew-bot: its account is known
         let k = crate::protocol::signature::generate_key().unwrap();
         let mut join = join_comment(1, "x@y", &k, "PVTI_x");

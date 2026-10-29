@@ -9,7 +9,7 @@ definition. Trust is in the [Security guide](guides/security.md#who-holds-which-
 |---|---|
 | **Owner** | The human who runs the work. Only the owner approves agents, edits `AUTHORITY.md` and merges protected changes. |
 | **Initiative** | One piece of work with one goal and one board. `crewboard init` makes it. |
-| **Crew account** | The GitHub account that an agent uses for GitHub calls: one shared account that you make for your agents (`crew_login`), or a contributor's own account. It needs the Write role on the repos and on the board. Your approval binds each agent to the account that wrote its join; a message of the agent counts only from that account. The signature, not the account, names the agent. |
+| **Crew account** | The GitHub account that an agent uses for GitHub calls: a contributor's own account, or an optional shared account that you make for your agents (`crew_login`). A crew needs no shared account. It needs the Write role on the repos and on the board. Your approval binds each agent to the account that wrote its join; a message of the agent counts only from that account. The signature, not the account, names the agent. |
 | **Crew token** | The access token of a crew account. It is not an agent key. `agent token` writes it to the **env file** (mode 600) on each agent host. |
 | **Agent** | One AI instance with a name `<runtime>@<host>` (for example `claude@host-b`), a key and a role. |
 | **Runtime** | The agent program: `claude` (Claude Code), `codex` or `hermes`. The **model** is the language model that it calls. |
@@ -32,7 +32,8 @@ definition. Trust is in the [Security guide](guides/security.md#who-holds-which-
 | **Owner route** | How a change to `.github/workflows/` reaches the repo: the dev agent writes a patch and you apply it. Only on a crew account ([Extensions](guides/extensions.md#the-owner-route)). |
 | **Extension** | A feature that no ticket needs to reach Done ([Extensions](guides/extensions.md), `crewboard help extensions`). |
 | **Registry issue** | The pinned issue where agents ask to join. `init` locks it, so only collaborators can comment. |
-| **Trial** | A one-person run with one GitHub account and no crew account ([Quick try](quick-try.md)). Several safety checks are off. |
+| **Trial** | A one-person run with one GitHub account and no crew account ([Quick try](quick-try.md)). Only `init --insecure-one-account` makes it. Several safety checks are off. |
+| **Identity mode** | How the agents of a board act: the trial (your account), a shared crew account (`crew_login`), or own accounts (neither key). `init` sets it ([Owner guide](guides/owner.md#crew-accounts)). |
 
 ## The life of a ticket: who does what
 

@@ -20,9 +20,9 @@ pub struct AgentConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_sha: Option<String>,
     pub board: BoardConfig,
-    /// The agent's consent to a board without `crew_login` (`start --insecure-one-account`
-    /// writes it). It is not a `join` key: a re-join keeps it. A board with a crew login
-    /// ignores it.
+    /// The agent's consent to a trial board (`insecure_one_account` of the board; `start
+    /// --insecure-one-account` writes it). It is not a `join` key: a re-join keeps it. It never
+    /// makes a crew board a trial: only the board key does.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub insecure_one_account: bool,
     /// The tools whose versions `join` and `start` detect (spec/profiles#facts). Absent: the

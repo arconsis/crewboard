@@ -143,7 +143,7 @@ Options:
           GitHub login of the shared crew account that your agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse the owner's token. A contributor's agent may act as its own account instead; `approve` binds each agent to the account that wrote its join
 
       --insecure-one-account
-          A one-person trial without a crew account: the agents use the owner's token and nothing separates owner from agent. Written to .crewboard.toml as `insecure_one_account`. Without `--crew-login` and without this flag, init refuses
+          A one-person trial without a crew account: the agents use the owner's token and nothing separates owner from agent. Written to .crewboard.toml as `insecure_one_account`. Without `--crew-login` and without this flag, each agent acts as its own GitHub account
 
       --no-pr
           Do not open the pull request with AUTHORITY.md and .crewboard.toml
@@ -656,7 +656,7 @@ Options:
           A tool whose version is detected (repeatable). Replaces the list of the agent config; without it the config's list, or the default list, is used
 
       --insecure-one-account
-          The agent's consent to a board without `crew_login` (a one-person trial). It is kept in the new agent config. A crew board ignores it
+          The agent's consent to a one-person trial board (`insecure_one_account` in .crewboard.toml). It is kept in the new agent config. It never makes a crew board a trial
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
@@ -676,7 +676,7 @@ Usage: crewboard start [OPTIONS]
 
 Options:
       --insecure-one-account
-          The agent's consent to a board without `crew_login` (a one-person trial). It is kept in the agent config, so later commands need no flag. A crew board ignores it
+          The agent's consent to a one-person trial board (`insecure_one_account` in .crewboard.toml). It is kept in the agent config. It never makes a crew board a trial
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)

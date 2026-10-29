@@ -246,16 +246,18 @@ by this account can approve or reject agents, set roles or give `/crew` commands
 The file `.crewboard.toml` has no secrets. It is part of the `init` PR, so the owner reviews it
 before the board starts. `crew_login` must differ from `owner_login`; crewboard refuses a
 config that sets both to the same account. See [config/board.rs](../../../src/config/board.rs).
-On a board with `crew_login`, an agent may not act as the owner: the approval of a join that
-the owner's account wrote is void, and `approve` refuses it (`approve-owner-account`).
-A board without `crew_login` is the one-account mode: the agents use the owner's token and
-nothing separates owner from agent. The mode is explicit. `init` needs `--insecure-one-account`
-to write it (`insecure_one_account = true`), and every agent command refuses
-(`one-account-needs-flag`) until that key, the agent config key or `start --insecure-one-account`
-is there. The key together with `crew_login` is a config error, and a change of it in the
-default branch is `board-identity-changed`. `status` and `doctor --setup` say
-`identity: ONE ACCOUNT (insecure)`. `status` (also `status --agents`) and `agent profile show` only read, so
-they work on such a board without consent.
+The board has one of three identity modes ([Identity modes](identity.md#identity-modes)). On
+both crew modes (a shared `crew_login`, or no key: one own account per agent) an agent may not
+act as the owner: every agent command refuses the owner's token (`agent-uses-owner-token`), the
+approval of a join that the owner's account wrote is void, and `approve` refuses it
+(`approve-owner-account`). Only the board key `insecure_one_account = true` makes the
+one-account mode: the agents use the owner's token and nothing separates owner from agent. The
+mode is explicit: `init --insecure-one-account` writes it, and an agent's own
+`--insecure-one-account` never turns a crew board into a trial. The key together with
+`crew_login` is a config error, and a change of it in the default branch is
+`board-identity-changed`. `status` and `doctor --setup` say `identity: ONE ACCOUNT (insecure)`.
+`status` (also `status --agents`) and `agent profile show` only read, so they also work with the
+owner's token on a crew board.
 
 **The approved keys and accounts.** An agent joins with a signed request in the registry
 issue. The request carries the public key and the id of the agent item. Its GitHub author is
