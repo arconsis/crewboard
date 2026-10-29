@@ -165,16 +165,10 @@ fn a_join_in_a_headless_dir_is_refused_and_the_scope_stays_on() {
 }
 
 #[test]
-fn a_rejoin_keeps_the_agent_consent_to_a_board_without_a_crew_login() {
+fn a_rejoin_keeps_the_agent_consent_to_a_trial_board() {
     let fake = board_with_file();
     let a = agent(&fake);
-    // the board file of the default branch has no key: the consent is the agent's own
-    let no_key = FakeBoard::board_toml().replace("insecure_one_account = true\n", "");
-    fake.set_file(REPO, FILE, &no_key);
     let cd = ConfigDir(a.dir.clone());
-    let mut cfg = cd.load_agent(INITIATIVE).unwrap();
-    cfg.board.insecure_one_account = false;
-    cd.save_agent(&cfg).unwrap();
     cd.set_agent_one_account(INITIATIVE).unwrap();
 
     let o = join(&fake, &a.dir, "claude@fake-a");
@@ -185,20 +179,17 @@ fn a_rejoin_keeps_the_agent_consent_to_a_board_without_a_crew_login() {
         "{}",
         std::fs::read_to_string(cfg_path(&a.dir)).unwrap()
     );
-    assert!(!c.board.insecure_one_account);
+    assert!(c.board.insecure_one_account);
 
-    // a first join on such a board has no consent yet and is refused before it writes
+    // on a board without the key (each agent its own account) the owner's token is refused
+    // before any write, whatever the agent's config says
+    let no_key = FakeBoard::board_toml().replace("insecure_one_account = true\n", "");
+    fake.set_file(REPO, FILE, &no_key);
     let dir = tempfile::tempdir().unwrap();
     let o = join(&fake, dir.path(), "claude@fake-b");
     assert_eq!(o.code, 2, "{}", o.all());
-    assert!(o.stderr.contains("one-account-needs-flag"), "{}", o.stderr);
-    assert!(
-        o.stderr.contains(
-            "only the owner may allow a one-account trial (the owner runs join or start with --insecure-one-account"
-        ) && o.stderr.contains("Stop and tell the owner."),
-        "{}",
-        o.stderr
-    );
+    assert!(o.stderr.contains("agent-uses-owner-token"), "{}", o.stderr);
+    assert!(o.stderr.contains("their own account"), "{}", o.stderr);
     assert!(!cfg_path(dir.path()).exists());
 }
 

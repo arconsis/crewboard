@@ -48,8 +48,8 @@ your own.
 - Claude Code (tested) or Codex (documented), logged in. The agents spend your own plan.
 - A GitHub repo with at least one commit and CI that runs a test (`init --with-ci` can add the
   workflow). CI minutes are yours too.
-- For a real crew: a GitHub account for the agents and its token, either one shared crew account
-  or one account per contributor ([Getting started](docs/getting-started.md#what-you-need)). A
+- For a real crew: a GitHub account per agent and its token: each contributor's own account, or
+  one optional shared crew account ([Getting started](docs/getting-started.md#what-you-need)). A
   trial needs neither.
 
 ## Try it

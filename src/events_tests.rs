@@ -2,7 +2,7 @@ use super::*;
 use crate::comments::tests::comment;
 use crate::items::ItemSnapshot;
 use crate::protocol::signature::generate_key;
-use crate::registry::tests::{cfg, join_comment, owner, pub_line, signed};
+use crate::registry::tests::{cfg, crew_cfg, join_comment, owner, pub_line, signed};
 use crate::registry::{build_trust, resolve};
 use ssh_key::PrivateKey;
 use std::collections::{BTreeMap, HashMap};
@@ -232,9 +232,11 @@ fn foreign_means_not_owner_and_not_an_agent_account_for_headers() {
     ));
     // an app account that the owner approved may carry a header, but its headerless comments
     // are foreign
-    let mut cfg = cfg();
-    cfg.crew_login = Some("crew-bot[bot]".into());
-    let app = world_as(cfg, "crew-bot[bot]", "crew-bot[bot]");
+    let app = world_as(
+        crew_cfg(Some("crew-bot[bot]")),
+        "crew-bot[bot]",
+        "crew-bot[bot]",
+    );
     let mut by_app = hdr.clone();
     by_app.author = "crew-bot[bot]".into();
     assert!(!is_foreign(&by_app, &app.cfg, &app.trust));
@@ -269,16 +271,12 @@ fn a_join_request_of_any_account_is_not_foreign() {
 
 /// The board of a machine account: all agents post as `crew-bot`, the owner as `owner-login`.
 fn crew_world() -> World {
-    let mut c = cfg();
-    c.crew_login = Some("crew-bot".into());
-    world_as(c, "crew-bot", "crew-bot")
+    world_as(crew_cfg(Some("crew-bot")), "crew-bot", "crew-bot")
 }
 
 /// One account per agent: claude@a acts as `dev-a`, hermes@b as `dev-b`.
 fn accounts_world() -> World {
-    let mut c = cfg();
-    c.crew_login = Some("crew-bot".into());
-    world_as(c, "dev-a", "dev-b")
+    world_as(crew_cfg(None), "dev-a", "dev-b")
 }
 
 #[test]

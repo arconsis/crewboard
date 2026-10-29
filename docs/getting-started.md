@@ -28,9 +28,12 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
 > to the test repo keeps the damage inside that repo. The price is one more account and one
 > token. If you will not pay it, use the [Quick try](quick-try.md).
 >
-> This page makes one shared crew account for your agents. A contributor who brings an own
-> agent joins with an own account instead; the [Owner guide](guides/owner.md#a-contributor-with-an-own-account)
-> says how you invite one.
+> This page makes one shared crew account for your agents (`--crew-login crew-bot` in step 7).
+> A shared account is optional. Without `--crew-login`, `init` makes a crew where each agent
+> joins with its own account, and the owner invites each account; the
+> [Owner guide](guides/owner.md#crew-accounts) shows the modes, and
+> [A contributor with an own account](guides/owner.md#a-contributor-with-an-own-account) the
+> steps. A contributor can also join a board with a shared account with an own account.
 
 ## What you need
 

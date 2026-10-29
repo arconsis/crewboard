@@ -431,9 +431,9 @@ pub fn judge_agent_gh(
     shim_first: bool,
 ) -> CheckVerdict {
     use crate::agent_gh::GhLogin;
-    if cfg.crew_login.is_none() {
+    if cfg.insecure_one_account {
         return CheckVerdict::Skip(
-            "the board names no crew login; the agents use the owner's login".into(),
+            "a one-person trial (insecure_one_account); the agents use the owner's login".into(),
         );
     }
     let Some(crew) = account else {
@@ -803,22 +803,22 @@ fn check_token(
         Ok((c, login))
     });
     match token {
-        Ok((c, login)) => match super::judge_agent(&login, cfg, agent.insecure_one_account) {
+        Ok((c, login)) => match super::judge_agent(&login, cfg) {
             Ok(()) => {
                 let who = match &cfg.crew_login {
+                    _ if cfg.insecure_one_account => format!(
+                        "acts as {login}; identity: ONE ACCOUNT (insecure), a one-person trial, so any token passes"
+                    ),
                     Some(crew) if crew.eq_ignore_ascii_case(&login) => {
                         format!("acts as {login}, the shared crew account")
                     }
-                    Some(_) => format!(
+                    _ => format!(
                         "acts as {login}, an own account (the owner's approval binds the account that writes the join)"
-                    ),
-                    None => format!(
-                        "acts as {login}; identity: ONE ACCOUNT (insecure), the board names no crew login, so any token passes"
                     ),
                 };
                 rep.push("token", CheckVerdict::Ok(who));
-                // trial mode: no crew login on the board, and the consent that judge_agent checked
-                let trial = cfg.crew_login.is_none();
+                // trial mode: the board key
+                let trial = cfg.insecure_one_account;
                 rep.push(
                     "token scopes",
                     judge_scopes_in(c.oauth_scopes().as_deref(), trial),
@@ -831,14 +831,9 @@ fn check_token(
                     other => other.to_string(),
                 };
                 let env = env_file_of(&cd.0, &cfg.initiative);
-                let fix = if matches!(&e, CbError::Refused(r) if r.rule == super::ONE_ACCOUNT_RULE)
-                {
-                    "for a one-person trial run `crewboard start --insecure-one-account`; else ask the owner to run `crewboard init --crew-login <account>`".to_string()
-                } else {
-                    format!(
-                        "{env} must hold the token of the agent's account (the crew account or its own); {token_fix}"
-                    )
-                };
+                let fix = format!(
+                    "{env} must hold the token of the agent's account (the crew account or its own); {token_fix}"
+                );
                 rep.push("token", fail(what, fix));
                 None
             }
@@ -884,7 +879,7 @@ fn check_gh_shim(
     let shim_first = find_on_path("gh", std::env::var("PATH").unwrap_or_default())
         .and_then(|p| std::fs::canonicalize(p).ok())
         .is_some_and(|p| std::fs::canonicalize(&shim).is_ok_and(|s| s == p));
-    let got = if cfg.crew_login.is_some() && account.is_some() {
+    let got = if !cfg.insecure_one_account && account.is_some() {
         use crate::agent_gh::GhIdentityProbe;
         crate::agent_gh::ShellGh::from_env().login()
     } else {
@@ -906,15 +901,15 @@ fn check_git_identity(
     work_dir: &Path,
     shim: &Path,
 ) {
-    let crew = cfg.crew_login.as_ref().and(account);
+    let crew = account.filter(|_| !cfg.insecure_one_account);
     match (crew, client) {
-        (None, _) if cfg.crew_login.is_some() => rep.push(
+        (None, _) if !cfg.insecure_one_account => rep.push(
             "git identity",
             CheckVerdict::Skip("needs a working token".into()),
         ),
         (None, _) => rep.push(
             "git identity",
-            CheckVerdict::Skip("the board names no crew login".into()),
+            CheckVerdict::Skip("a one-person trial (insecure_one_account)".into()),
         ),
         (Some(_), None) => rep.push(
             "git identity",
@@ -1227,8 +1222,7 @@ mod tests {
 
     #[test]
     fn plain_gh_must_be_the_crew_account_and_the_fix_fits_the_cause() {
-        let mut cfg = crate::registry::tests::cfg();
-        cfg.crew_login = Some("crew-bot".into());
+        let mut cfg = crate::registry::tests::crew_cfg(Some("crew-bot"));
         let dir = tempfile::tempdir().unwrap();
         let ok = judge_agent_gh(
             &cfg,
@@ -1272,8 +1266,8 @@ mod tests {
         };
         assert!(matches!(own("contributor-a"), CheckVerdict::Ok(_)));
         assert!(is_fail(&own("crew-bot")));
-        // no crew login on the board: not checked
-        cfg.crew_login = None;
+        // a one-person trial: not checked
+        cfg = crate::registry::tests::cfg();
         assert!(matches!(
             judge_agent_gh(&cfg, None, &GhLogin::NotInstalled, dir.path(), false),
             CheckVerdict::Skip(_)

@@ -1,8 +1,10 @@
 # Agents guide
 
-The owner has made the board, the shared crew account and its token ([Owner guide](owner.md)).
-Each further agent needs the steps below, on a host that has the tools. A contributor with an own
-GitHub account follows [Join with your own account](#join-with-your-own-account).
+The owner has made the board and, on a board with a shared crew account, that account and its
+token ([Owner guide](owner.md)). Each further agent needs the steps below, on a host that has
+the tools. A contributor with an own GitHub account follows
+[Join with your own account](#join-with-your-own-account). On a board without `crew_login`,
+every agent joins that way.
 
 Exit codes: see the [exit codes reference](../reference/exit-codes.md).
 
@@ -64,15 +66,17 @@ is its checkout.
 
 ### Join with your own account
 
-A contributor can join with an own GitHub account instead of the shared crew account. The
-account that writes the join is the account of the agent: the owner's approval binds it, and a
+A contributor can join with an own GitHub account instead of the shared crew account; on a
+board without `crew_login` (own accounts) every agent does. The account that writes the join is
+the account of the agent: the owner's approval binds it, and a
 message of the agent counts only from that account.
 
 1. Ask the owner to add your account as a collaborator with the role Write on the initiative
    repos and on the Project, and accept the invitation
    ([Owner guide](owner.md#a-contributor-with-an-own-account)).
 2. Make a token of your account with the access in the
-   [token table](owner.md#the-crew-account-and-its-token). Never use a token of the owner.
+   [token table](owner.md#the-crew-account-and-its-token). Never use a token of the owner: on a
+   crew board every agent command refuses it (`agent-uses-owner-token`).
 3. Run the `agent add` command of step 2 above with `--token-stdin` and paste your token. The
    gh shim and the git identity of the work dir then act as your account (`--crew-login`
    defaults to the login of the token).

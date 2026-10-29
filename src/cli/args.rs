@@ -122,7 +122,8 @@ pub enum CrewCmd {
         crew_login: Option<String>,
         /// A one-person trial without a crew account: the agents use the owner's token and
         /// nothing separates owner from agent. Written to .crewboard.toml as
-        /// `insecure_one_account`. Without `--crew-login` and without this flag, init refuses.
+        /// `insecure_one_account`. Without `--crew-login` and without this flag, each agent acts
+        /// as its own GitHub account.
         #[arg(long, conflicts_with = "crew_login")]
         insecure_one_account: bool,
         /// Do not open the pull request with AUTHORITY.md and .crewboard.toml.
@@ -164,8 +165,9 @@ pub enum CrewCmd {
         /// config; without it the config's list, or the default list, is used.
         #[arg(long = "tool")]
         tools: Vec<String>,
-        /// The agent's consent to a board without `crew_login` (a one-person trial). It is
-        /// kept in the new agent config. A crew board ignores it.
+        /// The agent's consent to a one-person trial board (`insecure_one_account` in
+        /// .crewboard.toml). It is kept in the new agent config. It never makes a crew board a
+        /// trial.
         #[arg(long)]
         insecure_one_account: bool,
         #[command(flatten)]
@@ -192,8 +194,9 @@ pub enum CrewCmd {
     /// Agent: check approval and AUTHORITY.md, run selftest, set active, print the role brief.
     #[command(display_order = 3)]
     Start {
-        /// The agent's consent to a board without `crew_login` (a one-person trial). It is
-        /// kept in the agent config, so later commands need no flag. A crew board ignores it.
+        /// The agent's consent to a one-person trial board (`insecure_one_account` in
+        /// .crewboard.toml). It is kept in the agent config. It never makes a crew board a
+        /// trial.
         #[arg(long)]
         insecure_one_account: bool,
         #[command(flatten)]

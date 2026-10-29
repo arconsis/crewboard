@@ -191,8 +191,8 @@ impl Report {
     }
 }
 
-/// The arguments that need no GitHub read: a valid name, valid repos, a crew account or the
-/// owner's consent to go without one.
+/// The arguments that need no GitHub read: a valid name and valid repos. `--crew-login` and
+/// `--insecure-one-account` together are refused by the CLI parser (one identity mode).
 fn check_args(a: &InitArgs<'_>) -> CbResult<()> {
     if !valid_initiative_name(a.initiative) {
         return Err(CbError::config(format!(
@@ -202,12 +202,6 @@ fn check_args(a: &InitArgs<'_>) -> CbResult<()> {
     }
     for r in a.repos {
         split_repo(r)?;
-    }
-    if a.crew_login.is_none() && !a.insecure_one_account {
-        return Err(CbError::refused(
-            super::ONE_ACCOUNT_RULE,
-            super::ONE_ACCOUNT_INIT_REFUSAL,
-        ));
     }
     Ok(())
 }
@@ -229,7 +223,9 @@ fn check_owner(client: &Client, a: &InitArgs<'_>, rep: &mut Report) -> CbResult<
     }
     rep.line(format!("owner: {owner_login}"));
     if a.insecure_one_account {
-        rep.line("WARNING: one-account board: the agents use the owner's token and nothing separates owner from agent. Use it for a one-person trial only; for a crew run init with --crew-login <account>.");
+        rep.line("WARNING: one-account board: the agents use the owner's token and nothing separates owner from agent. Use it for a one-person trial only; for a crew run init without --insecure-one-account.");
+    } else if a.crew_login.is_none() {
+        rep.line("identity: own accounts: each agent joins with its own GitHub account, never yours. Invite each contributor account as a collaborator with the Write role on the repos and on the Project; `approve` shows the account of each join. (A shared crew account: init --crew-login <account>.)");
     }
     Ok(owner_login)
 }

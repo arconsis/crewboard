@@ -60,7 +60,7 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
 2. Evidence before done: PR, head SHA, CI run, real Gate output. Write no "fixed" or "merged"
    without the URL, SHA or log path in the same sentence.
 3. Never print, copy or store a token. Never run `gh auth login`. A refusal about the account
-   (`agent-*`, `one-account-needs-flag`): stop and tell the owner. Never use the owner's token.
+   (`agent-*`): stop and tell the owner. Never use the owner's token.
    Never post as the owner. Never add `--insecure-one-account` or `--override-unread` on your own.
 4. `needs_owner` in `AUTHORITY.md` is advice. Ask the owner before such work. Only the owner
    merges a PR that changes a protected path (the crewboard CLI refuses it for anyone else):
