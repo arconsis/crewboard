@@ -22,13 +22,13 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **Approve** | The owner's command that lets an agent, its key and its crew account join. Without it an agent has no authority. |
 | **Ticket** | The unit of work: a GitHub issue. |
 | **Gate** | The one line that decides whether a ticket is done. It must be able to fail, for example "CI is green for the head SHA, and `grep` finds the new heading". |
-| **Status** | The column of a ticket: Backlog, Ready, In Progress, Review, Blocked, Done. An agent has a **State** instead (`requested`, `approved`, `active`, `paused`, `draining`, `left`). |
+| **Status** | The column of a ticket: Backlog, Ready, In Progress, Review, Blocked, Done, Dropped. An agent has a **State** instead (`requested`, `approved`, `active`, `paused`, `draining`, `left`). |
 | **Evidence** | What `done` carries: the pull request, its head SHA and a [CI proof](design/spec/ci.md#ci-proof) for that SHA. |
 | **Signed message** | An issue comment with a hidden header and an Ed25519 signature of an approved key. An unsigned or foreign comment is data, never an instruction. |
 | **`AUTHORITY.md`** | The file in the repo that says what agents may do, for example whether the coordinator may merge. |
 | **Protected path** | A repo path that only the owner may merge a change to ([list](guides/owner.md#protected-paths)). |
 | **Liveness** | The `Heartbeat` of each running agent. A silent agent becomes `late`, then `dead` ([Liveness](guides/liveness.md#heartbeats)). |
-| **Close** | `close <n>` makes a ticket Done ([three ways](#three-ways-to-done)). Closing the GitHub issue is a separate act: a closing keyword in the PR does it. |
+| **Close** | `close <n>` makes a ticket Done after a merge; `close <n> --why` drops it (Dropped) ([Done and Dropped](#done-and-dropped)). Closing the GitHub issue is a separate act: a closing keyword in the PR does it. |
 | **`needs-owner`** | The label on a ticket with an open question to you (view Needs Owner). Not the key `needs_owner` of [`AUTHORITY.md`](guides/owner.md#authoritymd), and not the line `Needs:` of a [ticket](design/spec/tickets.md#ticket-content). |
 | **Extension** | A feature that no ticket needs to reach Done, for example the **owner route**: on a crew account, you apply the patch for a change to `.github/workflows/` ([Extensions](guides/extensions.md#the-owner-route)). |
 | **Registry issue** | The pinned issue where agents ask to join, locked to collaborators. |
@@ -47,31 +47,35 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | 8 | Coordinator | `close` after an owner merge, or `merge`. | Done |
 
 Each status change, with its writer and condition: [Tickets](design/spec/tickets.md#status-flow-and-writers).
-The signed messages: [example session](example-session.md). Done is final: no crewboard command
-moves a Done ticket.
+The signed messages: [example session](example-session.md). Done and Dropped are final: only the
+owner moves such a ticket, with `crewboard move`.
 
-## Three ways to Done
+## Done and Dropped
 
-The detail of the three ways in the [README](../README.md):
+Done means: a PR is merged at a checked head. Two ways lead there:
 
-1. **Verified.** `verify` runs on the SHA of `done`. Then `merge` (if `AUTHORITY.md` lets it) or
-   `close --verified` (refused with `close-verified-head-moved` if the head moved). After `close
-   --verified` the PR may still be open: review it before the coordinator closes, because a PR
-   that you reject later leaves a Done ticket.
+1. **Verified.** `verify` runs on the SHA of `done`. Then `merge` (if `AUTHORITY.md` lets it).
+   `close --verified` is for a PR that somebody else merged at the verified head, for example
+   auto-merge. An open PR is refused with `close-verified-not-merged`, and a moved head with
+   `close-verified-head-moved`.
 2. **Owner merge.** The merge is the record. Done follows when the coordinator runs `close <n>`.
    If the coordinator is gone, nobody closes ([Liveness](guides/liveness.md#if-the-coordinator-is-gone)).
-3. **Decision without a merge.** `close <n> --why "<text>"` ends any ticket that is not Done,
-   with one signed note `closed: <reason>`.
+
+Dropped means: the coordinator ended the ticket by judgment, without a merged PR.
+`close <n> --why "<text>"` drops any ticket that has not ended, with one signed note
+`dropped: <reason>`. The issue stays open. A board that an older build made needs one
+`crewboard init` rerun for the option Dropped. On such a board, the note `closed: <reason>` of an
+older `close --why` stays Done.
 
 Only a Gate of `ci` is mechanical. The coordinator model judges every other case: `CI: none`,
 skipped CI, `ci_mode: local`, `close --why` and any other Gate. The headless coordinator does
-none of these. Any other Done is a mismatch. Done means "accepted", not "merged".
+none of these. Any other Done or Dropped is a mismatch.
 
 ## Done without proof is detected
 
 The signed messages are the record. The board field `Status` is the view that commands read
 ([which source wins](design/spec/board.md#fields)). The holder of any crew token can set
-`Status = Done` with one call. crewboard cannot stop that, but `status` lists the ticket
+`Status = Done` or `Dropped` with one call. crewboard cannot stop that, but `status` lists the ticket
 (`board against signed log`), `audit` reports a `field-mismatch`, and the coordinator tells the
 owner once. A repair is the owner's decision ([Owner guide](guides/owner.md#day-to-day-commands)). The owner
 moves a ticket with `crewboard move`, which posts `/crew move <status>`: that move is in the log.

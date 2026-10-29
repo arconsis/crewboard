@@ -131,8 +131,8 @@ Progress with a `done`.
 judgement of `audit`'s `field-mismatch`, `ticket::log::status_contradicts`). The text output
 always has the line `board against signed log: N mismatch(es)`, one `! <ticket>: board Status
 is X, the signed log shows Y` line for each, and `--json` has `status_log_mismatches` and a
-`log_status` for each ticket (`null` when the board agrees or the log says nothing). A Done
-that no signed message supports is detected this way, not prevented. It costs no read: the
+`log_status` for each ticket (`null` when the board agrees or the log says nothing). A Done or
+Dropped that no signed message supports is detected this way, not prevented. It costs no read: the
 comments are read already.
 
 `status` marks a ticket whose PR was merged without a passed `verify` with one line below it,

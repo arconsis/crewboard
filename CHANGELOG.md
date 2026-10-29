@@ -4,6 +4,31 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- The ticket Status `Dropped`, final like Done. Done now always means a PR merged at a checked
+  head; Dropped means that the coordinator ended the ticket by judgment, without a merged PR.
+  Only the owner moves a ticket out of Dropped (`crewboard move`); any other act on it is
+  refused with `status-dropped-final`. `status`, `audit`, `mine`, the queue, the coordinator's
+  `poll` and `watch` and the views treat Dropped as ended, like Done. A follow-up ticket can
+  continue the open PR of a Dropped ticket (`ticket new --continue-pr`).
+- `init` adds the Status option `Dropped` after `Done`, and the views By Agent and Needs Owner
+  filter `-Status:Done,Dropped`. **An existing board needs one `crewboard init` rerun** for the
+  option; the rerun keeps every other option id. A view that exists keeps its old filter.
+
+Changed:
+
+- `close --why "<reason>"` drops the ticket: Status Dropped, never Done. Its signed note starts
+  with `dropped: <reason>` (the wire format stays `v=1`). The note `closed: <reason>` of an older
+  build still reads as Done, so the history of a board stays valid. On a board without the
+  option, `close --why` is refused with `dropped-option-missing` before any write. The issue
+  stays open.
+- `close --verified` needs the PR merged at the head of the passing verify. An open PR is
+  refused with `close-verified-not-merged` before any write; use `merge`. A moved head and a PR
+  closed without a merge stay `close-verified-head-moved`. A passed `verify` now names
+  `crewboard merge <n>` as the next command.
+- `crewboard move <n> Dropped` is refused with `move-dropped-needs-close`: the coordinator drops a
+  ticket with a signed reason.
 - Docs: `docs/design/spec/tickets.md` rewritten as a short spec without history. The status
   table `src/rules/status/table.txt` is the matrix; a test keeps its codes and the spec in step.
 

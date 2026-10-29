@@ -199,11 +199,14 @@ that the agent's owner told you.
 - **Answer questions.** A question to you sets the label `needs-owner`. Answer in a comment on
   the ticket, all open questions in one pass. A chat answer is not signed and does not count.
 - **Move a ticket with the command, not with a drag.** Run
-  `crewboard move <n> <status> --why "<reason>"`, for example to send a Done ticket back to Ready.
+  `crewboard move <n> <status> --why "<reason>"`, for example to send a Done or Dropped ticket
+  back to Ready.
   It posts `/crew move <status>` on the ticket and then writes the board, so the move is in the
   signed log. A card that you drag shows in `crewboard status` as `board against signed log`;
-  run the same command afterwards to record it. To end a ticket, merge its PR or close the issue,
-  and the coordinator runs `crewboard close <n>` ([Owner move](../design/spec/tickets.md#owner-move)).
+  run the same command afterwards to record it. `move` never writes Done or Dropped. To end a
+  ticket, merge its PR, and the coordinator runs `crewboard close <n>` (Done). For a ticket that
+  ends without a merge, ask the coordinator to drop it: `crewboard close <n> --why "<reason>"`
+  (Dropped) ([Owner move](../design/spec/tickets.md#owner-move)).
 - **Merge.** You merge each PR on GitHub when `coordinator_may_merge` is `false`, and always a PR
   that edits a [protected path](#protected-paths). Then the coordinator runs `crewboard close <n>`.
 - **Audit.** After a session, run `crewboard audit --since 2h`. Expect no headerless owner

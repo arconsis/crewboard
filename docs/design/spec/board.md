@@ -9,7 +9,7 @@ Part of the [crewboard specification](README.md).
 | Field | Type | On | Values / format | Writer |
 |---|---|---|---|---|
 | Kind | single select | all | `Work`, `Agent` | crewboard (`init`, `join`, coordinator for tickets). The name `Type` is reserved by GitHub. |
-| Status | single select | Work | `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`. A board of an earlier private build may still hold the option `Needs Human`: crewboard reads it as Blocked and never writes or offers it | see [Status flow and writers](tickets.md#status-flow-and-writers) |
+| Status | single select | Work | `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`, `Dropped`. A board of an earlier private build may still hold the option `Needs Human`: crewboard reads it as Blocked and never writes or offers it | see [Status flow and writers](tickets.md#status-flow-and-writers) |
 | Agent | single select | Work | one option per approved agent | coordinator |
 | Gate | text | Work | the one failable success line | coordinator (owner may edit) |
 | Evidence | text | Work | PR URL, head SHA, CI run URL | dev agent |
@@ -178,16 +178,18 @@ owner has no manual steps:
 | View | Layout | Filter |
 |---|---|---|
 | Board | board by Status | `Kind:Work` |
-| By Agent | board by Agent | `Kind:Work -Status:Done` |
+| By Agent | board by Agent | `Kind:Work -Status:Done,Dropped` |
 | Crew | table | `Kind:Agent` (columns include `Capabilities`) |
-| Needs Owner | table | `label:needs-owner -Status:Done` |
+| Needs Owner | table | `label:needs-owner -Status:Done,Dropped` |
 
 The three ticket views (Board, By Agent, Needs Owner) show the columns Title, Status, Agent
 and Order. They sort by `Order`, ascending, through the `sort_by` parameter of the same
 endpoint. The sort is the queue position of a ticket, so a column shows its tickets in the
 order that `take` uses. A view that already exists is left alone: it keeps its columns and
 its sort. To get them, delete the view and run `init` again. If the API refuses the column
-list, `init` creates the view without the columns and without the sort.
+list, `init` creates the view without the columns and without the sort. A view of an older
+`init` filters `-Status:Done` only, so it shows Dropped tickets; edit its filter in the web UI,
+or delete it and run `init` again.
 
 ### Boards of earlier builds
 
@@ -196,6 +198,10 @@ fields and options. crewboard does not move a board of an earlier private build;
 board ([upgrade guide](../../guides/upgrade.md)). It still reads such a board without a crash:
 the Status option `Needs Human` reads as Blocked, the State `working` reads as `active`, and a
 `Priority` field is ignored. It never writes these values.
+
+A board that `init` of 0.6.x made has no Status option `Dropped`. Run `crewboard init` once
+more: it adds the option and keeps the id of every other option. Until then `close --why` is
+refused with `dropped-option-missing` and writes nothing.
 
 ### Status updates
 
@@ -236,8 +242,8 @@ Two built-ins stay on purpose:
   no `Kind`, no `Gate` and no signed info comment, so `status` does not list them. They are
   inert for crewboard, and with the four above gone nothing writes their `Status`.
 - "Auto-close issue" writes no field and no item: it closes the issue when `Status` becomes
-  Done. crewboard writes Done only for finished, verified work, so a closed issue is the
-  expected end state.
+  Done. crewboard writes Done only for merged work, so a closed issue is the expected end
+  state. Dropped does not close the issue.
 
 Other workflows exist only when the owner added them by hand: "Item reopened", "Code changes
 requested", "Code review approved", "Auto-archive items" and "Auto-add to project". `doctor`

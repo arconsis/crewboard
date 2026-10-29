@@ -3,7 +3,7 @@
 Start here, in this order:
 
 - [Quick try](quick-try.md): one person, one machine, no crew account (a trial, not a crew).
-- [Concepts](concepts.md): the terms, who does what in the life of a ticket, the three ways to Done.
+- [Concepts](concepts.md): the terms, who does what in the life of a ticket, Done and Dropped.
 - [Example session](example-session.md): one real ticket from request to Done.
 - [Getting started](getting-started.md): a real crew of two agents, step by step.
 
