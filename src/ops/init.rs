@@ -8,7 +8,7 @@
 //! never unpin). It opens one pull request in the main repo with `AUTHORITY.md` and
 //! `.crewboard.toml`. It never merges.
 
-use super::{Global, new_client};
+use super::{Global, new_owner_client};
 use crate::board::{
     Board, OwnerInfo, OwnerKind, default_color, graphql_root, owner_info, repo_path, rest_base,
 };
@@ -210,17 +210,16 @@ fn check_args(a: &InitArgs<'_>) -> CbResult<()> {
 /// Nothing is written yet.
 fn check_owner(client: &Client, a: &InitArgs<'_>, rep: &mut Report) -> CbResult<String> {
     let viewer = client.viewer_login()?;
+    // the owner that init writes into the board config: the token must be that account
+    let owner_login = a.owner_login.map_or(viewer.clone(), str::to_string);
+    super::judge_owner(
+        &viewer,
+        &owner_login,
+        crate::agent_env::owner_source(),
+        "may make this board",
+    )?;
     // before any write: the board needs the `project` scope of the owner token
     check_owner_scope(client, &viewer)?;
-    let owner_login = a.owner_login.map_or(viewer.clone(), str::to_string);
-    if !owner_login.eq_ignore_ascii_case(&viewer) {
-        return Err(CbError::refused(
-            "not-owner",
-            format!(
-                "init runs with the owner's token: this token is {viewer}, the owner is {owner_login}"
-            ),
-        ));
-    }
     rep.line(format!("owner: {owner_login}"));
     if a.insecure_one_account {
         rep.line("WARNING: one-account board: the agents use the owner's token and nothing separates owner from agent. Use it for a one-person trial only; for a crew run init without --insecure-one-account.");
@@ -498,7 +497,7 @@ fn write_board_config(
 
 pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
     check_args(&a)?;
-    let client = new_client()?;
+    let client = new_owner_client()?;
     let mut rep = Report::default();
     let owner_login = check_owner(&client, &a, &mut rep)?;
     let (repo_ids, default_branch) = read_repos(&client, a.repos, &mut rep)?;

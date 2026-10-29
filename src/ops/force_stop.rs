@@ -19,6 +19,7 @@ use super::registry_post::state_event_key;
 use super::tickets::{load_world_cached, me_of, reassign_derived, tag_earlier_work};
 use super::{AgentCtx, Global, World, new_client, resolve_board_config};
 use crate::clock::now_ts;
+use crate::config::ConfigDir;
 use crate::ctx::Ctx;
 use crate::error::{CbError, CbResult};
 use crate::feed;
@@ -95,20 +96,35 @@ fn mark_left(ctx: &Ctx, item_id: &str) -> CbResult<()> {
     ctx.board.set_text(&ctx.client, item_id, "Doing", "left")
 }
 
-/// `stop --force --agent <name>`. A config dir without an agent config is the owner's, and so
-/// is the token of the owner on a crew board (not a trial): the owner path. Any other call is
-/// the coordinator's (a dev agent is refused there).
+/// Is `stop --force` in this config dir the owner's command? A config dir without an agent
+/// config is the owner's: the owner command, with the owner's token
+/// ([`super::new_owner_client`]). The CLI asks this before it loads an env file.
+pub fn is_owner_run(cd: &ConfigDir) -> bool {
+    cd.agent_initiatives().is_empty()
+}
+
+/// `stop --force --agent <name>`. A config dir without an agent config is the owner's
+/// ([`is_owner_run`]): the owner path, with the owner's own gh login or `--env-file`. In a dir
+/// with an agent config the token of the agent order decides: the token of the owner on a crew
+/// board (not a trial) takes the owner path too. Any other call is the coordinator's (a dev agent
+/// is refused there).
 pub fn run(g: &Global, agent: &str) -> CbResult<String> {
     let name = AgentName::parse(agent)?;
     let cd = g.dir()?;
     let cfg = resolve_board_config(g)?;
+    let action = "may stop another agent by force";
+    if is_owner_run(&cd) {
+        let client = super::new_owner_client()?;
+        super::require_owner(&client, &cfg, action)?;
+        let ctx = Ctx::load(client, cfg, cd)?;
+        return owner_stop(&ctx, &name);
+    }
     let client = new_client()?;
     let owner_token = !cfg.insecure_one_account
         && client
             .viewer_login()?
             .eq_ignore_ascii_case(&cfg.owner_login);
-    if owner_token || cd.agent_initiatives().is_empty() {
-        super::require_owner(&client, &cfg, "may stop another agent by force")?;
+    if owner_token {
         let ctx = Ctx::load(client, cfg, cd)?;
         return owner_stop(&ctx, &name);
     }

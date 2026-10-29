@@ -69,8 +69,8 @@ A tag with a colon is a fact and is refused as a tag (`profile-tag-invalid`).
 | Actor | May change |
 |---|---|
 | The agent itself | its own tags, tier and background text (`agent profile set`) |
-| The owner | the tags, tier and background text of any approved agent (`agent profile set --agent <name>`, owner token) |
-| Another agent, the coordinator | nothing of another agent's profile (`not-owner`; the field rule `field-wrong-writer`) |
+| The owner | the tags, tier and background text of any approved agent (`agent profile set --agent <name>`, the owner's own `gh` login) |
+| Another agent, the coordinator | nothing of another agent's profile (`owner-command-not-owner`; the field rule `field-wrong-writer`) |
 
 Every change is recorded before it is written (*loud*), so the history is auditable:
 
@@ -143,5 +143,5 @@ with their role; they take no tickets ([Coordinator role](board.md#coordinator-r
 | Tag and tier syntax, 1024-byte limit, needs syntax | *loud* (`profile-tag-invalid`, `capabilities-too-long`, `needs-invalid`) |
 | `assign` refuses a capability mismatch | *loud* (`capability-mismatch`, exit 2) |
 | An override needs a reason and is recorded | *loud* (`capability-override-needs-reason`) |
-| Only the agent itself or the owner changes a profile | *loud* (`not-owner`, `field-wrong-writer`) |
+| Only the agent itself or the owner changes a profile | *loud* (`owner-command-not-owner`, `field-wrong-writer`) |
 | The coordinator looks at `status --agents --can ...` before it assigns | *stated* (skill) |

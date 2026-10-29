@@ -15,7 +15,7 @@ pub(crate) mod paging;
 pub(crate) mod projects;
 mod token;
 
-pub use token::resolve_token;
+pub use token::{TEST_GH_AUTH_TOKEN_ENV, resolve_owner_token, resolve_token};
 
 use reqwest::blocking::Client as Http;
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, USER_AGENT};

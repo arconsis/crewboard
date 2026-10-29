@@ -1,22 +1,41 @@
 //! The token checks of the commands: who the token is, and whether this agent or owner command
 //! may run with it (spec/identity#identity-modes).
 
+use crate::agent_env::OwnerSource;
 use crate::config::BoardConfig;
 use crate::error::{CbError, CbResult};
 use crate::github::Client;
 
-/// Owner commands (init, approve, audit, `pause|resume|stop --agent`) need the owner's
-/// token. `action` completes "only the owner X ACTION; this token is Y".
-pub fn judge_owner(viewer: &str, cfg: &BoardConfig, action: &str) -> CbResult<()> {
-    if viewer.eq_ignore_ascii_case(&cfg.owner_login) {
+/// The rule of an owner command whose token is not the board owner's.
+pub const OWNER_NOT_OWNER_RULE: &str = "owner-command-not-owner";
+
+/// Owner commands (init, approve, audit, `pause|resume|stop --agent`, `stop --force` of the
+/// owner, `agent profile set --agent`) need the token of the board owner `owner`. `source` says
+/// where the token came from, so the fix names the right place. `action` completes "only the
+/// board owner X ACTION". Pure.
+pub fn judge_owner(viewer: &str, owner: &str, source: OwnerSource, action: &str) -> CbResult<()> {
+    if viewer.eq_ignore_ascii_case(owner) {
         return Ok(());
     }
-    Err(CbError::refused(
-        "not-owner",
-        format!(
-            "only the owner {} {action}; this token is {viewer}",
-            cfg.owner_login
+    let why = match source {
+        OwnerSource::EnvFile => format!(
+            "the token of --env-file is {viewer}, the board owner is {owner}. Pass the env file of {owner}, or leave out --env-file to use your own gh login"
         ),
+        OwnerSource::GhLogin => format!(
+            "it runs with your own gh login; `gh auth status` shows {viewer}, the board owner is {owner}. Log in as {owner} (`gh auth login`), or pass --env-file with a token of {owner}"
+        ),
+        OwnerSource::AgentDir => {
+            let dir = crate::agent_env::config_dir()
+                .map(|d| format!(" {}", d.display()))
+                .unwrap_or_default();
+            format!(
+                "the config dir{dir} is the dir of an agent, so it runs with the token of the agent, {viewer}; the board owner is {owner}. Run it in your own terminal with your own config dir (without the CREWBOARD_CONFIG_DIR of an agent): there it uses your own gh login"
+            )
+        }
+    };
+    Err(CbError::refused(
+        OWNER_NOT_OWNER_RULE,
+        format!("only the board owner {owner} {action}. This is an owner command: {why}"),
     ))
 }
 
@@ -85,9 +104,15 @@ pub fn judge_agent_account(viewer: &str, name: &str, bound: &str) -> CbResult<()
     ))
 }
 
-/// [`judge_owner`] with the login read from the token (cached per client).
+/// [`judge_owner`] with the login read from the token (cached per client) and the owner of
+/// the board config.
 pub fn require_owner(client: &Client, cfg: &BoardConfig, action: &str) -> CbResult<()> {
-    judge_owner(&client.viewer_login()?, cfg, action)
+    judge_owner(
+        &client.viewer_login()?,
+        &cfg.owner_login,
+        crate::agent_env::owner_source(),
+        action,
+    )
 }
 
 /// [`judge_agent`] with the login read from the token (cached per client). It reads
@@ -192,16 +217,70 @@ mod tests {
 
     #[test]
     fn owner_commands_need_the_owner_login_in_every_mode() {
+        let gh = OwnerSource::GhLogin;
         for b in [board(None), board(Some("crew-bot")), trial()] {
-            assert!(judge_owner("owner-login", &b, "may approve").is_ok());
-            assert_eq!(
-                rule_of(judge_owner("crew-bot", &b, "may approve")),
-                Some("not-owner")
-            );
-            assert_eq!(
-                rule_of(judge_owner("mallory", &b, "may approve")),
-                Some("not-owner")
-            );
+            let o = &b.owner_login;
+            assert!(judge_owner("owner-login", o, gh, "may approve").is_ok());
+            assert!(judge_owner("Owner-Login", o, gh, "may approve").is_ok());
+            for v in ["crew-bot", "mallory"] {
+                assert_eq!(
+                    rule_of(judge_owner(v, o, gh, "may approve")),
+                    Some(OWNER_NOT_OWNER_RULE)
+                );
+            }
         }
+    }
+
+    #[test]
+    fn the_owner_refusal_names_the_gh_login_or_the_env_file() {
+        let CbError::Refused(r) = judge_owner(
+            "crew-bot",
+            "owner-login",
+            OwnerSource::GhLogin,
+            "may approve",
+        )
+        .unwrap_err() else {
+            panic!()
+        };
+        assert!(
+            r.message
+                .contains("only the board owner owner-login may approve")
+                && r.message.contains("This is an owner command")
+                && r.message.contains("`gh auth status` shows crew-bot")
+                && r.message.contains("--env-file"),
+            "{}",
+            r.message
+        );
+        let CbError::Refused(r) = judge_owner(
+            "crew-bot",
+            "owner-login",
+            OwnerSource::EnvFile,
+            "may approve",
+        )
+        .unwrap_err() else {
+            panic!()
+        };
+        assert!(
+            r.message.contains("the token of --env-file is crew-bot")
+                && !r.message.contains("gh auth status"),
+            "{}",
+            r.message
+        );
+        let CbError::Refused(r) = judge_owner(
+            "crew-bot",
+            "owner-login",
+            OwnerSource::AgentDir,
+            "may approve",
+        )
+        .unwrap_err() else {
+            panic!()
+        };
+        assert!(
+            r.message.contains("is the dir of an agent")
+                && r.message.contains("the token of the agent, crew-bot")
+                && r.message.contains("own config dir"),
+            "{}",
+            r.message
+        );
     }
 }

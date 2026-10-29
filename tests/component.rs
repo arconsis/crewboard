@@ -163,6 +163,8 @@ mod lock_reentry;
 #[cfg(unix)]
 #[path = "component/monitor_term.rs"]
 mod monitor_term;
+#[path = "component/owner_token.rs"]
+mod owner_token;
 #[path = "component/request_budget.rs"]
 mod request_budget;
 #[cfg(unix)]

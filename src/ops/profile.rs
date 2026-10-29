@@ -327,7 +327,7 @@ pub fn set_own(ac: &AgentCtx, change: &Change) -> CbResult<String> {
 pub fn set_agent(g: &Global, agent: &str, change: &Change) -> CbResult<String> {
     let name = AgentName::parse(agent)?;
     let cfg = resolve_board_config(g)?;
-    let client = new_client()?;
+    let client = super::new_owner_client()?;
     super::require_owner(&client, &cfg, "may set the profile of another agent")?;
     judge_target(Actor::Owner, name.as_str(), None)?;
     let ctx = Ctx::load(client, cfg, g.dir()?)?;

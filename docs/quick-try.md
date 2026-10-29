@@ -42,8 +42,9 @@ One measured run (2026-10-27) took 18 min 54 s from the new repo to the merged p
   ```
 
 In every command below, replace `you` with your GitHub login. `demo` is the name of the
-initiative (one piece of work with one board). Run every command in a shell without `GH_TOKEN`
-and `GITHUB_TOKEN`.
+initiative (one piece of work with one board). The owner commands (`init`, `approve`) use your
+own `gh` login and ignore `GH_TOKEN` and `GITHUB_TOKEN`. Step 1 reads `gh auth token`, which
+prints such a variable when one is set: run it in a shell without them.
 
 ## The steps
 
@@ -63,7 +64,7 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
    workflow:
 
    ```sh
-   env -u GH_TOKEN -u GITHUB_TOKEN crewboard init --initiative demo --repo you/demo-app \
+   crewboard init --initiative demo --repo you/demo-app \
      --insecure-one-account --with-ci --env-file ~/.config/crewboard/demo.env
    ```
 
@@ -94,8 +95,8 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
 5. Approve both, in the owner terminal:
 
    ```sh
-   env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude@laptop --role coordinator --initiative demo
-   env -u GH_TOKEN -u GITHUB_TOKEN crewboard approve claude-2@laptop --initiative demo
+   crewboard approve claude@laptop --role coordinator --initiative demo
+   crewboard approve claude-2@laptop --initiative demo
    ```
 
    Both waiting commands continue. The coordinator command ends with a line to paste.

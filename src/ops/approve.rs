@@ -7,7 +7,7 @@
 //! GitHub login that wrote the join (`login=`). A join of the owner's account is refused on a
 //! board with a crew login (agents may not act as the owner).
 
-use super::{Ctx, Global, World, load_world, new_client, resolve_board_config};
+use super::{Ctx, Global, World, load_world, new_owner_client, resolve_board_config};
 use crate::board::OptionInfo;
 use crate::error::{CbError, CbResult};
 use crate::feed;
@@ -186,7 +186,7 @@ pub struct Approval {
 pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     let name = AgentName::parse(name)?;
     let cfg = resolve_board_config(g)?;
-    let client = new_client()?;
+    let client = new_owner_client()?;
     super::require_owner(&client, &cfg, "may approve")?;
     let mut ctx = Ctx::load(client, cfg, g.dir()?)?;
     let world = load_world(&ctx, &[], &mut StateCache::default())?;

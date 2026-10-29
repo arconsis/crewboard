@@ -134,7 +134,7 @@ modules on the `ops` list of `tests/layering.rs`.
   - The base URL is `https://api.github.com`. `CREWBOARD_API_BASE` may replace it only with an `http://`
     loopback host (`parse_api_base`), so the token never leaves the machine. `get` follows only absolute
     URLs under the base.
-  - The token comes from the env file of the agent, else `GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token` (`github/token.rs`). `Debug` hides it.
+  - The token of an agent command comes from the env file of the agent, else `GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token` (`github/token.rs`, `resolve_token`). An owner command takes `--env-file`, else the owner's own `gh auth token` (`resolve_owner_token`, through `ctx::new_owner_client`). `Debug` hides it.
 - `src/github/paging.rs`: bounded paging of REST lists, the one place that follows `Link: rel="next"`.
 - `src/github/projects.rs`: the raw calls that `init` makes to find or create a project, link repos, create fields and views. `ops/init.rs` decides what is missing.
 - `src/board.rs`: the project schema, item reads by id, field writes (every text write checks the size limit).

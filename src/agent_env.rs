@@ -224,11 +224,78 @@ pub fn decide_source(
 
 /// The first of `GH_TOKEN` and `GITHUB_TOKEN` that the caller has set to something.
 fn caller_token_var() -> Option<&'static str> {
-    ["GH_TOKEN", "GITHUB_TOKEN"].into_iter().find(|v| {
-        std::env::var(v)
-            .map(|t| !t.trim().is_empty())
-            .unwrap_or(false)
-    })
+    caller_token_vars().first().copied()
+}
+
+/// Every one of `GH_TOKEN` and `GITHUB_TOKEN` that the caller has set to something.
+pub fn caller_token_vars() -> Vec<&'static str> {
+    ["GH_TOKEN", "GITHUB_TOKEN"]
+        .into_iter()
+        .filter(|v| {
+            std::env::var(v)
+                .map(|t| !t.trim().is_empty())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Where the token of an owner command comes from (spec/identity#author-and-signature).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerSource {
+    /// The file of `--env-file`: the owner named it.
+    EnvFile,
+    /// The owner's own `gh` login (`gh auth token`). The token variables of the caller are
+    /// ignored.
+    GhLogin,
+    /// An agent dir without `--env-file`: the order of an agent command ([`decide_source`]).
+    /// The login of `gh` on an agent host is the owner's, and an agent must not reach it
+    /// through crewboard.
+    AgentDir,
+}
+
+/// The token of an owner command. Pure.
+///
+/// | `--env-file` | agent dir | source |
+/// |---|---|---|
+/// | yes | any | the file |
+/// | no | no | `gh auth token`; `GH_TOKEN` and `GITHUB_TOKEN` are ignored |
+/// | no | yes | the order of an agent command (`agent.env`, else a variable, else refused) |
+///
+/// A plain dir has no `agent.env` (the file makes a dir an agent dir), so no agent env file
+/// can decide the token of an owner command outside an agent dir.
+pub fn decide_owner_source(explicit_file: bool, in_agent_dir: bool) -> OwnerSource {
+    match (explicit_file, in_agent_dir) {
+        (true, _) => OwnerSource::EnvFile,
+        (false, false) => OwnerSource::GhLogin,
+        (false, true) => OwnerSource::AgentDir,
+    }
+}
+
+/// The one note of an owner command that ignored token variables of the caller: it names the
+/// variables, never a value. `None` when none was set. Pure.
+pub fn owner_note(ignored: &[&str]) -> Option<String> {
+    let names = match ignored {
+        [] => return None,
+        [one] => format!("{one} is set and ignored"),
+        many => format!("{} are set and ignored", many.join(" and ")),
+    };
+    Some(format!(
+        "note: {names}: an owner command runs with your own gh login (`gh auth token`). Pass --env-file to use the token of a file"
+    ))
+}
+
+/// The source of the token of an owner command in this run. Without a load (a unit test) it is
+/// the `gh` login.
+pub fn owner_source() -> OwnerSource {
+    match current() {
+        Some(e) => decide_owner_source(e.kind == FileKind::Explicit, e.in_agent_dir),
+        None => OwnerSource::GhLogin,
+    }
+}
+
+/// The config dir of this run, as the loader saw it.
+pub fn config_dir() -> Option<&'static Path> {
+    current().map(|e| e.dir.as_path())
 }
 
 /// The env file of one run, loaded.
@@ -538,6 +605,13 @@ pub fn state() -> Option<&'static Result<AgentEnv, CbError>> {
 /// The token of the env file, if one is in force.
 pub fn token() -> Option<&'static str> {
     current().and_then(|e| e.token.as_deref())
+}
+
+/// The token of `--env-file`, if that file is in force. An owner command takes no other file.
+pub fn explicit_token() -> Option<&'static str> {
+    current()
+        .filter(|e| e.kind == FileKind::Explicit)
+        .and_then(|e| e.token.as_deref())
 }
 
 /// A setting for this process: the variable of the caller, else the key of the env file. Only
@@ -908,6 +982,34 @@ mod tests {
         }
 
         #[test]
+        fn the_owner_source_of_a_loaded_dir() {
+            let src =
+                |e: &AgentEnv| decide_owner_source(e.kind() == FileKind::Explicit, e.in_agent_dir);
+            // a plain dir: no agent.env can exist there, the own gh login
+            let plain = tempfile::tempdir().unwrap();
+            assert_eq!(
+                src(&load(plain.path(), None).unwrap()),
+                OwnerSource::GhLogin
+            );
+            // an agent dir with agent.env: the agent order, never the gh login
+            let d = tempfile::tempdir().unwrap();
+            write(d.path(), "agent.env", "GH_TOKEN=ghp_test_agent\n", 0o600);
+            let agent = load(d.path(), None).unwrap();
+            assert_eq!(agent.kind(), FileKind::AgentEnv);
+            assert_eq!(src(&agent), OwnerSource::AgentDir);
+            // --env-file wins in both dirs
+            let f = write(d.path(), "owner.env", "GH_TOKEN=ghp_test_owner\n", 0o600);
+            assert_eq!(
+                src(&load(d.path(), Some(&f)).unwrap()),
+                OwnerSource::EnvFile
+            );
+            assert_eq!(
+                src(&load(plain.path(), Some(&f)).unwrap()),
+                OwnerSource::EnvFile
+            );
+        }
+
+        #[test]
         fn the_agent_dir_is_found_by_its_three_marks() {
             let d = tempfile::tempdir().unwrap();
             assert!(!is_agent_dir(d.path()));
@@ -922,6 +1024,34 @@ mod tests {
             write(f.path(), "agent.env", "GH_TOKEN=x\n", 0o600);
             assert!(is_agent_dir(f.path()));
         }
+    }
+
+    #[test]
+    fn the_owner_token_the_three_rows() {
+        // --env-file wins in any dir
+        assert_eq!(decide_owner_source(true, false), OwnerSource::EnvFile);
+        assert_eq!(decide_owner_source(true, true), OwnerSource::EnvFile);
+        // a plain dir: the own gh login, whatever the caller has in GH_TOKEN
+        assert_eq!(decide_owner_source(false, false), OwnerSource::GhLogin);
+        // an agent dir: the agent order, never the gh login
+        assert_eq!(decide_owner_source(false, true), OwnerSource::AgentDir);
+    }
+
+    #[test]
+    fn the_owner_note_names_the_variables_and_nothing_else() {
+        assert_eq!(owner_note(&[]), None);
+        let one = owner_note(&["GH_TOKEN"]).unwrap();
+        assert!(one.contains("GH_TOKEN is set and ignored"), "{one}");
+        assert!(
+            one.contains("--env-file") && one.contains("gh auth token"),
+            "{one}"
+        );
+        let two = owner_note(&["GH_TOKEN", "GITHUB_TOKEN"]).unwrap();
+        assert!(
+            two.contains("GH_TOKEN and GITHUB_TOKEN are set and ignored"),
+            "{two}"
+        );
+        assert_eq!(two.lines().count(), 1);
     }
 
     #[test]
