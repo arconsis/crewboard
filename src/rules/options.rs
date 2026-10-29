@@ -412,7 +412,7 @@ pub fn plan_cap_prune(
         return Err(Refusal::new(
             "agent-field-full",
             format!(
-                "the Agent field has {} options and GitHub allows {OPTION_LIMIT}; {need} must go for the new agent, but only {} can: every other option is in use ({in_use} carried by board items, {running} of agents that have not left, {no_agent} that name no agent). The owner can retire agents (`/crew reject <name>` and State left) or clear the Agent field of Done items, then run the command again",
+                "the Agent field has {} options and GitHub allows {OPTION_LIMIT}; {need} must go for the new agent, but only {} can: every other option is in use ({in_use} carried by board items, {running} of agents that have not left, {no_agent} that name no agent). The owner can retire agents (`/crew reject <name>` and State left) or clear the Agent field of Done or Dropped items, then run the command again",
                 options.len(),
                 cands.len()
             ),

@@ -11,17 +11,21 @@ pub enum Status {
     InProgress,
     Review,
     Blocked,
+    /// A PR merged at a checked head (spec/tickets#status-flow-and-writers). Final.
     Done,
+    /// Ended by the coordinator's judgment without a merged PR (`close --why`). Final.
+    Dropped,
 }
 
 impl Status {
-    pub const ALL: [Status; 6] = [
+    pub const ALL: [Status; 7] = [
         Status::Backlog,
         Status::Ready,
         Status::InProgress,
         Status::Review,
         Status::Blocked,
         Status::Done,
+        Status::Dropped,
     ];
 
     /// The option name on the board.
@@ -33,7 +37,14 @@ impl Status {
             Status::Review => "Review",
             Status::Blocked => "Blocked",
             Status::Done => "Done",
+            Status::Dropped => "Dropped",
         }
+    }
+
+    /// Done or Dropped: the ticket has ended, and only the owner moves it out
+    /// (spec/tickets#status-flow-and-writers). The readers that skip finished work ask this.
+    pub fn ended(self) -> bool {
+        matches!(self, Status::Done | Status::Dropped)
     }
 
     /// The exact option name, or `None`.
@@ -275,6 +286,8 @@ pub enum Transition {
         /// The agent is dead or stopped, or the ticket is blocked too long.
         justified: bool,
     },
+    /// `close --why`: any status but Done and Dropped to Dropped. The writer is the only fact.
+    Drop,
     /// Every move to `Done`.
     Close {
         /// Why the move happens, as the caller knows it. Every move to `Done` by a non-owner
@@ -321,15 +334,13 @@ pub enum DoneReason {
     /// `close`: the owner merged the PR by hand and the issue is closed (the caller
     /// checked the PR and the merge actor). No verify is needed, the merge made it moot.
     OwnerMerged,
-    /// `close --why`: the coordinator ends the ticket by judgment without a PR (the caller
-    /// checked the reason).
-    ClosedByJudgment,
 }
 
 impl DoneReason {
-    /// The coordinator may end a ticket for this reason from any status but Done, with no verify.
+    /// The coordinator may end a ticket for this reason from any status but Done and Dropped,
+    /// with no verify.
     fn skips_verify(self) -> bool {
-        matches!(self, Self::OwnerMerged | Self::ClosedByJudgment)
+        matches!(self, Self::OwnerMerged)
     }
 }
 
@@ -357,12 +368,30 @@ fn done_final() -> Refusal {
     )
 }
 
+/// The refusal for any move out of Dropped.
+pub fn dropped_final() -> Refusal {
+    Refusal::new(
+        "status-dropped-final",
+        "ticket is Dropped; only the owner moves it (`crewboard move`; or open a new ticket)",
+    )
+}
+
+/// The refusal for an act on a ticket that has ended: `status-done-final` or
+/// `status-dropped-final`. `None` for a ticket that has not ended.
+pub fn ended_final(status: Status) -> Option<Refusal> {
+    match status {
+        Status::Done => Some(done_final()),
+        Status::Dropped => Some(dropped_final()),
+        _ => None,
+    }
+}
+
 /// `ask` (spec/tickets#status-flow-and-writers): the coordinator asks the owner about any ticket
-/// that is not Done, a dev agent only about its own ticket. A question is no status change by
+/// that has not ended, a dev agent only about its own ticket. A question is no status change by
 /// itself; [`ask_moves_to`] says when the status moves too. Pure.
 pub fn check_ask(key: &str, actor: Actor, is_assignee: bool, status: Status) -> Verdict {
-    if status == Status::Done {
-        return Err(done_final());
+    if let Some(r) = ended_final(status) {
+        return Err(r);
     }
     require(
         actor.is_coordinator() || (actor.is_dev() && is_assignee),
@@ -421,7 +450,8 @@ pub fn front_order(lowest_in_queue: Option<i64>) -> i64 {
 /// follows the table. `Blocked -> In Progress` is allowed for the assigned dev agent only when
 /// the [`Transition::Resume`] has an answer after the block. `Review -> Review` is the
 /// re-delivery of the assignee with a new head ([`Transition::Deliver`]). Not in the table, so
-/// refused: any other no-change move. `Done -> anything` except the owner is `status-done-final`.
+/// refused: any other no-change move. `Done -> anything` except the owner is `status-done-final`,
+/// `Dropped -> anything` except the owner is `status-dropped-final`.
 pub fn check_status_transition(
     from: Option<Status>,
     to: Status,
@@ -461,12 +491,12 @@ pub fn check_status_transition(
     if actor.is_owner() {
         return Ok(());
     }
-    // Done is final: only the owner moves a ticket out of it.
-    if from == Some(Done) && to != Done {
-        return Err(done_final());
+    // Done and Dropped are final: only the owner moves a ticket out of them.
+    if let Some(r) = from.and_then(ended_final) {
+        return Err(r);
     }
-    // The coordinator ends a ticket from any status but Done: after the owner merged the PR by
-    // hand, or by judgment without a PR.
+    // The coordinator ends a ticket from any status but Done and Dropped after the owner merged
+    // the PR by hand.
     if let Transition::Close {
         reason: Some(reason),
         ..
@@ -474,7 +504,7 @@ pub fn check_status_transition(
         && to == Done
         && reason.skips_verify()
         && actor.is_coordinator()
-        && matches!(from, Some(f) if f != Done)
+        && from.is_some()
     {
         return Ok(());
     }
@@ -602,6 +632,9 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
             coordinator("Review -> Ready (failed verify)")?;
             after_verify(to, tr)
         }
+        // `close --why`: the coordinator drops a ticket that has not ended (an ended one is
+        // refused above).
+        (Some(_), Dropped, Transition::Drop) => coordinator("close --why (-> Dropped)"),
         // `reassign`: to Ready with a new agent, to Backlog without one (a ticket in Ready
         // always has an agent, `rules::reassign::target_status`).
         (Some(_), Ready | Backlog, Transition::Reassign { justified }) => {
@@ -1103,8 +1136,8 @@ mod tests {
     #[test]
     fn owner_can_always_move_but_not_to_the_same_status() {
         let empty = TicketCtx::default();
-        for from in [Backlog, Ready, InProgress, Review, Blocked, Done] {
-            for to in [Backlog, Ready, InProgress, Review, Blocked, Done] {
+        for from in Status::ALL {
+            for to in Status::ALL {
                 let r = check_status_transition(Some(from), to, OWNER, &empty);
                 if from == to {
                     assert_eq!(r.unwrap_err().rule, "status-no-change");
@@ -1272,41 +1305,69 @@ mod tests {
     }
 
     #[test]
-    fn closing_without_a_pr_lets_the_coordinator_end_a_ticket_from_any_status_but_done() {
-        let closed = TicketCtx {
-            done_reason: Some(DoneReason::ClosedByJudgment),
+    fn closing_without_a_pr_drops_a_ticket_from_any_status_but_done_and_dropped() {
+        let bare = TicketCtx {
             verify: None,
             ..all_ok()
         };
-        // pass: every status of an unfinished ticket, by the coordinator
+        // pass: every status of an unfinished ticket, by the coordinator only
         for from in [Review, InProgress, Blocked, Ready, Backlog] {
             assert!(
-                check_status_transition(Some(from), Done, COORD, &closed).is_ok(),
+                check_status_transition(Some(from), Dropped, COORD, &bare).is_ok(),
+                "{from:?}"
+            );
+            assert_eq!(
+                rule(Some(from), Dropped, DEV, &bare),
+                "status-wrong-writer",
                 "{from:?}"
             );
         }
-        // refused without the fact: the old rules stay
-        let plain = TicketCtx {
-            done_reason: None,
-            ..closed
+        // an ended ticket is not dropped: Done is final, Dropped is no change
+        assert_eq!(rule(Some(Done), Dropped, COORD, &bare), "status-done-final");
+        assert_eq!(
+            rule(Some(Dropped), Dropped, COORD, &bare),
+            "status-no-change"
+        );
+        // a new ticket is not dropped
+        assert_eq!(
+            rule(None, Dropped, COORD, &bare),
+            "status-unknown-transition"
+        );
+        // the drop opens only Dropped: a close by judgment never reaches Done
+        let r = super::check_status_transition(Some(Blocked), Done, COORD, &Transition::Drop)
+            .unwrap_err();
+        assert_eq!(r.rule, "status-unknown-transition");
+    }
+
+    #[test]
+    fn dropped_is_final_for_everyone_but_the_owner() {
+        for to in Status::ALL.into_iter().filter(|s| *s != Dropped) {
+            for actor in [COORD, DEV] {
+                assert_eq!(
+                    rule(Some(Dropped), to, actor, &all_ok()),
+                    "status-dropped-final",
+                    "{to:?} by {actor:?}"
+                );
+            }
+            assert!(
+                check_status_transition(Some(Dropped), to, OWNER, &all_ok()).is_ok(),
+                "{to:?}"
+            );
+        }
+        // an owner merge does not end a Dropped ticket either
+        let merged = TicketCtx {
+            done_reason: Some(DoneReason::OwnerMerged),
+            verify: None,
+            ..all_ok()
         };
-        for from in [Review, InProgress, Blocked, Ready, Backlog] {
-            assert!(
-                check_status_transition(Some(from), Done, COORD, &plain).is_err(),
-                "{from:?}"
-            );
+        assert_eq!(
+            rule(Some(Dropped), Done, COORD, &merged),
+            "status-dropped-final"
+        );
+        assert!(Done.ended() && Dropped.ended());
+        for s in [Backlog, Ready, InProgress, Review, Blocked] {
+            assert!(!s.ended(), "{s:?}");
         }
-        // refused with the fact: a dev agent, a ticket that is Done
-        assert_eq!(
-            rule(Some(Review), Done, DEV, &closed),
-            "status-wrong-writer"
-        );
-        assert_eq!(rule(Some(Done), Done, COORD, &closed), "status-no-change");
-        // the fact opens only Done
-        assert_eq!(
-            rule(Some(Review), InProgress, COORD, &closed),
-            "status-verify-failed-required"
-        );
     }
 
     #[test]
@@ -1320,7 +1381,7 @@ mod tests {
         }
         // the owner is never refused, whatever reason a caller sets
         let judged = TicketCtx {
-            done_reason: Some(DoneReason::ClosedByJudgment),
+            done_reason: Some(DoneReason::OwnerMerged),
             ..bare
         };
         assert!(check_status_transition(Some(Review), Done, OWNER, &judged).is_ok());
@@ -1375,7 +1436,7 @@ mod tests {
 
     #[test]
     fn a_skip_verify_reason_with_a_dev_actor_or_a_new_ticket_is_refused() {
-        for reason in [DoneReason::OwnerMerged, DoneReason::ClosedByJudgment] {
+        for reason in [DoneReason::OwnerMerged] {
             let c = TicketCtx {
                 done_reason: Some(reason),
                 verify: None,
@@ -1408,7 +1469,6 @@ mod tests {
             Some(DoneReason::VerifiedClose),
             Some(DoneReason::VerifiedMerge),
             Some(DoneReason::OwnerMerged),
-            Some(DoneReason::ClosedByJudgment),
         ]
         .into_iter()
         .map(|done_reason| TicketCtx {
@@ -1438,7 +1498,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_is_for_the_coordinator_and_the_assignee_and_never_on_a_done_ticket() {
+    fn ask_is_for_the_coordinator_and_the_assignee_and_never_on_an_ended_ticket() {
         let key = "o/r#7";
         for status in [Backlog, Ready, InProgress, Review, Blocked] {
             assert!(check_ask(key, COORD, false, status).is_ok(), "{status:?}");
@@ -1454,6 +1514,10 @@ mod tests {
             assert_eq!(
                 check_ask(key, actor, assignee, Done).unwrap_err().rule,
                 "status-done-final"
+            );
+            assert_eq!(
+                check_ask(key, actor, assignee, Dropped).unwrap_err().rule,
+                "status-dropped-final"
             );
         }
     }

@@ -293,8 +293,9 @@ pub enum CrewCmd {
     /// and `audit` see the move as the owner's and not as a board edit. Backlog keeps the Agent.
     /// Ready, In Progress, Review and Blocked need a signed assignment; a board Agent that differs
     /// is set to that assignee. A closed issue is reopened. Done is refused
-    /// (`move-done-needs-close`): merge the PR or close the issue, and the coordinator closes the
-    /// ticket. Runs with the owner's token (like approve and audit).
+    /// (`move-done-needs-close`): merge the PR, and the coordinator closes the ticket. Dropped is
+    /// refused (`move-dropped-needs-close`): the coordinator drops it with `close --why`. Runs
+    /// with the owner's token (like approve and audit).
     #[command(display_order = 35)]
     Move {
         /// The ticket: an issue number, or `<owner>/<repo>#<n>`.
@@ -637,19 +638,22 @@ pub enum ReviewCmd {
         #[command(flatten)]
         sel: Sel,
     },
-    /// Close a ticket (Done is final).
+    /// Close or drop a ticket (Done and Dropped are final).
     ///
-    /// Coordinator: close a ticket (Done is final). Without a flag crewboard looks for the owner's
-    /// merge of the PR; `--why` closes by your judgment; `--verified` closes after a passed verify.
+    /// Coordinator: close a ticket. Without a flag crewboard looks for the owner's merge of the PR
+    /// (Done); `--why` drops the ticket by your judgment (Dropped, never Done); `--verified` closes
+    /// a PR that is merged at the head of a passed verify (Done). Done and Dropped are final.
     #[command(display_order = 19)]
     Close {
         /// The ticket: an issue number, or `<owner>/<repo>#<n>`.
         issue: String,
-        /// Confirm that a passed `verify` exists for this ticket (Review -> Done).
+        /// Review -> Done after a passed `verify`, for a PR that is merged at the verified head
+        /// (an open PR: use `merge`).
         #[arg(long, conflicts_with = "why")]
         verified: bool,
-        /// Close by your judgment when no owner merge exists (no PR, or the ticket will not be
-        /// done). The text goes into the note on the ticket; name a replacing ticket in it.
+        /// Drop the ticket by your judgment when no owner merge exists (no PR, or the ticket will
+        /// not be done): Status Dropped. The text goes into the note on the ticket; name a
+        /// replacing ticket in it.
         #[arg(long, value_name = "TEXT")]
         why: Option<String>,
         #[command(flatten)]

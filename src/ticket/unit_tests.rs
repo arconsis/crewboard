@@ -1079,20 +1079,21 @@ fn the_coordinator_sees_every_status_change_and_a_fresh_cache_does_not_replay_hi
         "t",
     );
     assert_eq!(kinds(&e), vec!["status-changed"]);
-    // first sight: no event for the coordinator, none for a Done ticket of mine,
+    // first sight: no event for the coordinator, none for a Done or Dropped ticket of mine,
     // one for an open ticket of mine
     let empty = BTreeMap::new();
     let rows = [
         row(3, "Review", Some("codex@c")),
         row(4, "Done", Some("hermes@b")),
         row(5, "In Progress", Some("hermes@b")),
+        row(6, "Dropped", Some("hermes@b")),
     ];
     let (c, _) = ticket_events("claude@a", true, &rows, &empty, "t");
     assert!(c.is_empty());
     let (d, next) = ticket_events("hermes@b", false, &rows, &empty, "t");
     assert_eq!(d.len(), 1);
     assert_eq!(d[0].issue, 5);
-    assert_eq!(next.len(), 3, "every ticket is remembered");
+    assert_eq!(next.len(), 4, "every ticket is remembered");
 }
 
 #[test]

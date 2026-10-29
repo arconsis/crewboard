@@ -232,7 +232,7 @@ fn at_100_options_all_in_use_approve_refuses_agent_field_full_and_writes_nothing
             && o.stderr.contains("1 of agents that have not left")
             && o.stderr.contains("98 that name no agent")
             && o.stderr.contains("/crew reject")
-            && o.stderr.contains("Done items"),
+            && o.stderr.contains("Done or Dropped items"),
         "{}",
         o.all()
     );

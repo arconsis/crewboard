@@ -127,6 +127,11 @@ impl TicketRow {
         self.status.as_ref().is_some_and(|s| s.is(status))
     }
 
+    /// True when the ticket has ended: its Status is exactly Done or Dropped ([`Status::ended`]).
+    pub fn ended(&self) -> bool {
+        self.status_exact().is_some_and(Status::ended)
+    }
+
     /// The Status with the legacy `Needs Human` read as Blocked; `None` when unknown or empty.
     pub fn status_board(&self) -> Option<Status> {
         self.status.as_ref().and_then(BoardStatus::board)
@@ -166,7 +171,7 @@ fn ticket_event(row: &TicketRow, me: &str, kind: &str, body: String, now: &str) 
 /// status change). Returns the events and the snapshot to store after they are printed.
 ///
 /// A ticket seen for the first time produces an event only if it is assigned to this agent
-/// and not Done (a fresh cache must not replay history).
+/// and has not ended, Done or Dropped (a fresh cache must not replay history).
 pub fn ticket_events(
     me: &str,
     coordinator: bool,
@@ -182,7 +187,7 @@ pub fn ticket_events(
         let mine = row.is_agent(me);
         match prev.get(&row.item_id) {
             None => {
-                if mine && !row.in_status(Status::Done) {
+                if mine && !row.ended() {
                     events.push(ticket_event(
                         row,
                         me,

@@ -5,8 +5,9 @@
 //! but the board item stays where it was. The coordinator (and the headless `tick`) moves it to
 //! Done when ALL of these hold: the issue is closed; a PR in a repo of the initiative is merged
 //! and its body closes the issue; the merge actor is the owner. Without an owner merge, `close`
-//! needs `--reason "<text>"` (the coordinator's judgment) and is refused with
-//! `close-needs-reason` otherwise. Each refusal writes nothing. Done is final.
+//! needs `--why "<text>"` (the coordinator's judgment), which drops the ticket (Dropped, never
+//! Done), and is refused with `close-needs-reason` otherwise. Each refusal writes nothing. Done
+//! and Dropped are final.
 
 use crate::support::authority::authority_with;
 use crate::support::board::{Agent, FakeBoard, Pull};
@@ -621,7 +622,7 @@ fn crew() -> (FakeBoard, Agent, Agent) {
 }
 
 #[test]
-fn a_ticket_without_a_pr_is_closed_by_reason_from_every_status_but_done() {
+fn a_ticket_without_a_pr_is_dropped_by_reason_from_every_status_but_done() {
     for stage in ["backlog", "ready", "in-progress", "blocked", "asked"] {
         let (fake, c, b) = crew();
         let t = plain(&fake, &c, &b, stage);
@@ -631,21 +632,23 @@ fn a_ticket_without_a_pr_is_closed_by_reason_from_every_status_but_done() {
             &["close", &t.ns, "--why", "not  needed\nany more"],
         );
         assert!(
-            o.stdout.contains("closed: Status Done"),
+            o.stdout.contains("dropped: Status Dropped"),
             "{stage}: {}",
             o.all()
         );
         assert_eq!(
             fake.item_field(&t.item, "Status").as_deref(),
-            Some("Done"),
+            Some("Dropped"),
             "{stage}"
         );
+        // the issue stays open: a drop is no close of the issue
+        assert!(fake.issue_is_open(t.n), "{stage}");
         assert!(
             !fake.labels_of(t.n).contains(&"needs-owner".to_string()),
             "{stage}: the label went"
         );
         // ONE note: to the assignee, else to the coordinator
-        let notes = infos(&fake, t.n, "closed: not needed any more");
+        let notes = infos(&fake, t.n, "dropped: not needed any more");
         assert_eq!(notes.len(), 1, "{stage}: {notes:?}");
         let to = if stage == "backlog" {
             "to=coordinator".to_string()
@@ -659,7 +662,15 @@ fn a_ticket_without_a_pr_is_closed_by_reason_from_every_status_but_done() {
             &c.dir,
             &["close", &t.ns, "--why", "again"],
             "status-no-change",
-            "already Done",
+            "already Dropped",
+        );
+        // a close without a reason does not end a Dropped ticket either
+        refused_no_write(
+            &fake,
+            &c.dir,
+            &["close", &t.ns],
+            "status-dropped-final",
+            "only the owner moves it",
         );
         assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
     }
@@ -729,7 +740,40 @@ fn the_reason_must_have_text_and_pass_the_body_check() {
         Some("Blocked")
     );
     run_ok(&fake, &c, &["close", &t.ns, "--why", "fine"]);
-    assert_eq!(fake.item_field(&t.item, "Status").as_deref(), Some("Done"));
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
+}
+
+#[test]
+fn a_board_without_the_option_dropped_refuses_the_drop_and_writes_nothing() {
+    let (fake, c, b) = crew();
+    let t = plain(&fake, &c, &b, "in-progress");
+    // a board that `init` made before the option existed
+    let mut status = fake.field_options("Status");
+    status.retain(|o| o != "Dropped");
+    fake.set_field_options("Status", &status);
+    refused_no_write(
+        &fake,
+        &c.dir,
+        &["close", &t.ns, "--why", "not needed"],
+        "dropped-option-missing",
+        "crewboard init",
+    );
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("In Progress")
+    );
+    assert!(infos(&fake, t.n, "dropped:").is_empty());
+    // the option back (what the `init` rerun does): the same drop passes
+    status.push("Dropped".to_string());
+    fake.set_field_options("Status", &status);
+    run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
 }
 
 #[test]
@@ -750,16 +794,26 @@ fn only_the_coordinator_closes_by_reason() {
 }
 
 #[test]
-fn a_ticket_that_is_done_is_final_for_reassign_and_ask() {
+fn a_ticket_that_is_dropped_is_final_for_reassign_ask_and_take() {
     let (fake, c, b) = crew();
     let t = plain(&fake, &c, &b, "in-progress");
     run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
-    assert_eq!(fake.item_field(&t.item, "Status").as_deref(), Some("Done"));
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
     refused_no_write(
         &fake,
         &c.dir,
         &["reassign", &t.ns, "--reason", "late", "--why", "try again"],
-        "status-done-final",
+        "status-dropped-final",
+        "only the owner moves it",
+    );
+    refused_no_write(
+        &fake,
+        &b.dir,
+        &["block", &t.ns, "--why", "stuck", "--override-unread"],
+        "status-dropped-final",
         "only the owner moves it",
     );
     refused_no_write(
@@ -772,14 +826,17 @@ fn a_ticket_that_is_done_is_final_for_reassign_and_ask() {
             "Is this still wanted?",
             "--override-unread",
         ],
-        "status-done-final",
+        "status-dropped-final",
         "only the owner moves it",
     );
-    assert_eq!(fake.item_field(&t.item, "Status").as_deref(), Some("Done"));
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
 }
 
 #[test]
-fn assign_and_verify_on_a_done_ticket_are_refused() {
+fn assign_and_verify_on_a_dropped_ticket_are_refused() {
     let (fake, c, b) = crew();
     let t = plain(&fake, &c, &b, "in-progress");
     run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
@@ -787,9 +844,12 @@ fn assign_and_verify_on_a_done_ticket_are_refused() {
         &fake,
         &c.dir,
         &["assign", &t.ns, "--to", &b.name],
-        "status-done-final",
+        "status-dropped-final",
         "only the owner moves it",
     );
     refused_no_write(&fake, &c.dir, &["verify", &t.ns], "verify-needs-review", "");
-    assert_eq!(fake.item_field(&t.item, "Status").as_deref(), Some("Done"));
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
 }

@@ -242,6 +242,7 @@ fn new_state(base: &str) -> State {
                     "Review",
                     "Needs Human",
                     "Done",
+                    "Dropped",
                 ],
             ),
             field("Agent", "SINGLE_SELECT", &[]),

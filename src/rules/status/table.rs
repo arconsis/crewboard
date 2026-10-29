@@ -1,7 +1,7 @@
 //! Characterization of `check_status_transition`: every `(from, to, actor)` move under a set
 //! of named fact profiles, compared with the recorded verdicts in `table.txt`.
 //!
-//! One line per `(profile, from)`: the verdicts for the six targets in the order of
+//! One line per `(profile, from)`: the verdicts for the seven targets in the order of
 //! `Status::ALL`, each for the actors owner, coordinator, dev (`ok` or the rule name).
 
 use super::*;
@@ -211,13 +211,6 @@ fn reason_profiles() -> Vec<(&'static str, Profile)> {
             },
         ),
         (
-            "reason_judgment",
-            Profile {
-                done_reason: Some(DoneReason::ClosedByJudgment),
-                ..NONE
-            },
-        ),
-        (
             "reason_verified_close_unverified",
             Profile {
                 done_reason: Some(DoneReason::VerifiedClose),
@@ -232,7 +225,7 @@ fn profiles() -> Vec<(&'static str, Profile)> {
     [fact_profiles(), reason_profiles()].concat()
 }
 
-const STARTS: [Option<Status>; 7] = [
+const STARTS: [Option<Status>; 8] = [
     None,
     Some(Status::Backlog),
     Some(Status::Ready),
@@ -240,6 +233,7 @@ const STARTS: [Option<Status>; 7] = [
     Some(Status::Review),
     Some(Status::Blocked),
     Some(Status::Done),
+    Some(Status::Dropped),
 ];
 
 const ACTORS: [Actor; 3] = [
@@ -265,6 +259,7 @@ fn transition(p: &Profile, from: Option<Status>, to: Status) -> Transition {
         },
         (Some(Blocked), InProgress) => facts.resume(),
         (_, Review) => facts.deliver(p.evidence_complete, p.new_head),
+        (Some(_), Dropped) => Transition::Drop,
         (_, Done) => Transition::Close {
             reason: p.done_reason,
             verify: p.verify,
