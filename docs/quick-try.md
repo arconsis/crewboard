@@ -5,7 +5,7 @@ account. Use it on a test repo only. For a real crew use [Getting started](getti
 These safety checks are off:
 
 - Any token passes the agent commands, yours too. The rules `agent-uses-owner-token`,
-  `agent-token-not-crew` and `agent-gh-not-crew` need a crew account.
+  `approve-owner-account`, `agent-token-not-crew` and `agent-gh-not-crew` need a crew account.
 - A comment from your account without a header counts as an owner message. An agent that
   forgets the header posts as you, and nobody can see who posted. `crewboard audit` lists such
   comments afterwards.
@@ -125,7 +125,8 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
 
 Do not convert the trial board. Start a new initiative with
 [Getting started](getting-started.md): a new initiative name and new agent dirs. A crew account
-changes whose messages the agents trust.
+changes whose messages the agents trust: your approval binds each agent to the account that
+wrote its join, and that is never yours.
 
 **Clean up.**
 

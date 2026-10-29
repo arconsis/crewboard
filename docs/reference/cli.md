@@ -140,7 +140,7 @@ Options:
           GitHub login of the owner (default: the token's login; it must match)
 
       --crew-login <CREW_LOGIN>
-          GitHub login of the machine account that all agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse any other token
+          GitHub login of the shared crew account that your agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse the owner's token. A contributor's agent may act as its own account instead; `approve` binds each agent to the account that wrote its join
 
       --insecure-one-account
           A one-person trial without a crew account: the agents use the owner's token and nothing separates owner from agent. Written to .crewboard.toml as `insecure_one_account`. Without `--crew-login` and without this flag, init refuses
@@ -389,7 +389,7 @@ Options:
           The checkout of the repo (default: ~/crew/<initiative>-<agent dir name>)
 
       --crew-login <CREW_LOGIN>
-          The login of the crew account (default: the login of the token)
+          The login of the crew account of this agent: the shared one or your own (default: the login of the token)
 
       --model <MODEL>
           The model, written to the runtime label of the join request (`claude-code/<model>` for the runtime claude)

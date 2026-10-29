@@ -4,6 +4,24 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- One GitHub account per agent. A contributor joins with an own account and token; the shared
+  crew account (`crew_login`) keeps working, and both mix on one board. The registry reads a
+  join request from any account. The account that wrote the join is the account of the agent.
+- `approve` shows the account of each join and binds it with the key: the approval comment
+  carries `login=<account>`. A hand-written approval without `login=` binds the account of the
+  join. On a board with `crew_login`, a join of the owner's account is refused
+  (`approve-owner-account`). `status` and `doctor --setup` show the account of each agent.
+- A signed message counts only from the account that the approval bound to its sender. The same
+  text posted by another account, also by another agent's, is the security event
+  `foreign-author`.
+- `start` checks the token and plain `gh` against the agent's own account
+  (`agent-token-not-crew`, `agent-gh-not-crew`). Agent commands no longer refuse a token of
+  another account than `crew_login`; they still refuse the owner's token.
+- `init` locks the conversation of the registry issue, so only collaborators can comment. A
+  board made before this release: lock the issue by hand (Lock conversation).
+
 Fixed:
 
 - The board `State` of an agent no longer mutes it or returns its tickets. The registry log

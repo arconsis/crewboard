@@ -46,7 +46,7 @@ crewboard command made it.
 
 ## Status against the signed log
 
-The crew token can write the board `Status`, so crewboard detects a Done without proof
+Any crew token can write the board `Status`, so crewboard detects a Done without proof
 instead of preventing it. The coordinator's cycle (`poll`, `watch`) checks the tickets that another
 writer moved to Done since the last snapshot (Done is final; the agent's own writes are in its
 snapshot already), and the tickets that an earlier cycle could not settle. `status` and `audit`

@@ -309,8 +309,8 @@ limits it. The prompt does not.
 
    The headless user holds a GitHub token and a signing key. A process of that user that runs
    its own code (not `crewboard`) can call the GitHub API directly, or sign messages with the
-   key, and the key does not limit that. Limit the token itself: the crew account
-   (`crew_login`) with write access only to the initiative repos, branch protection on the main
+   key, and the key does not limit that. Limit the token itself: a crew account (the shared
+   `crew_login` or an own one) with write access only to the initiative repos, branch protection on the main
    branch that requires the CI checks, and no admin rights. See
    [Headless setup](../../guides/headless-setup.md).
 

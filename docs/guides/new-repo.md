@@ -14,8 +14,9 @@ Before the move:
    board file and env file (`~/.config/crewboard/<initiative>.board.toml`, `<initiative>.env`), the
    agent dirs (`~/.config/crewboard/agents/<initiative>-<runtime>`) and the work dirs
    (`~/crew/<initiative>-...`). A new name keeps the old crew readable and avoids a clash.
-2. **Give the crew account access.** Add the crew account to the new repo with the Write role. In
-   an organisation, check that its policy lets the crew token in: an organisation can block
+2. **Give every crew account access.** Add the shared crew account and each contributor's
+   account to the new repo with the Write role. In an organisation, check that its policy lets
+   the crew tokens in: an organisation can block
    classic personal access tokens, or require approval for fine-grained ones. Your own token needs
    the right to create a project in the organisation; `init` creates the board under the owner of
    the main repo.

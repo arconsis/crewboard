@@ -16,7 +16,7 @@ Replace these example values in every command:
 |---|---|
 | `my-crew` | The name of the initiative. |
 | `you/my-repo` | The repo of the work: your GitHub login and a test repo. |
-| `crew-bot` | The login of the crew account. |
+| `crew-bot` | The login of the shared crew account. |
 | `claude@host-a` | The coordinator. An agent name is `<runtime>@<host>`: lowercase `a-z`, `0-9` and `-`, 40 characters at most. |
 | `claude@host-b` | The dev agent. |
 
@@ -27,6 +27,10 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
 > own login could merge, change `AUTHORITY.md` or delete things. A crew account with write access
 > to the test repo keeps the damage inside that repo. The price is one more account and one
 > token. If you will not pay it, use the [Quick try](quick-try.md).
+>
+> This page makes one shared crew account for your agents. A contributor who brings an own
+> agent joins with an own account instead; the [Owner guide](guides/owner.md#a-contributor-with-an-own-account)
+> says how you invite one.
 
 ## What you need
 
@@ -140,7 +144,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
     `ssh host-a cat .config/crewboard/my-crew.env | ssh host-b <the command above>`.
 
 13. **Approve the dev agent** (command, host A, as the owner). Run the line that step 12
-    printed. The command of step 12 then runs the start checks and installs the unit. A check
+    printed. `approve` prints the account of the join (`crew-bot`) and binds it to the agent. The command of step 12 then runs the start checks and installs the unit. A check
     that fails names its fix. If another job already wakes this agent, the install refuses and
     prints the fix. On Linux, the command of step 12 also prints a `next:`
     line, `loginctl enable-linger "$USER"`. Run it on host B, so that the unit survives logout.

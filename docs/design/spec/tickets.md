@@ -54,7 +54,7 @@ signed `Reassigned.` notice ends it, and a later assignment sets a new one. The 
 field is a view of it. `take`, `done`, `block`, `ask`, `unblock`, `verify` and `merge` refuse
 with `ticket-agent-not-signed` when the board `Agent` is set and the signed log does not name
 the same agent (an `Agent` written by hand, or left after a reassign): board fields are not
-signed, and any holder of the crew token can write one. An empty `Agent` is no contradiction.
+signed, and any holder of a crew token can write one. An empty `Agent` is no contradiction.
 The refusal names the repair: `assign` counts an `Agent` field as an assignment only when a
 signed assignment names it, so `assign <t> --to <agent>` on a Ready ticket, or `reassign`,
 posts the signed message and sets the field.
@@ -695,7 +695,7 @@ causes would block its finished part. `ticket split` moves the open part to a ne
 ## Workflow files: the owner route
 
 
-The crew token has no `workflow` scope. This is a security rule: a token that can write
+A crew token has no `workflow` scope. This is a security rule: a token that can write
 workflows can add a workflow that reads the secrets of the repository. GitHub therefore rejects
 a push by a dev agent that changes `.github/workflows/**`. This section defines the route for
 such tickets, so that no agent has to `block` for it.
@@ -732,7 +732,7 @@ such tickets, so that no agent has to `block` for it.
    `done` is on the owner route is refused with `verify-owner-route`: "the latest done of <ticket>
    is on the owner route: the owner applies the patch and merges the PR by hand, then crewboard
    close <n>".
-6. A `block` for "workflow scope" is not needed and not the route. The crew token never gets
+6. A `block` for "workflow scope" is not needed and not the route. A crew token never gets
    the `workflow` scope.
 7. **No closing keyword.** The owner may merge the patch-only PR before the
    patch is applied. A closing keyword would then close the ticket, and the board would show

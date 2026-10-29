@@ -156,7 +156,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/domain/ci/triggers.rs`: read the `on:` key of a workflow and judge whether workflows run for crew branches. Pure.
 - `src/services/ci_evidence.rs`: `fetch_ci` reads the CI sources of a commit (one `CiQuery`) and hands them to `evaluate`.
 - `src/services/ci_triggers.rs`: read the workflow files of a repo (`check_repos`, `judge_no_run`) and hand them to `triggers`.
-- `src/domain/branch_guard.rs`, `src/services/branch_guard.rs`: is the default branch protected against a direct push of the crew account. The service reads it once per run, the domain judges it.
+- `src/domain/branch_guard.rs`, `src/services/branch_guard.rs`: is the default branch protected against a direct push of a crew account. The service reads it once per run, the domain judges it.
 - `src/late/mod.rs`: pure rules for late work: the table of expected times, `scan()` (what waits too long) and `tells()` (who hears of it: dev, coordinator or owner). It also judges the heartbeat of agents. The reads sit behind a probe.
 - `src/headless.rs`: the headless scope (rule, reasons, Gate checks); the verdict of each command is in `src/cli/scope.rs`. A scheduled coordinator may only `verify` and `merge` a CI-only ticket.
 - `src/owner_cmd.rs`, `src/owner_route.rs`: the owner commands `/crew ...`, and the owner route for workflow files.

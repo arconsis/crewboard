@@ -3,7 +3,7 @@
 Read this if `init` printed `branch rule: not created`, or if you want to know what the rule
 does. The page belongs to the [Owner guide](owner.md).
 
-The crew account has Write on the main repo. Without a rule, an agent can push a change of
+Every crew account has Write on the main repo. Without a rule, an agent can push a change of
 `AUTHORITY.md` or `.crewboard.toml` to the default branch with no review. So `init` adds a
 repository ruleset to the default branch of the main repo. Your token is admin there, so it can.
 
