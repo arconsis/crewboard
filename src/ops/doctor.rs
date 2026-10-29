@@ -153,6 +153,15 @@ pub fn protected_paths_warning(headless: bool, a: &crate::authority::Authority) 
     (headless && a.protected_paths.is_empty()).then(|| NO_PROTECTED_PATHS.to_string())
 }
 
+/// The warning when the Status field of the board has no option Dropped (a board made before
+/// the option existed): `close --why` is refused there until `init` runs again.
+pub const NO_DROPPED_OPTION: &str = "warning: the Status field has no option Dropped, so `close --why` is refused (dropped-option-missing); the owner runs `crewboard init` once more (it adds the option and keeps every other one)";
+
+/// The warning for this board, if it applies.
+pub fn dropped_option_warning(has_option: bool) -> Option<String> {
+    (!has_option).then(|| NO_DROPPED_OPTION.to_string())
+}
+
 impl SetupReport {
     fn push(&mut self, check: impl Into<String>, v: CheckVerdict) {
         self.lines.push((check.into(), v));
@@ -1032,6 +1041,13 @@ fn check_board_side(
     {
         rep.warnings.push(w);
     }
+    let has_dropped = ctx.board.fields.get("Status").is_some_and(|f| {
+        f.option_id(crate::rules::status::Status::Dropped.name())
+            .is_some()
+    });
+    if let Some(w) = dropped_option_warning(has_dropped) {
+        rep.warnings.push(w);
+    }
     let join_cmd = format!(
         "crewboard --config-dir {} join --agent {} {} --repo {}",
         cd.0.display(),
@@ -1346,6 +1362,15 @@ mod tests {
         assert!(is_fail(&judge_git(
             wd, None, "crew-bot", email, shim, "o/r"
         )));
+    }
+
+    #[test]
+    fn the_dropped_option_warning_shows_only_without_the_option() {
+        assert_eq!(dropped_option_warning(true), None);
+        assert_eq!(
+            dropped_option_warning(false).as_deref(),
+            Some(NO_DROPPED_OPTION)
+        );
     }
 
     #[test]

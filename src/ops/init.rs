@@ -1019,6 +1019,8 @@ pub fn ensure_views(
             rep.line(format!("view {name}: exists"));
             if name == "Crew" {
                 rep.line("view Crew: an existing view keeps its columns (the REST API cannot change them). To show Capabilities, add the column once in the web UI, or delete the view and run init again.");
+            } else if name == "By Agent" || name == "Needs Owner" {
+                rep.line(format!("view {name}: an existing view keeps its filter. A view made before the status Dropped hides only Done: to hide Dropped tickets too, set its filter once in the web UI to `-Status:Done,Dropped`."));
             } else if name == "Board" {
                 rep.line("views: an existing view keeps its columns (the REST API cannot change them). The label of a ticket shows its agent, so a missing Agent or Order column is optional; to show them, or to sort by Order, delete the view and run init again.");
             }

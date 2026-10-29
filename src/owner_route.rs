@@ -331,7 +331,7 @@ fn marker(patch: &str, sha: &str) -> String {
 pub fn owner_message(repo: &str, issue: u64, branch: &str, patch: &str, sha: &str) -> String {
     format!(
         "{}\n\
-         Apply the patch to the branch and push. Do NOT merge the PR as it is: the ticket would close while the workflow change is not live. The ticket goes to Review after the dev agent's second done.\n\
+         Apply the patch to the branch and push. Do NOT merge the PR as it is: the ticket would close while the workflow change is not live. The ticket is in Review; after your merge the coordinator closes it.\n\
          Ticket {repo}#{issue} changes workflow files. The crew token has no workflow scope, so the change waits as a patch in the PR.\n\
          Apply it (you run this, with your own credentials):\n\
          git fetch origin {branch} && git switch {branch} && git apply {patch} && git add .github/workflows && git commit -m \"Apply the workflow change of #{issue}\" && git push origin {branch}\n\
