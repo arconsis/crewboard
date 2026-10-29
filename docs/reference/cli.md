@@ -66,7 +66,10 @@ Options for all commands:
       Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or
       GITHUB_TOKEN and have mode 600). Its token wins over the token variables
       of the caller. Without it, the `agent.env` of the config dir is loaded
-      when there is one.
+      when there is one. An owner command (init, approve, audit, and pause,
+      resume, stop or agent profile set with --agent) outside an agent dir
+      reads only this file: without it, it runs with your own gh login and
+      ignores GH_TOKEN and GITHUB_TOKEN.
   -V, --version
       Print the version.
 ```
@@ -137,7 +140,7 @@ Options:
           Project title when creating one (default: the initiative name)
 
       --owner-login <OWNER_LOGIN>
-          GitHub login of the owner (default: the token's login; it must match)
+          GitHub login of the owner (default: the login of your own gh, or of --env-file; it must match)
 
       --crew-login <CREW_LOGIN>
           GitHub login of the shared crew account that your agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse the owner's token. A contributor's agent may act as its own account instead; `approve` binds each agent to the account that wrote its join
