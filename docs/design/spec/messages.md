@@ -58,7 +58,8 @@ the writer). Who may do an act is not part of the parse: the readers check the v
 | assignment | `request` | first line `Assigned to you: <title>`; the signed lines `gate: <text>` and `ci: none` or `ci: required` |
 | reassigned | `info` | first line `Reassigned. Reason: <sentence of the reason word>[: <detail>]` (wire format unchanged; the word is `dead`, `stopping`, `late` or `blocked-too-long`, see [tickets](tickets.md#status-flow-and-writers)) |
 | on the board | `info` | first line `Ticket is on the board` |
-| closed | `info` | first line `Closed after a passed verify`, `Merged by the coordinator.`, `The ticket is closed: the owner merged ...` or `closed: <reason>` |
+| closed | `info` | first line `Closed after a passed verify`, `Merged by the coordinator.` or `The ticket is closed: the owner merged ...`: Done. `closed: <reason>` (an older `close --why`, no longer written): Done |
+| dropped | `info` | first line `dropped: <reason>` (`close --why`): Dropped |
 | verify result | `report` | first line `verify: pass` or `verify: fail` |
 | withdraws a question | `answer` | the line `withdraws: question` |
 | parked | `blocked` | text starts `parked for #<n>:` |

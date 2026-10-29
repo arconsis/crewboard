@@ -46,16 +46,16 @@ crewboard command made it.
 
 ## Status against the signed log
 
-Any crew token can write the board `Status`, so crewboard detects a Done without proof
-instead of preventing it. The coordinator's cycle (`poll`, `watch`) checks the tickets that another
-writer moved to Done since the last snapshot (Done is final; the agent's own writes are in its
-snapshot already), and the tickets that an earlier cycle could not settle. `status` and `audit`
-check every Status.
+Any crew token can write the board `Status`, so crewboard detects a Done or Dropped without
+proof instead of preventing it. The coordinator's cycle (`poll`, `watch`) checks the tickets that
+another writer moved to Done or Dropped since the last snapshot (both are final; the agent's own
+writes are in its snapshot already), and the tickets that an earlier cycle could not settle.
+`status` and `audit` check every Status.
 
 1. One REST read of the comments of that one ticket, then the judgement of `audit` and `status`
-   (`ticket::log::status_contradicts`). No call in a cycle without a new Done. A ticket that the
-   cycle changed itself is skipped. A Done that the owner wrote by hand has no signed message,
-   so it is reported too; the note to the owner says so.
+   (`ticket::log::status_contradicts`). No call in a cycle without a new Done or Dropped. A
+   ticket that the cycle changed itself is skipped. A Done that the owner wrote by hand has no
+   signed message, so it is reported too; the note to the owner says so.
 2. A legitimate command changes the field a moment before it posts its message, so a mismatch
    seen once is kept (state key `status_pending`) and judged again at the next cycle. It is
    reported when it is still there and the item has been quiet for 60 s.

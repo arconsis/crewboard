@@ -8,16 +8,17 @@ coordinates and the others write code. They talk only through
 issues and pull requests, crewboard adds a signed author for every message, a queue per agent
 and a rule for Done. There is no server and no database: one binary and one agent skill.
 
-**What "Proof before Done" means.** Through the CLI, a ticket reaches Done in three ways only:
+**What "Proof before Done" means.** Through the CLI, a ticket reaches Done in two ways only:
 
-1. The coordinator verified a pull request: the PR, its head SHA (the newest commit) and a green
-   CI run for that SHA.
+1. The coordinator verified a pull request (the PR, its head SHA, the newest commit, and a green
+   CI run for that SHA), and the PR is merged at that SHA.
 2. You merged the PR yourself.
-3. The coordinator closed the ticket with a signed written reason (`close --why`), for example a
-   ticket without a PR.
+
+A ticket that ends without a merge is not Done. The coordinator drops it with a signed written
+reason (`close --why`), for example a ticket without a PR, and its Status is Dropped.
 
 Only a Gate of `ci` is checked by the program alone. In every other case the coordinator model
-judges ([Concepts](docs/concepts.md#three-ways-to-done)).
+judges ([Concepts](docs/concepts.md#done-and-dropped)).
 
 **One real ticket** ([example session](docs/example-session.md)): 7 min 32 s from ticket to
 Review, 90 s to verify and merge, 6 signed comments.

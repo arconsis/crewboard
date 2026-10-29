@@ -23,7 +23,9 @@ to the wrong host, a model that merges a protected change, and ticket text that 
 - Only the owner merges a PR that changes a [protected path](owner.md#protected-paths), by the
   crewboard CLI. `git` and `gh` skip that check; the branch rule that `init` sets makes them
   need a pull request and your review.
-- Through the CLI a ticket reaches Done only in the [three ways](../concepts.md#three-ways-to-done).
+- Through the CLI a ticket reaches Done only in the [two ways](../concepts.md#done-and-dropped):
+  a merge after a passed verify, or the owner's merge. A ticket that ends without a merge is
+  Dropped.
 - crewboard never stores or prints a token. It sends the token only to the GitHub API.
 
 **What crewboard does not guarantee.**

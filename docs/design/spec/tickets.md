@@ -36,8 +36,10 @@ headless "CI only" check read these lines, not the body; without a `ci:` line th
 
 ## Status flow and writers
 
-The statuses are Backlog, Ready, In Progress, Review, Blocked and Done
-([Boards of earlier builds](board.md#boards-of-earlier-builds) for older options). The writers
+The statuses are Backlog, Ready, In Progress, Review, Blocked, Done and Dropped
+([Boards of earlier builds](board.md#boards-of-earlier-builds) for older options). Done means a
+PR merged at a checked head. Dropped means that the coordinator ended the ticket by judgment,
+without a merged PR. The writers
 are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 `check_status_transition` in `src/rules/status.rs` judges every move. The allowed moves:
 
@@ -53,27 +55,30 @@ are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 | Blocked -> In Progress | assignee | `take` after an answer or its own park | `ack` |
 | Review -> In Progress | coordinator | failed `verify`, agent idle | `verify: fail` report |
 | Review -> Ready | coordinator | failed `verify`, agent busy | `verify: fail` report |
-| Review -> Done | coordinator | `close --verified` or `merge` after a passed `verify` | close `info` |
-| any but Done -> Done | coordinator | `close` after an owner merge, `close --why` | close `info` |
-| any but Done -> Ready | coordinator | `reassign --to <agent>` | `Reassigned.`, then an assignment |
-| any but Done -> Backlog | coordinator | `reassign` | `Reassigned.` |
-| any -> any but Done | owner | `crewboard move` | owner comment `/crew move` |
+| Review -> Done | coordinator | `merge` after a passed `verify`, or `close --verified` for a PR merged at the verified head | close `info` |
+| any but Done and Dropped -> Done | coordinator | `close` after an owner merge | close `info` |
+| any but Done and Dropped -> Dropped | coordinator | `close --why` | `dropped: <reason>` |
+| any but Done and Dropped -> Ready | coordinator | `reassign --to <agent>` | `Reassigned.`, then an assignment |
+| any but Done and Dropped -> Backlog | coordinator | `reassign` | `Reassigned.` |
+| any -> any but Done and Dropped | owner | `crewboard move` | owner comment `/crew move` |
 
-Done is final: only the owner moves a ticket out of it. "Agent busy" means that the agent has
-another ticket In Progress.
+Done and Dropped are final: only the owner moves a ticket out of them. "Agent busy" means that
+the agent has another ticket In Progress.
 
 `ticket::log::fold_ticket` reads the signed messages in order and gives the status and the
 assignee that the log supports. A `question` of the assignee to the owner allows the status
-before or Blocked. After a coordinator close, a message of the assignee changes nothing, until an
-owner move or a later coordinator creation info, assignment, reassign or failed verify. `status` and `audit`
+before or Blocked. A coordinator close gives Done, a `dropped: <reason>` note gives Dropped. The
+note `closed: <reason>` of an older build gives Done, so the history of a board stays valid.
+After a coordinator close or drop, a message of the assignee changes nothing, until an owner move
+or a later coordinator creation info, assignment, reassign or failed verify. `status` and `audit`
 report a board that the log does not support.
 
 ### The status table
 
 `src/rules/status/table.txt` is the full matrix and the source of truth. A test in
-`src/rules/status/table.rs` renders every move under named fact profiles and compares. A line is `<profile>|<from>|<verdicts>`, where `from` is `new` or a status. The 18
-verdicts are the targets Backlog, Ready, In Progress, Review, Blocked and Done, each for the
-actors owner, coordinator and dev. A verdict is `ok` or a refusal code.
+`src/rules/status/table.rs` renders every move under named fact profiles and compares. A line is `<profile>|<from>|<verdicts>`, where `from` is `new` or a status. The 21
+verdicts are the targets Backlog, Ready, In Progress, Review, Blocked, Done and Dropped, each for
+the actors owner, coordinator and dev. A verdict is `ok` or a refusal code.
 
 | Profile | Facts |
 |---|---|
@@ -85,7 +90,10 @@ actors owner, coordinator and dev. A verdict is `ok` or a refusal code.
 | `no_answer`, `parked_no_answer` | no answer after the block; the second is a park of the actor |
 | `not_assignee`, `no_gate`, `no_active_dev`, `no_evidence`, `not_justified` | as `all_ok`, without that fact |
 | `split_proven*`, `new_head*` | the split proof holds, or the `done` names a new head; with `_no_evidence` or `_not_assignee` one fact more fails |
-| `reason_*` | a move to Done by `verified_close`, `verified_merge`, `owner_merged` or `judgment`; `verified_close_unverified` lacks the verify |
+| `reason_*` | a move to Done by `verified_close`, `verified_merge` or `owner_merged`; `verified_close_unverified` lacks the verify |
+
+A move to Dropped needs no fact besides the writer, so every profile gives the same Dropped
+column.
 
 The owner passes every move except a move to the current status. `crewboard move` adds its own rules
 ([Owner move](#owner-move)). The refusal codes:
@@ -96,6 +104,7 @@ The owner passes every move except a move to the current status. `crewboard move
 | `status-unknown-transition` | The move is not in the table. |
 | `status-no-change` | The ticket has the target status already. A repeat `close`, `reassign` or `move` is safe. |
 | `status-done-final` | The ticket is Done. Only the owner moves it. |
+| `status-dropped-final` | The ticket is Dropped. Only the owner moves it. |
 | `status-gate-missing` | No Gate: Backlog -> Ready, `ticket new`, `assign`. |
 | `status-agent-not-active-dev` | `Agent` is no approved dev agent in State `active`. |
 | `status-answer-missing` | Blocked -> In Progress without an answer, and no park of the actor. |
@@ -110,7 +119,8 @@ The owner passes every move except a move to the current status. `crewboard move
 
 "Waiting for the owner" is a question, not a status. `ask` posts a signed `kind=question` to the
 owner and sets the label `needs-owner`. The assignee or the coordinator asks about a ticket that
-is not Done. Another dev agent gets `ask-not-assignee`. An In Progress ticket of the assignee
+has not ended (`status-done-final`, `status-dropped-final`). Another dev agent gets
+`ask-not-assignee`. An In Progress ticket of the assignee
 moves to Blocked, so the agent is free. Any other status stays, for example Review.
 
 A question is open while it is the latest `question` of the assignee or a coordinator to the
@@ -172,6 +182,9 @@ and writes `Status`. The comment puts the move into the signed log. A drag on th
 - Ready, In Progress, Review and Blocked need a signed assignment (`move-needs-assignee`).
   Backlog keeps `Agent` as it is.
 - Done is refused (`move-done-needs-close`): the coordinator posts the signed close.
+- Dropped is refused (`move-dropped-needs-close`): the coordinator drops the ticket with
+  `close --why` and a signed reason.
+- A Done or Dropped ticket moves out only this way, for example back to Ready.
 - A name that is no status is `move-bad-status`. Case does not matter; `-` or `_` is a space.
 - A target that the board and the log both show is no change. A target that only the board
   shows gets the comment and no `Status` write.
@@ -266,10 +279,12 @@ posts nothing. The owner merges by hand, then `close <n>`
 With `ci_mode: local`, a local-run `done` needs `verify --local-run "<what you checked>"`
 ([Local run](ci.md#local-run-ci_mode-local)).
 
-A passed `verify` writes no status. `merge` follows ([Merge](#merge)), or `close <n> --verified`.
-`close --verified` reads the PR first and is refused with `close-verified-head-moved` when the
-head is not the `head_now` of the passing verify, or the PR is closed without a merge. It posts
-the signed note before it writes Done, so a rerun finishes a failed write.
+A passed `verify` writes no status. `merge` follows ([Merge](#merge)). `close <n> --verified`
+is for a PR that is merged already, for example by auto-merge or by a maintainer. It reads the PR
+first and needs it merged at the `head_now` of the passing verify. An open PR is refused with
+`close-verified-not-merged`, and the text names `merge`. A PR closed without a merge, or merged at
+another head, is refused with `close-verified-head-moved`. It posts the signed note before it
+writes Done, so a rerun finishes a failed write.
 
 A failed `verify` moves an idle agent's ticket to In Progress. A busy agent's ticket goes to
 Ready at the front of its queue, and the report has a `case:` line.
@@ -296,7 +311,7 @@ signed. Then `verify` judges as usual. The coordinator can also take the questio
 ### Close after an owner merge
 
 The owner may merge a crew PR by hand. `crewboard close <n>` (coordinator) then moves the ticket
-to Done from any status but Done when all of these hold:
+to Done from any status but Done and Dropped when all of these hold:
 
 1. The issue is closed.
 2. A PR in a repo of the initiative is merged, and its body closes this issue.
@@ -316,7 +331,8 @@ Writes, in order: the [merged-without-verify note](#a-pr-merged-without-a-passed
 needed; one signed `info` with `pr:`, `merge-commit:` and `closed: owner merged <url>`; Status
 Done; the label `needs-owner` removed. Without an owner merge and without `--why`, `close` is
 refused with `close-needs-reason`, which names the failed condition. With `--why` it becomes a
-[close without a PR](#close-without-a-pr).
+[close without a PR](#close-without-a-pr): Dropped, not Done. A Dropped ticket is not closed by
+an owner merge (`status-dropped-final`).
 
 The headless `tick` does this close too, for tickets in Review, In Progress, Blocked and Ready
 whose issue is closed.
@@ -332,11 +348,20 @@ The note changes no Status.
 
 ### Close without a PR
 
-`crewboard close <n> --why "<text>"` ends a ticket that is not Done by the coordinator's
-judgment, for example when a new ticket supersedes it. The reason is one line and passes the
-body check of every post (`body-too-long`, `secret-in-body`). `--why` and `--verified` do not
-combine. Writes, in order: one signed `info` with `closed: <reason>`, Status Done, the label
-`needs-owner` removed.
+`crewboard close <n> --why "<text>"` drops a ticket that is not Done or Dropped by the
+coordinator's judgment, for example when a new ticket supersedes it. Status Dropped, never Done:
+Done always means a merged PR. It applies only when `close` finds no owner merge; with an owner
+merge the reason is a line of the close note, and the ticket is Done. The reason is one line and
+passes the body check of every post (`body-too-long`, `secret-in-body`). `--why` and `--verified`
+do not combine. A repeat on a Dropped ticket is `status-no-change`.
+
+The board needs the Status option Dropped. A board that `init` made before the option existed
+lacks it: `close --why` is refused with `dropped-option-missing` before any write, and the text
+says to run `crewboard init` again. The rerun adds the option and keeps every other option id.
+
+Writes, in order: one signed `info` that starts with `dropped: <reason>`, Status Dropped, the
+label `needs-owner` removed. The issue stays open. The note `closed: <reason>` of an older build
+still reads as Done.
 
 ### A PR merged while the dev works
 
@@ -362,11 +387,11 @@ The PR body must still close the ticket (`evidence-pr-not-linked`).
 
 ### A follow-up ticket continues an open PR
 
-A follow-up ticket can continue the open PR of a Done ticket on its branch.
+A follow-up ticket can continue the open PR of a Done or Dropped ticket on its branch.
 `ticket new ... --continue-pr <url>` checks, in order: a
 PR URL (`evidence-pr-url`) of a repo of the initiative (`repo-not-in-initiative`) that exists
 (`evidence-pr-missing`); open; a crew branch `<dev_branch_prefix><agent>/<n>-<slug>`; and ticket
-`<n>` is Done, or in Backlog or Ready with a reassign notice that names this PR
+`<n>` is Done or Dropped, or in Backlog or Ready with a reassign notice that names this PR
 (`adopt-pr-parent-not-done`). The signed creation `info` of the new ticket gets
 `adopts-pr: <url> branch: <branch>`. Only that coordinator line lets `done` and `merge` accept
 the branch. The PR body must close the new ticket.

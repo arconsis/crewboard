@@ -72,6 +72,10 @@ the shell shims for `crewboard wake`, `lock` and `repeat` are gone. Use `Gate: c
 and set `heartbeat_interval` in `.crewboard.toml`. A runner user without `crewboard` on the
 `PATH` sets `CREWBOARD_BIN=<path of crewboard>`.
 
+A board of 0.6.x needs one `crewboard init` rerun after the upgrade: it adds the Status option
+`Dropped` and keeps every other option id. Until then `close --why` is refused with
+`dropped-option-missing`.
+
 ## See the versions
 
 - `crewboard --version` prints the version of the binary.
