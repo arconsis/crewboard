@@ -165,11 +165,19 @@ fn a_ticket_goes_from_assign_to_close_under_the_writer_rules() {
     // the pass ends with the full next command
     assert!(
         o.stdout.contains(&format!(
-            "next: crewboard close {REPO}#{t} --verified (after you checked the Gate)\n"
+            "next: crewboard merge {REPO}#{t} (after you checked the Gate; when the owner merges, crewboard close {REPO}#{t})\n"
         )),
         "{}",
         o.stdout
     );
+    // an open PR is no Done: `close --verified` needs the merge
+    run_refused(
+        &fake,
+        &c,
+        &["close", &ts, "--verified"],
+        "close-verified-not-merged",
+    );
+    fake.merge_pr(pr.number);
     run_ok(&fake, &c, &["close", &ts, "--verified"]);
     assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Done"));
     // Close keeps the agent label as history
@@ -1028,7 +1036,7 @@ fn resume_of_the_coordinator_lists_a_done_without_verify_until_it_is_verified() 
     let t = ticket(&fake, "IT resume", true, true);
     let ts = t.to_string();
     let key = format!("{REPO}#{t}");
-    delivered(&fake, &c, &b, t);
+    let (_, pr) = delivered(&fake, &c, &b, t);
 
     // resume: the checks of start, then the block with the done that waits for a verify
     let o = run_ok(&fake, &c, &["resume"]);
@@ -1132,6 +1140,7 @@ fn resume_of_the_coordinator_lists_a_done_without_verify_until_it_is_verified() 
         "a verified done must not be listed: {}",
         o.stdout
     );
+    fake.merge_pr(pr.number);
     run_ok(&fake, &c, &["close", &ts, "--verified"]);
     no_unhandled(&fake);
 }
@@ -2407,16 +2416,58 @@ fn the_template_and_the_kind_list_need_no_board_call() {
     );
 }
 
-/// Rule `close-verified-head-moved`: Done after `close --verified` means "accepted at the head
-/// that the passing verify saw". A moved head and a PR closed without a merge are refused before
-/// any write. A merged PR at the verified head, and a rerun after a new verify, pass.
+/// Rules `close-verified-not-merged` and `close-verified-head-moved`: Done after
+/// `close --verified` means "merged at the head that the passing verify saw". An open PR, a PR
+/// closed without a merge and a PR merged at another head are refused before any write.
 #[test]
-fn close_verified_needs_the_head_that_the_passing_verify_saw() {
+fn close_verified_needs_the_pr_merged_at_the_head_that_the_passing_verify_saw() {
     let (fake, c, b) = crew();
     let (t, item, pr) = in_verified_review(&fake, &c, &b, "IT close head");
     let ts = t.to_string();
-    // the dev pushes again after the verify: no new done, no new verify
+    let before = writes(&fake);
+    // an open PR at the verified head: merge it with `merge`
+    let o = run_refused(
+        &fake,
+        &c,
+        &["close", &ts, "--verified"],
+        "close-verified-not-merged",
+    );
+    assert!(
+        o.stderr.contains(&format!("crewboard merge {t}")),
+        "{}",
+        o.stderr
+    );
+    assert_eq!(writes(&fake), before, "the refusal wrote: {}", o.all());
+    assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Review"));
+    // the dev pushes again after the verify: still open, still not merged
+    fake.push(&pr.branch);
+    run_refused(
+        &fake,
+        &c,
+        &["close", &ts, "--verified"],
+        "close-verified-not-merged",
+    );
+    // a PR that was closed without a merge
+    fake.close_pr(pr.number);
+    let o = run_refused(
+        &fake,
+        &c,
+        &["close", &ts, "--verified"],
+        "close-verified-head-moved",
+    );
+    assert!(o.stderr.contains("closed without a merge"), "{}", o.stderr);
+    assert_eq!(writes(&fake), before, "the refusal wrote: {}", o.all());
+    assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Review"));
+    no_unhandled(&fake);
+}
+
+#[test]
+fn close_verified_refuses_a_pr_merged_at_another_head() {
+    let (fake, c, b) = crew();
+    let (t, item, pr) = in_verified_review(&fake, &c, &b, "IT close merged moved");
+    let ts = t.to_string();
     let moved = fake.push(&pr.branch);
+    fake.merge_pr_by(pr.number, "somebody-else");
     let before = writes(&fake);
     let o = run_refused(
         &fake,
@@ -2428,17 +2479,6 @@ fn close_verified_needs_the_head_that_the_passing_verify_saw() {
     assert!(o.stderr.contains(&pr.head), "{}", o.stderr);
     assert_eq!(writes(&fake), before, "the refusal wrote: {}", o.all());
     assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Review"));
-
-    // a PR that was closed without a merge is refused too
-    fake.close_pr(pr.number);
-    let o = run_refused(
-        &fake,
-        &c,
-        &["close", &ts, "--verified"],
-        "close-verified-head-moved",
-    );
-    assert!(o.stderr.contains("closed without a merge"), "{}", o.stderr);
-    assert_eq!(writes(&fake), before, "the refusal wrote: {}", o.all());
     no_unhandled(&fake);
 }
 
@@ -2458,8 +2498,9 @@ fn close_verified_accepts_a_pr_that_was_merged_at_the_verified_head() {
 #[test]
 fn a_failed_status_write_of_close_verified_leaves_review_and_a_rerun_finishes() {
     let (fake, c, b) = crew();
-    let (t, item, _pr) = in_verified_review(&fake, &c, &b, "IT close failed write");
+    let (t, item, pr) = in_verified_review(&fake, &c, &b, "IT close failed write");
     let ts = t.to_string();
+    fake.merge_pr(pr.number);
     fake.fail_select_write(Some("Done"));
     let o = fake.run(&c.dir, &["close", &ts, "--verified"]);
     assert_ne!(o.code, 0, "{}", o.all());

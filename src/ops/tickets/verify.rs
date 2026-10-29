@@ -435,8 +435,8 @@ fn decide_verify(
     }
     let fail_move = if pass {
         rest.push_str(&format!(
-            "next: crewboard close {} --verified (after you checked the Gate)\n",
-            f.ticket_key
+            "next: crewboard merge {} (after you checked the Gate; when the owner merges, crewboard close {})\n",
+            f.ticket_key, f.ticket_key
         ));
         None
     } else {
@@ -957,7 +957,7 @@ mod tests {
         );
         assert_eq!(
             p.rest,
-            "next: crewboard close a/b#12 --verified (after you checked the Gate)\n"
+            "next: crewboard merge a/b#12 (after you checked the Gate; when the owner merges, crewboard close a/b#12)\n"
         );
         assert!(p.body.starts_with("verify: pass\npr: "));
     }

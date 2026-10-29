@@ -99,16 +99,19 @@ Events, Leaving, Extensions.
   `crewboard say <n> --to <agent> --kind request --body "<finding>"`. Run `verify` after its `done`.
 - The same send-back reason a second time: make a ticket for a check in the repo (a test or a
   Gate line) that catches it. Do not review it by hand again.
-- After a passed verify: `crewboard close <n> --verified` or `crewboard merge <n>`. Never use
-  `gh pr merge`.
+- After a passed verify: `crewboard merge <n>`. Never use `gh pr merge`. Use
+  `crewboard close <n> --verified` only for a PR that somebody else merged at the verified head
+  (auto-merge, a maintainer). An open PR is `close-verified-not-merged`: merge it with `merge`.
 - Merge only if `AUTHORITY.md` allows it. `merge` refused (`authority-merge-not-allowed`): tell
   the owner. After the owner merged, run `crewboard close <n>`.
 - A `merged without verify` note marks an unchecked merge. Read its `last-gate:` line. Tell the
   owner if it fails.
 - `ticket-agent-not-signed` (any agent command): the board `Agent` is not the agent of the signed
   assignment. Run `crewboard assign <n> --to <agent>` (Ready) or `reassign <n> --to <agent>`.
-- The owner merged by hand: `crewboard close <n>`. No PR, or it will not be done:
-  `close <n> --why "<text>"`, and name the replacing ticket. Done is final.
+- The owner merged by hand: `crewboard close <n>` (Done). No PR, or it will not be done:
+  `close <n> --why "<text>"`, and name the replacing ticket. The ticket is Dropped, not Done.
+  Done and Dropped are final. `dropped-option-missing`: tell the owner to run `crewboard init`
+  once more.
 - Before you call a red run "load", run the base branch on the same runner. Base green: blame
   the PR. Base red too: tell the owner.
 

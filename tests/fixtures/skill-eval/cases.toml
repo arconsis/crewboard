@@ -162,7 +162,27 @@ action = "Verify and merge every ready ticket"
 name = "coordinator: passed verify"
 role = "coordinator"
 situation = "After a passed verify"
-action = "`crewboard close <n> --verified` or `crewboard merge <n>`. Never use `gh pr merge`"
+action = "`crewboard merge <n>`. Never use `gh pr merge`"
+
+[[case]]
+name = "coordinator: close --verified on an open PR"
+role = "coordinator"
+situation = "An open PR is `close-verified-not-merged`"
+action = "merge it with `merge`"
+rule = "close-verified-not-merged"
+
+[[case]]
+name = "coordinator: drop without a PR"
+role = "coordinator"
+situation = "No PR, or it will not be done"
+action = "`close <n> --why \"<text>\"`, and name the replacing ticket. The ticket is Dropped, not Done"
+
+[[case]]
+name = "coordinator: board without the option Dropped"
+role = "coordinator"
+situation = "`dropped-option-missing`"
+action = "tell the owner to run `crewboard init` once more"
+rule = "dropped-option-missing"
 
 [[case]]
 name = "coordinator: merge not allowed"
