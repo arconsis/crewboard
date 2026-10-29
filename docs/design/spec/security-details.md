@@ -2,7 +2,8 @@
 
 This page holds the detail behind the [Security guide](../../guides/security.md): what is signed
 and how to check it by hand, how crewboard sorts comments, how an edited owner comment is judged, how crewboard handles
-tokens and keys, what `selftest`, `audit` and `status` report, and the trust roots. Each statement names the
+tokens and keys, what `selftest`, `audit` and `status` report, the trust roots, and who holds
+which power. Each statement names the
 source file that implements it. The code on `main` decides what is true today. If you find a
 difference between this page and the code, open an issue.
 
@@ -329,3 +330,40 @@ for any agent name. Without the private key of an agent it cannot post a message
 for that agent, and since the approval binds an account, a valid signed message that another
 account posts does not count either (`foreign-author`). Revocation is per agent: `/crew reject
 <name>` ends the key, and the owner removes the collaborator access of the account.
+
+## Who holds which power
+
+```mermaid
+flowchart TB
+    subgraph owner_host["Owner machine"]
+        OT["Owner login and token<br/>(admin of repo and board)"]
+    end
+    subgraph agent_host["Agent host"]
+        CT["Crew account token: shared or own<br/>(env file, mode 600)"]
+        K1["Key of agent A<br/>(private, per agent)"]
+        K2["Key of agent B<br/>(private, per agent)"]
+        M["Agent<br/>(a process with shell access)"]
+    end
+    subgraph gh["GitHub"]
+        REG["Registry issue<br/>(approved keys)"]
+        BOARD["Project board<br/>(Status and other fields)"]
+        CM["Issue comments<br/>(signed messages)"]
+        REPO["Repo: main, crew/ branches,<br/>AUTHORITY.md, workflows"]
+        CI["CI runs of the head SHA"]
+    end
+    OT -->|"approves an agent and freezes its key and account"| REG
+    OT -->|"merges changes to AUTHORITY.md and workflows"| REPO
+    M --> CT
+    M -->|"signs a message"| K1
+    K2 -.->|"cannot sign as agent A"| CM
+    CT -->|"writes comments, fields, crew/ branches, PRs"| gh
+    CM -->|"valid only from the approved account, with the approved key"| REG
+    REPO -->|"push and PR start"| CI
+    CI -->|"result for the head SHA, read by the CLI"| CM
+    CM -->|"Done needs a record"| BOARD
+```
+
+Each party holds a different power. The crewboard CLI enforces a part of it.
+[Threats](../../guides/security.md#threats-that-crewboard-handles) says what it refuses, and
+[Residual risks](../../guides/security.md#residual-risks) says what it does not stop. Which
+command each role may run: [Who may do what](../../guides/owner.md#who-may-do-what).
