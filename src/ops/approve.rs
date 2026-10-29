@@ -3,7 +3,9 @@
 //! Run with the owner's token. It posts the owner command `/crew approve ...` in the
 //! registry issue (no crew header: an owner message, spec/messages#owner-messages), then sets
 //! `State = approved` and `Role`, adds the agent name as an option of the `Agent` field
-//! (complete-list merge, read-back check) and thereby freezes the key.
+//! (complete-list merge, read-back check) and thereby freezes the key and the account: the
+//! GitHub login that wrote the join (`login=`). A join of the owner's account is refused on a
+//! board with a crew login (agents may not act as the owner).
 
 use super::{Ctx, Global, World, load_world, new_client, resolve_board_config};
 use crate::board::OptionInfo;
@@ -210,6 +212,14 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     let item = world.items.get(&join.item_id).ok_or_else(|| {
         CbError::config(format!("agent item {} is not readable by id", join.item_id))
     })?;
+    if let Some(why) = crate::registry::owner_account_refusal(&ctx.cfg, &join.login) {
+        return Err(CbError::refused(
+            "approve-owner-account",
+            format!(
+                "{name} cannot be approved: {why}. The agent joins again with the token of the crew account or of its own account"
+            ),
+        ));
+    }
     let join_key = join
         .key()
         .ok_or_else(|| CbError::refused("bad-key", "the key of the join request is unreadable"))?;
@@ -283,7 +293,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
             &ctx.client,
             ctx.main_repo(),
             ctx.cfg.registry_issue,
-            &approve_text(&name, role, &fp, &join.item_id),
+            &approve_text(&name, role, &fp, &join.item_id, &join.login),
         )?;
         out.push_str(&format!("approval comment {id}: {url}\n"));
     } else {
@@ -320,8 +330,9 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
             .set_select(&ctx.client, &join.item_id, "State", "approved")?;
     }
     out.push_str(&format!(
-        "{name} approved as {}; key {fp} is frozen; State=approved\n",
-        role_name(role)
+        "{name} approved as {}; key {fp} and account {} are frozen; State=approved\n",
+        role_name(role),
+        join.login
     ));
     Ok(Approval {
         text: out,
@@ -329,9 +340,10 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     })
 }
 
-/// Two undecided joins of one name with other keys: `approve` does not pick one. Any holder of
-/// the crew token can post a join for a pending name (spec/security-details#trust-roots), so the
-/// owner must name the key that the agent host printed.
+/// Two undecided joins of one name with other keys: `approve` does not pick one. Any account
+/// that may comment on the registry issue can post a join for a pending name
+/// (spec/security-details#trust-roots), so the owner must name the key that the agent host
+/// printed, and sees the account of each join.
 fn ambiguous_join_refusal(
     name: &AgentName,
     role: Role,
@@ -343,18 +355,19 @@ fn ambiguous_join_refusal(
         .chain(entry.join.iter())
         .map(|j| {
             format!(
-                "key={} item={}",
+                "key={} item={} login={}",
                 j.key()
                     .map(|k| fingerprint(&k))
                     .unwrap_or_else(|| "unreadable".into()),
-                j.item_id
+                j.item_id,
+                j.login
             )
         })
         .collect();
     CbError::refused(
         "approve-ambiguous-join",
         format!(
-            "{name} has {} undecided join requests with different keys ({}); compare the key with the one that `join` printed on the agent host, then comment on the registry issue: `/crew approve {name} role={} key=<fingerprint> item=<id>`",
+            "{name} has {} undecided join requests with different keys ({}); compare the key with the one that `join` printed on the agent host, then comment on the registry issue: `/crew approve {name} role={} key=<fingerprint> item=<id> login=<login>`",
             list.len(),
             list.join("; "),
             role_name(role)

@@ -18,7 +18,9 @@ use crate::owner_cmd::{self, OwnerCommand};
 use crate::protocol::header::Message;
 use crate::protocol::names::{AgentName, Kind, To};
 use crate::protocol::replay::{Replay, Seen};
-use crate::registry::{CREW_PREFIX, Trust, join_replay, verify_join};
+use crate::registry::{
+    CREW_PREFIX, Trust, is_join_request, join_replay, verify_join, wrong_account,
+};
 use crate::rules::Role;
 use serde::Serialize;
 
@@ -155,7 +157,7 @@ pub fn copy_map(
 ) -> std::collections::HashMap<u64, u64> {
     let mut sorted: Vec<&Comment> = comments
         .iter()
-        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited() && !is_foreign(c, cfg))
+        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited() && !is_foreign(c, cfg, trust))
         .collect();
     sorted.sort_by_key(|c| c.id);
     let (mut seen, mut copies) = (Seen::default(), std::collections::HashMap::new());
@@ -172,7 +174,9 @@ pub fn copy_map(
             verify_join(c, cfg.former_for(&c.repo)).is_some()
         } else {
             trust.at(h.from.as_str(), c.id).is_some_and(|s| {
-                c.verify(&msg, &s.key, cfg.former_for(&c.repo)).is_ok() && c.check_ts(&msg).is_ok()
+                s.by_agent(c)
+                    && c.verify(&msg, &s.key, cfg.former_for(&c.repo)).is_ok()
+                    && c.check_ts(&msg).is_ok()
             })
         };
         if valid && let Err(Replay::Copy { of }) = seen.first_use(h.from.as_str(), &h.sig, c.id) {
@@ -291,7 +295,7 @@ pub type UsedNonces = std::collections::BTreeMap<String, (u64, i64)>;
 pub fn selftest_pings(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) -> Vec<SelftestPing> {
     comments
         .iter()
-        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited() && !is_foreign(c, cfg))
+        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited() && !is_foreign(c, cfg, trust))
         .filter_map(|c| {
             let msg = Message::parse(&c.body).ok()?;
             let h = &msg.header;
@@ -300,7 +304,7 @@ pub fn selftest_pings(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) ->
                 return None;
             }
             let nonce = selftest_nonce(&msg.body)?;
-            let sender = trust.at(h.from.as_str(), c.id)?;
+            let sender = trust.at(h.from.as_str(), c.id).filter(|s| s.by_agent(c))?;
             c.verify(&msg, &sender.key, cfg.former_for(&c.repo)).ok()?;
             c.check_ts(&msg).ok()?;
             Some(SelftestPing {
@@ -440,18 +444,20 @@ fn event(c: &Comment, p: Parts<'_>) -> Event {
     }
 }
 
-/// A foreign comment: its author is neither the owner nor (for a comment with a crew
-/// header) the crew account (spec/messages#untrusted-input). Foreign comments are dropped and counted.
-pub fn is_foreign(c: &Comment, cfg: &BoardConfig) -> bool {
+/// A foreign comment: its author is neither the owner nor (for a comment with a crew header)
+/// the account of an approved agent (spec/messages#untrusted-input). A join request in the
+/// registry issue is never foreign: any account may ask to join, and the owner decides. Foreign
+/// comments are dropped and counted.
+pub fn is_foreign(c: &Comment, cfg: &BoardConfig, trust: &Trust) -> bool {
     if c.body.starts_with(CREW_PREFIX) {
-        !cfg.crew_authors().iter().any(|a| c.by(a))
+        !c.by(&cfg.owner_login) && !trust.knows_login(&c.author) && !is_join_request(c, cfg)
     } else {
         !c.by(&cfg.owner_login)
     }
 }
 
 pub fn classify(c: &Comment, env: &FilterEnv<'_>) -> Classified {
-    if is_foreign(c, env.cfg) {
+    if is_foreign(c, env.cfg, env.trust) {
         // A foreign comment that wears a crew header is an impersonation attempt (a security
         // event, routed to the coordinator and the owner); any other foreign comment is only
         // dropped and counted (spec/messages#untrusted-input).
@@ -462,7 +468,7 @@ pub fn classify(c: &Comment, env: &FilterEnv<'_>) -> Classified {
                 Reason::ForeignAuthor,
                 claimed.as_ref(),
                 format!(
-                    "comment with a crew header by {}, who is neither the owner nor the crew account",
+                    "comment with a crew header by {}, who is neither the owner nor the account of an approved agent",
                     c.author
                 ),
             );
@@ -533,6 +539,16 @@ fn classify_message(c: &Comment, env: &FilterEnv<'_>, in_registry: bool) -> Clas
             format!("{from} is not an approved agent with a registered key"),
         );
     };
+    // The approval bound the sender to one GitHub account: a message of another account is not
+    // the sender's, even with a valid signature (spec/identity#author-and-signature).
+    if !sender.by_agent(c) {
+        return security(
+            c,
+            Reason::ForeignAuthor,
+            Some(from),
+            wrong_account(&c.author, from.as_str(), &sender.login),
+        );
+    }
     if let Err(e) = c.verify(&msg, &sender.key, env.cfg.former_for(&c.repo)) {
         return security(c, Reason::BadSignature, Some(from), e.to_string());
     }

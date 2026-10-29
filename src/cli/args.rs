@@ -113,9 +113,11 @@ pub enum CrewCmd {
         /// GitHub login of the owner (default: the token's login; it must match).
         #[arg(long)]
         owner_login: Option<String>,
-        /// GitHub login of the machine account that all agents act as (for example
+        /// GitHub login of the shared crew account that your agents act as (for example
         /// `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board
-        /// with the Write role. Agent commands then refuse any other token.
+        /// with the Write role. Agent commands then refuse the owner's token. A contributor's
+        /// agent may act as its own account instead; `approve` binds each agent to the account
+        /// that wrote its join.
         #[arg(long)]
         crew_login: Option<String>,
         /// A one-person trial without a crew account: the agents use the owner's token and
@@ -1134,7 +1136,8 @@ pub enum AgentAction {
         /// The checkout of the repo (default: ~/crew/<initiative>-<agent dir name>).
         #[arg(long)]
         work_dir: Option<PathBuf>,
-        /// The login of the crew account (default: the login of the token).
+        /// The login of the crew account of this agent: the shared one or your own (default: the
+        /// login of the token).
         #[arg(long)]
         crew_login: Option<String>,
         /// The model, written to the runtime label of the join request (`claude-code/<model>` for

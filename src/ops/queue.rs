@@ -204,6 +204,7 @@ mod tests {
             runtime: None,
             host: None,
             item_id: None,
+            login: None,
             capabilities: Some(caps.into()),
             liveness: live.into(),
             busy: Vec::new(),

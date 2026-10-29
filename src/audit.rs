@@ -46,7 +46,8 @@ pub enum FindingKind {
     Malformed,
     /// A valid signature with a signed `ts` far from the GitHub creation time: a replayed copy.
     Replayed,
-    /// A crew header by an author who is neither the owner nor the crew account.
+    /// A crew header by an author who is neither the owner nor the account of an approved
+    /// agent, or a signed message posted by another account than the one the approval bound.
     ForeignAuthor,
     /// A transition that its signed message shows to be by the wrong writer.
     WrongWriter,
@@ -118,7 +119,7 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Headerless owner-account comments outside every session window (not listed).
     pub owner_comments_outside_sessions: usize,
-    /// Comments by authors who are neither the owner nor the App, without a crew header.
+    /// Comments by authors who are not the owner, without a crew header.
     pub foreign_comments: usize,
 }
 
@@ -179,11 +180,14 @@ enum Judged {
 /// `is_join` is true for a join request (registry, `kind=request`, `to=owner`): it is signed
 /// with the key it carries, and the registry decides later.
 fn judge(c: &Comment, cfg: &BoardConfig, reg: &Registry, seen: &mut Seen) -> Judged {
-    if !cfg.crew_authors().iter().any(|a| c.by(a)) {
+    if !c.by(&cfg.owner_login)
+        && !reg.knows_login(&c.author)
+        && !crate::registry::is_join_request(c, cfg)
+    {
         return Judged::Bad(
             FindingKind::ForeignAuthor,
             format!(
-                "crew header by {}, who is neither the owner nor the crew account",
+                "crew header by {}, who is neither the owner nor the account of an approved agent",
                 c.author
             ),
         );
@@ -234,12 +238,21 @@ fn judge(c: &Comment, cfg: &BoardConfig, reg: &Registry, seen: &mut Seen) -> Jud
     // cover the comment (history: an agent that left or was rejected since still counts for
     // its old messages; a message after the leave or the reject, or before the approval, does
     // not).
-    let key = reg
+    let join = reg
         .agents
         .get(msg.header.from.as_str())
         .filter(|e| e.span_at(c.id).is_some())
-        .and_then(|e| e.join.as_ref())
-        .and_then(|j| j.key());
+        .and_then(|e| e.join.as_ref());
+    // The approval bound the agent to one GitHub account (spec/identity#author-and-signature).
+    if let Some(j) = join
+        && !c.by(&j.login)
+    {
+        return Judged::Bad(
+            FindingKind::ForeignAuthor,
+            crate::registry::wrong_account(&c.author, msg.header.from.as_str(), &j.login),
+        );
+    }
+    let key = join.and_then(|j| j.key());
     let Some(key) = key else {
         return Judged::Bad(
             FindingKind::UnknownSender,
@@ -635,7 +648,7 @@ pub fn audit(
         } else if c.by(&cfg.owner_login) {
             owner_plain.push(c);
         } else {
-            // Neither the owner nor a crew header: a stranger, or the crew account posting
+            // Neither the owner nor a crew header: a stranger, or an agent account posting
             // without a header (it is no owner message and no signed message).
             foreign_comments += 1;
         }

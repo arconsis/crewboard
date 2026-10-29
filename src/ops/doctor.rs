@@ -420,19 +420,24 @@ fn judge_dir_mode(dir: &Path) -> CheckVerdict {
 }
 
 /// What plain `gh` of this shell is (spec/identity#identity-of-the-agents-own-gh), as a setup
-/// check. Unlike `start`, a `gh` that fails or is missing is a FAIL here: the agent cannot open
-/// its pull requests.
+/// check. `account` is the agent's own account (the login of its token on a board with a crew
+/// login: the shared crew account or the contributor's own account). Unlike `start`, a `gh` that
+/// fails or is missing is a FAIL here: the agent cannot open its pull requests.
 pub fn judge_agent_gh(
     cfg: &crate::config::BoardConfig,
+    account: Option<&str>,
     got: &crate::agent_gh::GhLogin,
     agent_dir: &Path,
     shim_first: bool,
 ) -> CheckVerdict {
     use crate::agent_gh::GhLogin;
-    let Some(crew) = &cfg.crew_login else {
+    if cfg.crew_login.is_none() {
         return CheckVerdict::Skip(
             "the board names no crew login; the agents use the owner's login".into(),
         );
+    }
+    let Some(crew) = account else {
+        return CheckVerdict::Skip("needs a working token".into());
     };
     let what = match got {
         GhLogin::Login(l) if l.eq_ignore_ascii_case(crew) => {
@@ -617,13 +622,28 @@ pub fn read_git_identity(work_dir: &Path) -> Option<GitIdentity> {
 }
 
 /// The registry state of this agent: approved (and trusted), or what is missing.
+/// The registry line: approved or not, and the account that the registry binds to the agent.
+/// `token` is the login of the agent's token; a token of another account than the bound one
+/// fails (its messages would be dropped).
 pub fn judge_registry(
     world: &super::World,
     me: &str,
     item_id: &str,
     cfg: &crate::config::BoardConfig,
     join_cmd: &str,
+    token: Option<&str>,
 ) -> CheckVerdict {
+    let bound = world.reg.agents.get(me).and_then(|e| e.login());
+    if let (Some(b), Some(t)) = (bound, token)
+        && !b.eq_ignore_ascii_case(t)
+    {
+        return fail(
+            format!("the registry binds {me} to the account {b}, but the token is {t}"),
+            format!(
+                "load the token of {b} into the env file of this agent, or join again with a new agent name"
+            ),
+        );
+    }
     match super::say::require_approved(world, me) {
         Ok(t) => {
             let state = world
@@ -637,8 +657,9 @@ pub fn judge_registry(
                 ""
             };
             CheckVerdict::Ok(format!(
-                "{me} is approved as {}; state {state}{next}",
-                crate::owner_cmd::role_name(t.role)
+                "{me} is approved as {} for the account {}; state {state}{next}",
+                crate::owner_cmd::role_name(t.role),
+                bound.unwrap_or("?")
             ))
         }
         Err(e) => {
@@ -655,8 +676,9 @@ pub fn judge_registry(
                     "{me} has joins with more than one key; the owner approves with `/crew approve {me} key=<fingerprint>` (the key that `join` printed on the agent host); `crewboard status` lists the registry notes"
                 ),
                 Some(a) if a.approval.is_none() => format!(
-                    "ask the owner to run: crewboard approve {me} --initiative {} (add --role coordinator for the coordinator)",
-                    cfg.initiative
+                    "ask the owner to run: crewboard approve {me} --initiative {} (add --role coordinator for the coordinator); the join is a comment of the account {}",
+                    cfg.initiative,
+                    a.login().unwrap_or("?")
                 ),
                 Some(_) => "the owner runs `crewboard status` and reads the registry notes".into(),
             };
@@ -763,13 +785,13 @@ fn load_setup_agent(
     }
 }
 
-/// The token: its login and, for a classic token, its scopes. Returns the client if the token
-/// is the one the board wants.
+/// The token: its login and, for a classic token, its scopes. Returns the client and the login if
+/// the token is one the board allows.
 fn check_token(
     rep: &mut SetupReport,
     cd: &ConfigDir,
     agent: &crate::config::AgentConfig,
-) -> Option<crate::github::Client> {
+) -> Option<(crate::github::Client, String)> {
     let cfg = &agent.board;
     let dir = cd.0.display().to_string();
     let token_fix = format!(
@@ -784,7 +806,12 @@ fn check_token(
         Ok((c, login)) => match super::judge_agent(&login, cfg, agent.insecure_one_account) {
             Ok(()) => {
                 let who = match &cfg.crew_login {
-                    Some(_) => format!("acts as {login}, the crew account"),
+                    Some(crew) if crew.eq_ignore_ascii_case(&login) => {
+                        format!("acts as {login}, the shared crew account")
+                    }
+                    Some(_) => format!(
+                        "acts as {login}, an own account (the owner's approval binds the account that writes the join)"
+                    ),
                     None => format!(
                         "acts as {login}; identity: ONE ACCOUNT (insecure), the board names no crew login, so any token passes"
                     ),
@@ -796,7 +823,7 @@ fn check_token(
                     "token scopes",
                     judge_scopes_in(c.oauth_scopes().as_deref(), trial),
                 );
-                Some(c)
+                Some((c, login))
             }
             Err(e) => {
                 let what = match &e {
@@ -808,7 +835,9 @@ fn check_token(
                 {
                     "for a one-person trial run `crewboard start --insecure-one-account`; else ask the owner to run `crewboard init --crew-login <account>`".to_string()
                 } else {
-                    format!("{env} must hold the token of the crew account; {token_fix}")
+                    format!(
+                        "{env} must hold the token of the agent's account (the crew account or its own); {token_fix}"
+                    )
                 };
                 rep.push("token", fail(what, fix));
                 None
@@ -821,13 +850,14 @@ fn check_token(
     }
 }
 
-/// Write access to each repo of the initiative.
+/// Write access to each repo of the initiative, for the account of the token.
 fn check_push_access(
     rep: &mut SetupReport,
     client: Option<&crate::github::Client>,
+    account: Option<&str>,
     cfg: &crate::config::BoardConfig,
 ) {
-    let crew = cfg.crew_login.as_deref().unwrap_or("the crew account");
+    let crew = account.unwrap_or("the agent's account");
     match client {
         Some(c) => {
             for r in &cfg.repos {
@@ -848,30 +878,40 @@ fn check_gh_shim(
     rep: &mut SetupReport,
     cd: &ConfigDir,
     cfg: &crate::config::BoardConfig,
+    account: Option<&str>,
 ) -> std::path::PathBuf {
     let shim = cd.0.join("bin").join("gh");
     let shim_first = find_on_path("gh", std::env::var("PATH").unwrap_or_default())
         .and_then(|p| std::fs::canonicalize(p).ok())
         .is_some_and(|p| std::fs::canonicalize(&shim).is_ok_and(|s| s == p));
-    let got = if cfg.crew_login.is_some() {
+    let got = if cfg.crew_login.is_some() && account.is_some() {
         use crate::agent_gh::GhIdentityProbe;
         crate::agent_gh::ShellGh::from_env().login()
     } else {
         crate::agent_gh::GhLogin::NotInstalled
     };
-    rep.push("gh shim", judge_agent_gh(cfg, &got, &cd.0, shim_first));
+    rep.push(
+        "gh shim",
+        judge_agent_gh(cfg, account, &got, &cd.0, shim_first),
+    );
     shim
 }
 
-/// The git identity of the work dir.
+/// The git identity of the work dir: the agent's account (the login of its token).
 fn check_git_identity(
     rep: &mut SetupReport,
     client: Option<&crate::github::Client>,
+    account: Option<&str>,
     cfg: &crate::config::BoardConfig,
     work_dir: &Path,
     shim: &Path,
 ) {
-    match (&cfg.crew_login, client) {
+    let crew = cfg.crew_login.as_ref().and(account);
+    match (crew, client) {
+        (None, _) if cfg.crew_login.is_some() => rep.push(
+            "git identity",
+            CheckVerdict::Skip("needs a working token".into()),
+        ),
         (None, _) => rep.push(
             "git identity",
             CheckVerdict::Skip("the board names no crew login".into()),
@@ -931,6 +971,7 @@ fn check_board_side(
     client: Option<crate::github::Client>,
     cd: &ConfigDir,
     agent: &crate::config::AgentConfig,
+    account: Option<&str>,
 ) {
     let cfg = &agent.board;
     let Some(client) = client else {
@@ -959,8 +1000,8 @@ fn check_board_side(
                         cfg.project_number, cfg.project_owner
                     ),
                     format!(
-                        "the owner gives {} the Write role on the board (`crewboard init --crew-login` does it); a classic token needs the project scope",
-                        cfg.crew_login.as_deref().unwrap_or("the crew account")
+                        "the owner gives the agent's account the Write role on the board (`crewboard init --crew-login` does it for the shared crew account {}); a classic token needs the project scope",
+                        cfg.crew_login.as_deref().unwrap_or("-")
                     ),
                 ),
             );
@@ -1008,7 +1049,7 @@ fn check_board_side(
     let v = match super::load_world(&ctx, std::slice::from_ref(&agent.item_id), &mut cache) {
         Ok(w) => {
             tags = Some(super::profile::caps_of(w.items.get(&agent.item_id)).declared);
-            judge_registry(&w, &agent.name, &agent.item_id, cfg, &join_cmd)
+            judge_registry(&w, &agent.name, &agent.item_id, cfg, &join_cmd, account)
         }
         Err(e) => fail(
             format!("cannot read the registry: {e}"),
@@ -1033,12 +1074,21 @@ pub fn setup(g: &Global, work_dir: &Path) -> (String, CbResult<()>) {
     for (check, v) in judge_agent_env(&cd.0) {
         rep.push(check, v);
     }
-    let client = check_token(&mut rep, &cd, &agent);
-    check_push_access(&mut rep, client.as_ref(), cfg);
-    let shim = check_gh_shim(&mut rep, &cd, cfg);
-    check_git_identity(&mut rep, client.as_ref(), cfg, work_dir, &shim);
+    let token = check_token(&mut rep, &cd, &agent);
+    let account = token.as_ref().map(|(_, l)| l.clone());
+    let client = token.map(|(c, _)| c);
+    check_push_access(&mut rep, client.as_ref(), account.as_deref(), cfg);
+    let shim = check_gh_shim(&mut rep, &cd, cfg, account.as_deref());
+    check_git_identity(
+        &mut rep,
+        client.as_ref(),
+        account.as_deref(),
+        cfg,
+        work_dir,
+        &shim,
+    );
     check_runtime(&mut rep, &agent.runtime);
-    check_board_side(&mut rep, client, &cd, &agent);
+    check_board_side(&mut rep, client, &cd, &agent, account.as_deref());
     rep.finish()
 }
 
@@ -1180,9 +1230,21 @@ mod tests {
         let mut cfg = crate::registry::tests::cfg();
         cfg.crew_login = Some("crew-bot".into());
         let dir = tempfile::tempdir().unwrap();
-        let ok = judge_agent_gh(&cfg, &GhLogin::Login("Crew-Bot".into()), dir.path(), false);
+        let ok = judge_agent_gh(
+            &cfg,
+            Some("crew-bot"),
+            &GhLogin::Login("Crew-Bot".into()),
+            dir.path(),
+            false,
+        );
         assert!(matches!(ok, CheckVerdict::Ok(_)), "{ok:?}");
-        let fix = |got: GhLogin, first: bool| match judge_agent_gh(&cfg, &got, dir.path(), first) {
+        let fix = |got: GhLogin, first: bool| match judge_agent_gh(
+            &cfg,
+            Some("crew-bot"),
+            &got,
+            dir.path(),
+            first,
+        ) {
             CheckVerdict::Fail { fix, .. } => fix,
             other => panic!("{other:?}"),
         };
@@ -1198,10 +1260,22 @@ mod tests {
         assert!(
             fix(GhLogin::Login("someone".into()), true).contains("GH_TOKEN=<token of crew-bot>")
         );
+        // a contributor's own account: plain gh must be that account, not the shared one
+        let own = |got: &str| {
+            judge_agent_gh(
+                &cfg,
+                Some("contributor-a"),
+                &GhLogin::Login(got.into()),
+                dir.path(),
+                true,
+            )
+        };
+        assert!(matches!(own("contributor-a"), CheckVerdict::Ok(_)));
+        assert!(is_fail(&own("crew-bot")));
         // no crew login on the board: not checked
         cfg.crew_login = None;
         assert!(matches!(
-            judge_agent_gh(&cfg, &GhLogin::NotInstalled, dir.path(), false),
+            judge_agent_gh(&cfg, None, &GhLogin::NotInstalled, dir.path(), false),
             CheckVerdict::Skip(_)
         ));
     }

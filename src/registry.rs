@@ -7,8 +7,14 @@
 //!
 //! Binding rule (interpretation of spec/board#lifecycle, spec/messages#signature): an approval
 //! binds the latest valid join of that name that precedes it. If the approval names
-//! `key=<fingerprint>`, that join must have exactly this key, else the approval is void. After an
-//! approval, later joins of the same name are ignored, so a forged second join cannot swap the key.
+//! `key=<fingerprint>`, that join must have exactly this key, else the approval is void. If it
+//! names `login=<github-login>`, the join must be a comment of that account, else the approval is
+//! void. After an approval, later joins of the same name are ignored, so a forged second join
+//! cannot swap the key or the account.
+//!
+//! Accounts (spec/identity#author-and-signature): a join is read from any GitHub account; the
+//! account that wrote it is the login of the agent, bound by the approval together with the key.
+//! A message of the agent counts only from that account.
 
 use crate::comments::Comment;
 use crate::config::BoardConfig;
@@ -33,6 +39,8 @@ pub struct JoinInfo {
     pub runtime: String,
     pub host: String,
     pub comment_id: u64,
+    /// The GitHub login that wrote the join comment: the account of the agent.
+    pub login: String,
 }
 
 impl JoinInfo {
@@ -172,6 +180,12 @@ impl AgentEntry {
     pub fn approved(&self) -> bool {
         self.approval.is_some() && !self.rejected
     }
+
+    /// The GitHub login of the agent: the account of the bound join (or of the latest pending
+    /// join). Its messages count only from this account.
+    pub fn login(&self) -> Option<&str> {
+        self.join.as_ref().map(|j| j.login.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -180,6 +194,17 @@ pub struct Registry {
     /// Things that were ignored on purpose (void approvals, late joins, second
     /// coordinator). `status` shows them.
     pub notes: Vec<String>,
+}
+
+impl Registry {
+    /// `login` is the account of an agent that the owner approved (an agent with a span).
+    pub fn knows_login(&self, login: &str) -> bool {
+        self.agents
+            .values()
+            .filter(|e| !e.spans.is_empty())
+            .filter_map(AgentEntry::login)
+            .any(|l| l.eq_ignore_ascii_case(login))
+    }
 }
 
 pub fn fingerprint(k: &PublicKey) -> String {
@@ -192,7 +217,8 @@ pub fn join_body(item_id: &str, key_line: &str, runtime: &str, host: &str) -> St
     format!("Join request.\nitem={item_id}\nkey={key_line}\nruntime={runtime}\nhost={host}\n")
 }
 
-pub fn parse_join(msg: &Message, comment_id: u64) -> Option<JoinInfo> {
+/// `login` is the GitHub author of the comment.
+pub fn parse_join(msg: &Message, comment_id: u64, login: &str) -> Option<JoinInfo> {
     if msg.header.kind != Kind::Request || msg.header.to != To::Owner {
         return None;
     }
@@ -215,13 +241,14 @@ pub fn parse_join(msg: &Message, comment_id: u64) -> Option<JoinInfo> {
         runtime: runtime.unwrap_or_default(),
         host: host.unwrap_or_default(),
         comment_id,
+        login: login.to_string(),
     })
 }
 
 /// A join comment whose signature verifies against the key it carries.
 fn signed_join(c: &Comment, former: &[FormerRepo]) -> Option<(Message, JoinInfo)> {
     let msg = Message::parse(&c.body).ok()?;
-    let join = parse_join(&msg, c.id)?;
+    let join = parse_join(&msg, c.id, &c.author)?;
     let key = join.key()?;
     c.verify(&msg, &key, former).ok()?;
     Some((msg, join))
@@ -247,10 +274,11 @@ pub fn join_replay(c: &Comment, former: &[FormerRepo]) -> Option<Replay> {
     c.check_ts(&msg).err()
 }
 
-/// Read the registry issue comments (any order; they are sorted by id here).
+/// Read the registry issue comments (any order; they are sorted by id here). A join is read from
+/// any author; a left marker or a stopping notice only from the account of the agent; an owner
+/// command only from the owner. Every other comment is ignored.
 pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
     let (main_repo, issue) = (cfg.main_repo(), cfg.registry_issue);
-    let authors = cfg.crew_authors();
     let mut sorted: Vec<&Comment> = comments
         .iter()
         .filter(|c| c.repo == main_repo && c.issue == issue)
@@ -259,9 +287,6 @@ pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
     let mut reg = Registry::default();
     let mut seen = Seen::default();
     for c in sorted {
-        if !authors.iter().any(|a| c.by(a)) {
-            continue;
-        }
         if c.body.starts_with(CREW_PREFIX) {
             // Edited messages are invalid (spec/messages#signature).
             if c.edited() {
@@ -307,7 +332,7 @@ pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
                 continue;
             }
             match owner_cmd::parse(&c.body) {
-                Ok(Some(cmd)) => apply_owner(&mut reg, c.id, cmd),
+                Ok(Some(cmd)) => apply_owner(&mut reg, cfg, c.id, cmd),
                 Ok(None) => {}
                 Err(r) => reg
                     .notes
@@ -320,8 +345,9 @@ pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
 
 /// A signed `info` of an agent with an open span and the line `lifecycle: left` ends that span.
 /// A signed `info` that the agent is stopping (draining) records a stop and keeps the span open.
-/// The signature is checked with the join key. A marker of another name, with a bad signature,
-/// or from an agent without an open span, is ignored.
+/// The signature is checked with the join key, and the author must be the account of the agent.
+/// A marker of another name or account, with a bad signature, or from an agent without an open
+/// span, is ignored.
 fn apply_left_marker(reg: &mut Registry, c: &Comment, former: &[FormerRepo], seen: &mut Seen) {
     use crate::protocol::acts::{Act, parse};
     let Ok(msg) = Message::parse(&c.body) else {
@@ -338,6 +364,9 @@ fn apply_left_marker(reg: &mut Registry, c: &Comment, former: &[FormerRepo], see
     let Some(key) = entry.join.as_ref().and_then(|j| j.key()) else {
         return;
     };
+    if entry.login().is_none_or(|l| !c.by(l)) {
+        return;
+    }
     if entry.open_span().is_none()
         || c.verify(&msg, &key, former).is_err()
         || c.check_ts(&msg).is_err()
@@ -370,13 +399,14 @@ fn other_coordinator(reg: &Registry, name: &str) -> Option<String> {
         .map(|a| a.name.clone())
 }
 
-fn apply_owner(reg: &mut Registry, comment_id: u64, cmd: OwnerCommand) {
+fn apply_owner(reg: &mut Registry, cfg: &BoardConfig, comment_id: u64, cmd: OwnerCommand) {
     match cmd {
         OwnerCommand::Approve {
             name,
             role,
             key_fp,
             item,
+            login,
         } => {
             let n = name.to_string();
             if role == Role::Coordinator
@@ -434,6 +464,21 @@ fn apply_owner(reg: &mut Registry, comment_id: u64, cmd: OwnerCommand) {
             {
                 reg.notes.push(format!(
                     "approval of {n} (comment {comment_id}) is void: item {want} is not the item of the join"
+                ));
+                return;
+            }
+            if let Some(want) = &login
+                && !want.eq_ignore_ascii_case(&join.login)
+            {
+                reg.notes.push(format!(
+                    "approval of {n} (comment {comment_id}) is void: login {want} is not the account of the join ({})",
+                    join.login
+                ));
+                return;
+            }
+            if let Some(why) = owner_account_refusal(cfg, &join.login) {
+                reg.notes.push(format!(
+                    "approval of {n} (comment {comment_id}) is void: {why}"
                 ));
                 return;
             }
@@ -498,6 +543,34 @@ fn apply_owner(reg: &mut Registry, comment_id: u64, cmd: OwnerCommand) {
     }
 }
 
+/// A comment of the registry issue with the header of a join request (`kind=request`,
+/// `to=owner`). Whether it is a valid join, the signature decides later. Any account may post
+/// one.
+pub fn is_join_request(c: &Comment, cfg: &BoardConfig) -> bool {
+    c.repo == cfg.main_repo()
+        && c.issue == cfg.registry_issue
+        && Message::parse(&c.body)
+            .is_ok_and(|m| m.header.kind == Kind::Request && m.header.to == To::Owner)
+}
+
+/// The detail of a signed message that another account than the sender's posted.
+pub fn wrong_account(author: &str, from: &str, login: &str) -> String {
+    format!(
+        "comment with a crew header from={from} by {author}; the owner approved {from} as the account {login}"
+    )
+}
+
+/// Why a join of `login` may not be approved: the owner's account on a board with a crew login
+/// (agents may not act as the owner). A board without one is the one-person trial, where the
+/// agents use the owner's account (spec/identity#phases). `None`: the account may be approved.
+pub fn owner_account_refusal(cfg: &BoardConfig, login: &str) -> Option<String> {
+    (cfg.crew_login.is_some() && login.eq_ignore_ascii_case(&cfg.owner_login)).then(|| {
+        format!(
+            "the join is a comment of the owner account {login}; agents may not act as the owner on a board with a crew login"
+        )
+    })
+}
+
 /// The item States that fit an approved agent whose span is open. Any other State is a
 /// contradiction that `status` reports; it does not mute the agent (the log decides).
 pub fn state_may_speak(state: &str) -> bool {
@@ -512,6 +585,8 @@ pub struct TrustedAgent {
     pub name: AgentName,
     pub role: Role,
     pub item_id: String,
+    /// The GitHub login that the approval bound: the account of the agent.
+    pub login: String,
 }
 
 /// An agent in one span of the registry log: who it was, with which role and key, for the
@@ -521,6 +596,8 @@ pub struct TrustSpan {
     pub name: AgentName,
     pub role: Role,
     pub key: PublicKey,
+    /// The GitHub login of the agent in this span: a message counts only from this account.
+    pub login: String,
     pub from: u64,
     pub to: Option<u64>,
 }
@@ -528,6 +605,11 @@ pub struct TrustSpan {
 impl TrustSpan {
     fn covers(&self, comment_id: u64) -> bool {
         self.from < comment_id && comment_id <= self.to.unwrap_or(u64::MAX)
+    }
+
+    /// The comment is by the account of the agent.
+    pub fn by_agent(&self, c: &Comment) -> bool {
+        c.by(&self.login)
     }
 }
 
@@ -559,6 +641,16 @@ impl Trust {
     pub fn coordinator_exists(&self) -> bool {
         self.agents.values().any(|a| a.role == Role::Coordinator)
     }
+
+    /// `login` is the account of an agent that the owner approved (in any span). A comment with a
+    /// crew header by any other account than the owner's is foreign
+    /// (spec/messages#untrusted-input).
+    pub fn knows_login(&self, login: &str) -> bool {
+        self.spans
+            .values()
+            .flatten()
+            .any(|s| s.login.eq_ignore_ascii_case(login))
+    }
 }
 
 /// Combine the registry with the agent items read by id.
@@ -584,6 +676,7 @@ pub fn build_trust(
                     name: join.name.clone(),
                     role: s.role,
                     key: key.clone(),
+                    login: join.login.clone(),
                     from: s.from,
                     to: s.to,
                 })
@@ -643,6 +736,7 @@ pub fn build_trust(
                 name: join.name.clone(),
                 role: appr.role,
                 item_id: join.item_id.clone(),
+                login: join.login.clone(),
             },
         );
     }
@@ -1423,5 +1517,135 @@ registry_issue = 2
             cs.push(forged);
             assert_eq!(resolve(&cfg(), &cs).agents["claude@a"].departure, None);
         }
+    }
+
+    /// A board with a shared crew account.
+    fn crew_cfg() -> BoardConfig {
+        let mut c = cfg();
+        c.crew_login = Some("crew-bot".into());
+        c
+    }
+
+    fn by(mut c: Comment, login: &str) -> Comment {
+        c.author = login.into();
+        c
+    }
+
+    #[test]
+    fn a_join_of_any_account_is_read_and_the_approval_binds_its_account() {
+        let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+        let reg = resolve(
+            &crew_cfg(),
+            &[
+                by(join_comment(1, "claude@a", &ka, "PVTI_a"), "dev-a"),
+                by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "dev-b"),
+                owner(3, "/crew approve claude@a role=dev"),
+                owner(
+                    4,
+                    &format!(
+                        "/crew approve hermes@b role=dev key={} login=dev-b",
+                        fp(&kb)
+                    ),
+                ),
+            ],
+        );
+        assert!(reg.notes.is_empty(), "{:?}", reg.notes);
+        assert_eq!(reg.agents["claude@a"].login(), Some("dev-a"));
+        assert_eq!(reg.agents["hermes@b"].login(), Some("dev-b"));
+        assert!(reg.agents.values().all(AgentEntry::approved));
+        assert!(reg.knows_login("Dev-A") && reg.knows_login("dev-b"));
+        assert!(
+            !reg.knows_login("crew-bot"),
+            "no agent uses the shared account"
+        );
+        let t = build_trust(&reg, &no_items(), 15);
+        assert_eq!(t.at("claude@a", 5).unwrap().login, "dev-a");
+        assert!(t.knows_login("dev-b") && !t.knows_login("mallory"));
+    }
+
+    #[test]
+    fn the_shared_crew_account_still_works_for_every_agent() {
+        let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+        let reg = resolve(
+            &crew_cfg(),
+            &[
+                by(join_comment(1, "claude@a", &ka, "PVTI_a"), "crew-bot"),
+                by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "crew-bot"),
+                owner(3, "/crew approve claude@a role=coordinator"),
+                owner(4, "/crew approve hermes@b"),
+                by(left_marker(5, "hermes@b", &kb), "crew-bot"),
+            ],
+        );
+        assert!(reg.agents["claude@a"].approved(), "{:?}", reg.notes);
+        assert_eq!(reg.agents["hermes@b"].departure, Some(Departure::Left(5)));
+        let t = build_trust(&reg, &no_items(), 15);
+        assert_eq!(t.at("claude@a", 9).unwrap().login, "crew-bot");
+    }
+
+    #[test]
+    fn an_approval_with_another_login_than_the_join_is_void() {
+        let k = generate_key().unwrap();
+        let join = by(join_comment(1, "claude@a", &k, "PVTI_a"), "dev-a");
+        let approve = |login: &str| {
+            owner(
+                2,
+                &format!("/crew approve claude@a key={} login={login}", fp(&k)),
+            )
+        };
+        let reg = resolve(&crew_cfg(), &[join.clone(), approve("dev-b")]);
+        assert!(!reg.agents["claude@a"].approved());
+        assert!(
+            reg.notes
+                .iter()
+                .any(|n| n.contains("login dev-b is not the account of the join (dev-a)")),
+            "{:?}",
+            reg.notes
+        );
+        // control: the account of the join approves, in any case
+        let reg = resolve(&crew_cfg(), &[join, approve("Dev-A")]);
+        assert!(reg.agents["claude@a"].approved(), "{:?}", reg.notes);
+    }
+
+    #[test]
+    fn a_join_of_the_owner_account_is_refused_on_a_crew_board_only() {
+        let k = generate_key().unwrap();
+        let comments = [
+            join_comment(1, "claude@a", &k, "PVTI_a"),
+            owner(2, "/crew approve claude@a"),
+        ];
+        let reg = resolve(&crew_cfg(), &comments);
+        assert!(!reg.agents["claude@a"].approved());
+        assert!(
+            reg.notes
+                .iter()
+                .any(|n| n.contains("void") && n.contains("owner account")),
+            "{:?}",
+            reg.notes
+        );
+        // the one-person trial (no crew login): the agents act as the owner
+        let reg = resolve(&cfg(), &comments);
+        assert!(reg.agents["claude@a"].approved(), "{:?}", reg.notes);
+    }
+
+    #[test]
+    fn a_marker_by_another_account_than_the_agents_is_ignored() {
+        let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+        let base = vec![
+            by(join_comment(1, "claude@a", &ka, "PVTI_a"), "dev-a"),
+            by(join_comment(2, "hermes@b", &kb, "PVTI_b"), "dev-b"),
+            owner(3, "/crew approve claude@a"),
+            owner(4, "/crew approve hermes@b"),
+        ];
+        // a's own marker, posted from the account of b: ends nothing
+        let mut cs = base.clone();
+        cs.push(by(left_marker(5, "claude@a", &ka), "dev-b"));
+        assert_eq!(resolve(&crew_cfg(), &cs).agents["claude@a"].departure, None);
+        // control: from a's account it ends a's span
+        let mut cs = base;
+        cs.push(by(left_marker(5, "claude@a", &ka), "dev-a"));
+        assert_eq!(
+            resolve(&crew_cfg(), &cs).agents["claude@a"].departure,
+            Some(Departure::Left(5))
+        );
     }
 }

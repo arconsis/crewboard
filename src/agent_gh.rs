@@ -4,8 +4,9 @@
 //! On a host with the owner's `gh` login, those calls can run as the owner without notice
 //! (seen in practice: a PR and a comment posted as the owner). `start` and `selftest` run
 //! `gh api user --jq .login` the way the agent's shell would run it: the `gh` that is first
-//! on the PATH, without a token in the environment. If the login is not `crew_login`, they
-//! refuse with rule `agent-gh-not-crew`.
+//! on the PATH, without a token in the environment. If the login is not the agent's own account
+//! (the account that the registry bound to it: the shared crew account or a contributor's own
+//! account), they refuse with rule `agent-gh-not-crew`.
 //!
 //! The token variables are removed for this call, because some harnesses (Hermes) strip them
 //! from every command the model runs, while crewboard itself still holds the token through
@@ -106,18 +107,35 @@ impl GhIdentityProbe for ShellGh {
     }
 }
 
-/// Judge the login. Returns a line for the user (may be empty) or the refusal.
+/// Not checked: the one-person trial, where the agent's account is the owner's on a board
+/// without a crew login (spec/identity#phases).
+fn one_account(cfg: &BoardConfig, account: &str) -> bool {
+    cfg.crew_login.is_none() && account.eq_ignore_ascii_case(&cfg.owner_login)
+}
+
+/// Judge the login. `account` is the agent's own account: the login that the registry bound to
+/// it (the author of its join). Returns a line for the user (may be empty) or the refusal.
 ///
-/// - no `crew_login` in the config: not checked (one-account mode: the agents use the owner's login);
-/// - login is the crew login: pass;
+/// - the account is the owner's on a board without `crew_login`: not checked (one-account mode:
+///   the agents use the owner's login);
+/// - login is the agent's account: pass;
 /// - any other login (the owner, or a third account): refused, `agent-gh-not-crew`;
 /// - `gh` not installed: skipped with a note;
 /// - `gh` fails (not logged in): a warning only, because a bare `gh` that fails is the safe
 ///   state; the agent then cannot use `gh` at all.
-pub fn judge(cfg: &BoardConfig, got: &GhLogin) -> CbResult<String> {
-    let Some(crew) = &cfg.crew_login else {
+pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String> {
+    if one_account(cfg, account) {
         return Ok(String::new());
-    };
+    }
+    if account.eq_ignore_ascii_case(&cfg.owner_login) {
+        return Err(CbError::refused(
+            "agent-gh-not-crew",
+            format!(
+                "the registry binds this agent to the owner account {account}; on a board with a crew login an agent never acts as the owner. Join again with the token of the crew account or of your own account"
+            ),
+        ));
+    }
+    let crew = account;
     match got {
         GhLogin::NotInstalled => Ok(
             "note: no `gh` on the PATH of this agent; the identity of its gh calls is not checked\n"
@@ -138,7 +156,7 @@ pub fn judge(cfg: &BoardConfig, got: &GhLogin) -> CbResult<String> {
             Err(CbError::refused(
                 "agent-gh-not-crew",
                 format!(
-                    "plain `gh` in the shell of this agent acts as {who}; agents of initiative {init} act as {crew}. Its PRs and comments would carry the wrong identity. Make the crew gh shim for this agent, then run again. Replace <agent-dir> with the config directory of this agent and <work-dir> with its checkout:\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --env-file ~/.config/crewboard/{init}.env\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --work-dir <work-dir> --crew-login {crew}\nThe second command sets the git identity of the checkout; it reads the id of {crew} from <agent-dir>/crew-id, which `crewboard agent add` writes.\nThen load the exports (PATH with the shim first, empty GH_CONFIG_DIR) in the terminal of the agent, in every new terminal, also when the shim exists already:\n  eval \"$(crewboard agent env --agent-dir ~/.config/crewboard/agents/<agent-dir>)\"\nFrom any shell, start the runtime with the exports instead:\n  crewboard agent exec --agent-dir ~/.config/crewboard/agents/<agent-dir> -- <runtime>\nAn unattended wake uses `crewboard wake install --shim-dir` instead. `crewboard agent add` does all of this for a new agent, and `crewboard doctor --setup` checks it. Details: docs/guides/runtimes/gh-shim.md",
+                    "plain `gh` in the shell of this agent acts as {who}; this agent of initiative {init} acts as {crew} (the account that the registry bound to it). Its PRs and comments would carry the wrong identity. Make the crew gh shim for this agent, then run again. Replace <agent-dir> with the config directory of this agent and <work-dir> with its checkout:\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --env-file ~/.config/crewboard/{init}.env\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --work-dir <work-dir> --crew-login {crew}\nThe second command sets the git identity of the checkout; it reads the id of {crew} from <agent-dir>/crew-id, which `crewboard agent add` writes.\nThen load the exports (PATH with the shim first, empty GH_CONFIG_DIR) in the terminal of the agent, in every new terminal, also when the shim exists already:\n  eval \"$(crewboard agent env --agent-dir ~/.config/crewboard/agents/<agent-dir>)\"\nFrom any shell, start the runtime with the exports instead:\n  crewboard agent exec --agent-dir ~/.config/crewboard/agents/<agent-dir> -- <runtime>\nAn unattended wake uses `crewboard wake install --shim-dir` instead. `crewboard agent add` does all of this for a new agent, and `crewboard doctor --setup` checks it. Details: docs/guides/runtimes/gh-shim.md",
                     init = cfg.initiative
                 ),
             ))
@@ -146,12 +164,12 @@ pub fn judge(cfg: &BoardConfig, got: &GhLogin) -> CbResult<String> {
     }
 }
 
-/// Run the probe and judge it.
-pub fn check(cfg: &BoardConfig, probe: &dyn GhIdentityProbe) -> CbResult<String> {
-    if cfg.crew_login.is_none() {
+/// Run the probe and judge it. `account` is the agent's own account (see [`judge`]).
+pub fn check(cfg: &BoardConfig, account: &str, probe: &dyn GhIdentityProbe) -> CbResult<String> {
+    if one_account(cfg, account) {
         return Ok(String::new());
     }
-    judge(cfg, &probe.login())
+    judge(cfg, account, &probe.login())
 }
 
 #[cfg(test)]
@@ -174,24 +192,25 @@ mod tests {
     }
 
     #[test]
-    fn the_owner_or_a_stranger_is_refused_and_the_crew_login_passes() {
+    fn the_owner_or_a_stranger_is_refused_and_the_shared_crew_login_passes() {
         let c = cfg(Some("crew-bot"));
         assert_eq!(
-            refusal(judge(&c, &GhLogin::Login("owner-login".into()))),
+            refusal(judge(&c, "crew-bot", &GhLogin::Login("owner-login".into()))),
             Some("agent-gh-not-crew")
         );
         assert_eq!(
-            refusal(judge(&c, &GhLogin::Login("someone".into()))),
+            refusal(judge(&c, "crew-bot", &GhLogin::Login("someone".into()))),
             Some("agent-gh-not-crew")
         );
-        let ok = judge(&c, &GhLogin::Login("Crew-Bot".into())).unwrap();
+        let ok = judge(&c, "crew-bot", &GhLogin::Login("Crew-Bot".into())).unwrap();
         assert!(ok.contains("acts as crew-bot"), "{ok}");
     }
 
     #[test]
     fn the_refusal_prints_the_exact_shim_commands() {
         let c = cfg(Some("crew-bot"));
-        let Err(CbError::Refused(r)) = judge(&c, &GhLogin::Login("owner-login".into())) else {
+        let Err(CbError::Refused(r)) = judge(&c, "crew-bot", &GhLogin::Login("owner-login".into()))
+        else {
             panic!("expected a refusal");
         };
         let m = r.message.to_string();
@@ -228,17 +247,18 @@ mod tests {
             "{m}"
         );
         // pass direction: the crew login prints no commands
-        let ok = judge(&c, &GhLogin::Login("crew-bot".into())).unwrap();
+        let ok = judge(&c, "crew-bot", &GhLogin::Login("crew-bot".into())).unwrap();
         assert!(!ok.contains("agent shim") && !ok.contains("--env"), "{ok}");
     }
 
     #[test]
     fn a_missing_or_failing_gh_is_a_note_not_a_refusal() {
         let c = cfg(Some("crew-bot"));
-        let n = judge(&c, &GhLogin::NotInstalled).unwrap();
+        let n = judge(&c, "crew-bot", &GhLogin::NotInstalled).unwrap();
         assert!(n.contains("no `gh` on the PATH"), "{n}");
         let f = judge(
             &c,
+            "crew-bot",
             &GhLogin::Failed("exit 4: please run gh auth login".into()),
         )
         .unwrap();
@@ -246,11 +266,42 @@ mod tests {
     }
 
     #[test]
-    fn without_a_crew_login_nothing_is_checked() {
+    fn the_one_person_trial_is_not_checked_and_an_own_account_is() {
+        // a board without a crew login, and the agent acts as the owner: the trial
         let c = cfg(None);
         assert_eq!(
-            judge(&c, &GhLogin::Login("owner-login".into())).unwrap(),
+            judge(&c, "owner-login", &GhLogin::Login("owner-login".into())).unwrap(),
             ""
+        );
+        // a contributor's own account is checked on any board
+        for board in [cfg(None), cfg(Some("crew-bot"))] {
+            let ok = judge(
+                &board,
+                "contributor-a",
+                &GhLogin::Login("Contributor-A".into()),
+            );
+            assert!(ok.unwrap().contains("acts as contributor-a"));
+            let Err(CbError::Refused(r)) =
+                judge(&board, "contributor-a", &GhLogin::Login("crew-bot".into()))
+            else {
+                panic!("another account must be refused");
+            };
+            assert_eq!(r.rule, "agent-gh-not-crew");
+            assert!(
+                r.message.contains("acts as contributor-a (the account"),
+                "{}",
+                r.message
+            );
+        }
+        // on a crew board the owner's account is never the agent's, whatever gh says
+        let c = cfg(Some("crew-bot"));
+        assert_eq!(
+            refusal(judge(
+                &c,
+                "owner-login",
+                &GhLogin::Login("owner-login".into())
+            )),
+            Some("agent-gh-not-crew")
         );
     }
 
@@ -271,7 +322,7 @@ mod tests {
             exe: "/nonexistent/dir/gh".into(),
             keep_token: false,
         };
-        let none = check(&c, &probe).unwrap();
+        let none = check(&c, "crew-bot", &probe).unwrap();
         assert!(none.contains("no `gh` on the PATH"), "{none}");
     }
 
@@ -285,11 +336,14 @@ mod tests {
         };
         // wrong login: refused
         let owner = fake_gh("owner", "#!/bin/sh\necho owner-login\n");
-        assert_eq!(refusal(check(&c, &probe(owner))), Some("agent-gh-not-crew"));
+        assert_eq!(
+            refusal(check(&c, "crew-bot", &probe(owner))),
+            Some("agent-gh-not-crew")
+        );
         // crew login: passes
         let crew = fake_gh("crew", "#!/bin/sh\necho crew-bot\n");
         assert!(
-            check(&c, &probe(crew))
+            check(&c, "crew-bot", &probe(crew))
                 .unwrap()
                 .contains("acts as crew-bot")
         );
@@ -298,7 +352,7 @@ mod tests {
             "fail",
             "#!/bin/sh\necho 'please run gh auth login' >&2\nexit 4\n",
         );
-        let w = check(&c, &probe(fail)).unwrap();
+        let w = check(&c, "crew-bot", &probe(fail)).unwrap();
         assert!(w.starts_with("warning:") && w.contains("exit 4"), "{w}");
     }
 

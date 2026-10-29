@@ -10,13 +10,17 @@ use crate::rules::{Refusal, Role};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnerCommand {
-    /// `/crew approve <name> [role=dev|coordinator] [key=<fingerprint>] [item=<id>]`
+    /// `/crew approve <name> [role=dev|coordinator] [key=<fingerprint>] [item=<id>]
+    /// [login=<github-login>]`
     Approve {
         name: AgentName,
         role: Role,
         /// `SHA256:...` of the public key the owner approved.
         key_fp: Option<String>,
         item: Option<String>,
+        /// The GitHub login that wrote the join: the account the owner approved. Without it the
+        /// approval binds the account of the join.
+        login: Option<String>,
     },
     /// `/crew reject <name>`
     Reject {
@@ -137,7 +141,7 @@ pub fn parse(comment: &str) -> Result<Option<OwnerCommand>, Refusal> {
     let cmd = match verb {
         "approve" => {
             let n = name(toks.next())?;
-            let (mut role, mut key_fp, mut item) = (None, None, None);
+            let (mut role, mut key_fp, mut item, mut login) = (None, None, None, None);
             for t in toks.by_ref() {
                 let (k, v) = t
                     .split_once('=')
@@ -147,6 +151,8 @@ pub fn parse(comment: &str) -> Result<Option<OwnerCommand>, Refusal> {
                     "key" if v.starts_with("SHA256:") => key_fp.replace(v.to_string()).is_some(),
                     "key" => return Err(bad("key= must be a SHA256: fingerprint")),
                     "item" => item.replace(v.to_string()).is_some(),
+                    "login" if valid_login(v) => login.replace(v.to_string()).is_some(),
+                    "login" => return Err(bad(format!("login='{v}' is not a GitHub login"))),
                     other => return Err(bad(format!("unknown option '{other}'"))),
                 };
                 if slot_taken {
@@ -158,6 +164,7 @@ pub fn parse(comment: &str) -> Result<Option<OwnerCommand>, Refusal> {
                 role: role.unwrap_or(Role::Dev),
                 key_fp,
                 item,
+                login,
             }
         }
         "reject" => OwnerCommand::Reject {
@@ -293,12 +300,23 @@ pub fn profile_change(cmd: &OwnerCommand, comment: &str) -> Option<crate::capabi
     })
 }
 
-/// The text of the approval comment that `crewboard approve` posts.
-pub fn approve_text(name: &AgentName, role: Role, key_fp: &str, item: &str) -> String {
+/// The text of the approval comment that `crewboard approve` posts. `login` is the account that
+/// wrote the join.
+pub fn approve_text(name: &AgentName, role: Role, key_fp: &str, item: &str, login: &str) -> String {
     format!(
-        "/crew approve {name} role={} key={key_fp} item={item}",
+        "/crew approve {name} role={} key={key_fp} item={item} login={login}",
         role_name(role)
     )
+}
+
+/// A GitHub login as an owner command names it: letters, digits and `-`, at most 39 characters,
+/// or the login of an app account with the suffix `[bot]`.
+fn valid_login(s: &str) -> bool {
+    let base = s.strip_suffix("[bot]").unwrap_or(s);
+    !base.is_empty()
+        && base.len() <= 39
+        && !base.starts_with('-')
+        && base.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 #[cfg(test)]
@@ -317,7 +335,8 @@ mod tests {
                 name: n("hermes@host-b"),
                 role: Role::Dev,
                 key_fp: None,
-                item: None
+                item: None,
+                login: None
             })
         );
         let c = parse(
@@ -330,7 +349,8 @@ mod tests {
                 name: n("claude@host-a"),
                 role: Role::Coordinator,
                 key_fp: Some("SHA256:abc".into()),
-                item: Some("PVTI_x".into())
+                item: Some("PVTI_x".into()),
+                login: None
             })
         );
         assert_eq!(
@@ -338,16 +358,23 @@ mod tests {
                 &n("claude@host-a"),
                 Role::Dev,
                 "SHA256:q",
-                "PVTI_1"
+                "PVTI_1",
+                "dev-account"
             ))
             .unwrap(),
             Some(OwnerCommand::Approve {
                 name: n("claude@host-a"),
                 role: Role::Dev,
                 key_fp: Some("SHA256:q".into()),
-                item: Some("PVTI_1".into())
+                item: Some("PVTI_1".into()),
+                login: Some("dev-account".into())
             })
         );
+        // an app account keeps its suffix
+        assert!(matches!(
+            parse("/crew approve a@b login=crew-bot[bot]").unwrap(),
+            Some(OwnerCommand::Approve { login: Some(l), .. }) if l == "crew-bot[bot]"
+        ));
     }
 
     #[test]
@@ -401,6 +428,9 @@ mod tests {
             "/crew approve a@b role=admin",
             "/crew approve a@b role=dev role=coordinator",
             "/crew approve a@b key=abc",
+            "/crew approve a@b login=",
+            "/crew approve a@b login=two%words",
+            "/crew approve a@b login=x login=y",
             "/crew approve a@b frob=1",
             "/crew approve a@b dev",
             "/crew role a@b",
