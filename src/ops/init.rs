@@ -371,16 +371,16 @@ fn find_registry_issue(
         .cloned())
 }
 
-/// Finds or creates the registry issue. Returns its number and node id.
+/// Finds or creates the registry issue. Returns its number, its node id and whether it is locked.
 fn ensure_registry_issue(
     client: &Client,
     cd: &crate::config::ConfigDir,
     a: &InitArgs<'_>,
     main: &str,
     rep: &mut Report,
-) -> CbResult<(u64, String)> {
+) -> CbResult<(u64, String, bool)> {
     let title = format!("Crew registry - {}", a.initiative);
-    let (number, node) = match find_registry_issue(client, cd, a, main, &title)? {
+    let (number, node, locked) = match find_registry_issue(client, cd, a, main, &title)? {
         Some(i) => {
             rep.line(format!(
                 "registry issue #{}: exists",
@@ -392,6 +392,7 @@ fn ensure_registry_issue(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
+                i.get("locked").and_then(Value::as_bool).unwrap_or(false),
             )
         }
         None => {
@@ -410,13 +411,38 @@ fn ensure_registry_issue(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
+                false,
             )
         }
     };
     if number == 0 || node.is_empty() {
         return Err(GhError::Shape("registry issue has no number or node id".into()).into());
     }
-    Ok((number, node))
+    Ok((number, node, locked))
+}
+
+/// Locks the conversation of the registry issue: only collaborators of the repo can comment
+/// then. Any GitHub account could post a join otherwise, and the owner would see requests of
+/// strangers (spec/security-details#trust-roots). The agents' accounts need the Write role
+/// anyway. A failure is reported, never fatal: the owner can lock it by hand.
+fn ensure_lock(client: &Client, main: &str, reg_number: u64, locked: bool, rep: &mut Report) {
+    if locked {
+        rep.line("registry lock: ok");
+        return;
+    }
+    let path = match repo_path(main) {
+        Ok(p) => format!("{p}/issues/{reg_number}/lock"),
+        Err(e) => {
+            rep.line(format!("registry lock: NOT locked ({e})"));
+            return;
+        }
+    };
+    match client.send("PUT", &path, Some(&json!({}))) {
+        Ok(_) => rep.line("registry lock: locked (only collaborators can comment)"),
+        Err(e) => rep.line(format!(
+            "registry lock: NOT locked ({e}). Lock the conversation of #{reg_number} yourself (Lock conversation, on the issue page), so that only collaborators can post joins."
+        )),
+    }
 }
 
 /// Pins the registry issue. GitHub allows 3 pins: with 3 already, report and never unpin.
@@ -517,8 +543,9 @@ pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
     let workflows = delete_status_writers(&client, &board, &mut rep)?;
     ensure_labels(&client, a.repos, &mut rep)?;
     let cd = g.dir()?;
-    let (reg_number, reg_node) = ensure_registry_issue(&client, &cd, &a, &main, &mut rep)?;
+    let (reg_number, reg_node, locked) = ensure_registry_issue(&client, &cd, &a, &main, &mut rep)?;
     ensure_pin(&client, &main, reg_number, &reg_node, &mut rep)?;
+    ensure_lock(&client, &main, reg_number, locked, &mut rep);
 
     let cfg = BoardConfig {
         initiative: a.initiative.to_string(),

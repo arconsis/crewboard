@@ -105,9 +105,18 @@ pub fn run(ac: &AgentCtx) -> CbResult<(SelftestResult, String)> {
         ),
         other => other,
     })?;
-    // Plain `gh` of this agent must act as the crew account
-    // (spec/identity#identity-of-the-agents-own-gh).
-    let gh_note = crate::agent_gh::check(&ac.ctx.cfg, &crate::agent_gh::ShellGh::from_env())?;
+    // The token and plain `gh` of this agent must act as the account that the registry bound
+    // to it: the author of its join (spec/identity#identity-of-the-agents-own-gh).
+    let account = world
+        .reg
+        .agents
+        .get(&me)
+        .and_then(|e| e.login())
+        .unwrap_or_default()
+        .to_string();
+    super::judge_agent_account(&ac.ctx.client.viewer_login()?, &me, &account)?;
+    let gh_note =
+        crate::agent_gh::check(&ac.ctx.cfg, &account, &crate::agent_gh::ShellGh::from_env())?;
     let repo = ac.ctx.main_repo().to_string();
     let issue = ensure_selftest_issue(&ac.ctx.client, &repo, &ac.ctx.cfg.initiative)?;
     // The cursor starts before the posts, so the cycle sees them whatever the clock skew.

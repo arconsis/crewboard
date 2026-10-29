@@ -48,34 +48,55 @@ pub struct IssueCount {
     pub orphans: Vec<Orphan>,
 }
 
-/// The public keys of the join messages of the registry issue, by agent name. The first join of
-/// a name wins, as in the registry.
-pub fn join_keys(registry: &[Comment], authors: &[String]) -> HashMap<String, PublicKey> {
+/// The join messages of the registry issue by agent name: the public key and the GitHub login
+/// that wrote the join (any account may post a join). For one name and one account the first
+/// join wins, as in the registry.
+pub fn join_keys(registry: &[Comment]) -> HashMap<String, Vec<(PublicKey, String)>> {
     let mut sorted: Vec<&Comment> = registry.iter().collect();
     sorted.sort_by_key(|c| c.id);
-    let mut keys = HashMap::new();
+    let mut keys: HashMap<String, Vec<(PublicKey, String)>> = HashMap::new();
     for c in sorted {
-        if !c.body.starts_with(CREW_PREFIX) || !authors.iter().any(|a| c.by(a)) {
+        if !c.body.starts_with(CREW_PREFIX) {
             continue;
         }
         let Ok(msg) = Message::parse(&c.body) else {
             continue;
         };
-        if let Some(k) = parse_join(&msg, c.id).and_then(|j| j.key()) {
-            keys.entry(msg.header.from.to_string()).or_insert(k);
+        if let Some(k) = parse_join(&msg, c.id, &c.author).and_then(|j| j.key()) {
+            let joins = keys.entry(msg.header.from.to_string()).or_default();
+            if !joins.iter().any(|(_, l)| c.by(l)) {
+                joins.push((k, c.author.clone()));
+            }
         }
     }
     keys
 }
 
+/// The key of the join of `from` that the author of `c` wrote. The owner's comment uses the first
+/// join of the name (the one-person trial). `None`: no join of that name from this account.
+fn key_for<'a>(
+    keys: &'a HashMap<String, Vec<(PublicKey, String)>>,
+    from: &str,
+    c: &Comment,
+    owner: &str,
+) -> Option<&'a PublicKey> {
+    let joins = keys.get(from)?;
+    joins
+        .iter()
+        .find(|(_, l)| c.by(l))
+        .or_else(|| joins.first().filter(|_| c.by(owner)))
+        .map(|(k, _)| k)
+}
+
 /// Count the messages of one issue. `current` is the current `owner/repo` of the issue;
-/// `former` applies to it only if it is the main repo (`former_apply`).
+/// `former` applies to it only if it is the main repo (`former_apply`). A message counts when its
+/// author is the owner or an account that wrote a join.
 pub fn count_issue(
     current: &str,
     number: u64,
     comments: &[Comment],
-    authors: &[String],
-    keys: &HashMap<String, PublicKey>,
+    owner: &str,
+    keys: &HashMap<String, Vec<(PublicKey, String)>>,
     former: &[FormerRepo],
 ) -> IssueCount {
     let key = format!("{current}#{number}");
@@ -91,8 +112,9 @@ pub fn count_issue(
     };
     let mut sorted: Vec<&Comment> = comments.iter().collect();
     sorted.sort_by_key(|c| c.id);
+    let crew_author = |c: &Comment| c.by(owner) || keys.values().flatten().any(|(_, l)| c.by(l));
     for c in sorted {
-        if !c.body.starts_with(CREW_PREFIX) || !authors.iter().any(|a| c.by(a)) {
+        if !c.body.starts_with(CREW_PREFIX) || !crew_author(c) {
             continue;
         }
         out.messages += 1;
@@ -105,10 +127,11 @@ pub fn count_issue(
             out.orphans.push(orphan("malformed header"));
             continue;
         };
-        let Some(pk) = keys.get(msg.header.from.as_str()) else {
+        let Some(pk) = key_for(keys, msg.header.from.as_str(), c, owner) else {
             out.orphans.push(orphan(&format!(
-                "no join key for {}",
-                msg.header.from.as_str()
+                "no join key for {} from the account {}",
+                msg.header.from.as_str(),
+                c.author
             )));
             continue;
         };
@@ -273,10 +296,9 @@ pub fn dry_run(client: &Client, cfg: &BoardConfig) -> CbResult<String> {
             .unwrap_or_default(),
         None => Vec::new(),
     };
-    let authors = cfg.crew_authors();
     let (registry, _) =
         feed::issue_comments(client, &main, cfg.registry_issue, None, &cfg.owner_login)?;
-    let keys = join_keys(&registry, &authors);
+    let keys = join_keys(&registry);
     let count = |repo: &str, n: u64, comments: &[Comment]| {
         // former names belong to the main repo only
         let f: &[FormerRepo] = if repo.eq_ignore_ascii_case(&main) {
@@ -284,7 +306,7 @@ pub fn dry_run(client: &Client, cfg: &BoardConfig) -> CbResult<String> {
         } else {
             &[]
         };
-        let mut c = count_issue(repo, n, comments, &authors, &keys, f);
+        let mut c = count_issue(repo, n, comments, &cfg.owner_login, &keys, f);
         c.under.resize(1 + former.len(), 0);
         c
     };

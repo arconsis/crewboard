@@ -137,6 +137,16 @@ impl FakeBoard {
     }
 
     /// Titles of the open issues that carry `label`.
+    /// The numbers of the locked issues.
+    pub fn locked_issues(&self) -> Vec<u64> {
+        let st = self.st.lock().unwrap();
+        st.issues
+            .iter()
+            .filter(|i| i.locked)
+            .map(|i| i.number)
+            .collect()
+    }
+
     pub fn open_titles(&self, label: &str) -> Vec<String> {
         let st = self.st.lock().unwrap();
         st.issues
@@ -509,8 +519,22 @@ fn new_issue(st: &mut State, repo: &str, title: &str, body: &str, labels: &[&str
         title: title.to_string(),
         body: body.to_string(),
         state: "open",
+        locked: false,
     });
     n
+}
+
+/// `PUT /repos/{repo}/issues/{n}/lock`: 204, also for an issue that is locked already. Issue
+/// numbers are unique in the fake (one counter).
+pub(super) fn lock_issue(st: &mut State, num: &str) -> Resp {
+    let n: u64 = num.parse().unwrap_or(0);
+    match st.issues.iter_mut().find(|i| i.number == n) {
+        Some(i) => {
+            i.locked = true;
+            Resp::json(204, "")
+        }
+        None => not_found(),
+    }
 }
 
 /// `GET /repos/{repo}`: the repo and its default branch.
@@ -545,7 +569,7 @@ fn issue_json(st: &State, i: &IssueRow) -> Value {
         "user": {"login": st.viewer, "id": 1, "type": "User"},
         "labels": i.labels.iter().map(|l| label_json(st, &i.repo, l)).collect::<Vec<_>>(),
         "state": i.state,
-        "locked": false,
+        "locked": i.locked,
         "assignees": [],
         "comments": st.comments.iter().filter(|c| c.repo == i.repo && c.issue == i.number).count(),
         "author_association": "OWNER",

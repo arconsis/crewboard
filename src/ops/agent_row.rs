@@ -15,6 +15,8 @@ pub struct AgentRow {
     pub runtime: Option<String>,
     pub host: Option<String>,
     pub item_id: Option<String>,
+    /// The GitHub login of the agent: the account that wrote its join (the approval binds it).
+    pub login: Option<String>,
     /// The `Capabilities` field as stored (spec/profiles), if the board has it and it is set.
     pub capabilities: Option<String>,
     /// Derived (spec/board#fields): alive, stale, dead, or `-` for an agent that does not run.

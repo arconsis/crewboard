@@ -77,6 +77,8 @@ struct IssueRow {
     title: String,
     body: String,
     state: &'static str,
+    /// The conversation is locked (`PUT .../lock`).
+    locked: bool,
 }
 
 /// A pull request of the fake. The head moves with `FakeBoard::push`.
@@ -567,6 +569,7 @@ impl FakeBoard {
             title: format!("issue {number}"),
             body: String::new(),
             state: "open",
+            locked: false,
         });
     }
 
@@ -575,17 +578,28 @@ impl FakeBoard {
     /// a config dir for the CLI. The item is `active`, with a fresh heartbeat and a cursor
     /// 10 minutes back.
     pub fn agent(&self, name: &str, role: Role) -> Agent {
-        self.agent_with(name, role, true)
+        self.agent_with(name, role, true, OWNER)
+    }
+
+    /// [`FakeBoard::agent`], but the join is a comment of the GitHub account `login` (the
+    /// agent's own account, or a shared crew account), and the approval names it.
+    pub fn agent_as(&self, name: &str, role: Role, login: &str) -> Agent {
+        self.agent_with(name, role, true, login)
+    }
+
+    /// [`FakeBoard::joined`], with the join posted by the GitHub account `login`.
+    pub fn joined_as(&self, name: &str, login: &str) -> Agent {
+        self.agent_with(name, Role::Dev, false, login)
     }
 
     /// An agent that has joined and waits for the owner: a key, a board item with
     /// `State = requested`, a signed join request an hour ago, no approval and no `Agent`
     /// option. `approve` is the next step.
     pub fn joined(&self, name: &str) -> Agent {
-        self.agent_with(name, Role::Dev, false)
+        self.agent_with(name, Role::Dev, false, OWNER)
     }
 
-    fn agent_with(&self, name: &str, role: Role, approved: bool) -> Agent {
+    fn agent_with(&self, name: &str, role: Role, approved: bool, login: &str) -> Agent {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().to_path_buf();
         let cd = ConfigDir(dir.clone());
@@ -658,13 +672,14 @@ impl FakeBoard {
             &join_body(&item_id, &key_line, "fake/it", "fake-host"),
             old,
         );
-        self.comment_at(REGISTRY, OWNER, &join, old, old);
+        self.comment_at(REGISTRY, login, &join, old, old);
         if approved {
             let approve = crewboard::owner_cmd::approve_text(
                 &an,
                 role,
                 &fingerprint(key.public_key()),
                 &item_id,
+                login,
             );
             self.comment_at(REGISTRY, OWNER, &approve, old + 1, old + 1);
         }
@@ -1164,6 +1179,7 @@ fn route(st: &mut State, r: &Req) -> Resp {
         ("PATCH", ["", "repos", o, n, "issues", num]) => {
             tickets::patch_issue(st, &format!("{o}/{n}"), num, &r.body)
         }
+        ("PUT", ["", "repos", _, _, "issues", n, "lock"]) => tickets::lock_issue(st, n),
         ("DELETE", ["", "repos", o, n, "issues", "comments", id]) => {
             tickets::delete_comment(st, &format!("{o}/{n}"), id)
         }

@@ -27,8 +27,8 @@ use std::path::PathBuf;
 pub use authority_file::{authority_text, load_authority, load_authority_quiet};
 pub use registry_view::{agent_liveness, agent_since, is_coordinator, registry_msgs};
 pub use token::{
-    ONE_ACCOUNT_INIT_REFUSAL, ONE_ACCOUNT_REFUSAL, ONE_ACCOUNT_RULE, judge_agent, judge_owner,
-    require_agent, require_owner,
+    ONE_ACCOUNT_INIT_REFUSAL, ONE_ACCOUNT_REFUSAL, ONE_ACCOUNT_RULE, judge_agent,
+    judge_agent_account, judge_owner, require_agent, require_owner,
 };
 
 /// The text of the authority file on the default branch of the main repo; `None` if it is not

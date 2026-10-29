@@ -47,17 +47,17 @@ pub struct VMsg {
 
 /// Keep what is valid, in comment order. Foreign authors, edited messages (an owner comment
 /// counts unless somebody but the owner edited it), bad signatures and untrusted senders are
-/// dropped here (`watch` reports them as security events). So is a copy: a later comment with
-/// the same sender and signature as an earlier valid one ([`Seen`]).
+/// dropped here (`watch` reports them as security events). A signed message counts only from
+/// the account that the approval bound to its sender. So is a copy: a later comment with the
+/// same sender and signature as an earlier valid one ([`Seen`]).
 pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) -> Vec<VMsg> {
-    let authors = cfg.crew_authors();
     let mut sorted: Vec<&Comment> = comments.iter().collect();
     sorted.sort_by_key(|c| c.id);
     let mut out = Vec::new();
     let mut seen = Seen::default();
     for c in sorted {
         if c.body.starts_with(CREW_PREFIX) {
-            if !authors.iter().any(|a| c.by(a)) || c.edited() {
+            if c.edited() {
                 continue;
             }
             let Ok(msg) = Message::parse(&c.body) else {
@@ -66,6 +66,9 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
             let Some(sender) = trust.at(msg.header.from.as_str(), c.id) else {
                 continue;
             };
+            if !sender.by_agent(c) {
+                continue;
+            }
             if c.verify(&msg, &sender.key, cfg.former_for(&c.repo))
                 .is_err()
                 || c.check_ts(&msg).is_err()

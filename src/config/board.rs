@@ -34,14 +34,17 @@ pub struct BoardConfig {
     /// Path of AUTHORITY.md in the main repo.
     #[serde(default = "default_authority")]
     pub authority: String,
-    /// GitHub login of the account that ALL agents act as (a machine account such as
-    /// `crew-bot`). Absent: the agents use the owner's
-    /// token (one-account mode). When set:
+    /// GitHub login of the shared crew account (a machine account such as `crew-bot`): the
+    /// account that the agents of the owner act as. A contributor's agent may act as its own
+    /// account instead; the owner's approval binds each agent to the account that wrote its
+    /// join. Absent: the one-person trial, where the agents use the owner's token (one-account
+    /// mode). When set:
     ///
-    /// - messages with a crew header are accepted from this login and from the owner;
     /// - a headerless comment is an owner message only if the OWNER wrote it;
     /// - every agent command refuses to run with the owner's token (rule
-    ///   `agent-uses-owner-token`) or with any other token (`agent-token-not-crew`).
+    ///   `agent-uses-owner-token`), and `approve` refuses a join that the owner's account wrote;
+    /// - `start` refuses a token or a plain `gh` of another account than the approved one
+    ///   (`agent-token-not-crew`, `agent-gh-not-crew`).
     ///
     /// It must differ from `owner_login`. The old name `app_login` is still read.
     #[serde(default, alias = "app_login", skip_serializing_if = "Option::is_none")]
@@ -416,8 +419,8 @@ impl BoardConfig {
 
     /// The changed keys that a refresh must not apply (rule `board-identity-changed`).
     /// Identity: the board (`project_owner`, `project_number`), who the owner is
-    /// (`owner_login`), the crew account (`crew_login`, it decides whose messages are
-    /// trusted), the consent to a board without one (`insecure_one_account`), the registry
+    /// (`owner_login`), the crew account (`crew_login`, it decides whether agents may act as the
+    /// owner), the consent to a board without one (`insecure_one_account`), the registry
     /// (`registry_issue`), the file name of the config (`initiative`) and the main repo (the
     /// first entry of `repos`: registry and AUTHORITY.md live there). The other repos are not
     /// identity: a repo that joins or leaves the initiative is a normal edit. Everything else
@@ -430,16 +433,6 @@ impl BoardConfig {
             .collect();
         if self.repos.first() != new.repos.first() {
             v.push("repos (main repo)".into());
-        }
-        v
-    }
-
-    /// Logins allowed to author messages with a crew header: the owner and the
-    /// crew account.
-    pub fn crew_authors(&self) -> Vec<String> {
-        let mut v = vec![self.owner_login.clone()];
-        if let Some(a) = &self.crew_login {
-            v.push(a.clone());
         }
         v
     }
@@ -478,7 +471,6 @@ registry_issue = 2
         let c = BoardConfig::parse(GOOD).unwrap();
         assert_eq!(c.main_repo(), "example-org/app");
         assert_eq!(c.authority, "AUTHORITY.md");
-        assert_eq!(c.crew_authors(), vec!["owner-login".to_string()]);
         assert_eq!(BoardConfig::parse(&c.to_toml()).unwrap(), c);
     }
 
@@ -641,13 +633,18 @@ registry_issue = 2
     }
 
     #[test]
-    fn crew_login_joins_the_crew_authors() {
+    fn crew_login_round_trips() {
         let c = BoardConfig::parse(&format!("{GOOD}crew_login = \"crew-bot\"\n")).unwrap();
-        assert_eq!(c.crew_authors(), vec!["owner-login", "crew-bot"]);
+        assert_eq!(c.crew_login.as_deref(), Some("crew-bot"));
         assert_eq!(BoardConfig::parse(&c.to_toml()).unwrap(), c);
         assert!(c.to_toml().contains("crew_login"));
-        // without it only the owner counts (control: the filter can say one)
-        assert_eq!(BoardConfig::parse(GOOD).unwrap().crew_authors().len(), 1);
+        // without it the key is not written (control: the check can say no)
+        assert!(
+            !BoardConfig::parse(GOOD)
+                .unwrap()
+                .to_toml()
+                .contains("crew_login")
+        );
     }
 
     #[test]

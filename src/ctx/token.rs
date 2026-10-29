@@ -29,8 +29,11 @@ pub const ONE_ACCOUNT_REFUSAL: &str = "this board has no crew account; only the 
 /// The text of the refusal of `init`: the owner's next step first.
 pub const ONE_ACCOUNT_INIT_REFUSAL: &str = "this board has no crew_login, so the agents would use the owner's token and nothing separates owner from agent; pass --crew-login <account> to init (recommended), or --insecure-one-account for a one-person trial";
 
-/// Agent commands: when the board names a crew login, the token must be that account. The
-/// owner's token is refused with its own rule, so the log says which mistake it was.
+/// Agent commands: when the board names a crew login, the owner's token is refused
+/// (`agent-uses-owner-token`). Any other account passes here: the shared crew account or the
+/// contributor's own account. Which account an agent must use, the registry decides: the owner's
+/// approval binds the account that wrote the join, and `start` checks the token against it
+/// ([`judge_agent_account`]).
 /// Without a crew login (one-account mode) the agents use the owner's token and any token
 /// passes, but only with consent: the board key `insecure_one_account`, the agent config key
 /// or `start --insecure-one-account` (`consent`). Without it the rule is
@@ -43,21 +46,27 @@ pub fn judge_agent(viewer: &str, cfg: &BoardConfig, consent: bool) -> CbResult<(
         return Err(CbError::refused(
             "agent-uses-owner-token",
             format!(
-                "this token is the owner {viewer}; agents of initiative {} act as {crew}. Load the crew token (`crewboard agent with-env --env-file ...`), never the owner's",
-                cfg.initiative
-            ),
-        ));
-    }
-    if !viewer.eq_ignore_ascii_case(crew) {
-        return Err(CbError::refused(
-            "agent-token-not-crew",
-            format!(
-                "this token is {viewer}; agents of initiative {} act as {crew}",
+                "this token is the owner {viewer}; agents of initiative {} act as the crew account {crew} or as their own account. Load the agent's token (`crewboard agent with-env --env-file ...`), never the owner's",
                 cfg.initiative
             ),
         ));
     }
     Ok(())
+}
+
+/// The token of an agent against the account that the registry bound to it: the login of its
+/// join (the owner's approval binds it). `bound` is that login. A token of another account
+/// would post messages that the crew drops, so `start` refuses it (`agent-token-not-crew`).
+pub fn judge_agent_account(viewer: &str, name: &str, bound: &str) -> CbResult<()> {
+    if viewer.eq_ignore_ascii_case(bound) {
+        return Ok(());
+    }
+    Err(CbError::refused(
+        "agent-token-not-crew",
+        format!(
+            "this token is {viewer}; the registry binds {name} to the account {bound} (the account that wrote its join). Load the token of {bound}, or join again with this account under another agent name"
+        ),
+    ))
 }
 
 /// A board without `crew_login` needs the consent of the owner or of the agent.
@@ -117,14 +126,29 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_with_a_foreign_token_is_refused_and_the_crew_token_passes() {
+    fn on_a_crew_board_the_crew_token_and_a_contributor_token_pass() {
         let b = board(Some("crew-bot"));
-        assert_eq!(
-            rule_of(judge_agent("mallory", &b, false)),
-            Some("agent-token-not-crew")
+        for v in ["crew-bot", "Crew-bot", "contributor-a"] {
+            assert!(judge_agent(v, &b, false).is_ok(), "{v}");
+        }
+    }
+
+    #[test]
+    fn the_token_must_be_the_account_that_the_registry_bound() {
+        assert!(judge_agent_account("contributor-a", "claude@a", "contributor-a").is_ok());
+        assert!(judge_agent_account("Contributor-A", "claude@a", "contributor-a").is_ok());
+        let e = judge_agent_account("crew-bot", "claude@a", "contributor-a");
+        assert_eq!(rule_of(e), Some("agent-token-not-crew"));
+        let CbError::Refused(r) =
+            judge_agent_account("x", "claude@a", "contributor-a").unwrap_err()
+        else {
+            panic!()
+        };
+        assert!(
+            r.message.contains("the account contributor-a"),
+            "{}",
+            r.message
         );
-        assert!(judge_agent("crew-bot", &b, false).is_ok());
-        assert!(judge_agent("Crew-bot", &b, false).is_ok());
     }
 
     #[test]

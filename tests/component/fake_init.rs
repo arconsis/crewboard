@@ -72,6 +72,7 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
         "view Crew: created",
         "label crew:registry in",
         "registry pin: pinned",
+        "registry lock: locked (only collaborators can comment)",
         "PR: opened",
     ] {
         assert!(o.stdout.contains(line), "{line}: {}", o.stdout);
@@ -121,6 +122,11 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
     assert_eq!(fake.linked_repos(), [REPO, REPO2]);
     assert_eq!(fake.views(), ["Board", "By Agent", "Crew", "Needs Owner"]);
     assert_eq!(fake.pins(), [reg]);
+    assert_eq!(
+        fake.locked_issues(),
+        [reg],
+        "only the registry issue is locked"
+    );
     assert_eq!(fake.open_titles("crew:registry").len(), 1);
     let prs = fake.open_prs();
     assert_eq!(prs.len(), 1, "{prs:?}");
@@ -148,6 +154,7 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
         &format!("repo {REPO2}: linked already"),
         &format!("registry issue #{reg}: exists"),
         "registry pin: ok",
+        "registry lock: ok",
         "view Board: exists",
         "exists (reused)",
         "PR: open already",

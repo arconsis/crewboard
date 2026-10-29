@@ -26,6 +26,8 @@ mod agent_exec;
 mod agent_shim;
 #[path = "component/crew_token.rs"]
 mod crew_token;
+#[path = "component/fake_accounts.rs"]
+mod fake_accounts;
 #[path = "component/fake_acted.rs"]
 mod fake_acted;
 #[path = "component/fake_adopt_pr.rs"]

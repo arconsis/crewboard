@@ -120,7 +120,7 @@ fn ready_with(agent: impl FnOnce(&FakeBoard) -> Agent) -> Setup {
 }
 
 fn ready() -> Setup {
-    ready_with(|f| f.agent("claude@host-b", Role::Dev))
+    ready_with(|f| f.agent_as("claude@host-b", Role::Dev, CREW))
 }
 
 fn doctor(s: &Setup) -> Out {
@@ -331,7 +331,7 @@ fn red_the_owner_token_fails_the_token_check() {
     let s = ready();
     s.fake.set_viewer(OWNER);
     let o = doctor(&s);
-    let l = only_fails(&o, "token", "must hold the token of the crew account");
+    let l = only_fails(&o, "token", "must hold the token of the agent's account");
     assert!(l.contains("this token is the owner fake-owner"), "{l}");
     assert_eq!(line(&o, "board").0, "skip", "{}", o.all());
 }
@@ -467,7 +467,7 @@ fn red_authority_md_missing_or_with_another_owner_fails_its_check() {
 
 #[test]
 fn red_a_pending_agent_fails_the_registry_check_with_the_approve_command() {
-    let s = ready_with(|f| f.joined("claude@host-b"));
+    let s = ready_with(|f| f.joined_as("claude@host-b", CREW));
     let o = doctor(&s);
     let l = only_fails(
         &o,

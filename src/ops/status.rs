@@ -12,7 +12,7 @@ use crate::error::CbResult;
 use crate::events::{is_foreign, security_scan};
 use crate::feed;
 use crate::owner_cmd::role_name;
-use crate::registry::CREW_PREFIX;
+use crate::registry::{CREW_PREFIX, Trust};
 use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::StateCache;
@@ -157,10 +157,14 @@ impl ForeignComment {
 }
 
 /// The foreign comments among `comments`, in feed order.
-pub fn foreign_comments(comments: &[Comment], cfg: &BoardConfig) -> Vec<ForeignComment> {
+pub fn foreign_comments(
+    comments: &[Comment],
+    cfg: &BoardConfig,
+    trust: &Trust,
+) -> Vec<ForeignComment> {
     comments
         .iter()
-        .filter(|c| is_foreign(c, cfg))
+        .filter(|c| is_foreign(c, cfg, trust))
         .map(|c| ForeignComment {
             issue: format!("{}#{}", c.repo, c.issue),
             comment_id: c.id,
@@ -169,7 +173,7 @@ pub fn foreign_comments(comments: &[Comment], cfg: &BoardConfig) -> Vec<ForeignC
             created_at: c.created.clone(),
             reason: if c.body.starts_with(CREW_PREFIX) {
                 "crew-header-by-foreign-author"
-            } else if cfg.crew_authors().iter().any(|a| c.by(a)) {
+            } else if trust.knows_login(&c.author) {
                 "headerless-crew-account-comment"
             } else {
                 "headerless-foreign-author"
@@ -232,6 +236,7 @@ fn build_rows(ctx: &Ctx, world: &super::World, now: i64) -> Vec<AgentRow> {
             runtime: item.and_then(|i| i.field("Runtime")).map(str::to_string),
             host: item.and_then(|i| i.field("Host")).map(str::to_string),
             item_id: e.join.as_ref().map(|j| j.item_id.clone()),
+            login: e.login().map(str::to_string),
             capabilities: item
                 .and_then(|i| i.field(super::profile::FIELD))
                 .map(str::to_string),
@@ -460,7 +465,7 @@ fn read_snapshot(g: &Global) -> CbResult<Snapshot> {
         reads: found.reads,
     };
     mark_ticket_proof(&ctx, &world, &mut tickets, &comments, now);
-    let foreign_list = foreign_comments(&comments, &ctx.cfg);
+    let foreign_list = foreign_comments(&comments, &ctx.cfg, &world.trust);
     // Foreign comments and security events come from the whole feed.
     let security_list = security_scan(&comments, &ctx.cfg, &world.trust);
     Ok(Snapshot {
@@ -562,7 +567,7 @@ fn agents_json(rows: &[AgentRow]) -> Vec<Value> {
             json!({"name": r.name, "approved": r.approved, "rejected": r.rejected, "trusted": r.trusted, "role": r.role,
                    "state": r.state, "heartbeat": r.heartbeat, "heartbeat_age_s": r.heartbeat_age,
                    "liveness": r.liveness, "in_progress": r.busy,
-                   "runtime": r.runtime, "host": r.host, "item_id": r.item_id,
+                   "runtime": r.runtime, "host": r.host, "item_id": r.item_id, "login": r.login,
                    "tags": declared_tags(r), "tier": tier_of(r), "capabilities": r.capabilities,
                    "toolchain_unreachable": toolchain_unreachable(r)})
         })
@@ -680,7 +685,7 @@ fn agents_text(snap: &Snapshot, s: &mut String) {
     let interval = snap.ctx.hb_interval;
     for r in &snap.rows {
         s.push_str(&format!(
-            "  {:<22} {:<9} role={:<11} state={:<9} {}liveness={:<6} heartbeat={}{}  tags={}\n",
+            "  {:<22} {:<9} role={:<11} state={:<9} {}liveness={:<6} heartbeat={}{}  tags={}  login={}\n",
             r.name,
             trust_word(r),
             r.role.as_deref().unwrap_or("-"),
@@ -691,7 +696,8 @@ fn agents_text(snap: &Snapshot, s: &mut String) {
             r.heartbeat_age
                 .map(|a| format!(" ({a}s ago)"))
                 .unwrap_or_default(),
-            tags_text(r)
+            tags_text(r),
+            r.login.as_deref().unwrap_or("-")
         ));
         if toolchain_unreachable(r) {
             s.push_str("    note: toolchain unreachable at the last `start` (the agent cannot run the build tools of the repo); do not assign build tickets to it\n");
@@ -924,6 +930,7 @@ mod tests {
             runtime: None,
             host: None,
             item_id: None,
+            login: None,
             capabilities: cap.map(str::to_string),
             liveness: "alive".into(),
             busy: Vec::new(),
@@ -1054,8 +1061,15 @@ mod tests {
     #[test]
     fn foreign_comments_are_listed_with_every_field_and_a_reason() {
         use crate::comments::tests::comment;
+        use crate::registry::tests::{join_comment, owner};
         let mut cfg = crate::registry::tests::cfg();
         cfg.crew_login = Some("crew-bot".into());
+        // an approved agent that acts as crew-bot: its account is known
+        let k = crate::protocol::signature::generate_key().unwrap();
+        let mut join = join_comment(1, "x@y", &k, "PVTI_x");
+        join.author = "crew-bot".into();
+        let reg = crate::registry::resolve(&cfg, &[join, owner(2, "/crew approve x@y")]);
+        let trust = crate::registry::build_trust(&reg, &Default::default(), 15);
         let crew_header =
             format!("{CREW_PREFIX}v=1 from=x@y to=all kind=info re=none ts=t sig=AA -->\nx");
         let comments = vec![
@@ -1065,9 +1079,16 @@ mod tests {
             comment(4, "mallory", &crew_header),
             comment(5, "crew-bot", &crew_header),
         ];
-        let list = foreign_comments(&comments, &cfg);
+        let list = foreign_comments(&comments, &cfg, &trust);
         let ids: Vec<u64> = list.iter().map(|f| f.comment_id).collect();
         assert_eq!(ids, [2, 3, 4]);
+        // control: without the approval, crew-bot is no agent account
+        let none = Trust::default();
+        let ids: Vec<u64> = foreign_comments(&comments, &cfg, &none)
+            .iter()
+            .map(|f| f.comment_id)
+            .collect();
+        assert_eq!(ids, [2, 3, 4, 5]);
         let reasons: Vec<&str> = list.iter().map(|f| f.reason).collect();
         assert_eq!(
             reasons,
@@ -1094,8 +1115,8 @@ mod tests {
             comment(1, "owner-login", "owner"),
             comment(2, "owner-login", "x"),
         ];
-        assert!(foreign_comments(&comments, &cfg).is_empty());
-        assert!(foreign_comments(&[], &cfg).is_empty());
+        assert!(foreign_comments(&comments, &cfg, &Trust::default()).is_empty());
+        assert!(foreign_comments(&[], &cfg, &Trust::default()).is_empty());
     }
 
     #[test]

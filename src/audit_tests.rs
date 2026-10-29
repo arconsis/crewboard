@@ -811,3 +811,56 @@ fn the_field_mismatch_is_no_security_event() {
         "\"field_mismatch\""
     );
 }
+
+#[test]
+fn a_message_counts_only_from_the_account_that_the_approval_bound() {
+    // one account per agent on a board with a shared crew account
+    let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+    let mut cfg = cfg();
+    cfg.crew_login = Some("crew-bot".into());
+    let as_login = |mut c: Comment, login: &str| {
+        c.author = login.into();
+        c
+    };
+    let reg = resolve(
+        &cfg,
+        &[
+            as_login(join_comment(1, "claude@a", &ka, "PVTI_a"), "dev-a"),
+            as_login(join_comment(2, "hermes@b", &kb, "PVTI_b"), "dev-b"),
+            owner(4, "/crew approve claude@a role=coordinator"),
+            owner(5, "/crew approve hermes@b role=dev"),
+        ],
+    );
+    let w = W {
+        ka,
+        kb,
+        kc: generate_key().unwrap(),
+        reg,
+        cfg,
+    };
+    let msg = |id: u64, login: &str| {
+        as_login(
+            by(&w, &w.ka, "claude@a", id, "hermes@b", Kind::Report, "x"),
+            login,
+        )
+    };
+    let r = run(
+        &w,
+        &[msg(10, "dev-a"), msg(11, "dev-b"), msg(12, "crew-bot")],
+    );
+    assert_eq!(
+        kinds(&r),
+        vec![
+            (11, FindingKind::ForeignAuthor),
+            (12, FindingKind::ForeignAuthor)
+        ]
+    );
+    let detail = &r.findings[0].detail;
+    assert!(detail.contains("as the account dev-a"), "{detail}");
+    // the shared account approved no agent here: it is a stranger
+    assert!(
+        r.findings[1]
+            .detail
+            .contains("account of an approved agent")
+    );
+}
