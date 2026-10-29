@@ -108,6 +108,8 @@ fn after_the_owners_answer_verify_passes_and_close_moves_the_ticket_to_done() {
     assert!(o.stdout.contains("verify PASS"), "{}", o.all());
     // a pass writes no status
     assert_eq!(status(&fake, &k.item).as_deref(), Some("Review"));
+    // `close --verified` closes a PR that somebody else merged at the verified head
+    fake.merge_pr_by(k.pr.number, "a-maintainer");
     let o = run_ok(&fake, &c, &["close", &k.ts, "--verified"]);
     assert!(o.stdout.contains("closed: Status Done"), "{}", o.all());
     assert_eq!(status(&fake, &k.item).as_deref(), Some("Done"));
@@ -218,6 +220,7 @@ fn ask_on_a_done_ticket_is_refused() {
     let (fake, c, b) = crew();
     let k = delivered(&fake, &c, &b, "IT question done");
     run_ok(&fake, &c, &["verify", &k.ts]);
+    fake.merge_pr(k.pr.number);
     run_ok(&fake, &c, &["close", &k.ts, "--verified"]);
     refused_no_write(
         &fake,

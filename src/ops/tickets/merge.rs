@@ -126,13 +126,18 @@ pub fn judge_merge(i: &MergeInput<'_>) -> Result<Evidence, Refusal> {
         return Err(Refusal::new(
             "merge-pr-not-open",
             format!(
-                "PR {}#{} is {}; there is nothing to merge (`close --verified` ends the ticket)",
+                "PR {}#{} is {}; there is nothing to merge ({})",
                 i.pr.repo,
                 i.pr.number,
                 if i.pr.merged {
                     "merged already"
                 } else {
                     "closed"
+                },
+                if i.pr.merged {
+                    "`close --verified` ends the ticket"
+                } else {
+                    "a new `done` with an open PR, or `close --why` drops the ticket"
                 }
             ),
         ));

@@ -1,4 +1,5 @@
-//! `close`: the coordinator closes a ticket (after a passed verify, or with a stated reason).
+//! `close`: the coordinator closes a ticket (after a passed verify and a merge, or after an
+//! owner merge), or drops it with a stated reason.
 
 use super::owner_merge;
 use super::pr_evidence::fetch_pr;
@@ -29,7 +30,7 @@ fn check_review_deliverable(t: &Ticket, open_since: Option<&str>) -> Result<(), 
 /// How `close` ends a ticket.
 #[derive(Debug, Clone, Copy)]
 pub struct CloseHow<'a> {
-    /// `--verified`: Review -> Done after a passed verify.
+    /// `--verified`: Review -> Done after a passed verify, for a PR merged at the verified head.
     pub verified: bool,
     /// `--why <text>`.
     pub reason: Option<&'a str>,
@@ -44,15 +45,37 @@ pub fn close(ac: &AgentCtx, issue_arg: &str, how: CloseHow<'_>) -> CbResult<Stri
     }
 }
 
-/// Rule `close-verified-head-moved`: the PR must still be at the head that the passing verify
-/// saw (its `head_now:` line), and must not be closed without a merge. A merged PR passes when
-/// its head is that head.
+/// The rule of a `close --verified` whose PR is still open: Done means a merged PR, so the
+/// coordinator merges it with `merge`.
+pub const CLOSE_VERIFIED_NOT_MERGED: &str = "close-verified-not-merged";
+
+/// The refusal of `close --verified` without a merged PR.
+fn not_merged(key: &str, what: &str) -> Refusal {
+    let n = key.rsplit('#').next().unwrap_or(key);
+    Refusal::new(
+        CLOSE_VERIFIED_NOT_MERGED,
+        format!(
+            "{key}: {what}; `close --verified` needs the PR merged at the head of the passing verify. Merge it with `crewboard merge {n}`. Nothing was written"
+        ),
+    )
+}
+
+/// Rules `close-verified-not-merged` and `close-verified-head-moved`: Done after
+/// `close --verified` means "merged at the head that the passing verify saw" (its `head_now:`
+/// line). An open PR is not merged yet; a PR closed without a merge, or merged at another head,
+/// is not that head.
 fn check_verified_head(key: &str, pr: &PrFacts, verified: Option<&str>) -> Result<(), Refusal> {
-    if pr.state == "closed" && !pr.merged {
+    if pr.state != "closed" && !pr.merged {
+        return Err(not_merged(
+            key,
+            &format!("PR {}#{} is open", pr.repo, pr.number),
+        ));
+    }
+    if !pr.merged {
         return Err(Refusal::new(
             "close-verified-head-moved",
             format!(
-                "{key}: PR {}#{} is closed without a merge; `close --verified` needs a PR that is open or merged at the verified head. Nothing was written",
+                "{key}: PR {}#{} is closed without a merge; `close --verified` needs a PR that is merged at the verified head. Nothing was written",
                 pr.repo, pr.number
             ),
         ));
@@ -72,7 +95,8 @@ fn check_verified_head(key: &str, pr: &PrFacts, verified: Option<&str>) -> Resul
     }
 }
 
-/// `close <issue> --verified` (coordinator): Review -> Done after a passed verify.
+/// `close <issue> --verified` (coordinator): Review -> Done after a passed verify, for a PR that
+/// is merged at the verified head.
 fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
     let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
@@ -92,15 +116,18 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
     if from == Status::Review && me.actor.is_coordinator() {
         check_review_deliverable(&t, question_open_since(&t).as_deref())?;
     }
+    // true: the PR of the latest `done` is merged at the head of the passing verify
+    let mut merged_at_head = false;
     if let Some((done, ev)) = assignee.as_deref().and_then(|a| latest_done(&t.msgs, a))
         && let Ok(pu) = parse_pr_url(&ev.pr)
     {
-        // Rule `close-verified-head-moved`: Done after `close --verified` means "accepted at the
-        // head that the passing verify saw". A PR that moved on, or that was closed without a
-        // merge, is not that head. Read the PR before any write.
+        // Rules `close-verified-not-merged` and `close-verified-head-moved`: Done after
+        // `close --verified` means "merged at the head that the passing verify saw". Read the PR
+        // before any write.
         if let Some((report, true)) = verify_report(&t.msgs, done, n) {
             let (pr, _) = fetch_pr(ac, &pu.repo, pu.number)?;
             check_verified_head(&t.key(), &pr, kv(&report.body, "head_now").as_deref())?;
+            merged_at_head = true;
         }
         // Rule `protected-path-owner-merge`: `close --verified` is refused for a PR that changes
         // a protected path now (a verify may have passed before the PR changed). The owner's
@@ -115,6 +142,10 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
         )?;
     }
     check_status_transition(Some(from), Status::Done, me.actor, &close)?;
+    // Fail closed: a passed verify whose PR was not read is no proof of the merge.
+    if !merged_at_head {
+        return Err(not_merged(&t.key(), "no merged PR of the latest done was read").into());
+    }
     // Post the note first, then write the Status, as `close` does: a failed post leaves a
     // Review ticket that a rerun closes. The other order left Done without proof, which a
     // rerun refused (`status-no-change`).
@@ -140,4 +171,55 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
     out.push_str(&notice);
     remember(ac, &t, Status::Done, assignee.as_deref());
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pr(state: &str, merged: bool, head: &str) -> PrFacts {
+        PrFacts {
+            repo: "o/r".into(),
+            number: 9,
+            state: state.into(),
+            merged,
+            head_sha: head.into(),
+            head_ref: "crew/a@h/7-x".into(),
+            title: String::new(),
+            body: String::new(),
+        }
+    }
+
+    fn rule(p: &PrFacts, seen: Option<&str>) -> &'static str {
+        check_verified_head("o/r#7", p, seen).unwrap_err().rule
+    }
+
+    #[test]
+    fn only_a_pr_merged_at_the_verified_head_passes() {
+        assert!(check_verified_head("o/r#7", &pr("closed", true, "abc"), Some("ABC")).is_ok());
+        // open: merge it first, at any head
+        for seen in [Some("abc"), Some("def"), None] {
+            assert_eq!(
+                rule(&pr("open", false, "abc"), seen),
+                CLOSE_VERIFIED_NOT_MERGED
+            );
+        }
+        let m = check_verified_head("o/r#7", &pr("open", false, "abc"), Some("abc"))
+            .unwrap_err()
+            .message;
+        assert!(m.contains("crewboard merge 7"), "{m}");
+        // closed without a merge, or merged at another head
+        assert_eq!(
+            rule(&pr("closed", false, "abc"), Some("abc")),
+            "close-verified-head-moved"
+        );
+        assert_eq!(
+            rule(&pr("closed", true, "def"), Some("abc")),
+            "close-verified-head-moved"
+        );
+        assert_eq!(
+            rule(&pr("closed", true, "abc"), None),
+            "close-verified-head-moved"
+        );
+    }
 }
