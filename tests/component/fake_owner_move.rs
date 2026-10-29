@@ -99,13 +99,16 @@ fn the_owner_moves_a_done_ticket_back_to_ready_and_status_and_audit_show_no_mism
     assert!(status_mismatches(&fake, &c).is_empty());
     assert_eq!(audit_mismatches(&fake, &c), Vec::<String>::new());
 
-    // the assignee's acts count again after the move
+    // the assignee's acts count again after the move. The second ack has the body of the first;
+    // in the same second its signed form is the same too, and the replay rule drops a copy. On a
+    // real board the owner move comes minutes later, so the test waits into the next second.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
     run_ok(&fake, &b, &["take", &ts]);
     assert_eq!(
         fake.item_field(&item, "Status").as_deref(),
         Some("In Progress")
     );
-    assert!(status_mismatches(&fake, &c).is_empty());
+    assert_eq!(status_mismatches(&fake, &c), vec![]);
     assert_eq!(audit_mismatches(&fake, &c), Vec::<String>::new());
 
     // control: a plain drag without the command is still reported by both
