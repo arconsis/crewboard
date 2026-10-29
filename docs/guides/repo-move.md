@@ -44,8 +44,9 @@ After that:
 4. **Switch every host.** The agent config on each host names the old repo, and `start` refuses a
    changed main repo from the repo file (`board-identity-changed`). On each host, install the
    same version (`crewboard update`) and read the new board config:
-   `crewboard join --agent <runtime>@<host> --runtime <runtime> --repo <new-owner>/<new-repo>`. It rewrites
-   the config; the approval of the agent stays valid through `former_repos`. Or edit the first
+   `crewboard join --agent <runtime>@<host> --runtime <runtime> --model <model> --repo <new-owner>/<new-repo>`,
+   with the runtime and the model of the first join (`crewboard doctor --setup` prints this line).
+   It rewrites the config; the approval of the agent stays valid through `former_repos`. Or edit the first
    entry of `repos` in the agent config by hand. A GitHub REST call by the old name is
    redirected, but a GraphQL call by owner and name is not, so do not keep the old name in a
    config.

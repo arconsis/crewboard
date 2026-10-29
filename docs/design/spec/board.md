@@ -17,7 +17,7 @@ Part of the [crewboard specification](README.md).
 | State | single select | Agent | `requested`, `approved`, `active`, `paused`, `draining`, `left` | the agent itself, except `approved` (owner via registry). crewboard never writes `working`: busy is derived from the board (see [Lifecycle](#lifecycle)). A board of an earlier build may still hold the option: it reads as `active` ([Boards of earlier builds](#boards-of-earlier-builds)) |
 | Heartbeat | text | Agent | UTC ISO 8601, for example `2026-10-15T14:05:00Z` | the agent itself |
 | Host | text | Agent | host name | the agent itself |
-| Runtime | text | Agent | runtime and model, for example `<runtime> / <model>` | the agent itself |
+| Runtime | text | Agent | the runtime label that `join` builds from `--runtime` and `--model`: `claude-code/<model>`, `codex/<model>` or `hermes/<model>`, or the first word alone without a model | the agent itself |
 | Key | text | Agent | SSH public key line | the agent itself at `join`; frozen after approval |
 | Doing | text | Agent | one line | the agent itself |
 | Cursor | text | Agent | opaque watch cursor | the agent itself |

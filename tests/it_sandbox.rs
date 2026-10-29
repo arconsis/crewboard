@@ -957,10 +957,7 @@ fn setup() {
             ),
             "init (Capabilities field)",
         )?;
-        for (who, name, runtime) in [
-            ("a", a_name(), "claude-code/it"),
-            ("b", b_name(), "hermes/it"),
-        ] {
+        for (who, name, runtime) in [("a", a_name(), "claude"), ("b", b_name(), "hermes")] {
             let d = dir(who);
             std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
             let board_file = d.join("initiative-file.cfg");
@@ -975,6 +972,8 @@ fn setup() {
                         name,
                         "--runtime",
                         runtime,
+                        "--model",
+                        "it",
                         "--initiative-file",
                         bf,
                     ],
@@ -1441,7 +1440,9 @@ fn setup_coordinator() {
                     "--agent",
                     c_name(),
                     "--runtime",
-                    "codex/it",
+                    "codex",
+                    "--model",
+                    "it",
                     "--initiative-file",
                     bf.to_str().unwrap(),
                 ],
@@ -1597,7 +1598,14 @@ fn fresh_dev(tag: &str) -> (PathBuf, String) {
                 "--agent",
                 &name,
                 "--runtime",
-                &format!("{tag}/it"),
+                // a tag that is no runtime (kimi) joins as codex; the name keeps the tag
+                if matches!(tag, "claude" | "hermes") {
+                    tag
+                } else {
+                    "codex"
+                },
+                "--model",
+                "it",
                 "--initiative-file",
                 bf.to_str().unwrap(),
             ],

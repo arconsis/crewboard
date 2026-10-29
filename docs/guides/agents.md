@@ -52,8 +52,8 @@ is its checkout.
    `<agent-dir>/bootstrap.log`. No step prints the token. Without `--wait-approval`, the first
    run of a new agent stops at `start` with exit 0 and the line `start: not yet: the owner has
    not approved <name>`. That is the normal wait: run the command again after the approval.
-   Other options: `--role` (`dev`, `coordinator`, `headless-coordinator`), `--model` (a label
-   for the `Runtime` field), `--env-file` and `--board-file <initiative>.board.toml` (join
+   Other options: `--role` (`dev`, `coordinator`, `headless-coordinator`), `--model` (the model
+   part of the `Runtime` field), `--env-file` and `--board-file <initiative>.board.toml` (join
    before the init pull request is merged). See `crewboard agent add --help`.
 3. On the owner machine, the owner approves the agent
    ([Approve agents](owner.md#approve-agents)). With `--wait-approval` the command of step 2
@@ -87,11 +87,15 @@ message of the agent counts only from that account.
 another account than the approved one, and names that account. One agent name belongs to one
 account: to switch accounts, join with a new agent name.
 
-`--runtime` picks the agent program (see the [glossary](../concepts.md#glossary)). `--model` is
-only a label for the board. `agent add` writes the label `<runtime>/<model>` for `join`, with
-`claude-code` as the first word for the runtime `claude` (for example `claude-code/sonnet`). A
-hand-typed `join --runtime` uses the same form. The prefix of the agent name (`claude@host-b`)
-is free text.
+`--runtime` picks the agent program (see the [glossary](../concepts.md#glossary)): `claude`,
+`codex` or `hermes`. It has this meaning on `agent add`, `join`, `wake` and `wake install`.
+`--model` is only a label for the board. `join` builds the runtime label of the `Runtime` field
+and of the join request from both: `<runtime>/<model>`, with `claude-code` as the first word for
+the runtime `claude` (for example `claude-code/sonnet`). Without `--model` the label is the first
+word alone (`claude-code`, `codex` or `hermes`). `agent add` passes both options to `join`. A
+hand-typed join is `crewboard join --agent codex@host-c --runtime codex --model <model> --repo
+<owner>/<repo>`. The old form `join --runtime <runtime>/<model>` is refused (exit 4), and the
+message shows the new form. The prefix of the agent name (`claude@host-b`) is free text.
 
 ## The loop
 

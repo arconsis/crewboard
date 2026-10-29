@@ -4,7 +4,7 @@
 //! `join` is refused in a headless config dir (spec/agents#headless-coordinator), before it reads
 //! or writes anything. The writer keeps `headless` all the same (unit test in `src/config/dir.rs`).
 
-use crate::support::board::{Agent, FakeBoard, INITIATIVE, REPO};
+use crate::support::board::{Agent, FakeBoard, INITIATIVE, REGISTRY, REPO};
 use crate::support::headless::{Hub, Scenario};
 use crewboard::config::ConfigDir;
 use crewboard::rules::Role;
@@ -29,7 +29,9 @@ fn join(fake: &FakeBoard, dir: &std::path::Path, name: &str) -> crate::support::
             "--agent",
             name,
             "--runtime",
-            "fake/it",
+            "codex",
+            "--model",
+            "it",
             "--repo",
             REPO,
         ],
@@ -137,7 +139,9 @@ fn a_join_in_a_headless_dir_is_refused_and_the_scope_stays_on() {
         "--agent",
         "claude@fake-a",
         "--runtime",
-        "fake/it",
+        "codex",
+        "--model",
+        "it",
         "--repo",
         REPO,
     ]);
@@ -157,7 +161,9 @@ fn a_join_in_a_headless_dir_is_refused_and_the_scope_stays_on() {
         "--agent",
         "claude@fake-a",
         "--runtime",
-        "fake/it",
+        "codex",
+        "--model",
+        "it",
         "--repo",
         REPO,
     ]);
@@ -205,4 +211,88 @@ fn join_names_the_host_of_the_agent_name_not_the_machine() {
         fake.item_field(&a.item_id, "Host").as_deref(),
         Some("fake-a")
     );
+}
+
+/// `join --runtime claude --model m-1` posts the join body that `join --runtime claude-code/m-1`
+/// posted before D7: the wire format (v=1) and the registries stay as they are.
+#[test]
+fn join_with_runtime_and_model_posts_the_label_of_before() {
+    let fake = board_with_file();
+    for (name, args, label) in [
+        (
+            "claude@fake-n",
+            &["--runtime", "claude", "--model", "m-1"][..],
+            "claude-code/m-1",
+        ),
+        ("codex@fake-o", &["--runtime", "codex"][..], "codex"),
+        (
+            "hermes@fake-p",
+            &["--runtime", "hermes", "--model", "vendor/m"][..],
+            "hermes/vendor/m",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut argv = vec!["join", "--agent", name];
+        argv.extend_from_slice(args);
+        argv.extend_from_slice(&["--repo", REPO]);
+        let o = fake.run(dir.path(), &argv);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(
+            o.stdout.contains(&format!("agent {name} ({label})")),
+            "{}",
+            o.all()
+        );
+        let t: toml::Table =
+            toml::from_str(&std::fs::read_to_string(cfg_path(dir.path())).unwrap()).unwrap();
+        assert_eq!(t["runtime"].as_str(), Some(label));
+        let item = t["item_id"].as_str().unwrap().to_string();
+        assert_eq!(fake.item_field(&item, "Runtime").as_deref(), Some(label));
+        let agent = crewboard::protocol::names::AgentName::parse(name).unwrap();
+        let (key, created) = crewboard::config::load_or_create_key(
+            &ConfigDir(dir.path().to_path_buf()).key_path(&agent),
+        )
+        .unwrap();
+        assert!(!created, "join made the key");
+        let key_line = crewboard::config::public_line(&key, &agent).unwrap();
+        let host = name.split_once('@').unwrap().1;
+        // the fixture: the join body of before, written out
+        let fixture =
+            format!("Join request.\nitem={item}\nkey={key_line}\nruntime={label}\nhost={host}\n");
+        let posted: Vec<String> = fake
+            .comments_of(REGISTRY)
+            .into_iter()
+            .map(|(_, _, b)| b)
+            .filter(|b| b.contains(&format!("item={item}\n")))
+            .collect();
+        assert_eq!(posted.len(), 1, "{posted:?}");
+        assert!(posted[0].contains(&fixture), "{}", posted[0]);
+    }
+}
+
+/// The old form `--runtime <runtime>/<model>` is a usage error (exit 4) that shows the new form,
+/// and nothing is read or written.
+#[test]
+fn join_refuses_the_old_runtime_form_with_the_new_form_in_the_message() {
+    let fake = board_with_file();
+    let dir = tempfile::tempdir().unwrap();
+    let o = fake.run(
+        dir.path(),
+        &[
+            "join",
+            "--agent",
+            "claude@fake-n",
+            "--runtime",
+            "claude-code/m-1",
+            "--repo",
+            REPO,
+        ],
+    );
+    assert_eq!(o.code, 4, "{}", o.all());
+    assert!(
+        o.stderr.contains("use: --runtime claude --model m-1"),
+        "{}",
+        o.all()
+    );
+    assert!(fake.requests().is_empty(), "{:?}", fake.requests());
+    assert!(!cfg_path(dir.path()).exists());
 }

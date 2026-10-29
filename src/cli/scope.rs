@@ -169,7 +169,7 @@ mod tests {
     const TABLE: &[(&[&str], bool)] = &[
         (&["init", "--initiative", "d", "--repo", "a/b"], false),
         (
-            &["join", "--agent", "claude@host-a", "--runtime", "x"],
+            &["join", "--agent", "claude@host-a", "--runtime", "claude"],
             false,
         ),
         (&["approve", "hermes@host-b"], false),

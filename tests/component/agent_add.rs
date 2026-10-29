@@ -317,13 +317,20 @@ fn b1_seven_steps_join_posted_one_next_step() {
         ),
         "git@github.com:"
     );
-    // the join request is on the board
+    // the join request is on the board, with the label of the runtime claude without a model
     assert!(
         s.fake
             .requests()
             .iter()
             .any(|r| r.method == "POST" && r.path.contains("/comments")),
         "no comment was posted"
+    );
+    assert!(
+        s.fake
+            .comments_of(crate::support::board::REGISTRY)
+            .iter()
+            .any(|(_, _, b)| b.contains("Join request.") && b.contains("\nruntime=claude-code\n")),
+        "no join request with runtime=claude-code"
     );
     assert!(s.fake.unhandled().is_empty(), "{:?}", s.fake.unhandled());
     // the log: mode 600, one block for each step that ran a command
@@ -596,6 +603,39 @@ fn b5b_join_fails_step_2_with_the_code_of_join_and_no_shim_no_clone() {
     assert!(!s.path("work").exists());
     // the failure is in the log
     assert!(s.path("agents/dev1/bootstrap.log").is_file());
+}
+
+#[test]
+fn b5d_agent_add_passes_runtime_and_model_to_join_in_the_new_form() {
+    let s = Setup::new();
+    let calls = s.path("seam/calls");
+    // the seam: record each call; join writes the config
+    let bin = seam(
+        &s,
+        &format!(
+            "echo \"$*\" >>'{}'\ncase \"$*\" in *\" join \"*) printf 'name = \"claude@fake-a\"\\n' >\"$2/fake.toml\"; exit 0 ;; esac\nexit 0",
+            calls.display()
+        ),
+    );
+    let o = s.add(
+        "agents/dev1",
+        "work",
+        &["--crewboard", &bin, "--model", "m-1"],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    let text = std::fs::read_to_string(&calls).unwrap();
+    let join = text
+        .lines()
+        .find(|l| l.contains(" join "))
+        .unwrap_or_else(|| panic!("no join call: {text}"));
+    assert_eq!(
+        join,
+        format!(
+            "--config-dir {} join --name {NAME} --runtime claude --model m-1 --repo {REPO}",
+            s.path("agents/dev1").display()
+        )
+    );
+    assert!(!text.contains("claude-code"), "{text}");
 }
 
 #[test]

@@ -221,7 +221,7 @@ outputs that `.github/workflows/` uses. Merge only after that check.
 
 crewboard names no specific project, agent setup, host or account. Use placeholders in examples:
 `<owner>/<repo>`, `<initiative>.env`, `claude@host-a`, `hermes@host-b`, `codex@host-c`. Rotate the
-runtimes in examples, and write `--runtime <runtime>/<model>`: a model name reads as a requirement.
+runtimes in examples, and write `--model <model>`: a model name reads as a requirement.
 Name no person and no personal tool; the git log credits authors. Say "the sandbox project that the
 `CREWBOARD_IT_*` variables name", not its owner or repo names. Fixtures and unit tests use
 `example-org`.

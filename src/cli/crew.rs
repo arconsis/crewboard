@@ -198,6 +198,7 @@ pub(super) fn dispatch(cli: &Cli, c: &CrewCmd) -> Outcome {
         CrewCmd::Join {
             agent,
             runtime,
+            model,
             host,
             repo,
             tools,
@@ -207,7 +208,8 @@ pub(super) fn dispatch(cli: &Cli, c: &CrewCmd) -> Outcome {
             &global(cli, sel, *insecure_one_account),
             ops::join::JoinArgs {
                 name: agent,
-                runtime,
+                runtime: *runtime,
+                model: model.as_deref(),
                 host: host.as_deref(),
                 repo: repo.as_deref(),
                 tools,
