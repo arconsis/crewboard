@@ -69,6 +69,7 @@ fn the_owner_moves_a_done_ticket_back_to_ready_and_status_and_audit_show_no_mism
     let item = item_in(&run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]));
     run_ok(&fake, &b, &["take", &ts]);
     run_ok(&fake, &c, &["close", &ts, "--why", "no PR needed"]);
+    fake.close_issue(t);
     assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Done"));
     assert!(status_mismatches(&fake, &c).is_empty());
 
@@ -80,10 +81,12 @@ fn the_owner_moves_a_done_ticket_back_to_ready_and_status_and_audit_show_no_mism
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(
         o.stdout.contains("owner command posted: /crew move Ready")
+            && o.stdout.contains("issue reopened")
             && o.stdout.contains("Status Done -> Ready"),
         "{}",
         o.all()
     );
+    assert!(fake.issue_is_open(t));
     assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Ready"));
     assert_eq!(
         fake.item_field(&item, "Agent").as_deref(),
