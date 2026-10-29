@@ -4,7 +4,9 @@
 //! `cargo test`.
 
 use crate::support::board::{Agent, FakeBoard, INITIATIVE, OWNER, REGISTRY, REPO, THREAD, sign};
-use crate::support::cli::{GATE, item_in, no_unhandled, run_ok};
+use crate::support::cli::no_unhandled;
+#[cfg(unix)]
+use crate::support::cli::{GATE, item_in, run_ok};
 use crewboard::clock::now_epoch;
 use crewboard::config::ConfigDir;
 use crewboard::protocol::names::Kind;
@@ -71,6 +73,7 @@ fn approve(fake: &FakeBoard, owner: &Path, name: &str) -> crate::support::board:
 }
 
 /// `join` of a new agent with the token of `login`.
+#[cfg(unix)]
 fn join_as(fake: &FakeBoard, dir: &Path, name: &str, login: &str) {
     fake.set_viewer(login);
     let o = fake.run(
