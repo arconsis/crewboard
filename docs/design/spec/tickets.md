@@ -10,7 +10,7 @@ A ticket is a normal issue with label `crew:work`, added to the board. The body 
 - **Gate:** one line that can fail, for example "`make test` passes on CI and
   `crewboard agent selftest` reports a planted event". Also stored in the `Gate` field. The Gate of a
   ticket that needs a green CI run and nothing else is `Gate: ci` (`ticket new --gate-ci` writes
-  it): the typed CI-only Gate, the only one that the no-model coordinator merges
+  it): the typed CI-only Gate, the only one that the headless coordinator merges
   ([CI only, exactly](agents.md#headless-coordinator)). Any other text is a free-text Gate.
 - **Scope / not in scope.**
 - **Pointers:** files, issues, earlier PRs.
@@ -19,7 +19,7 @@ A ticket is a normal issue with label `crew:work`, added to the board. The body 
   [Requirements and matching](profiles.md#requirements-and-matching) defines the matching; `assign` enforces it.
 
 `crewboard ticket new --template` prints this body. It reads no config, calls no board and writes
-nothing, so a no-model coordinator may run it. Only `Gate:` is checked by `ticket new` and
+nothing, so a headless coordinator may run it. Only `Gate:` is checked by `ticket new` and
 `assign`. The optional lines are HTML comments: a template that is used as it is does not set
 `Needs`, `Route` or `CI`.
 
@@ -39,7 +39,7 @@ Pointers: <files, issues, earlier PRs>
 The assignment message is signed and carries the Gate as the line `gate: <text>` (all `Gate:`
 lines of the body, joined with ` | `; one line gives that line). The issue body is not signed:
 any holder of a crew token can edit it. So a judgement that must hold reads the signed line.
-The headless "CI only" check is one ([No-model coordinator](agents.md#headless-coordinator)).
+The headless "CI only" check is one ([Headless coordinator](agents.md#headless-coordinator)).
 `reassign` copies the latest signed `gate:` line into its new assignment message. The latest
 `gate:` line of a coordinator `request` is the signed Gate; a `gate:` line of a dev is ignored.
 
@@ -77,7 +77,7 @@ posts the signed message and sets the field.
 | Review -> In Progress | coordinator | `verify` failed (also `verify --fail` after a failed Gate check, [Failed Gate check](#failed-gate-check)) and the agent has no OTHER ticket In Progress; posts what failed. With another ticket In Progress the move is refused (`status-verify-failed-agent-busy`): see the next row |
 | Review -> Ready | coordinator | `verify` failed (also `verify --fail`) and the agent has ANOTHER ticket In Progress: same `Agent`, `Order` at the front of the agent's Ready queue ([Queue order per agent](#queue-order-per-agent): lowest `Order` of its Ready tickets minus 1), so the agent keeps one In Progress ticket ([rule of `take`](#queue-order-and-take)) and the next `take` returns to this ticket. The signed verify report has a line `case: verify failed; <agent> works on <other>; queued as next (Ready, Order <n>)`. Idle agent: `status-verify-requeue-agent-idle` |
 | any but Done -> Done (owner merge) | coordinator; also the headless `tick` for Review, In Progress, Blocked and Ready | the owner merged the PR by hand and the issue is closed: by GitHub through the closing keyword, or by `close` itself on the owner route ([Close after an owner merge](#close-after-an-owner-merge)): `close <n>`. No `verify` is needed: the owner's merge ended the ticket. The label `needs-owner` goes |
-| any but Done -> Done (by judgment) | coordinator | the coordinator judges that the ticket needs no merge, for example it has no PR to verify ([Close without a PR](#close-without-a-pr)): `close <n> --why "<text>"`. It ends any ticket that is not Done, with a signed reason. No `verify` is needed. The label `needs-owner` goes. Not for a no-model coordinator: it is a judgment |
+| any but Done -> Done (by judgment) | coordinator | the coordinator judges that the ticket needs no merge, for example it has no PR to verify ([Close without a PR](#close-without-a-pr)): `close <n> --why "<text>"`. It ends any ticket that is not Done, with a signed reason. No `verify` is needed. The label `needs-owner` goes. Not for a headless coordinator: it is a judgment |
 | Done -> any | owner | Done is final. Every other writer is refused. `reassign`, `ask` and `assign` give `status-done-final`: `ticket is Done; only the owner moves it (open a new ticket, or ask the owner)`. `verify` on a Done ticket gives `verify-needs-review`, and `split` is refused with `ticket-closed` or `split-not-in-progress`. A repeat `close` is `status-no-change`. The safety net of the owner route reopens the issue of a Done ticket and asks the owner, but writes no Status ([Workflow files: the owner route](#workflow-files-the-owner-route)) |
 | any but Done -> Ready (reassign `--to <agent>`) | coordinator | one reason of the list below: `dead`, `stopping`, `late` or `blocked-too-long`; a new agent is named (a ticket in Ready always has an agent) |
 | any but Done -> Backlog (reassign without `--to`) | coordinator | the same reasons; the Agent field is cleared, and `assign` puts the ticket into Ready again |
@@ -254,7 +254,7 @@ stays true:
 Read cost: only a failed `verify` reads the board rows of the agent's tickets (one `nodes(ids:)`
 read of the known tickets). A passed `verify` reads nothing more. The headless `tick` runs the
 same `verify`, so it follows the same rule; both writes (Status, Order) are coordinator writes,
-and `verify` is allowed for a no-model coordinator ([No-model coordinator](agents.md#headless-coordinator)).
+and `verify` is allowed for a headless coordinator ([Headless coordinator](agents.md#headless-coordinator)).
 
 ### Failed Gate check
 
@@ -275,8 +275,8 @@ so the coordinator records the failed Gate check:
   ([Verify after the owner's go](#verify-after-the-owners-go)).
 - `--fail` without `--body` (or with an empty note) is refused with `verify-fail-needs-note`
   before any read.
-- A no-model coordinator is refused with `headless-scope`: the Gate check is a judgment
-  ([No-model coordinator](agents.md#headless-coordinator)).
+- A headless coordinator is refused with `headless-scope`: the Gate check is a judgment
+  ([Headless coordinator](agents.md#headless-coordinator)).
 - A plain `verify` (without `--fail`) does not change.
 
 ### Verify after the owner's go
@@ -303,7 +303,7 @@ Review (head not moved, CI, named runs) and writes the same messages:
   ([Take a question back](#status-flow-and-writers)).
 
 `verify --fail` records a failed Gate check and is no exit to Done, so an open question does not
-stop it. A refusal writes nothing. A no-model coordinator never acts on a ticket with an open
+stop it. A refusal writes nothing. A headless coordinator never acts on a ticket with an open
 question: its `verify` and `merge` refuse with `headless-scope` before any other check, and
 `tick` leaves such a ticket alone.
 
@@ -368,8 +368,8 @@ such search: only the PR of its `done` counts.
   gets `status-wrong-writer`. A refusal writes nothing.
 - `--why` and `--verified` do not combine. With `--why` and no owner merge the close is the
   coordinator's judgment ([Close without a PR](#close-without-a-pr)).
-- **`tick`.** The no-model coordinator does this close too, because it is no judgment
-  ([No-model coordinator](agents.md#headless-coordinator)). It looks at the tickets in Review
+- **`tick`.** The headless coordinator does this close too, because it is no judgment
+  ([Headless coordinator](agents.md#headless-coordinator)). It looks at the tickets in Review
   whose issue is closed. A Review ticket that does not meet the conditions is judged as usual. The
   issue of an owner-merged ticket is closed, so the tick also lists the 30 newest closed tickets
   of each repo when it cannot find the issue of a board item (tickets that the cache knows cost
@@ -413,8 +413,8 @@ a verify, which needs a PR, and a bare `close` needs a merged PR. For the rest:
 `crewboard close <n> --why "<text>"`: the ticket ends by the coordinator's judgment. When a
 ticket replaces it, the text names that ticket; the link is text only.
 
-Coordinator only (`status-wrong-writer`). A no-model coordinator refuses it with `headless-scope`:
-it is a judgment ([No-model coordinator](agents.md#headless-coordinator)). `--why` does not
+Coordinator only (`status-wrong-writer`). A headless coordinator refuses it with `headless-scope`:
+it is a judgment ([Headless coordinator](agents.md#headless-coordinator)). `--why` does not
 combine with `--verified`. When crewboard finds an owner merge, the close is the owner-merge close
 and the reason is added as a line. A close without a reason and without an owner merge is refused
 with `close-needs-reason`. The checks run first and a refusal writes nothing:
@@ -529,7 +529,7 @@ a ticket that continued an open PR of a Done ticket keeps the branch of that PR
 
 ## Queue, labels, ticket creation and merge
 
-The headless dev agents are in [Headless dev agents keep working](agents.md#headless-dev-agents-keep-working).
+The unattended dev agents are in [Unattended dev agents keep working](agents.md#unattended-dev-agents-keep-working).
 
 ### Queue order and take
 
@@ -690,7 +690,7 @@ causes would block its finished part. `ticket split` moves the open part to a ne
    Agent); the signed note. The output names the steps done now and those done before, for
    example `split: <old> -> <new>; now: queued, note posted; already done: exists, linked`.
    A rerun of a complete split writes nothing and exits 0. Another title is another split.
-8. The no-model coordinator ([No-model coordinator](agents.md#headless-coordinator)) is refused with `headless-scope`.
+8. The headless coordinator ([Headless coordinator](agents.md#headless-coordinator)) is refused with `headless-scope`.
 
 ## Workflow files: the owner route
 
@@ -767,7 +767,7 @@ such tickets, so that no agent has to `block` for it.
    with `withdraws: question` follows the `owner-route-merged` question, the net does nothing
    more for that PR, even when the item changes later (the owner decides what comes next, so
    the net asks once and does not check the owner's word).
-   The no-model coordinator writes nothing ([No-model coordinator](agents.md#headless-coordinator)):
+   The headless coordinator writes nothing ([Headless coordinator](agents.md#headless-coordinator)):
    its `tick` logs one line `left for the interactive coordinator: <repo>#<n>, ...` per
    finding, once per change of the board item (the tick keeps the finding in its state cache with
    the prefix `tick:`; the interactive coordinator still judges it). The reads are bounded.

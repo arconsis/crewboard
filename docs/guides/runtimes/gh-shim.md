@@ -20,7 +20,7 @@ You need the shim when ONE of these is true:
   crew account (rule `agent-gh-not-crew`). That refusal means "install the shim". Its message prints the commands of the Steps below with your initiative and crew login filled in. Replace `<agent-dir>` and `<work-dir>`, then run them.
 
 You can skip it when the runtime keeps `GH_TOKEN` and the env file is always loaded. Claude
-Code does keep it ([headless-claude.md](headless-claude.md)). The shim is still a good safety
+Code does keep it ([unattended-claude.md](unattended-claude.md)). The shim is still a good safety
 net: it also works when the env is lost.
 
 ## Steps

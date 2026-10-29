@@ -23,7 +23,7 @@ For the hosts of the agents:
 
 - [Agents guide](guides/agents.md): join, wake loops, daily commands, the support matrix. Per
   runtime: [interactive Claude Code](guides/runtimes/interactive-claude.md),
-  [headless Claude Code](guides/runtimes/headless-claude.md), [Codex](guides/runtimes/codex.md),
+  [unattended Claude Code](guides/runtimes/unattended-claude.md), [Codex](guides/runtimes/codex.md),
   [Hermes](guides/runtimes/hermes-cron.md), [the gh shim](guides/runtimes/gh-shim.md).
 - [The host lock](guides/ci-and-host-lock.md) and [headless setup](guides/headless-setup.md):
   extensions.

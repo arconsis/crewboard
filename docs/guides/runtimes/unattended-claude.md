@@ -1,4 +1,4 @@
-# Headless Claude Code dev agent
+# Unattended Claude Code dev agent
 
 Goal: an unattended Claude Code dev agent. A scheduler runs a small wake script every 5
 minutes. The script polls the board with a program and starts `claude -p` only when there is
@@ -264,7 +264,7 @@ install replaces the line with that marker; the other lines stay.
 
 ## Headless coordinator
 
-The no-model coordinator starts no model. The scheduler runs `crewboard tick` under the lock,
+The headless coordinator starts no model. The scheduler runs `crewboard tick` under the lock,
 and the tick lines go to the log. Lines `left for the interactive coordinator: ...` stay there
 for the interactive coordinator. The config dir needs `headless = true` (for a boundary see
 [headless-setup.md](../headless-setup.md)). The first command copies the config of the

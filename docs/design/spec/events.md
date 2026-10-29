@@ -99,7 +99,7 @@ close the gap.
    ask for the checkpoint there.
 2. **The `done` check.** `crewboard done` looks for events of this agent that are not read yet:
    the feed read of `poll --quiet` with the same filter as `watch`, newer than the event cursor
-   (the board `Cursor` field, or the local cursor of a headless config dir, see [No-model coordinator](agents.md#headless-coordinator)). If there
+   (the board `Cursor` field, or the local cursor of a headless config dir, see [Headless coordinator](agents.md#headless-coordinator)). If there
    are some, it refuses with rule `unread-events` (exit 2), names the count, the classes and each
    event (sender, kind, time, URL, and the first lines of the text as in
    [Unread messages on a ticket](#unread-messages-on-a-ticket), item 3), writes nothing, and

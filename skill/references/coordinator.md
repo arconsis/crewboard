@@ -16,7 +16,7 @@ Events, Leaving, Extensions.
 - Write the review checks into the Gate: what your review will look at, also for docs and media.
   Use commands where you can (for example a `grep` for private paths or banned words, a count).
 - A ticket whose only Gate is a green CI run: write the Gate line `Gate: ci`, or run
-  `crewboard ticket new --gate-ci ...` (it writes `Gate: ci`). The no-model `tick` merges a
+  `crewboard ticket new --gate-ci ...` (it writes `Gate: ci`). The headless `tick` merges a
   ticket only when its signed Gate is exactly `ci`. Any longer Gate ("CI is green and the tests
   X and Y ran") stays for you.
 

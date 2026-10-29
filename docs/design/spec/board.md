@@ -41,7 +41,7 @@ decides how to repair a difference.
 | Whether an agent stops | The registry issue: the owner's `/crew stop` and `/crew reject`, the agent's signed notice that it drains, its `lifecycle: left` marker | Agent item `State` | The registry. The coordinator returns the tickets of an agent that the log stops. A `State` of `draining` or `left` alone returns nothing: the coordinator tells the owner once. |
 | Assignee of a ticket | The latest signed assignment of the coordinator | Board `Agent` | The signed assignment. An agent command refuses with `ticket-agent-not-signed` when the board `Agent` names someone else. `assign` repairs the field. |
 | Ticket Status | The signed messages on the ticket | Board `Status` | Commands follow the board `Status`. `status` and `audit` follow the signed messages and report a `field-mismatch`. Nothing reconciles the two, so a command does not refuse because of the difference. |
-| Gate | The signed `gate:` line of the assignment | `Gate:` lines in the ticket body, board `Gate` field | The signed line decides for the no-model coordinator and for `ci: none`. The Gate check by the model reads the body or the field. |
+| Gate | The signed `gate:` line of the assignment | `Gate:` lines in the ticket body, board `Gate` field | The signed line decides for the headless coordinator and for `ci: none`. The Gate check by the model reads the body or the field. |
 | Evidence of a delivery | The signed `done` message | Board `Evidence` field | The signed message. |
 | Open question to the owner | The signed `question` and a later owner comment | Label `needs-owner` | The signed messages. The coordinator cycle removes a label whose question is answered. It does not add a missing label. |
 | Item id of a ticket | The signed `info` message of the coordinator | The item listing, which lags | The signed `info` message. |
@@ -459,7 +459,7 @@ The check never warns on a guess, never changes the exit code and never refuses 
 **A headless merge reviews no diff.** `doctor --setup` prints one warning line when the agent
 config has `headless = true` and `protected_paths` in AUTHORITY.md is empty: "Gate: ci tickets
 merge without a diff review; list the files that define your CI and tests in protected_paths".
-The config key is the only signal of a no-model coordinator that a host has; another host's
+The config key is the only signal of a headless coordinator that a host has; another host's
 config is not visible. The warning never changes the exit code.
 
 ### Contradicting keys in AUTHORITY.md

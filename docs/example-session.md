@@ -1,7 +1,7 @@
 # Example session: one ticket from request to Done
 
 This is a real run, not a mock-up. It took place on 2026-10-25 on a throwaway private repo (now
-deleted) with one person, one Mac and two agents. Both agents were Claude Code in headless mode
+deleted) with one person, one Mac and two agents. Both agents were Claude Code, run unattended
 (`claude -p`, model label `sonnet`). The repo held one Python function, one test and a CI
 workflow that runs the test.
 
