@@ -1,27 +1,22 @@
 # Quick try: one person, one machine
 
-**This is a trial, not a crew.** It uses your own GitHub token, one machine and no crew
-account. Only `init --insecure-one-account` makes a trial; without the flag, `init` makes a crew
-where your token is refused for agents. Use it on a test repo only. For a real crew use [Getting started](getting-started.md).
-These safety checks are off:
+**This is a trial, not a crew.** It uses your own GitHub token, one machine and no crew account.
+Only `init --insecure-one-account` makes a trial. Use it on a test repo only. For a real crew use
+[Getting started](getting-started.md). These safety checks are off:
 
 - Any token passes the agent commands, yours too. The rules `agent-uses-owner-token`,
   `approve-owner-account`, `agent-token-not-crew` and `agent-gh-not-crew` need a crew account.
 - A comment from your account without a header counts as an owner message. An agent that
-  forgets the header posts as you, and nobody can see who posted. `crewboard audit` lists such
-  comments afterwards.
+  forgets the header posts as you. `crewboard audit` lists such comments afterwards.
 
-Step 1 writes a file that holds your full GitHub access. Keep it private and delete it
-afterwards. New terms (initiative, coordinator, Gate, agent dir) are in the
-[glossary](concepts.md#glossary).
-
-One measured run (2026-10-27) took 18 min 54 s from the new repo to the merged pull request.
+Step 1 writes a file with your full GitHub access: keep it private and delete it afterwards.
+Terms: [glossary](concepts.md#glossary). One measured run (2026-10-27) took 18 min 54 s from the
+new repo to the merged pull request.
 
 ## What you need
 
-- macOS or Linux and the tools in [Install](guides/install.md#what-you-need), with `gh` 2.17 or
-  newer.
-- crewboard and its skill ([Install](guides/install.md)).
+- macOS or Linux, crewboard and its skill, and the tools in
+  [Install](guides/install.md#what-you-need), with `gh` 2.17 or newer.
 - `gh` logged in as you, with the two scopes that `init --with-ci` needs:
 
   ```sh
@@ -30,7 +25,6 @@ One measured run (2026-10-27) took 18 min 54 s from the new repo to the merged p
   ```
 
 - Claude Code, logged in once (run `claude` and sign in). Only Claude Code works in this trial.
-  Keep one terminal open for the coordinator.
 - A test repo with a commit and a test. This makes one:
 
   ```sh
@@ -41,20 +35,17 @@ One measured run (2026-10-27) took 18 min 54 s from the new repo to the merged p
   git add . && git commit -m "Start" && git push -u origin HEAD
   ```
 
-In every command below, replace `you` with your GitHub login. `demo` is the name of the
-initiative (one piece of work with one board). The owner commands (`init`, `approve`) use your
-own `gh` login and ignore `GH_TOKEN` and `GITHUB_TOKEN`. Step 1 reads `gh auth token`, which
-prints such a variable when one is set: run it in a shell without them.
+Replace `you` with your GitHub login. `demo` is the name of the initiative. Run step 1 in a shell
+without `GH_TOKEN` and `GITHUB_TOKEN`: `gh auth token` prints such a variable when one is set.
 
 ## The steps
 
-There are 9 steps, about 11 commands. Use one terminal for the owner commands and two more for
-the two agents. If a step hangs or fails, see "If nothing moves" in
-[Getting started](getting-started.md#the-first-ticket). The usual causes are a missing
-`workflow` scope, a `--wait-approval` that does not end, and `claude` not on the `PATH`.
+Use one terminal for the owner and one for each agent. If a step hangs or fails, see "If nothing
+moves" in [Getting started](getting-started.md#the-first-ticket). Usual causes: no `workflow`
+scope, a `--wait-approval` that does not end, `claude` not on the `PATH`.
 
-1. Store your token in an env file (mode 600). It does not show on the screen.
-   `--insecure-one-account` lets the token keep its `workflow` scope:
+1. Store your token in an env file (mode 600). `--insecure-one-account` lets the token keep its
+   `workflow` scope:
 
    ```sh
    gh auth token | crewboard agent token --initiative demo --insecure-one-account
@@ -68,9 +59,9 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
      --insecure-one-account --with-ci --env-file ~/.config/crewboard/demo.env
    ```
 
-3. Allow the coordinator to merge. On the init pull request (branch `crewboard/init-demo`) open `AUTHORITY.md`, click the pencil
-   icon, change `coordinator_may_merge: false` to `true` and commit to the branch. Then merge
-   the pull request.
+3. Allow the coordinator to merge. On the init pull request (branch `crewboard/init-demo`) open
+   `AUTHORITY.md`, click the pencil icon, change `coordinator_may_merge: false` to `true` and
+   commit to the branch. Then merge the pull request.
 
 4. Join both agents. Each command waits for your approval, so run each in its own terminal:
 
@@ -87,10 +78,9 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
      --install-wake --every 60s
    ```
 
-   `--install-wake` installs a scheduler unit that wakes the dev agent when it has work. Here
-   it wakes every 60 seconds, not every 5 minutes, to make the trial fast. On Linux, run the
-   `next:` line that it prints. To let the dev agent run your test command itself, add
-   `--allow 'Bash(<your tool> *)'` to the second command ([Agents guide](guides/agents.md#the-loop)).
+   `--install-wake` installs a scheduler unit that wakes the dev agent every 60 seconds (the
+   default is 5 minutes). On Linux, run the `next:` line that it prints. To let the dev agent run
+   your test command, add `--allow 'Bash(<your tool> *)'` ([Agents guide](guides/agents.md#the-loop)).
 
 5. Approve both, in the owner terminal:
 
@@ -101,18 +91,18 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
 
    Both waiting commands continue. The coordinator command ends with a line to paste.
 
-6. Paste that line in the coordinator terminal. It starts Claude Code as the coordinator, with
-   its first prompt. Claude Code asks before each command: allow `crewboard *` for the session.
+6. Paste that line in the coordinator terminal. It starts Claude Code as the coordinator.
+   Claude Code asks before each command: allow `crewboard *` for the session.
 
-7. Give the coordinator a ticket. The **Gate** is the one line that decides whether the ticket
-   is done, and it must be able to fail. Tell the coordinator in its chat:
+7. Give the coordinator a ticket. Its **Gate** decides whether it is done and must be able to
+   fail. Tell the coordinator in its chat:
 
    > Make a ticket "Add a Running the tests section to README.md" and assign it to
    > claude-2@laptop. Gate: CI is green and `grep -q '^## Running the tests' README.md` exits 0.
 
-   The dev agent wakes within a minute, takes the ticket and opens a pull request. `done` may
-   refuse with `unread-events`: the dev agent then runs `crewboard watch --timeout 1m` first.
-   This is normal. To see the board, ask the coordinator, or run this in the owner terminal:
+   The dev agent wakes within a minute, takes the ticket and opens a pull request. A `done`
+   refused with `unread-events` is normal: the agent runs `crewboard watch --timeout 1m` first.
+   To see the board, ask the coordinator, or run in the owner terminal:
 
    ```sh
    crewboard agent exec --agent-dir ~/.config/crewboard/agents/demo-coord -- crewboard status
@@ -125,14 +115,10 @@ the two agents. If a step hangs or fails, see "If nothing moves" in
 
 ## Next: a crew
 
-Do not convert the trial board. Start a new initiative with
-[Getting started](getting-started.md): a new initiative name and new agent dirs. A crew account
-changes whose messages the agents trust: your approval binds each agent to the account that
-wrote its join, and that is never yours.
+Do not convert the trial board. Start a new initiative with new agent dirs:
+[Getting started](getting-started.md). On a crew, your approval binds each agent to the account
+that wrote its join, and that is never yours.
 
-**Clean up.**
-
-- Delete the project and the repo on GitHub.
-- Run `crewboard wake uninstall` for each unit.
-- Delete `~/.config/crewboard/demo.*` and `~/.config/crewboard/agents/demo-*`.
-- Delete `~/.local/state/crewboard/agents/demo-*` and `~/crew/demo-*`.
+**Clean up.** Delete the project and the repo on GitHub. Run `crewboard wake uninstall` for each
+unit. Delete `~/.config/crewboard/demo.*`, `~/.config/crewboard/agents/demo-*`,
+`~/.local/state/crewboard/agents/demo-*` and `~/crew/demo-*`.
