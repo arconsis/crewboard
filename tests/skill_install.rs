@@ -814,6 +814,7 @@ fn a_file_name_that_is_not_utf8_is_skipped_by_the_legacy_scan() {
     assert_eq!(skill(&h, &["install"]).code, 0);
     let c = canon(&h);
     fs::remove_file(c.join(".crewboard-skill.json")).unwrap();
+    fs::create_dir_all(c.join("loops")).unwrap(); // the skill has no file in loops/ now
     let odd = c
         .join("loops")
         .join(std::ffi::OsStr::from_bytes(b"bad\xff.sh"));
