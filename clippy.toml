@@ -1,0 +1,17 @@
+# Lint configuration. The lint levels are in Cargo.toml ([lints.clippy]).
+
+# Tests may unwrap and expect: a panic is how a test fails.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# A function over this length is split into a plan and an act, or carries an explicit
+# `#[allow(clippy::too_many_lines)]` (the list may only shrink).
+too-many-lines-threshold = 150
+
+# The clock seam: code takes a `Clock` (or calls `clock::now_epoch`, `clock::pause`), so that a
+# test can run without waiting. `src/clock.rs` is the only module that calls these.
+disallowed-methods = [
+    { path = "std::time::SystemTime::now", reason = "read the wall clock through `clock::now_epoch`, `clock::now_nanos` or a `Clock`" },
+    { path = "std::time::Instant::now", reason = "pass a `Clock`; allow it only where real elapsed time of a child process or a poll loop is measured, with a reason" },
+    { path = "std::thread::sleep", reason = "use `Clock::sleep` or `clock::pause`" },
+]

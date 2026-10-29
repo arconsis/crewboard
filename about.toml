@@ -1,0 +1,40 @@
+# Settings of `cargo about`, which writes THIRD-PARTY-LICENSES.md. Run scripts/third-party-licenses.sh.
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# What ships is the normal and build dependencies of the release build. The tests are not shipped.
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+# Every target that a release or CI builds for, so that the file does not depend on the host.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+# crewboard itself is not listed: its version changes with every release.
+private = { ignore = true }
+workarounds = ["ring"]
+
+# The generic BSD-3-Clause text would lose the copyright lines of this crate. A changed file (a
+# new version with another license text) breaks the checksum, and the generated file then shows
+# the generic text, which tests/third_party_licenses.rs refuses.
+[curve25519-dalek.clarify]
+license = "BSD-3-Clause"
+
+[[curve25519-dalek.clarify.files]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "cca0bd3c4fcdba74145ef9d49c62337e2c9fbf9368288f11d0547f1b0273219f"

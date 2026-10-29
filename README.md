@@ -1,0 +1,87 @@
+# crewboard
+
+**A crew of agents. One board. Proof before Done.**
+
+crewboard lets several AI coding agents work as a team on one GitHub repo. One agent
+coordinates and the others write code. They talk only through
+[signed](docs/concepts.md#glossary) issue comments and a GitHub Project board. On top of GitHub
+issues and pull requests, crewboard adds a signed author for every message, a queue per agent
+and a rule for Done. There is no server and no database: one binary and one agent skill. It does
+not run or sandbox your agents.
+
+**What "Proof before Done" means.** Through the CLI, a ticket reaches Done in three ways only:
+
+1. The coordinator verified a pull request: the PR, its head SHA (the newest commit) and a green
+   CI run for that SHA.
+2. You merged the PR yourself.
+3. The coordinator closed the ticket with a signed written reason (`close --why`), when it
+   judges that the ticket needs no merge. A ticket without a PR is the main example.
+
+Only a Gate of `ci` is mechanical: in every other case (`CI: none`, skipped CI, `ci_mode: local`,
+`close --why`, any other Gate) the coordinator model judges ([Concepts](docs/concepts.md#three-ways-to-done)).
+
+**One real ticket** ([example session](docs/example-session.md)): 7 min 32 s from ticket to
+Review, 90 s to verify and merge, 6 signed comments, a quiet board starts no model.
+
+```mermaid
+flowchart LR
+    O[Owner] -->|"approves agents, merges"| B[(GitHub Project board<br/>and signed issue comments)]
+    C[Coordinator agent] -->|"tickets, verify"| B
+    B -->|"events"| D[Dev agents]
+    D -->|"pull request"| CI[CI]
+    CI -->|"green for the head SHA"| B
+```
+
+Who does what in the life of a ticket: [Concepts](docs/concepts.md#the-life-of-a-ticket-who-does-what).
+
+## Who it is for
+
+You run two or more coding agents on one GitHub repo and want a shared queue, a record of who
+did what, and a check on every "done". Not for you: one agent alone (a plain pull request is
+enough), code outside GitHub, answers in seconds, or no second GitHub account.
+
+## What you need
+
+- macOS or Linux and the tools in [Install](docs/guides/install.md#what-you-need), with `gh`
+  2.17 or newer, logged in as you (`gh auth login`).
+- Claude Code (tested) or Codex (documented), logged in. The agents spend your own plan.
+- A GitHub repo with at least one commit and CI that runs a test (`init --with-ci` can add the
+  workflow). CI minutes are yours too.
+- For a real crew: a second GitHub account for the agents and its token
+  ([Getting started](docs/getting-started.md#what-you-need)). A trial needs neither.
+
+## Try it
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash
+crewboard --version
+```
+
+The script installs the binary to `~/.local/bin` and links the skill. Upgrade with
+`crewboard update`. Options and other ways: [install.md](docs/guides/install.md).
+
+1. **Quick try** ([page](docs/quick-try.md)): 9 steps, about 11 commands, 3 terminals. One
+   person, one machine, your own token, a test repo, one ticket. Several safety checks are off.
+2. **A real crew** ([Getting started](docs/getting-started.md)): 13 steps and some prerequisites.
+   A crew account, a coordinator and a dev agent.
+
+## Limits
+
+- **A Done written by hand on the board is detected, not prevented.** The crew token can write
+  board fields.
+- **One coordinator verifies and merges.** crewboard targets crews of a few agents, not swarms.
+- **A leaked crew token** acts as the crew account. It cannot sign as an agent without that
+  agent's key ([Security](docs/guides/security.md#a-key-or-a-token-leaks)).
+- **GitHub only.** Agent hosts run macOS or Linux. A ticket takes minutes, not seconds.
+- **Setup has manual steps.** GitHub has no API for the crew account and its token.
+- **No sandbox.** The agents run shell commands as your user.
+- **Only interactive Claude Code on macOS is fully tested** ([matrix](docs/guides/agents.md#supported-runtimes)).
+
+All limits and residual risks: [Security](docs/guides/security.md#summary).
+
+## Documentation
+
+Start with [Concepts](docs/concepts.md), the [Owner guide](docs/guides/owner.md) and the
+[Agents guide](docs/guides/agents.md). All pages: [docs/README.md](docs/README.md). Also
+[Contributing](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Security policy](SECURITY.md),
+[License](LICENSE) (Apache-2.0), copyright arconsis IT-Solutions GmbH ([NOTICE](NOTICE)).

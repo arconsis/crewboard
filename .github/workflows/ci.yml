@@ -1,0 +1,114 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Start a run by hand, for example on a new repository before its first push to main.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a PR branch cancels the older run of that branch. A push to main gets its own
+# group (the commit SHA): GitHub keeps only one pending run per group and cancels an older
+# pending one even without cancel-in-progress, so a shared main group lost results when merges
+# came fast. Every main commit gets its own result.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # No debug info in CI builds: a smaller target dir, a smaller cache, faster linking.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  # Incremental data does not help a fresh runner and only makes the cache larger.
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # This workflow has no macOS job. build.yml builds and checks the macOS release binaries, and
+          # the maintainer runs the full gate on a Mac.
+          - os: ubuntu-latest
+            require_ssh_keygen: "1"
+          # Windows: the interop tests run if OpenSSH's ssh-keygen is in PATH and skip
+          # with a SKIPPED line if it is not.
+          - os: windows-latest
+            require_ssh_keygen: "0"
+    env:
+      # "1" turns a missing ssh-keygen from a skip into a failure.
+      CREWBOARD_REQUIRE_SSH_KEYGEN: ${{ matrix.require_ssh_keygen }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      # Caches ~/.cargo and the compiled dependencies in target/. The key includes the OS,
+      # the rustc version and Cargo.lock, so it must run after the toolchain step. Only
+      # main saves the cache; PRs restore main's cache and do not write their own. This
+      # keeps the repo under the 10 GB cache limit.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --locked -- --nocapture
+      # Broken intra-doc links and bad HTML in doc comments fail here. One OS is enough.
+      - name: Doc
+        if: matrix.os == 'ubuntu-latest'
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+
+  # Advisories, licenses, banned and duplicate crates, and crate sources (deny.toml).
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+
+  # The loop scripts and the host lock (skill/loops) run on macOS and Linux agent hosts. GNU and
+  # BSD tools differ (for example `stat -f`). CI runs them on Linux. The BSD side runs in the
+  # maintainer's local run of the full gate on a Mac before a release.
+  shell:
+    name: shell ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tools
+        run: bash --version | head -1; jq --version
+      # host-lock.sh is a shim for `crewboard lock`: the suites run the host lock through it and
+      # need the built binary (CREWBOARD_REAL).
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build crewboard
+        run: |
+          cargo build --locked
+          echo "CREWBOARD_REAL=$PWD/target/debug/crewboard" >> "$GITHUB_ENV"
+      - name: Loop tests
+        run: bash skill/loops/tests/test-loops.sh
+      # the same cases against `crewboard wake` and `crewboard hook` instead of the shell drivers
+      # (the cases that are not ported yet are skipped)
+      - name: Loop tests, Rust wake
+        run: CB_IMPL=rust bash skill/loops/tests/test-loops.sh
+      - name: Lock tests
+        run: bash skill/loops/tests/test-locks.sh
+      - name: Release install script tests
+        run: bash scripts/tests/test-install-release.sh

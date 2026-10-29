@@ -1,0 +1,38 @@
+# cargo-deny policy (CI job `cargo-deny`). Run it locally with `cargo deny check`.
+
+[graph]
+# The crates of every platform the project builds for, not only the host.
+all-features = false
+
+[advisories]
+# A crate with a known vulnerability fails the check. An unmaintained crate only warns.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Only licenses that work with Apache-2.0, the project license. These are the licenses that the
+# dependency tree uses today. A new license needs a decision, so the check fails first.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "ISC",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Zlib",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

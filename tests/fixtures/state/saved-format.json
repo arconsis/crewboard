@@ -1,0 +1,86 @@
+{
+  "etags": {
+    "feed:example-org/app": "W/\"def456\"",
+    "registry": "W/\"abc123\""
+  },
+  "polls": 42,
+  "last_ok": "2026-10-23T08:15:00Z",
+  "last_cursor": "example-org/app#7:1001",
+  "registry": {
+    "etag": "W/\"abc123\"",
+    "comments": [
+      {
+        "id": 1001,
+        "repo": "example-org/app",
+        "issue": 2,
+        "author": "owner-login",
+        "created": "2026-10-01T10:00:00Z",
+        "updated": "2026-10-01T10:00:00Z",
+        "created_epoch": 1790848800,
+        "updated_epoch": 1790848800,
+        "body": "approve claude@t1",
+        "url": "https://github.com/example-org/app/issues/2#issuecomment-1001"
+      }
+    ]
+  },
+  "local_cursor": "example-org/app#7:1002",
+  "tickets": {
+    "example-org/app#7": "PVTI_item7",
+    "example-org/app#8": "PVTI_item8"
+  },
+  "tickets_scanned": true,
+  "ticket_snaps": {
+    "PVTI_item7": {
+      "status": "In Progress",
+      "agent": "claude@t1"
+    },
+    "PVTI_item8": {
+      "status": null,
+      "agent": null
+    }
+  },
+  "selftest_used": {
+    "nonce-aaaa": [
+      7,
+      1790850000
+    ]
+  },
+  "liveness": {
+    "claude@t1": "stale"
+  },
+  "deferred": [
+    {
+      "class": "liveness",
+      "comment_id": 0,
+      "repo": "example-org/app",
+      "issue": 0,
+      "url": "",
+      "author": "",
+      "from": "coordinator",
+      "to": "owner",
+      "kind": "stale",
+      "re": "claude@t1",
+      "ts": "2026-10-23T08:00:00Z",
+      "verified": false,
+      "body": "claude@t1 is stale"
+    }
+  ],
+  "late_seen": {
+    "PVTI_item7|no-branch": "-",
+    "PVTI_item8|ci-green": "0123abc"
+  },
+  "late_checked": 1790850100,
+  "late_tick_checked": 1790850200,
+  "late_green": {
+    "0123abc": 1790849000
+  },
+  "tick_requested": {
+    "example-org/app#7": 1003
+  },
+  "merged_told": {
+    "PVTI_item7": "https://github.com/example-org/app/pull/9"
+  },
+  "owner_route_judged": {
+    "PVTI_item8": "2026-10-22T09:00:00Z"
+  }
+}

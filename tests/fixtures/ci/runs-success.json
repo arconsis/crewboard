@@ -1,0 +1,25 @@
+{
+  "total_count": 2,
+  "workflow_runs": [
+    {
+      "id": 9001,
+      "name": "CI",
+      "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "event": "pull_request",
+      "html_url": "https://github.com/example-org/app/actions/runs/9001"
+    },
+    {
+      "id": 9002,
+      "name": "CI",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "event": "pull_request",
+      "html_url": "https://github.com/example-org/app/actions/runs/9002"
+    }
+  ]
+}

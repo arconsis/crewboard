@@ -1,0 +1,11 @@
+[
+  {
+    "id": 41,
+    "state": "error",
+    "context": "ci/test",
+    "description": "hand-written",
+    "target_url": "https://ci.example.org/run/41",
+    "created_at": "2026-10-16T08:00:41Z",
+    "updated_at": "2026-10-16T08:00:41Z"
+  }
+]

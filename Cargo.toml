@@ -1,0 +1,48 @@
+[package]
+name = "crewboard"
+version = "0.6.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Coordinate AI agents as a crew through a GitHub Project board and signed issue comments."
+repository = "https://github.com/arconsis/crewboard"
+readme = "README.md"
+license = "Apache-2.0"
+publish = false
+authors = ["arconsis IT-Solutions GmbH"]
+keywords = ["ai-agents", "github-projects", "cli", "coordination", "automation"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+base64 = "0.23.1"
+clap = { version = "4.6.7", features = ["derive"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+ssh-key = { version = "0.6.7", features = ["ed25519", "std", "rand_core", "getrandom"] }
+tar = { version = "0.4", default-features = false }
+toml = "1.1.8"
+
+# kill(2), getppid and the signal handlers of `crewboard lock run`; std has no call for them.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+# Thresholds and the disallowed calls are in clippy.toml.
+disallowed_methods = "warn"
+let_underscore_must_use = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+too_many_lines = "warn"

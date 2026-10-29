@@ -1,0 +1,29 @@
+{
+  "total_count": 3,
+  "check_runs": [
+    {
+      "id": 21,
+      "name": "build",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/example-org/app/runs/21"
+    },
+    {
+      "id": 22,
+      "name": "test",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/example-org/app/runs/22"
+    },
+    {
+      "id": 23,
+      "name": "optional-lint",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/example-org/app/runs/23"
+    }
+  ]
+}

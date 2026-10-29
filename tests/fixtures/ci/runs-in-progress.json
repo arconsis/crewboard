@@ -1,0 +1,15 @@
+{
+  "total_count": 1,
+  "workflow_runs": [
+    {
+      "id": 9004,
+      "name": "CI",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "in_progress",
+      "conclusion": null,
+      "run_attempt": 1,
+      "event": "pull_request",
+      "html_url": "https://github.com/example-org/app/actions/runs/9004"
+    }
+  ]
+}

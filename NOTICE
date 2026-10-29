@@ -1,0 +1,7 @@
+Copyright 2026 arconsis IT-Solutions GmbH
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software of third parties. A crewboard binary contains Rust crates and the
+C code of AWS-LC (through aws-lc-sys). Their license texts and copyright notices are in
+THIRD-PARTY-LICENSES.md, which every release archive holds next to the binary.

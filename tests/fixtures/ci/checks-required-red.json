@@ -1,0 +1,21 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 31,
+      "name": "build",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/example-org/app/runs/31"
+    },
+    {
+      "id": 32,
+      "name": "test",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/example-org/app/runs/32"
+    }
+  ]
+}

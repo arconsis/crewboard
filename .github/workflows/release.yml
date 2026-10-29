@@ -1,0 +1,160 @@
+name: release
+
+# Builds the prebuilt release assets for a version tag (build.yml) and creates the GitHub release.
+# The repo is public: people download the assets with `curl` (install.sh). A private fork or
+# mirror uses an authenticated `gh` (scripts/install-release.sh, docs/guides/install.md).
+#
+# Assets of the release vX.Y.Z:
+#   crewboard-X.Y.Z-<target>.tar.gz   the binary (it holds the skill files), README.md, LICENSE,
+#                                     NOTICE and THIRD-PARTY-LICENSES.md, for each target
+#   SHA256SUMS                        the sha256 of each tarball (sha256sum format)
+# The build (build.yml) makes all four tarballs: two Linux and two macOS. It builds macOS on a
+# GitHub-hosted runner in the public repo. If the macOS job fails, build.yml skips the checksum
+# job and no release is created: rerun the failed jobs. A release with Linux tarballs only is
+# created as a draft, and scripts/maintainer/release-macos.sh adds the macOS assets and publishes it.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag to release, for example v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One run per tag. A second run of the same tag waits; it does not cancel a release half way.
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  # The tag comes from the push or from the dispatch input. Steps read it only as $TAG (never as
+  # an expression inside a script), and the first job checks its format.
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+jobs:
+  check-tag:
+    name: check the tag
+    runs-on: ubuntu-22.04
+    steps:
+      - run: |
+          printf '%s\n' "$TAG" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+' || { echo "::error::tag '$TAG' is not vX.Y.Z"; exit 1; }
+
+  # The same build as for each main commit (build.yml): the tarballs, SHA256SUMS and COMMIT of
+  # the tag, in the artifact crewboard-build.
+  build:
+    name: build
+    needs: [check-tag]
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: refs/tags/${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
+  # The only job with write access. It runs no code of the repo: it downloads the built
+  # tarballs, checks them and creates (or completes) the release of the existing tag.
+  release:
+    name: github release
+    needs: [check-tag, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write      # the signing identity of the attestation
+      attestations: write  # stores the attestation
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crewboard-build
+          path: dist
+      - name: Check the build
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          /bin/ls -l
+          VERSION=${TAG#v}
+          # Exactly the expected tarballs: both Linux, and both macOS or none. Nothing else.
+          want="crewboard-$VERSION-aarch64-unknown-linux-gnu.tar.gz crewboard-$VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          if /bin/ls crewboard-*-apple-darwin.tar.gz >/dev/null 2>&1; then
+            want="crewboard-$VERSION-aarch64-apple-darwin.tar.gz crewboard-$VERSION-x86_64-apple-darwin.tar.gz $want"
+          fi
+          # shellcheck disable=SC2086 # the names have no spaces; split on purpose
+          want=$(printf '%s\n' $want | sort)
+          have=$(/bin/ls | grep -E '\.tar\.gz$' | sort)
+          if [ "$want" != "$have" ]; then
+            first=$(printf '%s\n' "$have" | head -n 1)
+            echo "::error::tag $TAG, first tarball of the build is ${first#crewboard-} (the Cargo.toml version differs from the tag, or a tarball is missing or extra)"
+            printf 'expected:\n%s\nfound:\n%s\n' "$want" "$have"
+            exit 1
+          fi
+          [ "$(grep -c . SHA256SUMS)" -eq "$(printf '%s\n' "$have" | grep -c .)" ] || { echo "::error::SHA256SUMS does not list exactly the tarballs"; exit 1; }
+          [ "$(awk '{print $2}' SHA256SUMS | sort)" = "$have" ] || { echo "::error::the names in SHA256SUMS are not the tarball names"; exit 1; }
+          sha256sum -c SHA256SUMS
+          # The build is of the commit that the tag points to now.
+          built=$(tr -d '[:space:]' < COMMIT)
+          tagged=$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)
+          [ "$built" = "$tagged" ] || { echo "::error::built commit $built, tag $TAG is at $tagged"; exit 1; }
+      # Build provenance for each tarball: it ties the file to this repository, this workflow and
+      # this commit. Users check it with `gh attestation verify` (docs/guides/install.md).
+      # GitHub stores attestations only for a public repository (or on Enterprise), so a run in a
+      # private fork skips the step instead of failing.
+      - name: Attest the tarballs
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/crewboard-*.tar.gz
+      # A published asset is never replaced (a pinned hash stays true). A rerun keeps the assets
+      # of the release, checks their hashes against the old SHA256SUMS, uploads only the missing
+      # tarballs and writes the merged SHA256SUMS. A new release with 4 tarballs is public; with
+      # Linux only it is a draft that scripts/maintainer/release-macos.sh completes and publishes.
+      - name: Create or complete the release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            draft=--draft
+            if /bin/ls crewboard-*-apple-darwin.tar.gz >/dev/null 2>&1; then draft=; fi
+            # shellcheck disable=SC2086 # $draft is one flag or nothing
+            gh release create "$TAG" --repo "$REPO" --verify-tag --title "crewboard $TAG" $draft \
+              --notes "Install: docs/guides/install.md. Changes: CHANGELOG.md." \
+              crewboard-*.tar.gz SHA256SUMS
+          else
+            mkdir -p ../old
+            gh release download "$TAG" --repo "$REPO" --dir ../old --clobber \
+              --pattern 'crewboard-*.tar.gz' --pattern SHA256SUMS || true
+            : > ../keep.sums
+            if [ -s ../old/SHA256SUMS ]; then
+              while read -r h f; do
+                [ -f "../old/$f" ] || { echo "::error::the old SHA256SUMS lists $f, which the release does not have"; exit 1; }
+                echo "$h  $f" >> ../keep.sums
+              done < ../old/SHA256SUMS
+              (cd ../old && sha256sum -c ../keep.sums)
+            fi
+            for f in ../old/crewboard-*.tar.gz; do
+              [ -e "$f" ] || continue
+              grep -q " $(basename "$f")\$" ../keep.sums || { echo "::error::$(basename "$f") has no line in the old SHA256SUMS"; exit 1; }
+            done
+            # Lines of the assets the release has, then the lines of the tarballs it lacks.
+            cp ../keep.sums ../merged.sums
+            new=()
+            for f in crewboard-*.tar.gz; do
+              if [ ! -f "../old/$f" ]; then new+=("$f"); grep " $f\$" SHA256SUMS >> ../merged.sums; fi
+            done
+            sort -k2 ../merged.sums > SHA256SUMS
+            cat SHA256SUMS
+            if [ "${#new[@]}" -gt 0 ]; then
+              gh release upload "$TAG" --repo "$REPO" "${new[@]}"
+            fi
+            gh release upload "$TAG" --repo "$REPO" --clobber SHA256SUMS
+            # Four tarballs on a draft: the release is complete.
+            if [ "$(grep -c . SHA256SUMS)" -eq 4 ] && [ "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)" = true ]; then
+              gh release edit "$TAG" --repo "$REPO" --draft=false --latest
+            fi
+          fi
+          gh release view "$TAG" --repo "$REPO" --json assets,isDraft --jq '{draft: .isDraft, assets: [.assets[].name]}'
