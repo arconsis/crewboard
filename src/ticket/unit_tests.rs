@@ -1128,3 +1128,42 @@ fn the_owner_route_line_has_one_parser_that_accepts_an_indented_line() {
     // a line without a word names nothing
     assert_eq!(owner_route_patch("owner-route:\n"), None);
 }
+
+#[test]
+fn an_owner_move_counts_only_from_the_owner_and_not_after_an_edit_by_another_account() {
+    use crate::ticket::log::{Expected, fold_ticket};
+    let w = w();
+    let base = vec![
+        by_a(&w, 10, "hermes@b", Kind::Request, "Assigned to you: t"),
+        by_b(&w, 11, "coordinator", Kind::Ack, "Taken."),
+    ];
+    let status_with = |extra: Comment| {
+        let mut cs = base.clone();
+        cs.push(extra);
+        fold_ticket(&msgs(&w, &cs)).status
+    };
+    let edited = |editors: &[&str]| {
+        let mut c = comment(12, "owner-login", "/crew move Backlog");
+        c.updated = "2026-10-15T14:09:00Z".into();
+        c.editors = Some(editors.iter().map(|x| x.to_string()).collect());
+        c
+    };
+    // control: the owner's move counts, also after an edit by the owner
+    assert_eq!(
+        status_with(comment(12, "owner-login", "/crew move Backlog")),
+        Expected::Is(Status::Backlog)
+    );
+    assert_eq!(
+        status_with(edited(&["owner-login"])),
+        Expected::Is(Status::Backlog)
+    );
+    // an edit by another account, and the same line by another account, change nothing
+    assert_eq!(
+        status_with(edited(&["owner-login", "crew-bot"])),
+        Expected::Is(Status::InProgress)
+    );
+    assert_eq!(
+        status_with(comment(12, "crew-bot", "/crew move Backlog")),
+        Expected::Is(Status::InProgress)
+    );
+}

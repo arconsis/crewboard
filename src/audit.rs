@@ -412,14 +412,29 @@ fn mismatch(repo: &str, issue: u64, url: String, detail: String) -> Finding {
     }
 }
 
-/// The messages of one ticket as the fold wants them.
-fn ticket_msgs(valid: &[Valid], repo: &str, issue: u64) -> Vec<VMsg> {
+/// The messages of one ticket as the fold wants them, in comment order: the valid signed
+/// messages and the owner comments that count (an owner `/crew move`, spec/tickets#owner-move).
+fn ticket_msgs(valid: &[Valid], owner: &[&Comment], repo: &str, issue: u64) -> Vec<VMsg> {
     let mut msgs: Vec<&Valid> = valid
         .iter()
         .filter(|v| v.repo == repo && v.issue == issue)
         .collect();
     msgs.sort_by_key(|v| v.id);
-    msgs.into_iter()
+    let owner_msgs = owner
+        .iter()
+        .filter(|c| c.repo == repo && c.issue == issue)
+        .map(|c| VMsg {
+            ts: String::new(),
+            comment_id: c.id,
+            created: c.created_epoch,
+            sender: Sender::Owner,
+            to: "coordinator".into(),
+            kind: None,
+            re: Re::None,
+            body: c.body.clone(),
+        });
+    let mut out: Vec<VMsg> = msgs
+        .into_iter()
         .filter_map(|v| {
             Some(VMsg {
                 ts: String::new(),
@@ -435,7 +450,10 @@ fn ticket_msgs(valid: &[Valid], repo: &str, issue: u64) -> Vec<VMsg> {
                 body: v.body.clone(),
             })
         })
-        .collect()
+        .chain(owner_msgs)
+        .collect();
+    out.sort_by_key(|m| m.comment_id);
+    out
 }
 
 /// The states in which an agent may speak: none of them fits an agent that left or has no
@@ -449,6 +467,7 @@ fn speaks(state: &str) -> bool {
 
 fn field_mismatches(
     valid: &[Valid],
+    owner: &[&Comment],
     board: &BoardView,
     reg: &Registry,
     cfg: &BoardConfig,
@@ -462,7 +481,7 @@ fn field_mismatches(
             continue;
         };
         let url = format!("https://github.com/{repo}/issues/{issue}");
-        let log = fold_ticket(&ticket_msgs(valid, repo, issue));
+        let log = fold_ticket(&ticket_msgs(valid, owner, repo, issue));
         let status = t.status.as_deref();
         if status_contradicts(&log, status) {
             out.push(mismatch(
@@ -666,7 +685,7 @@ pub fn audit(
         .collect();
     windows.sort_by(|a, b| (a.from, &a.agent).cmp(&(b.from, &b.agent)));
     let mut outside = 0usize;
-    for c in owner_plain {
+    for c in owner_plain.iter().copied() {
         let running: Vec<&str> = windows
             .iter()
             .filter(|w| w.from <= c.created_epoch && c.created_epoch <= w.to)
@@ -699,7 +718,7 @@ pub fn audit(
         });
     }
     findings.extend(wrong_writers(&valid, cfg));
-    findings.extend(field_mismatches(&valid, board, reg, cfg));
+    findings.extend(field_mismatches(&valid, &owner_plain, board, reg, cfg));
     findings.sort_by_key(|f| (f.created_epoch, f.comment_id));
     Report {
         scanned: comments.len(),

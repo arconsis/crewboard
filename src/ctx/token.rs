@@ -9,7 +9,7 @@ use crate::github::Client;
 /// The rule of an owner command whose token is not the board owner's.
 pub const OWNER_NOT_OWNER_RULE: &str = "owner-command-not-owner";
 
-/// Owner commands (init, approve, audit, `pause|resume|stop --agent`, `stop --force` of the
+/// Owner commands (init, approve, audit, move, `pause|resume|stop --agent`, `stop --force` of the
 /// owner, `agent profile set --agent`) need the token of the board owner `owner`. `source` says
 /// where the token came from, so the fix names the right place. `action` completes "only the
 /// board owner X ACTION". Pure.

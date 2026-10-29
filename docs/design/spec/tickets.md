@@ -78,10 +78,10 @@ posts the signed message and sets the field.
 | Review -> Ready | coordinator | `verify` failed (also `verify --fail`) and the agent has ANOTHER ticket In Progress: same `Agent`, `Order` at the front of the agent's Ready queue ([Queue order per agent](#queue-order-per-agent): lowest `Order` of its Ready tickets minus 1), so the agent keeps one In Progress ticket ([rule of `take`](#queue-order-and-take)) and the next `take` returns to this ticket. The signed verify report has a line `case: verify failed; <agent> works on <other>; queued as next (Ready, Order <n>)`. Idle agent: `status-verify-requeue-agent-idle` |
 | any but Done -> Done (owner merge) | coordinator; also the headless `tick` for Review, In Progress, Blocked and Ready | the owner merged the PR by hand and the issue is closed: by GitHub through the closing keyword, or by `close` itself on the owner route ([Close after an owner merge](#close-after-an-owner-merge)): `close <n>`. No `verify` is needed: the owner's merge ended the ticket. The label `needs-owner` goes |
 | any but Done -> Done (by judgment) | coordinator | the coordinator judges that the ticket needs no merge, for example it has no PR to verify ([Close without a PR](#close-without-a-pr)): `close <n> --why "<text>"`. It ends any ticket that is not Done, with a signed reason. No `verify` is needed. The label `needs-owner` goes. Not for a headless coordinator: it is a judgment |
-| Done -> any | owner | Done is final. Every other writer is refused. `reassign`, `ask` and `assign` give `status-done-final`: `ticket is Done; only the owner moves it (open a new ticket, or ask the owner)`. `verify` on a Done ticket gives `verify-needs-review`, and `split` is refused with `ticket-closed` or `split-not-in-progress`. A repeat `close` is `status-no-change`. The safety net of the owner route reopens the issue of a Done ticket and asks the owner, but writes no Status ([Workflow files: the owner route](#workflow-files-the-owner-route)) |
+| Done -> any but Done | owner, with `crewboard move` ([Owner move](#owner-move)) | Done is final. Every other writer is refused. `reassign`, `ask` and `assign` give `status-done-final`: `ticket is Done; only the owner moves it (open a new ticket, or ask the owner)`. `verify` on a Done ticket gives `verify-needs-review`, and `split` is refused with `ticket-closed` or `split-not-in-progress`. A repeat `close` is `status-no-change`. The safety net of the owner route reopens the issue of a Done ticket and asks the owner, but writes no Status ([Workflow files: the owner route](#workflow-files-the-owner-route)) |
 | any but Done -> Ready (reassign `--to <agent>`) | coordinator | one reason of the list below: `dead`, `stopping`, `late` or `blocked-too-long`; a new agent is named (a ticket in Ready always has an agent) |
 | any but Done -> Backlog (reassign without `--to`) | coordinator | the same reasons; the Agent field is cleared, and `assign` puts the ticket into Ready again |
-| any -> any | owner | |
+| any -> any but Done | owner, with `crewboard move` ([Owner move](#owner-move)) | the command posts `/crew move <status>` on the ticket, so the move is in the signed log. A drag on the board is not: `status` and `audit` report it |
 
 **A question to the owner.** "Waiting for the owner" is a question, not a status. `ask` posts a
 signed `kind=question` to the owner and sets the label `needs-owner`. The assignee (or the
@@ -182,8 +182,36 @@ State `working` of an old board reads as `active`.
 than one, and `status --json` lists them in `multiple_in_progress`. The coordinator uses it to
 repair old states.
 
-crewboard refuses a transition by the wrong writer (*loud*). The owner can always move
-anything; the next `watch` reports the change to the agents.
+crewboard refuses a transition by the wrong writer (*loud*). The owner can move any ticket to
+any status but Done with `crewboard move`; the next `watch` reports the change to the agents.
+
+### Owner move
+
+`crewboard move <issue> <status> [--why <text>]` is an owner command. It runs with the owner's
+token (`owner-command-not-owner` otherwise). It posts the owner comment `/crew move <status>` on
+the ticket, with the reason on the lines after it, and then writes the board `Status`. The
+comment puts the move into the signed log, so `status` and `audit` show no mismatch. A drag on
+the board has no comment: `status` and `audit` still report it.
+
+- Backlog needs no agent. The `Agent` field stays as it is.
+- Ready, In Progress, Review and Blocked need a signed assignment (`move-needs-assignee`
+  otherwise). A board `Agent` that is not the signed assignee is set to it.
+- Done is refused (`move-done-needs-close`). The owner merges the PR or closes the issue, and
+  the coordinator posts the signed close ([Close after an owner merge](#close-after-an-owner-merge),
+  [Close without a PR](#close-without-a-pr)).
+- A name that is not a board status is refused (`move-bad-status`). Case does not matter, and
+  `in-progress` is In Progress.
+- A ticket that the board and the log both show in the target is `status-no-change`. A ticket
+  that only the board shows there (an earlier drag) gets the comment and no `Status` write.
+- A closed issue is reopened. The agent `State` and `Doing` are not written.
+
+The log rule (`ticket::log::fold_ticket`): only a comment of the board's `owner_login` counts,
+and not after another account edited it
+([Edited owner comments](security-details.md#edited-owner-comments)). The move sets the status
+that the log shows and keeps the assignee. After a close it opens the ticket again: later `ack`,
+`done` and `blocked` messages of the assignee count, and later coordinator acts count as before.
+The comment is an owner message, so it also answers an open question to the owner. The wire
+format stays `v=1`.
 
 ## Evidence
 
@@ -756,7 +784,7 @@ such tickets, so that no agent has to `block` for it.
    of the interactive coordinator find it and, in this order: post ONE signed `question` to the
    owner (first line `owner-route-merged: <PR URL>`, so a repeat finds it again: once per PR),
    reopen the issue, and set the label `needs-owner`. The Status stays Done (Done is final):
-   the owner moves the ticket. A failed run repeats the missing steps. The question says: apply
+   the owner moves the ticket ([Owner move](#owner-move)). A failed run repeats the missing steps. The question says: apply
    the patch (it is on the base branch now) and push it on a new branch, do NOT treat the
    merged PR as the delivery. A second poll finds nothing: the ticket counts as judged until its
    board item changes. The ticket stays Done with the label until the owner moves it. A lost

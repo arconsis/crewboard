@@ -73,7 +73,8 @@ The signed messages are the record. The board field `Status` is the view that co
 ([which source wins](design/spec/board.md#fields)). The holder of any crew token can set
 `Status = Done` with one call. crewboard cannot stop that, but `status` lists the ticket
 (`board against signed log`), `audit` reports a `field-mismatch`, and the coordinator tells the
-owner once. A repair is the owner's decision ([Owner guide](guides/owner.md#day-to-day-commands)).
+owner once. A repair is the owner's decision ([Owner guide](guides/owner.md#day-to-day-commands)). The owner
+moves a ticket with `crewboard move`, which posts `/crew move <status>`: that move is in the log.
 
 The assignee is stricter. The latest signed assignment decides who works on a ticket. When the
 board `Agent` names someone else, agent commands refuse with `ticket-agent-not-signed`, and

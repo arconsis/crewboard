@@ -50,8 +50,8 @@ pub struct Cli {
         long_help = "Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or GITHUB_TOKEN and \
                      have mode 600). Its token wins over the token variables of the caller. Without \
                      it, the `agent.env` of the config dir is loaded when there is one. An owner \
-                     command (init, approve, audit, and pause, resume, stop or agent profile set \
-                     with --agent) outside an agent dir reads only this file: without it, it runs \
+                     command (init, approve, audit, move, and pause, resume, stop or agent profile \
+                     set with --agent) outside an agent dir reads only this file: without it, it runs \
                      with your own gh login and ignores GH_TOKEN and GITHUB_TOKEN."
     )]
     pub env_file: Option<PathBuf>,
@@ -287,6 +287,26 @@ pub enum CrewCmd {
         #[command(flatten)]
         sel: Sel,
     },
+    /// Move a ticket by hand, in the signed log.
+    ///
+    /// Owner: post `/crew move <status>` on the ticket, then write the board Status, so `status`
+    /// and `audit` see the move as the owner's and not as a board edit. Backlog keeps the Agent.
+    /// Ready, In Progress, Review and Blocked need a signed assignment; a board Agent that differs
+    /// is set to that assignee. A closed issue is reopened. Done is refused
+    /// (`move-done-needs-close`): merge the PR or close the issue, and the coordinator closes the
+    /// ticket. Runs with the owner's token (like approve and audit).
+    #[command(display_order = 35)]
+    Move {
+        /// The ticket: an issue number, or `<owner>/<repo>#<n>`.
+        issue: String,
+        /// The new status: Backlog, Ready, "In Progress" (or in-progress), Review or Blocked.
+        status: String,
+        /// Why you move it. It goes on the lines after the command in the comment.
+        #[arg(long)]
+        why: Option<String>,
+        #[command(flatten)]
+        sel: Sel,
+    },
 }
 
 impl CrewCmd {
@@ -303,6 +323,7 @@ impl CrewCmd {
             CrewCmd::Stop { .. } => "stop",
             CrewCmd::Heartbeat { .. } => "heartbeat",
             CrewCmd::Audit { .. } => "audit",
+            CrewCmd::Move { .. } => "move",
         }
     }
 }

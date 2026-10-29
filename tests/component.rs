@@ -102,6 +102,8 @@ mod fake_one_account;
 mod fake_option_cap;
 #[path = "component/fake_option_race.rs"]
 mod fake_option_race;
+#[path = "component/fake_owner_move.rs"]
+mod fake_owner_move;
 #[path = "component/fake_owner_question.rs"]
 mod fake_owner_question;
 #[path = "component/fake_owner_route.rs"]
