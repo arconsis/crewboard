@@ -232,11 +232,6 @@ pub fn notice_body(pr: &MergedPr, reason: Option<&str>) -> String {
     body
 }
 
-/// The text of the `info` of a drop by judgment.
-pub fn judgment_body(reason: &str) -> String {
-    crate::protocol::acts::dropped_body(reason)
-}
-
 /// The login that counts as the owner: `owner_login` of the board config, the one source
 /// (`owner:` of AUTHORITY.md only ever agreed with it, because `start` refuses a mismatch).
 fn owner_of(ac: &AgentCtx) -> String {
@@ -479,16 +474,10 @@ fn close_by_judgment(
     reason: &str,
 ) -> CbResult<String> {
     let key = t.key();
-    let note = judgment_body(reason);
+    let note = crate::protocol::acts::dropped_body(reason);
     check_body_text(&note)?;
     check_status_transition(Some(from), Status::Dropped, me.actor, &Transition::Drop)?;
-    let has_option = ac
-        .ctx
-        .board
-        .fields
-        .get("Status")
-        .is_some_and(|f| f.option_id(Status::Dropped.name()).is_some());
-    check_dropped_option(&key, has_option)?;
+    check_dropped_option(&key, ac.ctx.board.has_status_option(Status::Dropped))?;
     let headline = format!("{key} dropped: Status Dropped (dropped: {reason})");
     let end = End {
         to: Status::Dropped,
@@ -748,9 +737,5 @@ mod tests {
         );
         assert!(!b.contains("reason:"), "{b}");
         assert!(notice_body(&pr(), Some("x y")).ends_with("reason: x y\n"));
-        assert_eq!(
-            judgment_body("no longer needed"),
-            "dropped: no longer needed\n"
-        );
     }
 }

@@ -151,3 +151,59 @@ fn a_ticket_that_follows_its_log_is_never_reported() {
     }
     assert_eq!(status_mismatch_notes(&fake), 0);
 }
+
+#[test]
+fn the_coordinator_cycle_reports_a_ticket_set_back_behind_its_close_once() {
+    let (fake, c, b) = crew();
+    let t = ticket(&fake);
+    let ts = t.to_string();
+    let item = item_in(&run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]));
+    run_ok(&fake, &b, &["take", &ts]);
+    run_ok(&fake, &c, &["close", &ts, "--why", "no PR needed"]);
+    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Dropped"));
+    // the cycle that records the snapshot
+    let _ = fake.poll_json(&c);
+    assert_eq!(status_mismatch_notes(&fake), 0);
+
+    // a raw write sets the board back behind the signed drop
+    fake.set_item(&item, "Status", "In Progress");
+    fake.touch_item_ago(&item, 5);
+    let _ = fake.poll_json(&c);
+    assert_eq!(
+        status_mismatch_notes(&fake),
+        0,
+        "first sight: a write in flight"
+    );
+    fake.touch_item_ago(&item, 300);
+    let (v, _) = fake.poll_json(&c);
+    assert_eq!(status_mismatch_notes(&fake), 1, "{v}");
+    let ev: Vec<&Value> = v["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "status-mismatch")
+        .collect();
+    assert_eq!(ev.len(), 1, "{v}");
+    assert!(
+        ev[0]["body"]
+            .as_str()
+            .unwrap_or("")
+            .contains("board Status is In Progress, the log shows Dropped"),
+        "{v}"
+    );
+    // a board/log mismatch, not a security event: the close note is still there
+    assert!(v["security"].as_array().is_none_or(|s| s.is_empty()), "{v}");
+    // later cycles say nothing more
+    for _ in 0..2 {
+        let (v, _) = fake.poll_json(&c);
+        assert!(
+            !v["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["kind"] == "status-mismatch"),
+            "{v}"
+        );
+    }
+    assert_eq!(status_mismatch_notes(&fake), 1);
+}

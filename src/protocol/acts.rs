@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn golden_every_close_notice() {
-        use crate::ops::tickets::owner_merge::{judgment_body, notice_body};
+        use crate::ops::tickets::owner_merge::notice_body;
         use crate::ops::tickets::pr_read::MergedPr;
         let close = |body: &str| parse(Some(Kind::Info), body);
         assert_eq!(
@@ -530,7 +530,7 @@ mod tests {
             Act::Closed(CloseKind::OwnerMerged)
         );
         assert_eq!(
-            close(&judgment_body("superseded by o/r#12")),
+            close(&dropped_body("superseded by o/r#12")),
             Act::Closed(CloseKind::Dropped)
         );
         assert_eq!(dropped_body("not needed"), "dropped: not needed\n");

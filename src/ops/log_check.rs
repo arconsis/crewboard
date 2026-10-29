@@ -3,10 +3,11 @@
 //! The crew token has Write on the board, so a holder can set `Status = Done` on any ticket
 //! with one call. crewboard cannot prevent that. It detects it: the same judgement as the
 //! `field-mismatch` of `audit` ([`crate::ticket::log::status_contradicts`]) runs for the tickets
-//! that another writer moved to Done since the last cycle (Done is final, so it is the one move
-//! that matters at once; `status` and `audit` check every Status). Reading the comments of a
-//! ticket costs one REST call, so only such a ticket is read, never the whole board. The
-//! agent's own writes are not in the list: its snapshot follows them.
+//! that another writer moved to Done or Dropped since the last cycle, or moved back out of Done or
+//! Dropped (an end is final, so these are the moves that matter at once: a false end, and a
+//! ticket set back behind a close; `status` and `audit` check every Status). Reading the comments
+//! of a ticket costs one comment-list read (up to 50 pages), so only such a ticket is read, never
+//! the whole board. The agent's own writes are not in the list: its snapshot follows them.
 //!
 //! A legitimate writer changes the field a moment before it posts its message, so a mismatch
 //! seen once may be a write in flight. A ticket is reported when the mismatch is still there at
@@ -15,6 +16,7 @@
 //! from the registry issue like the security events, so a restart or a lost cache repeats
 //! nothing), and one `status-mismatch` event for the coordinator.
 
+use super::own_notes::ReadResult;
 use super::registry_post::{liveness_event, post_registry};
 use super::{AgentCtx, World};
 use crate::audit::reported_events;
@@ -30,9 +32,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 pub const QUIET_SECS: i64 = 60;
 
 /// The tickets to check this cycle: a Status that changed to Done or Dropped since the last
-/// snapshot, or a
-/// mismatch that an earlier cycle saw and could not report yet. A ticket that this cycle changed
-/// itself (`own`) is skipped. Pure.
+/// snapshot, a Status that changed from Done or Dropped to another one (the board was set back
+/// behind a close), or a mismatch that an earlier cycle saw and could not report yet. A ticket
+/// that this cycle changed itself (`own`) is skipped. Pure.
 pub fn candidates<'a>(
     rows: &'a [TicketRow],
     prev: &BTreeMap<String, TicketSnap>,
@@ -42,11 +44,16 @@ pub fn candidates<'a>(
     rows.iter()
         .filter(|r| !own.contains(r.item_id.as_str()))
         .filter(|r| {
+            let was_ended = |p: &TicketSnap| {
+                p.status
+                    .as_deref()
+                    .and_then(crate::rules::status::Status::parse)
+                    .is_some_and(crate::rules::status::Status::ended)
+            };
             pending.contains(&r.item_id)
-                || (r.ended()
-                    && prev
-                        .get(&r.item_id)
-                        .is_some_and(|p| p.status.as_deref() != r.status_str()))
+                || prev.get(&r.item_id).is_some_and(|p| {
+                    p.status.as_deref() != r.status_str() && (r.ended() || was_ended(p))
+                })
         })
         .collect()
 }
@@ -80,7 +87,7 @@ pub fn event_key(repo: &str, issue: u64, board_status: &str) -> String {
 /// The signed `info` to the owner.
 fn report_body(key: &str, ekey: &str, text: &str) -> String {
     format!(
-        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the crew token can). A Done or Dropped without proof is detected, not prevented. Check the ticket and the board history.\n"
+        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the crew token can). A board Status without a signed message (a Done or Dropped without proof, a ticket set back behind its close) is detected, not prevented. Check the ticket and the board history.\n"
     )
 }
 
@@ -130,13 +137,42 @@ pub(super) fn status_log_duty(
         }
         // read or not, the note check of this cycle does not read it again
         out.read.insert(row.key());
-        let comments = match feed::issue_comments(
+        let read = feed::issue_comments(
             &ac.ctx.client,
             &row.repo,
             row.issue,
             None,
             &ac.ctx.cfg.owner_login,
-        ) {
+        );
+        if let ReadResult::TooLarge = ReadResult::of(&read) {
+            // A repeat gives the same error: no recheck, one note, and the note memory of the
+            // ticket ends (`own_notes::judge_read`).
+            eprintln!(
+                "crewboard: cannot check {} against the log: its comment list is too large; not checked again",
+                row.key()
+            );
+            cache.liveness.status_pending.remove(&row.item_id);
+            let (_, note) = super::own_notes::judge_read(
+                &mut cache.notes,
+                ac.name.as_str(),
+                &row.repo,
+                row.issue,
+                ReadResult::TooLarge,
+                Some(row.status_str()),
+                |_, _| false,
+                now,
+            );
+            let text = note.unwrap_or_else(|| {
+                format!(
+                    "{}: the comment list is too large to check its Status against the signed log",
+                    row.key()
+                )
+            });
+            out.events
+                .push(liveness_event(ac, super::own_notes::NOT_CHECKED, text));
+            continue;
+        }
+        let comments = match read {
             Ok((c, _)) => c,
             Err(e) => {
                 eprintln!(
@@ -152,6 +188,7 @@ pub(super) fn status_log_duty(
                     row.issue,
                     row.status_str(),
                     None,
+                    now,
                 ));
                 continue;
             }
@@ -164,6 +201,7 @@ pub(super) fn status_log_duty(
             row.issue,
             row.status_str(),
             Some(&comments),
+            now,
         ));
         let log = fold_ticket(&verified_messages(&comments, &ac.ctx.cfg, &world.trust));
         let board = row.status_str();
@@ -238,6 +276,8 @@ mod tests {
             row("mine", "Done"),
             row("review", "Review"),
             row("dropped", "Dropped"),
+            row("setback", "In Progress"),
+            row("reopened", "Review"),
         ];
         let prev: BTreeMap<_, _> = [
             ("same".to_string(), snap("Review")),
@@ -246,6 +286,8 @@ mod tests {
             ("mine".to_string(), snap("Review")),
             ("review".to_string(), snap("In Progress")),
             ("dropped".to_string(), snap("Blocked")),
+            ("setback".to_string(), snap("Done")),
+            ("reopened".to_string(), snap("Dropped")),
         ]
         .into();
         let pending: BTreeSet<_> = ["late".to_string()].into();
@@ -255,9 +297,10 @@ mod tests {
             .map(|r| r.item_id.as_str())
             .collect();
         // `new` has no snapshot (a fresh cache replays nothing); `mine` was changed by us;
-        // `review` changed, but not to Done or Dropped (`status` and `audit` cover it); a move to
-        // Dropped ends the ticket like Done
-        assert_eq!(got, vec!["moved", "late", "dropped"]);
+        // `review` changed, but not to or from Done or Dropped (`status` and `audit` cover it); a
+        // move to Dropped ends the ticket like Done; a move out of Done or Dropped sets the board
+        // back behind a close
+        assert_eq!(got, vec!["moved", "late", "dropped", "setback", "reopened"]);
     }
 
     #[test]

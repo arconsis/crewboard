@@ -27,8 +27,8 @@
 //! (`merged_pr`). That is a fact, too.
 //!
 //! A ticket that the tick loads goes through the note check (`own_notes`): a signed note of this
-//! coordinator that is gone gives one `SECURITY EVENT deleted-message` line and one report to the
-//! owner. It costs no extra read.
+//! coordinator that is gone gives one `!! SECURITY EVENT: deleted-message !!` block and one
+//! report to the owner. It costs no extra read.
 //!
 //! A lost event cannot hide a finished ticket from the tick. A second run changes nothing: a
 //! merged ticket is Done, a verified ticket is not verified again (`verify_result` for the
@@ -86,6 +86,10 @@ struct Scan<'a> {
     project: u64,
     lim: crate::late::Expect,
     now: i64,
+    /// The `deleted-message` events that the tick reported to the owner. Their notes are
+    /// forgotten when the tick returns its output (`own_notes::tick_settle`), not before: a tick
+    /// that fails later raises them again.
+    shown: std::cell::RefCell<Vec<crate::events::SecurityEvent>>,
 }
 
 /// The ids of the board items that the tick acts on, by what it does with them.
@@ -185,7 +189,7 @@ fn closes_and_notes(
     // Close first, so the dev of a closed ticket gets no "PR merged" note after it.
     // `close_loaded` writes the state cache itself, so the cache is saved before and read after.
     ac.save_cache_required(cache)?;
-    let (closed_out, closed_done) = owner_closed_lines(ac, s.world, s.me, &b.closed, cache)?;
+    let (closed_out, closed_done) = owner_closed_lines(ac, s, &b.closed, cache)?;
     *cache = ac.load_cache();
     let mut progress_rows = rows_of(s.items, cache, s.project, Status::InProgress);
     progress_rows.retain(|r| !closed_done.contains(&r.item_id));
@@ -259,7 +263,7 @@ fn handle_review(
             Err(e) => return Err(e),
         };
         // A deleted note of this coordinator on the ticket (its comments are loaded anyway).
-        out.push_str(&deleted_note_lines(ac, s.world, &t)?);
+        out.push_str(&deleted_note_lines(ac, s, &t)?);
         // The owner merged the PR by hand: close the ticket. Other cases of a closed issue go
         // on below.
         if !t.info.open {
@@ -331,15 +335,20 @@ pub fn tick(ac: &mut AgentCtx) -> CbResult<String> {
         project: ac.ctx.cfg.project_number,
         lim: crate::late::expect(&ac.ctx.cfg),
         now: crate::clock::now_epoch(),
+        shown: std::cell::RefCell::default(),
     };
     let buckets = Buckets::of(&scan);
     discover_missing(ac, &world, &mut cache, &buckets)?;
     let mut out = closes_and_notes(ac, &scan, &buckets, &mut cache)?;
     if buckets.review.is_empty() {
-        return Ok(format!("tick: no ticket in Review\n{out}"));
+        out = format!("tick: no ticket in Review\n{out}");
+    } else {
+        let review = review_tickets(&buckets.review, &cache, &mut out);
+        handle_review(ac, &scan, review, &cache, &mut out)?;
     }
-    let review = review_tickets(&buckets.review, &cache, &mut out);
-    handle_review(ac, &scan, review, &cache, &mut out)?;
+    // The output is complete and goes to the caller: the reported deleted notes are forgotten
+    // now. A failure before this point keeps them, and the next tick raises them again.
+    crate::ops::own_notes::tick_settle(ac, &scan.shown.take())?;
     Ok(out)
 }
 
@@ -382,11 +391,11 @@ fn tell_owner_review(
 /// except `close-needs-reason` on a Blocked ticket: one `left` line. Returns the lines and the item ids that moved to Done.
 fn owner_closed_lines(
     ac: &AgentCtx,
-    world: &World,
-    me: &Me,
+    s: &Scan<'_>,
     ids: &[String],
     cache: &crate::state::StateCache,
 ) -> CbResult<(String, std::collections::BTreeSet<String>)> {
+    let (world, me) = (s.world, s.me);
     let mut keys: Vec<(String, u64, String)> = ids
         .iter()
         .filter_map(|id| {
@@ -404,10 +413,10 @@ fn owner_closed_lines(
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),
         };
-        out.push_str(&deleted_note_lines(ac, world, &t)?);
+        out.push_str(&deleted_note_lines(ac, s, &t)?);
         match owner_merge::close_loaded(ac, me, &t, None) {
-            Ok(s) => {
-                out.push_str(&s);
+            Ok(l) => {
+                out.push_str(&l);
                 done.insert(id);
             }
             // A Blocked ticket whose issue the owner closed without a merge is for the interactive
@@ -430,27 +439,23 @@ fn owner_closed_lines(
 }
 
 /// A deleted note of this coordinator on a ticket that the tick loaded (`own_notes`): one line
-/// per gone note, and one report to the owner per event (the `event=` key).
-fn deleted_note_lines(ac: &AgentCtx, world: &World, t: &Ticket) -> CbResult<String> {
+/// per gone note, and one report to the owner per event (the `event=` key). A failed report
+/// fails the tick; a reported event goes to `s.shown`, to be forgotten when the tick returns.
+fn deleted_note_lines(ac: &AgentCtx, s: &Scan<'_>, t: &Ticket) -> CbResult<String> {
+    let world = s.world;
     let gone = crate::ops::own_notes::tick_check(ac, world, t)?;
     if gone.is_empty() {
         return Ok(String::new());
     }
     let mut reported = crate::audit::reported_events(&crate::ctx::registry_msgs(ac, world));
     let mut out = String::new();
-    for s in &gone {
-        let told = match crate::ops::registry_post::report_security(ac, s, &mut reported)? {
-            Some(url) => format!("; told the owner: {url}"),
-            None => String::new(),
-        };
-        out.push_str(&format!(
-            "SECURITY EVENT {}: {}#{} comment {}: {}{told}\n",
-            s.reason.as_str(),
-            s.repo,
-            s.issue,
-            s.comment_id,
-            s.detail
-        ));
+    for e in &gone {
+        let told = crate::ops::registry_post::report_security(ac, e, &mut reported)?;
+        out.push_str(&e.render());
+        if let Some(url) = told {
+            out.push_str(&format!("told the owner: {url}\n"));
+        }
+        s.shown.borrow_mut().push(e.clone());
     }
     Ok(out)
 }

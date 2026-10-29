@@ -47,7 +47,7 @@ impl Paged {
     /// The list as it is, or an error `"<what> have more than N pages"` when it is cut.
     pub fn complete(self, what: &str) -> Result<Paged, GhError> {
         if self.truncated {
-            return Err(GhError::Shape(format!(
+            return Err(GhError::PageLimit(format!(
                 "{what} have more than {} pages",
                 self.pages.len()
             )));
@@ -88,7 +88,9 @@ mod tests {
             pages: vec![page(json!([1]), true)],
             truncated: true,
         };
-        let e = cut.complete("issues").unwrap_err().to_string();
+        let e = cut.complete("issues").unwrap_err();
+        assert!(matches!(e, GhError::PageLimit(_)), "{e}");
+        let e = e.to_string();
         assert!(e.contains("issues have more than 1 pages"), "{e}");
     }
 

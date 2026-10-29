@@ -26,6 +26,7 @@ use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
     IssueInfo, check_repo, check_work_issue, fetch_issue, load_ticket, parse_issue, read_messages,
 };
+use crate::ticket::log::{Expected, fold_ticket};
 use crate::ticket::{WORK_LABEL, body_field, find_item_id};
 
 /// Arguments of `ticket new`.
@@ -91,8 +92,11 @@ fn adopt_refused(rule: &'static str, why: String) -> CbError {
 
 /// The checks of `--continue-pr`, before anything is created: the PR is open and in
 /// a repo of the initiative, its head branch is `<dev_branch_prefix><agent>/<n>-<slug>`, and
-/// ticket `<n>` (in the repo of the PR) is Done, or is back in Backlog or Ready and its reassign
-/// notice names this PR.
+/// ticket `<n>` (in the repo of the PR) is Done or Dropped, or is back in Backlog or Ready and its
+/// reassign notice names this PR. The status of ticket `<n>` is the one of its SIGNED LOG
+/// (`fold_ticket`, as `status` and `audit` judge it), never the board field: any holder of the
+/// crew token can write the board, and a board Dropped would hand the open PR of a running
+/// ticket to a new one.
 pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResult<Adoption> {
     let u = parse_pr_url(url)?;
     check_repo(&ac.ctx.cfg, &u.repo)?;
@@ -127,15 +131,16 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         &pr.repo,
         parent_n,
     ) {
-        // An ended ticket: Done, or Dropped (a drop leaves its PR open).
-        Ok(p) if p.status().is_ok_and(Status::ended) => Ok(()),
+        // An ended ticket by its signed log: Done, or Dropped (a drop leaves its PR open).
+        Ok(p) if log_ended(&fold_ticket(&p.msgs).status) => Ok(()),
         // The PR of a ticket that went back to the board: its reassign notice names the PR, so
         // the work is left by an earlier agent and the PR may move to a new ticket.
         Ok(p) if returned_with_pr(&p, &pr) => Ok(()),
         Ok(p) => Err(format!(
-            "{parent}, the ticket that branch '{}' names, is {}: a ticket adopts the PR of a DONE or DROPPED ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names",
+            "{parent}, the ticket that branch '{}' names, is {} by its signed log (board: {}): a ticket adopts the PR of a DONE or DROPPED ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names; the board Status alone does not count (end the ticket first: `crewboard close {parent_n} --why \"<text>\"`)",
             pr.head_ref,
-            p.item.field("Status").unwrap_or("without a Status")
+            fold_ticket(&p.msgs).status.describe(),
+            p.item.field("Status").unwrap_or("no Status")
         )),
         Err(CbError::Refused(r)) => Err(format!(
             "{parent}, the ticket that branch '{}' names, is not a ticket on the board ({r}): a ticket adopts the PR of a DONE or DROPPED ticket only",
@@ -160,16 +165,24 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     })
 }
 
-/// The parent is back on the board (Backlog or Ready) and the latest reassign notice of the
-/// coordinator in its log names this open PR: an earlier agent left it
+/// The signed log ends the ticket: Done or Dropped, and nothing else. Pure.
+fn log_ended(status: &Expected) -> bool {
+    matches!(status, Expected::Is(s) if s.ended())
+}
+
+/// The parent is back on the board (Backlog or Ready by its signed log) and the latest reassign
+/// notice of the coordinator in its log names this open PR: an earlier agent left it
 /// (spec/tickets#work-that-an-earlier-agent-left). Pure.
 fn returned_with_pr(
     parent: &crate::services::ticket_loader::Ticket,
     pr: &crate::rules::evidence::PrFacts,
 ) -> bool {
-    let back = parent
-        .status()
-        .is_ok_and(|s| matches!(s, Status::Backlog | Status::Ready));
+    let back_status = |s: &Status| matches!(s, Status::Backlog | Status::Ready);
+    let back = match fold_ticket(&parent.msgs).status {
+        Expected::Is(s) => back_status(&s),
+        Expected::OneOf(l) => !l.is_empty() && l.iter().all(back_status),
+        Expected::Unknown => false,
+    };
     let named = crate::ticket::earlier_work(&parent.msgs)
         .and_then(|e| e.pr)
         .and_then(|u| parse_pr_url(&u).ok());

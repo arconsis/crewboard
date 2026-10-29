@@ -11,7 +11,8 @@ pub enum Status {
     InProgress,
     Review,
     Blocked,
-    /// A PR merged at a checked head (spec/tickets#status-flow-and-writers). Final.
+    /// A PR merged at a verified head, or merged by the owner
+    /// (spec/tickets#status-flow-and-writers). Final.
     Done,
     /// Ended by the coordinator's judgment without a merged PR (`close --why`). Final.
     Dropped,

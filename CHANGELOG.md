@@ -6,22 +6,21 @@ This file lists the changes of crewboard, one section for each release.
 
 Added:
 
-- The ticket Status `Dropped`, final like Done. Done now always means a PR merged at a checked
-  head; Dropped means that the coordinator ended the ticket by judgment, without a merged PR.
+- The ticket Status `Dropped`, final like Done. Done now always means a merged PR: merged at a
+  verified head, or merged by the owner; Dropped means that the coordinator ended the ticket by judgment, without a merged PR.
   Only the owner moves a ticket out of Dropped (`crewboard move`); any other act on it is
   refused with `status-dropped-final`. `status`, `audit`, `mine`, the queue, the coordinator's
   `poll` and `watch` and the views treat Dropped as ended, like Done. A follow-up ticket can
   continue the open PR of a Dropped ticket (`ticket new --continue-pr`).
 - `init` adds the Status option `Dropped` after `Done`, and the views By Agent and Needs Owner
   filter `-Status:Done,Dropped`. **An existing board needs one `crewboard init` rerun** for the
-  option; the rerun keeps every other option id. A view that exists keeps its old filter.
+  option; the rerun keeps every other option id. A view that exists keeps its old filter; the
+  rerun prints how to add `Dropped` to it in the web UI.
 - The security event `deleted-message`. The coordinator remembers the comment ids of its own
   signed notes on a ticket (close, verify, assignment, reassign, creation) in its state file.
   When `poll`, `watch` or `tick` reads the complete comment list of such a ticket and a note is
   gone, it raises the event once and tells the owner once. A fresh host or a lost state file
   remembers nothing, and `audit` cannot see a deletion. No wire change: the format stays `v=1`.
-  option; the rerun keeps every other option id. A view that exists keeps its old filter; the
-  rerun prints how to add `Dropped` to it in the web UI.
 - `doctor --setup` warns when the Status field has no option Dropped.
 
 Changed:
@@ -41,6 +40,23 @@ Changed:
   owner's merge (it named a second `done` of the dev agent, which the route does not use).
 - Docs: `docs/design/spec/tickets.md` rewritten as a short spec without history. The status
   table `src/rules/status/table.txt` is the matrix; a test keeps its codes and the spec in step.
+
+Fixed:
+
+- `deleted-message`: a gone note is forgotten only after its event was shown and its owner
+  report was posted (or was there already). A failed post in `watch`, `poll` or `tick` lost the
+  event for good; now the next cycle raises it again.
+- The note check reads at most 5 marked tickets per cycle, the oldest mark first, in rotation.
+  A board Status that leaves Done or Dropped without a signed message is reported once as a
+  Status mismatch (`status-mismatch`, one note to the owner), not as a security event.
+- The note check reads a ticket whose board item was deleted once by its issue number, and
+  stops at a ticket with more than 5000 comments; both give one `notes-not-checked` event. Before,
+  the first was never read and the second was read again in every cycle.
+- `ticket new --continue-pr` judges the old ticket by its signed log, not by the board Status. A
+  board Dropped or Done that a crew token wrote no longer hands over the open PR of a running
+  ticket.
+- The state file merges the recheck marks of the note check on save, and keys the note memory
+  by the repo in lower case (`Org/Repo#7` and `org/repo#7` are one ticket).
 
 ## v0.6.1 (2026-10-29)
 
