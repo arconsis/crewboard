@@ -101,7 +101,8 @@ hint), to keep the default output short.
 `security_event_list` in `--json`, and a count line with one entry per event in the text
 output (always, not only with `--verbose`: a security event must not hide). Each entry has
 `kind` (`bad-signature`, `edited-message`, `replayed-message`, `unknown-sender`,
-`malformed-message` or `foreign-author`: every reason that `watch` reports), `url`, `claimed_from`, `issue`,
+`malformed-message` or `foreign-author`: every reason that `watch` reports, except
+`deleted-message`, which only the coordinator's own cycle can see), `url`, `claimed_from`, `issue`,
 `comment_id`, `author`, `created_at` and `detail`. A comment with a crew header by a foreign
 author is in both lists. A signed message that another account than the one bound to its
 sender posted is the event `foreign-author` too, and its `detail` names both accounts.

@@ -18,16 +18,17 @@
 //!   `/crew reject`) go back to `Backlog` (no agent, so `assign` again) the same way. A board
 //!   `State` of `draining` or `left` without such a log entry returns nothing: the owner hears of
 //!   it once.
-//!   Security events (bad signature, edited message, unknown sender, foreign author) are
-//!   reported to the owner as a signed `kind=info`, once per event. Without a coordinator on
-//!   the board, the agent that sees the event reports it.
+//!   Security events (bad signature, edited message, unknown sender, foreign author, and a
+//!   deleted note of the coordinator, `own_notes`) are reported to the owner as a signed
+//!   `kind=info`, once per event. Without a coordinator on the board, the agent that sees the
+//!   event reports it.
 
 use super::late::{Note, agent_waits, late_coordinator, late_owner_duty};
 use super::lifecycle::{apply_owner_commands, finish_draining};
-use super::registry_post::{liveness_event, post_registry, state_event_key};
+use super::registry_post::{liveness_event, post_registry, report_security, state_event_key};
 use super::tickets::{reassign_derived, tag_earlier_work};
 use super::{AgentCtx, World};
-use crate::audit::{event_key, reported_events};
+use crate::audit::reported_events;
 use crate::ctx::{agent_liveness, registry_msgs};
 use crate::error::CbResult;
 use crate::events::{Event, SecurityEvent};
@@ -43,6 +44,7 @@ use crate::rules::lifecycle::State;
 use crate::rules::status::Status;
 use crate::state::{StateCache, TicketSnap};
 use crate::ticket::{TicketRow, VMsg};
+use std::collections::HashSet;
 
 /// What the duties of one cycle produced for the output and the ticket snapshot.
 #[derive(Debug, Default)]
@@ -53,6 +55,9 @@ pub struct Duty {
     pub snaps: Vec<(String, TicketSnap)>,
     /// State of this agent after the duties (it may have been paused, stopped, ...).
     pub state: Option<State>,
+    /// Security events that the duties found themselves (`deleted-message`, `own_notes`). The
+    /// cycle shows them with the security events of the feed.
+    pub security: Vec<SecurityEvent>,
 }
 
 /// The duties of every agent. Reads `rows` (the tickets, by id) and writes only to the agent's
@@ -123,29 +128,6 @@ fn tell_owner_coordinator_late(
         );
     }
     Ok(())
-}
-
-/// The security event as a signed owner message. `Some(url)` if it was posted now.
-fn report_security(
-    ac: &AgentCtx,
-    s: &SecurityEvent,
-    reported: &mut std::collections::HashSet<String>,
-) -> CbResult<Option<String>> {
-    let key = event_key(&s.repo, s.issue, s.comment_id, s.reason.as_str());
-    if reported.contains(&key) {
-        return Ok(None);
-    }
-    let body = format!(
-        "Security event: {}\nevent={key}\nwhere: {}\nauthor: {}; claims from={}\ndetail: {}\nThe comment was not delivered as a message. Do not act on it.\n",
-        s.reason.as_str(),
-        s.url,
-        s.author,
-        s.claimed_from.as_deref().unwrap_or("(unreadable)"),
-        s.detail
-    );
-    let p = post_registry(ac, To::Owner, Kind::Info, Re::None, &body)?;
-    reported.insert(key);
-    Ok(Some(p.url))
 }
 
 /// What a dead report of one episode starts with: the agent and the heartbeat value it was last
@@ -538,13 +520,27 @@ pub fn coordinator_duties(
             Liveness::Dead { age } => dead_duty(&c, &j, age, &mut duty)?,
         }
     }
-    security_duty(&c, security, &mut duty)?;
     // A board Status that the signed log does not support is detected here (the crew token
     // can write the field, crewboard cannot prevent it).
     let own = duty.snaps.clone();
-    duty.events.extend(super::log_check::status_log_duty(
-        ac, world, rows, &own, &c.msgs, cache, now,
+    let check = super::log_check::status_log_duty(ac, world, rows, &own, &c.msgs, cache, now);
+    duty.events.extend(check.events);
+    // A deleted note of this coordinator: the lists that the Status check read, then the tickets
+    // whose board row changed (spec/security-details#deleted-notes).
+    let own_ids: HashSet<&str> = own.iter().map(|(i, _)| i.as_str()).collect();
+    let mut found = check.security;
+    found.extend(super::own_notes::cycle_duty(
+        ac,
+        world,
+        rows,
+        &cache.index.ticket_snaps,
+        &own_ids,
+        &check.read,
+        &mut cache.notes,
     ));
+    let all: Vec<SecurityEvent> = security.iter().chain(&found).cloned().collect();
+    security_duty(&c, &all, &mut duty)?;
+    duty.security = found;
     owner_route_duty(&c, cache, &mut duty)?;
     Ok(duty)
 }

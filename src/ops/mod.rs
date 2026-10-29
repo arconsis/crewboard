@@ -27,6 +27,7 @@ pub(crate) mod log_check;
 pub(crate) mod mine;
 pub(crate) mod monitor;
 pub(crate) mod needs_owner_sync;
+pub(crate) mod own_notes;
 pub(crate) mod owner_move;
 pub(crate) mod pr_state;
 pub(crate) mod profile;

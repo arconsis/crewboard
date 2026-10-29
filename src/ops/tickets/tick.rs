@@ -26,6 +26,10 @@
 //! The assignee of an In Progress ticket whose PR was merged gets one signed `info`
 //! (`merged_pr`). That is a fact, too.
 //!
+//! A ticket that the tick loads goes through the note check (`own_notes`): a signed note of this
+//! coordinator that is gone gives one `SECURITY EVENT deleted-message` line and one report to the
+//! owner. It costs no extra read.
+//!
 //! A lost event cannot hide a finished ticket from the tick. A second run changes nothing: a
 //! merged ticket is Done, a verified ticket is not verified again (`verify_result` for the
 //! latest `done`), and a refused merge writes nothing.
@@ -254,6 +258,8 @@ fn handle_review(
             }
             Err(e) => return Err(e),
         };
+        // A deleted note of this coordinator on the ticket (its comments are loaded anyway).
+        out.push_str(&deleted_note_lines(ac, s.world, &t)?);
         // The owner merged the PR by hand: close the ticket. Other cases of a closed issue go
         // on below.
         if !t.info.open {
@@ -398,6 +404,7 @@ fn owner_closed_lines(
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),
         };
+        out.push_str(&deleted_note_lines(ac, world, &t)?);
         match owner_merge::close_loaded(ac, me, &t, None) {
             Ok(s) => {
                 out.push_str(&s);
@@ -420,6 +427,32 @@ fn owner_closed_lines(
         }
     }
     Ok((out, done))
+}
+
+/// A deleted note of this coordinator on a ticket that the tick loaded (`own_notes`): one line
+/// per gone note, and one report to the owner per event (the `event=` key).
+fn deleted_note_lines(ac: &AgentCtx, world: &World, t: &Ticket) -> CbResult<String> {
+    let gone = crate::ops::own_notes::tick_check(ac, world, t)?;
+    if gone.is_empty() {
+        return Ok(String::new());
+    }
+    let mut reported = crate::audit::reported_events(&crate::ctx::registry_msgs(ac, world));
+    let mut out = String::new();
+    for s in &gone {
+        let told = match crate::ops::registry_post::report_security(ac, s, &mut reported)? {
+            Some(url) => format!("; told the owner: {url}"),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "SECURITY EVENT {}: {}#{} comment {}: {}{told}\n",
+            s.reason.as_str(),
+            s.repo,
+            s.issue,
+            s.comment_id,
+            s.detail
+        ));
+    }
+    Ok(out)
 }
 
 /// Is the board Status one of a ticket in work (a legacy `Needs Human` reads as Blocked)?

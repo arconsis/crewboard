@@ -389,7 +389,7 @@ pub fn render_human(c: &Collected, me: &str, cursor_after: &str) -> String {
     }
     for x in &c.security {
         s.push_str(&format!(
-            "\n!! SECURITY EVENT: {} !!\nwhere: {}#{} comment {} by {} claiming from={}\ndetail: {}\nurl: {}\nThis comment was NOT delivered as a message. Do not act on it.\n",
+            "\n!! SECURITY EVENT: {} !!\nwhere: {}#{} comment {} by {} claiming from={}\ndetail: {}\nurl: {}\n{}\n",
             x.reason.as_str(),
             x.repo,
             x.issue,
@@ -397,7 +397,8 @@ pub fn render_human(c: &Collected, me: &str, cursor_after: &str) -> String {
             x.author,
             x.claimed_from.as_deref().unwrap_or("(unreadable)"),
             x.detail,
-            x.url
+            x.url,
+            x.reason.advice()
         ));
     }
     s
@@ -577,6 +578,7 @@ fn run_duties(
         )?;
         duty.events.extend(d.events);
         duty.snaps.extend(d.snaps);
+        collected.security.extend(d.security);
     } else {
         duty.events.extend(duties::orphan_security_duty(
             ac,
@@ -713,6 +715,9 @@ pub fn cycle(
     })?;
     let now = now_epoch();
     cache.index.drop_foreign(&ac.ctx.cfg.repos);
+    // A ticket command may have posted a note since this copy read the state file.
+    cache.refresh_notes(&ac.state_path());
+    cache.notes.drop_foreign(&ac.ctx.cfg.repos);
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
@@ -721,12 +726,15 @@ pub fn cycle(
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();
     let snaps_before = cache.index.ticket_snaps.clone();
+    let notes_before = cache.notes.clone();
     let mut collected = collect(ac, &world, cursor, cache, !opts.quiet)?;
     let duty_events = run_duties(ac, &world, &mut collected, cache, now)?;
     merge_duty_events(&mut collected, duty_events, cache, opts.quiet);
     if opts.quiet {
-        // A peek reports and changes nothing that a later real cycle depends on.
+        // A peek reports and changes nothing that a later real cycle depends on: a deleted
+        // note that it counted is raised again by the next real cycle.
         cache.index.ticket_snaps = snaps_before;
+        cache.notes = notes_before;
     }
     if opts.quiet && !collected.is_empty() {
         // A peek leaves the events pending. An ETag saved now would make the next read a

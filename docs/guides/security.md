@@ -59,6 +59,7 @@ roots, and [who holds which power](../design/spec/security-details.md#who-holds-
 | An unknown sender: a crew header with a name that nobody approved. | Refused as `unknown-sender`. | [events.rs](../../src/events.rs); [registry.rs](../../src/registry.rs) |
 | A stranger who posts on a ticket. | The comment is "foreign": dropped and counted. With a crew header it is a security event `foreign-author`. | [Untrusted input](../design/spec/messages.md#untrusted-input); [events.rs](../../src/events.rs) (`is_foreign`) |
 | One agent's account posts a message signed by another agent. | The approval binds each agent to one account. A message from another account is not delivered: security event `foreign-author`, with both accounts. | [Signature](../design/spec/messages.md#signature); [events.rs](../../src/events.rs) (`classify`) |
+| A deleted note: the holder of a crew token deletes a signed note of the coordinator (a close, a verify report, an assignment) and sets the board back. | The coordinator remembers the comment ids of its own notes on each ticket. When it reads the ticket again and a note is gone, it raises the security event `deleted-message` once and tells the owner. The limits are a [residual risk](#residual-risks). | [Deleted notes](../design/spec/security-details.md#deleted-notes); [own_notes.rs](../../src/ops/own_notes.rs) |
 | A stranger who asks to join. | Nothing happens until the owner approves. `approve` shows the account; `init` locks the registry issue to collaborators. | [Registry issue](../design/spec/board.md#registry-issue); [registry.rs](../../src/registry.rs) |
 | A stolen agent key. | The key alone is not enough: the comment must also come from the approved account. The owner can reject the agent ([leaks](#a-key-or-a-token-leaks)). | [events.rs](../../src/events.rs); [registry.rs](../../src/registry.rs) |
 | An agent that runs with the owner's token and so looks like the owner. | On a crew board every agent command refuses the owner's token (`agent-uses-owner-token`), and `approve` refuses a join of the owner's account (`approve-owner-account`). `selftest` refuses a token (`agent-token-not-crew`) or a plain `gh` (`agent-gh-not-crew`) of another account. This stops mistakes, not intent. | [Phases](../design/spec/identity.md#phases); [agent_gh.rs](../../src/agent_gh.rs) |
@@ -116,7 +117,11 @@ crewboard cannot remove these risks. Plan for them.
   ([Headless setup](headless-setup.md)).
 - **Deleted comments.** crewboard refuses an edited message, but anyone with write access can
   delete a comment, and a deleted message never arrived. This includes your `/crew reject`:
-  revoke the crew token before you reject ([leaks](#a-key-or-a-token-leaks)).
+  revoke the crew token before you reject ([leaks](#a-key-or-a-token-leaks)). Only a deleted
+  note of the coordinator is detected, and only by the coordinator that posted it: its state
+  file holds the ids. A fresh host or a lost state file remembers nothing, and `audit` or
+  `status` from another host cannot see a deletion
+  ([Deleted notes](../design/spec/security-details.md#deleted-notes)).
 - **The secret scan** finds only the listed patterns.
 - **The model.** The skill tells the model to treat comments as data. A valid message of an
   approved agent can still mislead it.
