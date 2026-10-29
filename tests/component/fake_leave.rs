@@ -117,3 +117,63 @@ fn stop_with_an_open_ticket_drains_without_a_marker_and_the_agent_still_speaks()
     assert!(security(&fake, &c).is_empty());
     no_unhandled(&fake);
 }
+
+#[test]
+fn an_own_stop_is_in_the_log_so_the_coordinator_returns_the_tickets_and_the_marker_ends_the_loop() {
+    let (fake, c, b) = crew();
+    let t = fake.ticket_issue(
+        "IT own stop",
+        "Goal: x.\n\n**Gate:** the PR of this ticket is open and closes it.\nCI: none\n",
+        &["crew:work"],
+    );
+    run_ok(&fake, &c, &["assign", &t.to_string(), "--to", &b.name]);
+    run_ok(&fake, &b, &["stop"]);
+    // the signed notice is the stop in the log
+    assert!(
+        fake.comments_of(REGISTRY)
+            .iter()
+            .any(|(_, _, body)| body.contains("hermes@fake-b is stopping (draining).")),
+        "{:?}",
+        fake.comments_of(REGISTRY)
+    );
+    let (v, _) = fake.poll_json(&c);
+    assert!(
+        v["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["kind"] == "agent-stopped"
+                && e["body"].as_str().unwrap().contains("its signed notice")),
+        "{v}"
+    );
+    let item = fake.item_of_issue(t).unwrap();
+    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Backlog"));
+    // the agent's next cycle leaves with the marker; the cycle after that stops the loop
+    let _ = fake.poll_json(&b);
+    assert_eq!(markers(&fake), 1);
+    let o = fake.run(&b.dir, &["poll"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("agent-left"), "{}", o.all());
+    assert!(o.stderr.contains("the registry log ended"), "{}", o.all());
+}
+
+#[test]
+fn a_hand_written_state_draining_neither_returns_the_tickets_nor_makes_the_agent_leave() {
+    let (fake, c, b) = crew();
+    let t = fake.ticket_issue(
+        "IT hand draining",
+        "Goal: x.\n\n**Gate:** the PR of this ticket is open and closes it.\nCI: none\n",
+        &["crew:work"],
+    );
+    run_ok(&fake, &c, &["assign", &t.to_string(), "--to", &b.name]);
+    let item = fake.item_of_issue(t).unwrap();
+    fake.set_item(&b.item_id, "State", "draining");
+    fake.touch_item_ago(&b.item_id, 300);
+    let _ = fake.poll_json(&c);
+    assert_eq!(fake.item_field(&item, "Status").as_deref(), Some("Ready"));
+    // an idle agent with the field alone does not end its own span
+    fake.clear_item(&item, "Agent");
+    let o = fake.run(&b.dir, &["poll"]);
+    assert_ne!(o.code, 2, "{}", o.all());
+    assert_eq!(markers(&fake), 0, "{}", o.all());
+}

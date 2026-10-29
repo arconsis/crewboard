@@ -51,6 +51,9 @@ pub enum Act {
     Parked { for_issue: u64 },
     /// `info`: the agent leaves (the lifecycle marker).
     Left,
+    /// `info`: the agent `name` is stopping (it drains). The caller checks that `name` is the
+    /// sender.
+    Stopping { name: String },
     /// `info`: a late report to the owner. `key` is the `late-key:` line that makes one report
     /// per episode.
     Late { key: Option<String> },
@@ -82,6 +85,9 @@ pub fn parse(kind: Option<Kind>, body: &str) -> Act {
         Kind::Info if first.starts_with(OWNER_MERGED_PREFIX) => Act::Closed(CloseKind::OwnerMerged),
         Kind::Info if first.starts_with(CLOSED_JUDGMENT_PREFIX) => Act::Closed(CloseKind::Judgment),
         Kind::Info if has_line(body, LEFT_MARKER) => Act::Left,
+        Kind::Info if stopping_name(first).is_some() => Act::Stopping {
+            name: stopping_name(first).unwrap_or_default().to_string(),
+        },
         Kind::Info if body.starts_with(LATE_PREFIX) => Act::Late {
             key: kv(body, LATE_KEY),
         },
@@ -113,7 +119,7 @@ pub fn reserved_for(kind: Kind, body: &str) -> Option<&'static str> {
             Act::Closed(_) => "close or merge",
             Act::Verify { .. } => "verify",
             Act::Parked { .. } => "take --interrupt",
-            Act::Left => "stop",
+            Act::Left | Act::Stopping { .. } => "stop",
             Act::Late { .. } => "no command: crewboard posts late reports itself",
         })
     })
@@ -149,6 +155,8 @@ const VERIFY_PREFIX: &str = "verify:";
 pub const WITHDRAWS_QUESTION_LINE: &str = "withdraws: question";
 /// The line of the signed `info` that an agent posts when it leaves.
 pub const LEFT_MARKER: &str = "lifecycle: left";
+/// What follows the agent name in the first line of the signed `info` of an agent that stops.
+const STOPPING_INFIX: &str = " is stopping (draining).";
 /// Start of the `blocked` message that `take --interrupt` posts.
 pub const PARK_PREFIX: &str = "parked for #";
 /// Start of a late report to the owner (`late: <wait> <subject>`).
@@ -287,6 +295,18 @@ fn parked_for(body: &str) -> Option<u64> {
 /// The body of the marker that an agent posts when it leaves.
 pub fn left_body(name: &str) -> String {
     format!("{name} left\n{LEFT_MARKER}")
+}
+
+/// The body of the signed notice of an agent that starts to drain. `open` lists its open tickets
+/// (the coordinator returns them).
+pub fn stopping_body(name: &str, open: &str) -> String {
+    format!("{name}{STOPPING_INFIX} Open tickets that the coordinator returns to Backlog: {open}")
+}
+
+/// The agent name of a first line that [`stopping_body`] wrote: one word before the infix.
+fn stopping_name(first: &str) -> Option<&str> {
+    let (name, _) = first.split_once(STOPPING_INFIX)?;
+    (!name.is_empty() && !name.contains(char::is_whitespace)).then_some(name)
 }
 
 #[cfg(test)]
@@ -562,6 +582,41 @@ mod tests {
         assert_eq!(
             parse(Some(Kind::Info), "I left\nlifecycle: left now"),
             Act::Other
+        );
+    }
+
+    #[test]
+    fn golden_stopping_notice() {
+        assert_eq!(
+            parse(Some(Kind::Info), &stopping_body("claude@a", "none")),
+            Act::Stopping {
+                name: "claude@a".into()
+            }
+        );
+        // the text of 0.6.0 reads the same
+        assert_eq!(
+            parse(
+                Some(Kind::Info),
+                "claude@a is stopping (draining). Open tickets that the coordinator returns to Backlog: o/r#1 (Ready)"
+            ),
+            Act::Stopping {
+                name: "claude@a".into()
+            }
+        );
+        assert_eq!(
+            parse(Some(Kind::Report), &stopping_body("claude@a", "none")),
+            Act::Other
+        );
+        for bad in [
+            " is stopping (draining). x",
+            "two words is stopping (draining). x",
+            "claude@a is stopping (State draining)",
+        ] {
+            assert_eq!(parse(Some(Kind::Info), bad), Act::Other, "{bad}");
+        }
+        assert_eq!(
+            reserved_for(Kind::Info, &stopping_body("claude@a", "none")),
+            Some("stop")
         );
     }
 

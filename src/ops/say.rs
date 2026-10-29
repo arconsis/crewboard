@@ -67,7 +67,7 @@ pub fn check_body_text(text: &str) -> CbResult<()> {
     Ok(())
 }
 
-/// The agent must be approved, with its key frozen and its item in a speaking state.
+/// The agent must be approved, its span in the registry log open, and its item readable.
 pub fn require_approved<'a>(world: &'a World, me: &str) -> CbResult<&'a TrustedAgent> {
     world.trust.get(me).ok_or_else(|| {
         let why = world

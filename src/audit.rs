@@ -529,6 +529,13 @@ fn field_mismatches(
             say(format!(
                 "board State is {state}, the log shows no approval of the agent"
             ));
+        } else if log.approved
+            && !log.stopped
+            && matches!(State::parse(state), Some(State::Left | State::Draining))
+        {
+            say(format!(
+                "board State is {state}, the log shows no stop of the agent (no /crew stop, no signed notice or marker of the agent, no /crew reject)"
+            ));
         }
     }
     out

@@ -57,13 +57,15 @@ the key of the join at that time. Consequences:
 - **Reject.** `/crew reject` is the owner's hard cut-off: the old messages stay valid, the
   new ones are not.
 - **`/crew stop` does not end a span.** A draining agent speaks until it leaves. The owner
-  command is applied by the agent itself, so a hostile agent can ignore it. Only
-  `/crew reject` cuts.
+  command is applied by the agent itself, so a hostile agent can ignore it. It is still a stop in
+  the log: the coordinator returns the agent's tickets. Only `/crew reject` cuts.
 - **Agents that left before this rule** have no marker, so their span is open. The owner
   runs `/crew reject <name>` for every retired agent name to close it.
 
-The present tense stays for "may act now": the agent item must be readable, its `Key` equal
-the key of the join, and its `State` allow speaking.
+The present tense, "may act now", comes from the same log: the agent is approved, its span is
+open, and its item is readable on this board. The item `Key` and `State` are mirrors. A value
+that contradicts the log is a `trust problem` line in `status`; it does not mute the agent, so
+one board field write cannot silence it.
 
 ## Phases
 

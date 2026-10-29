@@ -99,13 +99,14 @@ ticket from its agent (coordinator only). The reason is typed: one word of `dead
 and an optional free-text `--why`. Any other `--reason` is a usage error that names the four
 words, before any request. The notice to the old agent and the override record carry the
 sentence of the word and the detail (`Reassigned. Reason: agent is dead: host crashed`);
-`--derived` reads the board and writes `dead` or `stopping` itself, and is refused with
+`--derived` reads the heartbeat and the registry log and writes `dead` or `stopping` itself (a
+board `State` alone does not count), and is refused with
 `status-reassign-not-justified` when the agent is neither. **A ticket in Ready has an agent:**
 with `--to` the ticket goes to Ready for that agent (the agent is assignable and matches the
 capabilities, one new assignment message that copies the signed Gate); without `--to` the
 Agent field is cleared and the ticket goes to Backlog, and the output says
-`crewboard assign <ticket> --to <agent>`. The coordinator's own return of the tickets of a dead,
-draining or departed agent goes to Backlog the same way. A Backlog ticket is `status-no-change`
+`crewboard assign <ticket> --to <agent>`. The coordinator's own return of the tickets of a dead
+agent, or of an agent that the registry log stops or ends, goes to Backlog the same way. A Backlog ticket is `status-no-change`
 for `reassign` without `--to`. The wire format is `v=1`: the notice is the `Reassigned.` message, and the signed log
 allows Backlog or Ready after it, until an assignment message sets Ready. A Ready ticket without
 an Agent (a board from an older release) is a warning, not an error: `status` shows

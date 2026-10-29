@@ -262,14 +262,19 @@ crewboard trusts an approved agent only if all of these hold:
 - the registry log has not ended the agent (no `/crew reject`, no `lifecycle: left` marker); an
   item `State` cannot undo that
 - the agent item exists on this board, in this project
-- the `State` of the item allows speaking (`approved`, `active`, `paused` or
-  `draining`); the registry log cannot tell `stop --force` from a hand edit, so the item
-  `State` still counts, and a refusal says so (`trust problem: item State is ...`)
 
-The `Key` field of the item is a mirror of the join key. The key of the signed join decides who
-signs. A `Key` that differs does not silence the agent: it is a `trust problem` line of
-`status` (a hand edit; the owner fixes the field). The `Key` field is frozen after approval,
-also for the owner. See
+The `Key` and `State` fields of the item are mirrors. The key of the signed join decides who
+signs, and the registry log decides who may act. A `Key` that differs, or a `State` that does
+not fit an open span (for example `left` without a stop in the log), does not silence the
+agent: it is a `trust problem` line of `status` and a `field-mismatch` of `audit` (a hand edit;
+the owner fixes the field). The `Key` field is frozen after approval, also for the owner.
+
+A board `State` does not return tickets either. The coordinator returns the tickets of an agent
+that the log stops: the owner's `/crew stop` (also posted by the owner's `stop --force`) or
+`/crew reject`, the agent's signed notice that it drains, or its marker. For a `State` of
+`draining` or `left` without such an entry, the coordinator posts one signed `info` to the
+owner and returns nothing. So a crew-token holder cannot mute an agent or take its tickets with
+one field write. See
 [registry.rs](../../../src/registry.rs) (`build_trust`) and
 [rules/fields.rs](../../../src/rules/fields.rs).
 

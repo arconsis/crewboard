@@ -181,8 +181,15 @@ fn reassign_reason(
             };
             let (state, _, live) =
                 crate::ctx::agent_liveness(world, a, crate::clock::now_epoch(), ac.ctx.hb_interval);
+            let logged = world
+                .reg
+                .agents
+                .get(a)
+                .and_then(|e| e.departure)
+                .map(crate::registry::Departure::reason);
             Ok(crate::late::liveness::derived_reassign_reason(
                 a,
+                logged,
                 state.as_deref(),
                 &live,
                 ac.ctx.hb_interval,

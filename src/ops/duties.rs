@@ -13,14 +13,18 @@
 //! - **the coordinator**: judges every other agent by the age of its heartbeat (alive, late,
 //!   dead). It sends nothing to a late agent. A dead agent's open tickets go back to `Backlog` (no agent, so `assign` again)
 //!   (reassign with a derived justification), and a signed report and a signed `kind=info` to
-//!   the owner (the late path) say so. The tickets of draining or departed agents go back to `Backlog` (no agent, so `assign` again) the same way.
+//!   the owner (the late path) say so. The tickets of an agent that the registry log stops or
+//!   ends (its signed stopping notice or `lifecycle: left` marker, the owner's `/crew stop` or
+//!   `/crew reject`) go back to `Backlog` (no agent, so `assign` again) the same way. A board
+//!   `State` of `draining` or `left` without such a log entry returns nothing: the owner hears of
+//!   it once.
 //!   Security events (bad signature, edited message, unknown sender, foreign author) are
 //!   reported to the owner as a signed `kind=info`, once per event. Without a coordinator on
 //!   the board, the agent that sees the event reports it.
 
 use super::late::{Note, agent_waits, late_coordinator, late_owner_duty};
 use super::lifecycle::{apply_owner_commands, finish_draining};
-use super::registry_post::{liveness_event, post_registry};
+use super::registry_post::{liveness_event, post_registry, state_event_key};
 use super::tickets::{reassign_derived, tag_earlier_work};
 use super::{AgentCtx, World};
 use crate::audit::{event_key, reported_events};
@@ -33,6 +37,7 @@ use crate::late::liveness::{
 };
 use crate::late::{AgentLate, agent_late};
 use crate::protocol::names::{Kind, Re, To};
+use crate::registry::Departure;
 use crate::rules::Role;
 use crate::rules::lifecycle::State;
 use crate::rules::status::Status;
@@ -207,6 +212,8 @@ struct Cycle<'a> {
 /// One approved agent as the coordinator judges it.
 struct Judged<'a> {
     name: String,
+    /// What the registry log says: a stop or an end of the agent.
+    departure: Option<Departure>,
     state: Option<String>,
     since: Option<i64>,
     live: Liveness,
@@ -275,17 +282,24 @@ fn paused_ready_duty(c: &Cycle, j: &Judged, cache: &mut StateCache, duty: &mut D
     }
 }
 
-/// Departed agents: their open tickets go back to Backlog, whatever the heartbeat says.
-fn departed_duty(c: &Cycle, j: &Judged, duty: &mut Duty) -> CbResult<()> {
-    let why = derived_reassign_reason(&j.name, j.state.as_deref(), &j.live, c.interval)?;
+/// Agents that the registry log stops or ends: their open tickets go back to Backlog, whatever
+/// the heartbeat and the board `State` say.
+fn departed_duty(c: &Cycle, j: &Judged, d: Departure, duty: &mut Duty) -> CbResult<()> {
+    let why = derived_reassign_reason(
+        &j.name,
+        Some(d.reason()),
+        j.state.as_deref(),
+        &j.live,
+        c.interval,
+    )?;
     let ret = return_tickets(c, &reassignable(j), &why, duty);
     if ret.done.is_empty() && ret.failed.is_empty() {
         return Ok(());
     }
     let mut text = format!(
-        "{} is {}: returned {} ticket(s) to Backlog (assign them again): {}",
+        "{} {}: returned {} ticket(s) to Backlog (assign them again): {}",
         j.name,
-        j.state.as_deref().unwrap_or("?"),
+        d.reason(),
         ret.done.len(),
         ret.done.join(", ")
     );
@@ -300,12 +314,56 @@ fn departed_duty(c: &Cycle, j: &Judged, duty: &mut Duty) -> CbResult<()> {
     Ok(())
 }
 
+/// A board `State` of `draining` or `left` that no log entry supports: nothing is returned (one
+/// field write must not take the tickets of an agent), and the owner hears of it ONCE (the line
+/// `event=` is the key, read back from the registry issue). The first sight may be a write in
+/// flight (an agent writes `draining` a moment before it signs its notice), so the note waits
+/// for the next cycle that still sees it, as the Status check does (`log_check`).
+fn unlogged_state_duty(
+    c: &Cycle,
+    j: &Judged,
+    cache: &mut StateCache,
+    duty: &mut Duty,
+) -> CbResult<()> {
+    let seen_key = format!("state-unlogged:{}", j.name);
+    let Some(state) = j
+        .state
+        .as_deref()
+        .filter(|s| matches!(*s, "draining" | "left"))
+    else {
+        cache.liveness.liveness.remove(&seen_key);
+        return Ok(());
+    };
+    if cache.liveness.liveness.get(&seen_key).map(String::as_str) != Some(state) {
+        cache.liveness.liveness.insert(seen_key, state.to_string());
+        return Ok(());
+    }
+    let key = state_event_key(&j.name, state);
+    if reported_events(&c.msgs).contains(&key) {
+        return Ok(());
+    }
+    let name = &j.name;
+    let body = format!(
+        "Board State without a stop in the log: {name}\nevent={key}\nThe board State of {name} is {state}, but the registry log has no stop of it (no /crew stop, no signed notice or lifecycle: left marker of the agent, no /crew reject). The log decides: {name} may still act and keeps its tickets. To stop it, run `crewboard stop --agent {name} --force`; else set the field back.\n"
+    );
+    let p = post_registry(c.ac, To::Owner, Kind::Info, Re::None, &body)?;
+    duty.events.push(liveness_event(
+        c.ac,
+        "agent-state-unlogged",
+        format!(
+            "{name} is {state} on the board, but the registry log has no stop of it: its tickets stay; told the owner: {}",
+            p.url
+        ),
+    ));
+    Ok(())
+}
+
 /// A dead agent: its open tickets go back to Backlog, one report to all and one late note to the
 /// owner per dead episode.
 fn dead_duty(c: &Cycle, j: &Judged, age: i64, duty: &mut Duty) -> CbResult<()> {
     let (ac, now, interval) = (c.ac, c.now, c.interval);
     let me = ac.name.to_string();
-    let why = derived_reassign_reason(&j.name, j.state.as_deref(), &j.live, interval)?;
+    let why = derived_reassign_reason(&j.name, None, j.state.as_deref(), &j.live, interval)?;
     let ret = return_tickets(c, &reassignable(j), &why, duty);
     let kept: Vec<String> = j
         .theirs
@@ -439,29 +497,37 @@ pub fn coordinator_duties(
         interval: ac.ctx.hb_interval,
     };
     let mut duty = Duty::default();
-    let names: Vec<String> = world
+    // Approved agents, and agents that the owner rejected after an approval: a reject is an
+    // end in the log, so their tickets go back too.
+    let names: Vec<(String, Option<Departure>)> = world
         .reg
         .agents
         .values()
-        .filter(|e| e.approved() && e.name != me)
-        .map(|e| e.name.clone())
+        .filter(|e| e.approval.is_some() && e.name != me)
+        .map(|e| (e.name.clone(), e.departure))
         .collect();
-    for name in names {
+    for (name, departure) in names {
         let (state, since, live) = agent_liveness(world, &name, now, c.interval);
         let theirs = rows.iter().filter(|r| r.is_agent(name.as_str())).collect();
         let j = Judged {
             name,
+            departure,
             state,
             since,
             live,
             theirs,
         };
-        paused_ready_duty(&c, &j, cache, &mut duty);
-        if matches!(j.state.as_deref(), Some("draining" | "left")) {
-            departed_duty(&c, &j, &mut duty)?;
+        if let Some(d) = j.departure {
+            departed_duty(&c, &j, d, &mut duty)?;
             cache.liveness.liveness.remove(&j.name);
+            cache
+                .liveness
+                .liveness
+                .remove(&format!("state-unlogged:{}", j.name));
             continue;
         }
+        paused_ready_duty(&c, &j, cache, &mut duty);
+        unlogged_state_duty(&c, &j, cache, &mut duty)?;
         match j.live {
             Liveness::NotRunning | Liveness::Alive { .. } => {
                 cache.liveness.liveness.remove(&j.name);

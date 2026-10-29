@@ -108,8 +108,8 @@ of the registry log covers its comment id ([Trust at signing time](identity.md#t
 3. The signature is made with the key of the join, not with the `Key` field of the item.
 
 The role of the sender is the role of the span at that comment, not the role now. The
-agent item (readable, `Key` field, `State`) decides only whether the agent may act NOW
-(`assign`, `take`, `status`); it does not void an old message.
+open span and a readable agent item decide whether the agent may act NOW (`assign`, `take`,
+`status`); the item `Key` and `State` do not. That does not void an old message.
 
 A message from a sender that is not trusted (`unknown-sender`) or with a bad signature
 (`bad-signature`) is not delivered to the model (*loud*). The agent that sees it prints

@@ -1729,9 +1729,10 @@ pub(super) enum Start {
 /// covers the moment inside `approve`: the signed approval is posted, and the item State still
 /// says `requested` until `approve` writes `approved` a second later.
 pub(super) fn is_not_approved(output: &str) -> bool {
-    output.contains("rule=sender-not-approved")
-        && (output.contains("has not approved it yet")
-            || output.contains("item State is 'requested'"))
+    output.contains("rule=agent-approval-pending")
+        || (output.contains("rule=sender-not-approved")
+            && (output.contains("has not approved it yet")
+                || output.contains("item State is 'requested'")))
 }
 
 /// Run `start` once as the agent, in the work dir, with the environment that the runtime gets.

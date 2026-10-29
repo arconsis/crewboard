@@ -65,6 +65,39 @@ impl Span {
     }
 }
 
+/// How the registry log stops or ends an agent (spec/board#lifecycle). The comment id is the
+/// log entry. The coordinator returns the open tickets of such an agent; a board `State` alone
+/// never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Departure {
+    /// The agent's own signed notice that it drains. Its span stays open until its marker.
+    Stopping(u64),
+    /// The owner's `/crew stop <name>`. The span stays open: a running agent drains and signs
+    /// its marker; the key of an agent that cannot drain stays valid until `/crew reject`.
+    OwnerStop(u64),
+    /// The agent's signed `lifecycle: left` marker. The span ended.
+    Left(u64),
+    /// The owner's `/crew reject <name>`. The span ended.
+    Rejected(u64),
+}
+
+impl Departure {
+    /// The span ended: the agent may not act any more.
+    pub fn ended(self) -> bool {
+        matches!(self, Departure::Left(_) | Departure::Rejected(_))
+    }
+
+    /// What the log says, after the agent name: the reason of a derived reassign.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Departure::Stopping(_) => "is stopping (its signed notice in the registry)",
+            Departure::OwnerStop(_) => "is stopping (the owner's /crew stop)",
+            Departure::Left(_) => "has left (its signed lifecycle: left marker)",
+            Departure::Rejected(_) => "was rejected (the owner's /crew reject)",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentEntry {
     pub name: String,
@@ -80,6 +113,8 @@ pub struct AgentEntry {
     /// Where the agent may speak, in registry comment order: approve, role change, reject and
     /// the `lifecycle: left` marker. `/crew stop` does not end a span.
     pub spans: Vec<Span>,
+    /// The log entry that stops or ends the agent now: an end (marker, reject) replaces a stop.
+    pub departure: Option<Departure>,
 }
 
 fn join_fp(j: &JoinInfo) -> Option<String> {
@@ -99,6 +134,20 @@ impl AgentEntry {
         }
         self.earlier_joins.retain(|j| join_fp(j) != new_fp);
         self.join = Some(new);
+    }
+
+    /// Record a stop or an end. The stronger entry wins (agent notice, owner stop, marker,
+    /// reject); an entry of the same strength keeps the first.
+    fn depart(&mut self, d: Departure) {
+        let rank = |d: Departure| match d {
+            Departure::Stopping(_) => 0,
+            Departure::OwnerStop(_) => 1,
+            Departure::Left(_) => 2,
+            Departure::Rejected(_) => 3,
+        };
+        if self.departure.is_none_or(|old| rank(d) > rank(old)) {
+            self.departure = Some(d);
+        }
     }
 
     fn open_span(&self) -> Option<&Span> {
@@ -239,6 +288,7 @@ pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
                 approval: None,
                 rejected: false,
                 spans: Vec::new(),
+                departure: None,
             });
             if entry.approval.is_some() || entry.rejected {
                 reg.notes.push(format!(
@@ -269,17 +319,19 @@ pub fn resolve(cfg: &BoardConfig, comments: &[Comment]) -> Registry {
 }
 
 /// A signed `info` of an agent with an open span and the line `lifecycle: left` ends that span.
+/// A signed `info` that the agent is stopping (draining) records a stop and keeps the span open.
 /// The signature is checked with the join key. A marker of another name, with a bad signature,
 /// or from an agent without an open span, is ignored.
 fn apply_left_marker(reg: &mut Registry, c: &Comment, former: &[FormerRepo], seen: &mut Seen) {
+    use crate::protocol::acts::{Act, parse};
     let Ok(msg) = Message::parse(&c.body) else {
         return;
     };
-    if crate::protocol::acts::parse(Some(msg.header.kind), &msg.body)
-        != crate::protocol::acts::Act::Left
-    {
-        return;
-    }
+    let left = match parse(Some(msg.header.kind), &msg.body) {
+        Act::Left => true,
+        Act::Stopping { name } if name == msg.header.from.as_str() => false,
+        _ => return,
+    };
     let Some(entry) = reg.agents.get_mut(msg.header.from.as_str()) else {
         return;
     };
@@ -298,7 +350,12 @@ fn apply_left_marker(reg: &mut Registry, c: &Comment, former: &[FormerRepo], see
     {
         return;
     }
-    entry.close_span(c.id);
+    if left {
+        entry.close_span(c.id);
+        entry.depart(Departure::Left(c.id));
+    } else {
+        entry.depart(Departure::Stopping(c.id));
+    }
 }
 
 /// The coordinator now: an agent with an open span of the role coordinator.
@@ -397,6 +454,16 @@ fn apply_owner(reg: &mut Registry, comment_id: u64, cmd: OwnerCommand) {
             if let Some(e) = reg.agents.get_mut(name.as_str()) {
                 e.rejected = true;
                 e.close_span(comment_id);
+                e.depart(Departure::Rejected(comment_id));
+            }
+        }
+        // The owner's stop is in the log: the coordinator returns the tickets of the agent. The
+        // span stays open, so a running agent drains and signs its marker (spec/board#lifecycle).
+        OwnerCommand::Stop { name } => {
+            if let Some(e) = reg.agents.get_mut(name.as_str())
+                && e.approved()
+            {
+                e.depart(Departure::OwnerStop(comment_id));
             }
         }
         OwnerCommand::SetRole { name, role } => {
@@ -426,14 +493,13 @@ fn apply_owner(reg: &mut Registry, comment_id: u64, cmd: OwnerCommand) {
             }
         }
         // a profile change is applied to the item by the command; it does not decide who may speak
-        OwnerCommand::Profile { .. }
-        | OwnerCommand::Pause { .. }
-        | OwnerCommand::Resume { .. }
-        | OwnerCommand::Stop { .. } => {}
+        OwnerCommand::Profile { .. } | OwnerCommand::Pause { .. } | OwnerCommand::Resume { .. } => {
+        }
     }
 }
 
-/// States in which an approved agent may speak.
+/// The item States that fit an approved agent whose span is open. Any other State is a
+/// contradiction that `status` reports; it does not mute the agent (the log decides).
 pub fn state_may_speak(state: &str) -> bool {
     matches!(
         state,
@@ -467,12 +533,14 @@ impl TrustSpan {
 
 #[derive(Debug, Clone, Default)]
 pub struct Trust {
-    /// Who may act NOW (item readable, key and State agree). For `me_of`, assignment, `status`.
+    /// Who may act NOW: approved, the span open, the item readable on this board. The item
+    /// `Key` and `State` do not decide it. For `me_of`, assignment, `status`.
     pub agents: BTreeMap<String, TrustedAgent>,
     /// Who was an agent at which comment, from the registry log alone. For judging a PAST
     /// message (`at`): a handover, a leave or a reject does not change history.
     pub spans: BTreeMap<String, Vec<TrustSpan>>,
-    /// Why an approved agent is not trusted (item missing, key mismatch, bad state).
+    /// Why an approved agent is not trusted (span ended, item missing), and the item fields that
+    /// contradict the log (`Key`, `State`) of an agent that stays trusted.
     pub problems: Vec<String>,
 }
 
@@ -495,8 +563,9 @@ impl Trust {
 
 /// Combine the registry with the agent items read by id.
 ///
-/// An approved agent is trusted only if its item exists on this board, its `Key` field is
-/// the key of the join, and its `State` allows speaking.
+/// An approved agent is trusted if the registry log has not ended its span and its item exists
+/// on this board. A `Key` or `State` of the item that contradicts the log is reported in
+/// `problems`; it does not mute the agent (spec/board#fields: the signed log decides).
 pub fn build_trust(
     reg: &Registry,
     items: &HashMap<String, ItemSnapshot>,
@@ -558,12 +627,15 @@ pub fn build_trust(
                 "Key field of the item differs from the key of the join; the signed join decides, fix the field",
             ));
         }
+        // The State is the agent's own mirror. A forced stop that the log records (the owner's
+        // `/crew stop`, the agent's notice) fits `left`. Anything else that does not fit an open
+        // span is reported; the agent stays trusted, so one field write cannot mute it.
         let state = item.field("State").unwrap_or("");
-        if !state_may_speak(state) {
+        let logged_stop = state == "left" && e.departure.is_some();
+        if !state_may_speak(state) && !logged_stop {
             t.problems.push(problem(&format!(
-                "item State is '{state}' but the registry log has not ended this agent; a hand edit, or `stop --force`, or an agent that has not joined fully yet"
+                "item State is '{state}' but the registry log has not stopped or ended this agent; the log decides, so it may still act (a hand edit, a forced stop by the coordinator, or an agent that has not joined fully yet)"
             )));
-            continue;
         }
         t.agents.insert(
             e.name.clone(),
@@ -1164,7 +1236,7 @@ registry_issue = 2
     }
 
     #[test]
-    fn trust_needs_item_key_and_state_to_agree() {
+    fn trust_needs_an_open_span_and_a_readable_item_and_reports_key_and_state() {
         let k = generate_key().unwrap();
         let reg = resolve(
             &cfg(),
@@ -1180,9 +1252,27 @@ registry_issue = 2
             build_trust(&reg, &m, 15).agents.contains_key("claude@a")
         };
         assert!(ok("active", &line, 15), "key, state and project agree");
-        // Each wrong value must make the agent untrusted.
-        assert!(!ok("requested", &line, 15), "state requested");
-        assert!(!ok("left", &line, 15), "state left");
+        // The item State is a mirror too: a State that does not fit an open span is reported
+        // and does not mute the agent (one field write must not silence it).
+        for state in ["requested", "left", ""] {
+            assert!(ok(state, &line, 15), "state '{state}': the log decides");
+            let mut m = HashMap::new();
+            m.insert("PVTI_a".to_string(), item("PVTI_a", &line, state, 15));
+            let t = build_trust(&reg, &m, 15);
+            assert!(
+                t.problems.iter().any(|p| p.contains(&format!(
+                    "item State is '{state}' but the registry log has not"
+                ))),
+                "{state}: {:?}",
+                t.problems
+            );
+        }
+        // control: a State that fits reports nothing
+        for state in ["approved", "active", "paused", "draining"] {
+            let mut m = HashMap::new();
+            m.insert("PVTI_a".to_string(), item("PVTI_a", &line, state, 15));
+            assert!(build_trust(&reg, &m, 15).problems.is_empty(), "{state}");
+        }
         let other = pub_line(&generate_key().unwrap(), "claude@a");
         // The item Key is a mirror: a contradiction reports a problem and does not silence
         assert!(
@@ -1230,5 +1320,108 @@ registry_issue = 2
         let t = build_trust(&reg, &m, 15);
         assert_eq!(t.get("claude@a").unwrap().role, Role::Coordinator);
         assert!(t.coordinator_exists());
+    }
+
+    fn items_with(id: &str, key: &str, state: &str) -> HashMap<String, ItemSnapshot> {
+        let mut m = HashMap::new();
+        m.insert(id.to_string(), item(id, key, state, 15));
+        m
+    }
+
+    #[test]
+    fn the_owner_stop_is_a_departure_in_the_log_that_keeps_the_span_open() {
+        let k = generate_key().unwrap();
+        let line = pub_line(&k, "claude@a");
+        let base = vec![
+            join_comment(1, "claude@a", &k, "PVTI_a"),
+            owner(2, "/crew approve claude@a role=dev"),
+        ];
+        // control: no stop, no departure
+        assert_eq!(resolve(&cfg(), &base).agents["claude@a"].departure, None);
+        let mut stopped = base.clone();
+        stopped.push(owner(5, "/crew stop claude@a"));
+        stopped.push(owner(6, "/crew stop claude@a"));
+        let reg = resolve(&cfg(), &stopped);
+        let e = &reg.agents["claude@a"];
+        assert_eq!(e.departure, Some(Departure::OwnerStop(5)), "the first stop");
+        assert_eq!(
+            e.departure.unwrap().reason(),
+            "is stopping (the owner's /crew stop)"
+        );
+        assert!(!e.departure.unwrap().ended());
+        // the span stays open: the agent drains and signs its marker, which counts
+        let t = build_trust(&reg, &items_with("PVTI_a", &line, "draining"), 15);
+        assert!(t.at("claude@a", 9).is_some());
+        assert!(t.get("claude@a").is_some());
+        // the State `left` of a forced stop fits a logged stop: no problem line
+        let t = build_trust(&reg, &items_with("PVTI_a", &line, "left"), 15);
+        assert!(t.get("claude@a").is_some());
+        assert!(t.problems.is_empty(), "{:?}", t.problems);
+        // the marker after the stop ends the span; a reject after it replaces it
+        stopped.push(left_marker(8, "claude@a", &k));
+        let reg = resolve(&cfg(), &stopped);
+        assert_eq!(reg.agents["claude@a"].departure, Some(Departure::Left(8)));
+        assert!(build_trust(&reg, &no_items(), 15).get("claude@a").is_none());
+        stopped.push(owner(9, "/crew reject claude@a"));
+        let reg = resolve(&cfg(), &stopped);
+        assert_eq!(
+            reg.agents["claude@a"].departure,
+            Some(Departure::Rejected(9))
+        );
+        // a stop before the approval, or of a name without a join, is no departure
+        let early = resolve(
+            &cfg(),
+            &[
+                join_comment(1, "claude@a", &k, "PVTI_a"),
+                owner(2, "/crew stop claude@a"),
+                owner(3, "/crew stop nobody@x"),
+                owner(4, "/crew approve claude@a role=dev"),
+            ],
+        );
+        assert_eq!(early.agents["claude@a"].departure, None);
+        assert!(!early.agents.contains_key("nobody@x"));
+    }
+
+    #[test]
+    fn the_signed_stopping_notice_of_the_agent_itself_is_a_departure() {
+        let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
+        let base = vec![
+            join_comment(1, "claude@a", &ka, "PVTI_a"),
+            join_comment(2, "hermes@b", &kb, "PVTI_b"),
+            owner(3, "/crew approve claude@a role=dev"),
+            owner(4, "/crew approve hermes@b role=dev"),
+        ];
+        let notice = |id: u64, from: &str, named: &str, key: &PrivateKey| {
+            signed(
+                id,
+                "owner-login",
+                key,
+                from,
+                "coordinator",
+                Kind::Info,
+                &crate::protocol::acts::stopping_body(named, "none"),
+            )
+        };
+        let mut own = base.clone();
+        own.push(notice(7, "claude@a", "claude@a", &ka));
+        let reg = resolve(&cfg(), &own);
+        assert_eq!(
+            reg.agents["claude@a"].departure,
+            Some(Departure::Stopping(7))
+        );
+        assert!(
+            build_trust(&reg, &no_items(), 15)
+                .at("claude@a", 9)
+                .is_some()
+        );
+        // b names a, or signs for a with its own key: neither is a's notice
+        for forged in [
+            notice(7, "hermes@b", "claude@a", &kb),
+            notice(7, "claude@a", "claude@a", &kb),
+        ] {
+            let mut cs = base.clone();
+            cs.push(forged);
+            assert_eq!(resolve(&cfg(), &cs).agents["claude@a"].departure, None);
+        }
     }
 }

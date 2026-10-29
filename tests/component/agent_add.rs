@@ -519,7 +519,7 @@ fn b4_start_refused_names_the_step_and_doctor_as_the_fix_and_keeps_its_exit_code
     // twin: the approval is posted but `approve` has not written the State yet: still waiting
     let bin = seam(
         &s,
-        "echo \"refused [rule=sender-not-approved]: x is not an approved agent: approved, but not trusted (x: item State is 'requested' but the registry log has not ended this agent; a hand edit, or \\`stop --force\\`, or an agent that has not joined fully yet)\" >&2\nexit 2",
+        "echo \"refused [rule=agent-approval-pending]: x: the owner's approval is in the registry log, but the item State is still 'requested' (\\`approve\\` writes 'approved' a moment later); run \\`crewboard start\\` again\" >&2\nexit 2",
     );
     let o = s.add("agents/dev1", "work", &["--crewboard", &bin]);
     assert_eq!(o.code, 0, "{}", o.all());

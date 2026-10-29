@@ -183,26 +183,29 @@ pub fn paused_ready_text(agent: &str, keys: &[String]) -> String {
 
 /// The justification of a reassign that needs no stated reason
 /// (spec/tickets#status-flow-and-writers: "agent is dead, stopped"): the text, or a refusal if the
-/// agent is not dead and not stopping.
+/// agent is not dead and the registry log does not stop it. `logged` is what the log says
+/// (`Departure::reason` of the registry: "is stopping (the owner's /crew stop)"); the board
+/// `State` is not asked, since one field write must not take the tickets of an agent. `state`
+/// only names the State in the refusal.
 pub fn derived_reassign_reason(
     agent: &str,
+    logged: Option<&str>,
     state: Option<&str>,
     live: &Liveness,
     interval: i64,
 ) -> Result<String, crate::rules::Refusal> {
-    match (state, live) {
-        (Some("draining"), _) => Ok(format!("agent {agent} is stopping (State draining)")),
-        (Some("left"), _) => Ok(format!("agent {agent} has left (State left)")),
-        (_, Liveness::Dead { age }) => Ok(format!(
+    match (logged, live) {
+        (Some(why), _) => Ok(format!("agent {agent} {why}")),
+        (None, Liveness::Dead { age }) => Ok(format!(
             "agent {agent} is dead: no heartbeat for {age} s (late after {} s, dead after {} s)",
             LATE_INTERVALS * interval,
             DEAD_INTERVALS * interval
         )),
-        (s, l) => Err(crate::rules::Refusal::new(
+        (None, l) => Err(crate::rules::Refusal::new(
             "status-reassign-not-justified",
             format!(
-                "agent {agent} is neither dead nor stopping (State {}, liveness {}): give a reason with --reason or wait",
-                s.unwrap_or("?"),
+                "agent {agent} is neither dead nor stopped in the registry log (State {}, liveness {}): give a reason with --reason or wait",
+                state.unwrap_or("?"),
                 l.word()
             ),
         )),
@@ -374,7 +377,7 @@ mod tests {
     #[test]
     fn a_derived_reassign_is_justified_for_a_dead_stopping_or_departed_agent_only() {
         let dead = Liveness::Dead { age: 150 };
-        let why = derived_reassign_reason("b@y", Some("working"), &dead, I).unwrap();
+        let why = derived_reassign_reason("b@y", None, Some("working"), &dead, I).unwrap();
         assert!(
             why.contains("dead") && why.contains("150 s") && !why.contains("ping"),
             "{why}"
@@ -383,21 +386,36 @@ mod tests {
             why.contains("late after 60 s") && why.contains("dead after 100 s"),
             "{why}"
         );
-        // stopping or gone agents are justified without a heartbeat judgement
+        // agents that the log stops or ends are justified without a heartbeat judgement
         let alive = Liveness::Alive { age: 1 };
-        assert!(derived_reassign_reason("b@y", Some("draining"), &alive, I).is_ok());
-        assert!(derived_reassign_reason("b@y", Some("left"), &alive, I).is_ok());
+        let why = derived_reassign_reason(
+            "b@y",
+            Some("has left (its signed lifecycle: left marker)"),
+            Some("active"),
+            &alive,
+            I,
+        )
+        .unwrap();
+        assert_eq!(
+            why,
+            "agent b@y has left (its signed lifecycle: left marker)"
+        );
+        // the board State alone justifies nothing: one field write must not take the tickets
+        for st in ["draining", "left"] {
+            let e = derived_reassign_reason("b@y", None, Some(st), &alive, I).unwrap_err();
+            assert_eq!(e.rule, "status-reassign-not-justified", "{st}");
+        }
         // refused: alive, only late (not yet dead), not running
         for l in [
             alive.clone(),
             Liveness::Late { age: Some(70) },
             Liveness::NotRunning,
         ] {
-            let e = derived_reassign_reason("b@y", Some("working"), &l, I).unwrap_err();
+            let e = derived_reassign_reason("b@y", None, Some("working"), &l, I).unwrap_err();
             assert_eq!(e.rule, "status-reassign-not-justified");
         }
         assert_eq!(
-            derived_reassign_reason("b@y", Some("paused"), &alive, I)
+            derived_reassign_reason("b@y", None, Some("paused"), &alive, I)
                 .unwrap_err()
                 .rule,
             "status-reassign-not-justified"

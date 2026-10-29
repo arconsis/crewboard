@@ -730,7 +730,7 @@ Options:
 ```text
 Drain open tickets, then leave the crew.
 
-Agent: drain (open tickets go back to Backlog through the coordinator), then leave. Owner: `--agent <name>` posts `/crew stop <name>`. With `--force` the owner or the coordinator ends an agent that cannot drain: its open tickets go back to Backlog and its State becomes left (the key stays valid; `/crew reject` revokes it).
+Agent: drain (open tickets go back to Backlog through the coordinator), then leave. Owner: `--agent <name>` posts `/crew stop <name>`. With `--force` the owner or the coordinator ends an agent that cannot drain: its open tickets go back to Backlog and its State becomes left. The owner's forced stop also posts `/crew stop <name>`, because the registry log, not the State, stops an agent (the key stays valid; `/crew reject` revokes it).
 
 Usage: crewboard stop [OPTIONS]
 

@@ -679,7 +679,7 @@ fn agent_findings(w: &W, a: BoardAgent) -> Vec<String> {
 fn a_clean_agent_row_is_no_mismatch() {
     let w = w();
     for (n, r) in [("claude@a", "Coordinator"), ("hermes@b", "Dev")] {
-        for st in ["approved", "active", "draining"] {
+        for st in ["approved", "active", "paused"] {
             assert!(
                 agent_findings(&w, agent_row(&w, n, r, st)).is_empty(),
                 "{n} {st}"
@@ -747,6 +747,15 @@ fn a_state_of_a_left_or_rejected_agent_must_not_let_it_speak() {
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(got[0].contains("the owner rejected the agent"));
     assert!(agent_findings(&w, agent_row(&w, "codex@c", "Dev", "left")).is_empty());
+    // approved and not stopped in the log: `left` and `draining` contradict it
+    for st in ["left", "draining"] {
+        let got = agent_findings(&w, agent_row(&w, "claude@a", "Coordinator", st));
+        assert_eq!(got.len(), 1, "{st}: {got:?}");
+        assert!(
+            got[0].contains(&format!("board State is {st}, the log shows no stop")),
+            "{got:?}"
+        );
+    }
     // a join without an approval does not speak
     let mut g = agent_row(&w, "ghost@z", "Dev", "active");
     g.key = None;
@@ -758,6 +767,39 @@ fn a_state_of_a_left_or_rejected_agent_must_not_let_it_speak() {
     let mut g = agent_row(&w, "ghost@z", "Dev", "requested");
     g.key = None;
     assert!(!agent_findings(&w, g).iter().any(|d| d.contains("approval")));
+}
+
+#[test]
+fn a_state_left_or_draining_fits_a_stop_in_the_log() {
+    let (ka, kb, kc) = (
+        generate_key().unwrap(),
+        generate_key().unwrap(),
+        generate_key().unwrap(),
+    );
+    let cfg = cfg();
+    let reg = resolve(
+        &cfg,
+        &[
+            join_comment(1, "claude@a", &ka, "PVTI_a"),
+            join_comment(2, "hermes@b", &kb, "PVTI_b"),
+            owner(5, "/crew approve claude@a role=coordinator"),
+            owner(6, "/crew approve hermes@b role=dev"),
+            owner(7, "/crew stop hermes@b"),
+        ],
+    );
+    let w = W {
+        ka,
+        kb,
+        kc,
+        reg,
+        cfg,
+    };
+    for st in ["left", "draining"] {
+        assert!(
+            agent_findings(&w, agent_row(&w, "hermes@b", "Dev", st)).is_empty(),
+            "{st}"
+        );
+    }
 }
 
 #[test]

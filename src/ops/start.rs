@@ -213,6 +213,16 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
         ))
     })?;
     let state = item.field("State").and_then(State::parse);
+    // The registry log approved the agent, but `approve` writes the State `approved` a moment
+    // after its signed comment. Starting now would race that write, so `start` waits for it.
+    if state == Some(State::Requested) {
+        return Err(CbError::refused(
+            "agent-approval-pending",
+            format!(
+                "{me}: the owner's approval is in the registry log, but the item State is still 'requested' (`approve` writes 'approved' a moment later); run `crewboard start` again"
+            ),
+        ));
+    }
     let mut out = refreshed.text;
     // Single coordinator (spec/board#coordinator-role), checked again at start.
     let crew: Vec<CrewMember> = world

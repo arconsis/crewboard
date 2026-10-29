@@ -2,6 +2,15 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Fixed:
+
+- The board `State` of an agent no longer mutes it or returns its tickets. The registry log
+  decides: a `State` that contradicts it is reported (`status`, `audit`, one note to the owner).
+- The owner's `stop --force` posts `/crew stop <name>`, so the stop is in the log. The
+  coordinator returns the tickets of an agent that the log stops.
+
 ## v0.6.0 (2026-10-29)
 
 The first public release.
