@@ -46,6 +46,15 @@ pub fn canonical_dir(home: &Path) -> PathBuf {
     home.join(".config").join("agent-skills").join("crewboard")
 }
 
+/// The installed skill: the version its manifest names, and the shared copy. `None` without a
+/// manifest (no install, or a copy made without `skill install`).
+pub fn installed(home: &Path) -> Option<(String, PathBuf)> {
+    let canon = canonical_dir(home);
+    let text = std::fs::read_to_string(canon.join(MANIFEST)).ok()?;
+    let m: Manifest = serde_json::from_str(&text).ok()?;
+    Some((m.version, canon))
+}
+
 fn skills_dir(home: &Path, runtime: &str) -> PathBuf {
     match runtime {
         "claude" => home.join(".claude/skills"),
@@ -633,4 +642,26 @@ pub fn run_install(a: &InstallArgs) -> CbResult<u8> {
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installed_reads_the_version_and_the_shared_copy_from_the_manifest() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(installed(home.path()), None);
+        let canon = canonical_dir(home.path());
+        write_manifest(&canon, manifest_entries()).unwrap();
+        let version = skill_version(
+            std::str::from_utf8(crate::skill_embed::embedded("SKILL.md").unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(installed(home.path()), Some((version, canon.clone())));
+        // a copy made without `skill install` has no manifest
+        std::fs::remove_file(canon.join(MANIFEST)).unwrap();
+        std::fs::write(canon.join("SKILL.md"), "x").unwrap();
+        assert_eq!(installed(home.path()), None);
+    }
 }

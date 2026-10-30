@@ -23,7 +23,7 @@ pub use board::{
     BoardConfig, IDENTITY_KEYS, INITIATIVE_FILE, LATE_OFF, LateConfig, RequiredTool, StaleConfig,
     split_repo, valid_initiative_name,
 };
-pub use dir::ConfigDir;
+pub use dir::{ConfigDir, JOIN_FIRST};
 pub use init_merge::{INIT_KEYS, merge_init_keys};
 pub use keys::{load_key, load_or_create_key, public_line};
 

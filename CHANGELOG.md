@@ -25,6 +25,22 @@ Changed:
   it. The skill tells the agent: on 64, fix the command and run it again. A script that read 4
   as "bad command line" reads 64 now. `--help` and `--version` stay 0. The one line of
   `monitor` for a bad option says `exit 64`.
+- A bare `crewboard` prints the overview to standard output and exits 0, like `--help`. It
+  exited 4 before.
+- `crewboard doctor` starts with a host block: the `gh` version (missing or older than 2.17 is
+  the one failure of the report), the `git` version and the installed skill with its version
+  and path. The lines of the headless scope follow as before.
+- The "no board config" error names the visible ways first: a checkout with `.crewboard.toml`,
+  `--initiative <name>`, `crewboard init` on a fresh host; the hidden `--initiative-file` is the
+  last option.
+- The owner line of the overview puts the steps in the order of the guide: `agent token`,
+  `init`, then for each agent `agent add` on its host and `approve`.
+
+Fixed:
+
+- `doctor --setup`: the FAIL line of a missing agent config names one fix, `agent add` (the
+  join is what `agent add` runs on the host); it also said "run `crewboard join` first".
+- `init -h` says "crew token" for `--env-file`, as every other help text does.
 - Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
   account merged without a verify gives no Done; the coordinator does not merge its own
   ticket work, and such a ticket can only be dropped.

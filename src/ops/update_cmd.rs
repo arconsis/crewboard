@@ -577,7 +577,7 @@ fn read_capped(path: &Path, max: u64) -> CbResult<Vec<u8>> {
     clippy::disallowed_methods,
     reason = "real elapsed time of a child process"
 )]
-fn version_line(bin: &Path) -> Result<String, String> {
+pub(crate) fn version_line(bin: &Path) -> Result<String, String> {
     let mut child = crate::spawn::spawn_retrying(
         Command::new(bin)
             .arg("--version")

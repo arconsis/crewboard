@@ -51,14 +51,15 @@ fn bearers(fake: &FakeBoard) -> Vec<String> {
     v
 }
 
-/// A fake `gh` in a new dir: `gh auth token` prints `token` and leaves a marker file.
+/// A fake `gh` in a new dir: `gh auth token` prints `token` and leaves a marker file;
+/// `gh --version` prints a version (`doctor` asks for it).
 fn fake_gh(token: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let d = tempfile::tempdir().unwrap();
     let marker = d.path().join("gh-ran");
     write(
         &d.path().join("gh"),
         &format!(
-            "#!/bin/sh\n: >'{}'\n[ \"$1 $2\" = 'auth token' ] && echo {token}\n",
+            "#!/bin/sh\n[ \"$1\" = --version ] && echo 'gh version 2.40.0 (2024-01-01)' && exit 0\n: >'{}'\n[ \"$1 $2\" = 'auth token' ] && echo {token}\n",
             marker.display()
         ),
         0o755,

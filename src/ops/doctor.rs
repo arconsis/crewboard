@@ -1,8 +1,9 @@
-//! `doctor` (spec/agents#headless-coordinator): a local report of the headless scope.
+//! `doctor` (spec/agents#headless-coordinator): a local report of the host and the headless scope.
 //!
-//! It says whether the `headless` key of the config dir switches the scope on (a guardrail, not
-//! a boundary) or not, and notes a leftover system scope file that crewboard does not read any
-//! more. It reads no board and sends no request.
+//! The host block comes first: `gh` (the only line that can fail the report: crewboard needs
+//! [`GH_MIN`] or newer), `git` and the installed skill. Then it says whether the `headless` key
+//! of the config dir switches the scope on (a guardrail, not a boundary) or not. It reads no
+//! board and sends no request.
 //!
 //! `doctor --board` also reads the board and warns about the built-in project workflows that
 //! write Status behind crewboard (spec/board#built-in-project-workflows), and about a default
@@ -20,7 +21,97 @@ use crate::config::ConfigDir;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::find_on_path;
 use crate::rules::fields::Field;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The oldest `gh` that crewboard works with, as (major, minor).
+pub const GH_MIN: (u32, u32) = (2, 17);
+
+/// What the host has: the first line of `gh --version` and of `git --version` (`None`: not on
+/// the PATH; the reason when the program gives no version line), and the installed skill
+/// (version, shared copy).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Host {
+    pub gh: Option<String>,
+    pub git: Option<String>,
+    pub skill: Option<(String, PathBuf)>,
+}
+
+impl Host {
+    /// Ask the host: the PATH of this shell, `$HOME` for the skill.
+    pub fn probe() -> Host {
+        let path = std::env::var("PATH").unwrap_or_default();
+        // a program that is found but gives no version line is reported with the reason
+        let version = |name: &str| {
+            let exe = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+            find_on_path(&exe, &path)
+                .map(|p| super::update_cmd::version_line(&p).unwrap_or_else(|e| e))
+        };
+        Host {
+            gh: version("gh"),
+            git: version("git"),
+            skill: super::skill_cmd::home_dir()
+                .ok()
+                .and_then(|h| super::skill_cmd::installed(&h)),
+        }
+    }
+}
+
+/// The `gh` line, and whether `gh` is good enough: missing or older than [`GH_MIN`] is a failure.
+/// `version`: the first line of `gh --version` (`gh version 2.x.y (date)`).
+pub fn gh_line(version: Option<&str>) -> (String, bool) {
+    let (major, minor) = GH_MIN;
+    let Some(line) = version else {
+        return (
+            format!("gh: not found (install GitHub CLI {major}.{minor} or newer)"),
+            false,
+        );
+    };
+    let v = version_word(line);
+    match major_minor(v) {
+        Some(got) if got >= GH_MIN => (format!("gh: {v} ok"), true),
+        Some(_) => (format!("gh: {v}, {major}.{minor} or newer needed"), false),
+        None => (
+            format!("gh: {v}, version not understood ({major}.{minor} or newer needed)"),
+            true,
+        ),
+    }
+}
+
+/// The `git` line: informational. `version`: the first line of `git --version`.
+pub fn git_line(version: Option<&str>) -> String {
+    match version {
+        Some(line) => format!("git: {} ok", version_word(line)),
+        None => "git: not found".to_string(),
+    }
+}
+
+/// The skill line: informational. `installed`: the version and the shared copy of the skill.
+pub fn skill_line(installed: Option<(&str, &Path)>) -> String {
+    match installed {
+        Some((v, dir)) => format!("skill: {v} at {}", dir.display()),
+        None => "skill: not installed (run crewboard skill install)".to_string(),
+    }
+}
+
+/// The word after `version` in a `--version` line (`gh version 2.4.0 (2024-01-01)` gives
+/// `2.4.0`); the whole line when there is none.
+fn version_word(line: &str) -> &str {
+    let line = line.trim();
+    let mut words = line.split_whitespace();
+    words
+        .by_ref()
+        .find(|w| *w == "version")
+        .and_then(|_| words.next())
+        .unwrap_or(line)
+}
+
+/// `2.17.1` gives (2, 17).
+fn major_minor(v: &str) -> Option<(u32, u32)> {
+    let mut parts = v.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
 
 /// The headless scope line for each state.
 pub const GUARDRAIL: &str = "headless scope: per-dir key only (guardrail)";
@@ -70,7 +161,26 @@ pub fn board_report(g: &Global, scope_ok: bool) -> String {
     w + &guard
 }
 
-/// The report, and the result: `Ok`, or a config error when the config dir cannot be read.
+/// The report of this host, and the result (see [`report`]).
+/// The host block, one line each for `gh`, `git` and the skill, and the result: `Ok`, or a
+/// config error when `gh` is missing or older than [`GH_MIN`].
+pub fn host_report(host: &Host) -> (String, CbResult<()>) {
+    let (gh, gh_ok) = gh_line(host.gh.as_deref());
+    let out = format!(
+        "{gh}\n{}\n{}\n",
+        git_line(host.git.as_deref()),
+        skill_line(host.skill.as_ref().map(|(v, p)| (v.as_str(), p.as_path())))
+    );
+    let result = if gh_ok {
+        Ok(())
+    } else {
+        Err(CbError::config(gh))
+    };
+    (out, result)
+}
+
+/// The headless scope part, and the result: `Ok`, or a config error when the config dir cannot
+/// be read.
 pub fn run(config_dir: Option<&Path>) -> (String, CbResult<()>) {
     let mut out = String::new();
     let mut result = Ok(());
@@ -764,7 +874,7 @@ fn load_setup_agent(
             rep.push(
                 "agent config",
                 fail(
-                    e.to_string(),
+                    without_join_hint(&e.to_string()),
                     format!(
                         "crewboard agent add <owner>/<repo> --env-file <initiative>.env --agent-dir {dir} --agent <agent> --runtime <claude|codex|hermes> --work-dir <work-dir>"
                     ),
@@ -789,6 +899,15 @@ fn load_setup_agent(
             None
         }
     }
+}
+
+/// The message of a config error without its join hint: the fix of `doctor --setup` names
+/// `agent add`, which runs the join on the host.
+fn without_join_hint(message: &str) -> String {
+    message
+        .strip_suffix(crate::config::JOIN_FIRST)
+        .map_or(message, |m| m.trim_end_matches("; "))
+        .to_string()
 }
 
 /// The token: its login and, for a classic token, its scopes. Returns the client and the login if
@@ -1146,12 +1265,37 @@ mod tests {
         assert!(is_fail(&judge_toolchain(&cfg, Some(&rust))));
     }
 
+    /// A host with everything: `gh` new enough, `git`, the skill.
+    fn full_host() -> Host {
+        Host {
+            gh: Some("gh version 2.40.1 (2024-01-01)".into()),
+            git: Some("git version 2.39.5 (Apple Git-154)".into()),
+            skill: Some((
+                "0.7.1".into(),
+                PathBuf::from("/home/u/.config/agent-skills/crewboard"),
+            )),
+        }
+    }
+
+    #[test]
+    fn host_report_has_one_line_each_for_gh_git_and_the_skill() {
+        let (text, r) = host_report(&full_host());
+        assert!(r.is_ok(), "{text}");
+        assert_eq!(
+            text,
+            "gh: 2.40.1 ok\ngit: 2.39.5 ok\nskill: 0.7.1 at /home/u/.config/agent-skills/crewboard\n"
+        );
+    }
+
     #[test]
     fn run_reports_the_per_dir_key_as_a_guardrail() {
         let d = agent_dir(true);
         let (text, r) = run(Some(d.path()));
         assert!(r.is_ok(), "{text}");
-        assert!(text.contains("per-dir key: headless = true in"), "{text}");
+        assert!(
+            text.starts_with("per-dir key: headless = true in"),
+            "{text}"
+        );
         assert!(text.contains(GUARDRAIL), "{text}");
         assert!(text.contains("not a boundary"), "{text}");
     }
@@ -1164,6 +1308,117 @@ mod tests {
         assert!(text.contains("per-dir key: none in"), "{text}");
         assert!(text.contains(NONE) && !text.contains(GUARDRAIL), "{text}");
         assert!(!text.contains("not a boundary"), "{text}");
+    }
+
+    #[test]
+    fn only_a_missing_or_old_gh_fails_the_host_report() {
+        // git and the skill are information: a host without them passes
+        let gh_only = Host {
+            gh: Some("gh version 2.17.0 (2022-09-27)".into()),
+            ..Host::default()
+        };
+        let (text, r) = host_report(&gh_only);
+        assert!(r.is_ok(), "{text}");
+        assert!(text.contains("\ngit: not found\n"), "{text}");
+        assert!(
+            text.contains("\nskill: not installed (run crewboard skill install)\n"),
+            "{text}"
+        );
+        // an old gh fails, and the other lines are still there
+        let old = Host {
+            gh: Some("gh version 2.16.9 (2022-09-01)".into()),
+            ..full_host()
+        };
+        let (text, r) = host_report(&old);
+        let e = r.unwrap_err().to_string();
+        assert!(e.contains("gh: 2.16.9, 2.17 or newer needed"), "{e}");
+        assert!(text.contains("\ngit: 2.39.5 ok\n"), "{text}");
+        // no gh fails too
+        let (text, r) = host_report(&Host::default());
+        assert!(matches!(r, Err(CbError::Config(_))), "{text}");
+        assert!(
+            text.starts_with("gh: not found (install GitHub CLI 2.17 or newer)\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn gh_line_reads_the_version_word_and_compares_major_and_minor() {
+        assert_eq!(
+            gh_line(Some("gh version 2.17.0 (2022-09-27)")),
+            ("gh: 2.17.0 ok".to_string(), true)
+        );
+        assert_eq!(
+            gh_line(Some("gh version 3.0.0 (2027-01-01)")),
+            ("gh: 3.0.0 ok".to_string(), true)
+        );
+        assert_eq!(
+            gh_line(Some("gh version 2.4.0 (2022-01-01)")),
+            ("gh: 2.4.0, 2.17 or newer needed".to_string(), false)
+        );
+        assert_eq!(
+            gh_line(Some("gh version 1.99.0 (2021-01-01)")),
+            ("gh: 1.99.0, 2.17 or newer needed".to_string(), false)
+        );
+        // a line without a version word is shown as it is, and does not fail the report
+        assert_eq!(
+            gh_line(Some("something else")),
+            (
+                "gh: something else, version not understood (2.17 or newer needed)".to_string(),
+                true
+            )
+        );
+        assert_eq!(
+            gh_line(None),
+            (
+                "gh: not found (install GitHub CLI 2.17 or newer)".to_string(),
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn git_and_skill_lines_are_information() {
+        assert_eq!(
+            git_line(Some("git version 2.39.5 (Apple Git-154)")),
+            "git: 2.39.5 ok"
+        );
+        assert_eq!(git_line(Some("git version 2.43.0")), "git: 2.43.0 ok");
+        assert_eq!(git_line(None), "git: not found");
+        assert_eq!(
+            skill_line(Some((
+                "0.7.1",
+                Path::new("/h/.config/agent-skills/crewboard")
+            ))),
+            "skill: 0.7.1 at /h/.config/agent-skills/crewboard"
+        );
+        assert_eq!(
+            skill_line(None),
+            "skill: not installed (run crewboard skill install)"
+        );
+    }
+
+    #[test]
+    fn the_setup_fix_of_a_missing_agent_config_names_agent_add_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = crate::config::ConfigDir(dir.path().to_path_buf())
+            .load_agent_auto(None)
+            .unwrap_err()
+            .to_string();
+        let what = without_join_hint(&e);
+        assert_eq!(
+            what,
+            format!(
+                "configuration error: no agent config in {}",
+                dir.path().display()
+            )
+        );
+        assert!(!what.contains("join"), "{what}");
+        // a message without the hint stays as it is
+        assert_eq!(
+            without_join_hint("several initiatives"),
+            "several initiatives"
+        );
     }
 
     #[test]

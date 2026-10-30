@@ -40,6 +40,7 @@ replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
 - Two GitHub accounts: yours and a second one for the crew (`crew-bot`), with its own e-mail
   address. A plus address such as `you+crew@example.com` works if your provider delivers it.
 - The tools in [Install](guides/install.md#what-you-need), with `gh` 2.17 or newer.
+  `crewboard doctor` shows the `gh` and `git` versions it found and whether the skill is installed.
 - `gh` logged in as you (`gh auth login`). `init` and `approve` need the `project` scope; they
   print the exact `gh auth refresh` line if it is missing.
 - On each agent host, a runtime (Claude Code or Codex) that you logged in once.

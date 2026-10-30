@@ -984,3 +984,45 @@ fn explicit_runtime_links_even_when_absent() {
     assert!(h.join(".hermes/skills/shared/crewboard").is_symlink());
     assert!(r.out.contains("skill linked for: hermes"), "{}", r.out);
 }
+
+#[test]
+fn doctor_reports_the_installed_skill_from_the_manifest() {
+    let (_t, h) = home();
+    assert_eq!(skill(&h, &["install"]).code, 0);
+    let version = crewboard::skill_embed::skill_version(
+        std::str::from_utf8(crewboard::skill_embed::embedded("SKILL.md").unwrap()).unwrap(),
+    )
+    .unwrap();
+    // the binary: a PATH without gh fails the report, but every host line is printed
+    let doctor = |home: &Path| {
+        let o = Command::new(bin())
+            .args(["--config-dir"])
+            .arg(home.join("cfg"))
+            .arg("doctor")
+            .env("HOME", home)
+            .env("PATH", home)
+            .env_remove("CREWBOARD_CONFIG_DIR")
+            .output()
+            .unwrap();
+        (
+            o.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+        )
+    };
+    let (code, out) = doctor(&h);
+    assert_eq!(code, 4, "{out}");
+    assert!(
+        out.starts_with("gh: not found (install GitHub CLI 2.17 or newer)\ngit: not found\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains(&format!("\nskill: {version} at {}\n", canon(&h).display())),
+        "{out}"
+    );
+    let (_t2, fresh) = home();
+    let (_, out) = doctor(&fresh);
+    assert!(
+        out.contains("\nskill: not installed (run crewboard skill install)\n"),
+        "{out}"
+    );
+}

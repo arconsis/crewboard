@@ -317,7 +317,9 @@ fn red_no_agent_config_fails_first_and_skips_the_rest() {
         &["doctor", "--setup"],
         &[("PATH", &path)],
     );
-    only_fails(&o, "agent config", "crewboard agent add");
+    let l = only_fails(&o, "agent config", "crewboard agent add");
+    // one fix, not two: `agent add` runs the join on the host
+    assert!(!l.contains("crewboard join"), "{l}");
     for c in &CHECKS[1..] {
         if *c != "token scopes" {
             assert_eq!(line(&o, c).0, "skip", "{c}\n{}", o.all());

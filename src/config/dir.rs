@@ -10,6 +10,9 @@ use crate::error::{CbError, CbResult};
 use crate::protocol::names::AgentName;
 use std::path::{Path, PathBuf};
 
+/// The hint of a missing agent config: the step that writes it.
+pub const JOIN_FIRST: &str = "run `crewboard join` first";
+
 /// The directory that holds the local config and keys.
 #[derive(Debug, Clone)]
 pub struct ConfigDir(pub PathBuf);
@@ -112,10 +115,7 @@ impl ConfigDir {
     pub fn load_agent(&self, initiative: &str) -> CbResult<AgentConfig> {
         let p = self.agent_config_path(initiative);
         let text = std::fs::read_to_string(&p).map_err(|e| {
-            CbError::config(format!(
-                "cannot read {} ({e}); run `crewboard join` first",
-                p.display()
-            ))
+            CbError::config(format!("cannot read {} ({e}); {JOIN_FIRST}", p.display()))
         })?;
         if let Some(e) = unknown_loop_key(&p, &text) {
             return Err(e);
@@ -211,7 +211,7 @@ impl ConfigDir {
                 match all.as_slice() {
                     [one] => self.load_agent(one),
                     [] => Err(CbError::config(format!(
-                        "no agent config in {}; run `crewboard join` first",
+                        "no agent config in {}; {JOIN_FIRST}",
                         self.0.display()
                     ))),
                     many => Err(CbError::config(format!(
