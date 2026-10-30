@@ -6,6 +6,11 @@ find goes into a `report` to the coordinator.
 ## Work
 
 - Read the ticket: Goal, Gate, Scope, Pointers.
+- At the start of each wake, run `crewboard mine <n>` for each ticket that you work on. Run it
+  again before each `ask` or `say` question to the coordinator. It shows the signed thread since
+  your assignment, newest first: the answers and verify notes of the coordinator, the owner
+  comments, and your own reports. Do not ask again what it answers. Do not report a check as not
+  run when it shows your report of it.
 - Take the first Ready ticket of `crewboard mine`: `crewboard take <n>`. Never work without a
   `take`. Run the branch and PR lines that `take` prints.
 - Start the branch from `origin/main`, with the name of the `branch:` line of `take`. Never start
@@ -75,7 +80,8 @@ Optional. Use one only when the ticket, `take` or the wake prompt names it.
 
 ## Headless wake: work until done
 
-Handle the events that the wake prompt names. Go on with your In Progress ticket until `done`,
+Handle the events that the wake prompt names. Before you act on a ticket, read its thread
+with `crewboard mine <n>`. Go on with your In Progress ticket until `done`,
 `block` or `ask`. Then take the next Ready ticket. Stop only when you own none. A ticket that
 stands still is a failure of the wake. Do not watch the time: the wrapper ends the wake.
 Start shell commands in the work dir (no `cd`). Write logs only next to your events file or the

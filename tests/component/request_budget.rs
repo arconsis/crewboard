@@ -61,6 +61,7 @@ fn commands_that_load_tickets_make_the_same_number_of_reads() {
     got.push(("poll (dev, warm)", spent(&fake, &b, &["poll"])));
     got.push(("poll (coordinator)", spent(&fake, &c, &["poll"])));
     got.push(("mine", spent(&fake, &b, &["mine"])));
+    got.push(("mine <n>", spent(&fake, &b, &["mine", &t2])));
     got.push(("resume", spent(&fake, &b, &["resume"])));
     got.push(("status (dev)", spent(&fake, &b, &["status"])));
     got.push(("status (coordinator)", spent(&fake, &c, &["status"])));
@@ -85,7 +86,7 @@ fn commands_that_load_tickets_make_the_same_number_of_reads() {
         ),
     ));
     // The reads of each command above; a change here needs a reason.
-    let want: [(&str, usize); 14] = [
+    let want: [(&str, usize); 15] = [
         // The context reads AUTHORITY.md once (for `former_repos`) and keeps the text. A command
         // that read the file before reads it once, as often as before (status, take, verify,
         // done, assign; `resume` and the tick one or more times less). A command that did not
@@ -97,6 +98,9 @@ fn commands_that_load_tickets_make_the_same_number_of_reads() {
         // comment lists once (spec/security-details#deleted-notes)
         ("poll (coordinator)", 10),
         ("mine", 10),
+        // the context and the trust check of every agent command (5), plus the comment list of
+        // the ticket (1); no issue, item, PR or CI read
+        ("mine <n>", 6),
         // 29: `resume` read AUTHORITY.md three times before (selftest forgery, selftest, start);
         // it reads it once now; and `start` reads the default branch of the repo and its
         // protection (2 reads, `domain::branch_guard`), and the rules of the branch when

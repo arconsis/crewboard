@@ -4,6 +4,20 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- `crewboard mine <n>`: the signed thread of your own ticket since your current assignment,
+  newest first. It shows the answers, infos and verify notes of the coordinator, the owner
+  comments that count and your own reports. Comments that do not count are not shown; one line
+  counts them. A long message is cut with a note. Only the newest 15 are shown; a note counts
+  the older ones.
+  `--json` gives the same. A ticket of another agent is refused (`mine-not-your-ticket`). It
+  writes nothing. The dev skill and the wake prompt tell a dev agent to read it before it acts
+  on a ticket and before it asks the coordinator, so a wake does not ask again what was
+  answered.
+
+Changed:
+
 - Internal: no behaviour change. Comments say what the code does, three named reasons for a
   dropped result, test-only code in the test modules, one set of test builders, and the module
   names `repeat` and `wake::precheck` instead of two more meanings of "gate".

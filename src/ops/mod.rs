@@ -25,6 +25,7 @@ pub(crate) mod lifecycle;
 pub mod lock_cmd;
 pub(crate) mod log_check;
 pub(crate) mod mine;
+pub(crate) mod mine_digest;
 pub(crate) mod monitor;
 pub(crate) mod needs_owner_sync;
 pub(crate) mod own_notes;

@@ -73,6 +73,18 @@ situation = "Several independent causes in one ticket"
 action = "ask the coordinator to split it"
 
 [[case]]
+name = "dev: thread at the start of a wake"
+role = "dev"
+situation = "At the start of each wake"
+action = "run `crewboard mine <n>` for each ticket that you work on"
+
+[[case]]
+name = "dev: thread before a question"
+role = "dev"
+situation = "before each `ask` or `say` question to the coordinator"
+action = "`crewboard mine <n>`"
+
+[[case]]
 name = "dev: poll before push"
 role = "dev"
 situation = "before each `git push`"

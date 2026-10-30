@@ -84,7 +84,9 @@ Not tested: a real systemd or cron job on Linux, a full wake with a real board, 
    exit 1 means that every owned ticket only waits): the wrapper takes the lock of the agent.
 3. The wrapper runs `crewboard poll` (it moves the cursor, as `watch` does) and
    `crewboard mine`, and writes both to `<state-dir>/events.txt`. The prompt says "Your events
-   are in <file>; handle them." So the model does not need a first `watch`.
+   are in <file>; handle them." So the model does not need a first `watch`. The prompt also
+   says to read the thread of a ticket with `crewboard mine <n>` before the model acts on it:
+   the answers and verify notes that came before the cursor are not in the events.
 4. It starts `claude -p` in the work dir, under the time budget (`--max-wake`, default 45m), and
    sends a heartbeat every 5 minutes.
 5. At the time budget the wrapper stops the model. Then the wrapper, not the model, posts one
@@ -181,7 +183,7 @@ Notes on the options:
 
 Use a fresh session for every wake. Do not resume one session.
 
-- The board is the memory. The events file, `mine` and `resume` give the agent its state, and
+- The board is the memory. The events file, `mine`, `mine <n>` and `resume` give the agent its state, and
   a budget stop leaves a message on the ticket. A fresh run needs nothing else.
 - A resumed session grows with every wake. After days it is full and costs more per wake.
 - A resumed session that is damaged or still running blocks every later wake.

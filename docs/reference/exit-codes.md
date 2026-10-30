@@ -8,7 +8,7 @@ no table of their own. The [CLI reference](cli.md) lists the commands and option
 
 | Code | Name | Meaning |
 |---|---|---|
-| 0 | ok | Success. For `watch` and `poll`: events were printed. For `mine`: work to do now. |
+| 0 | ok | Success. For `watch` and `poll`: events were printed. For `mine`: work to do now. `mine <n>` returns 0 when it prints the thread. |
 | 1 | no | The answer is no and nothing is wrong. See the [commands that return 1](#commands-that-return-1). |
 | 2 | refused | A rule refused the command. The message names the rule and the fix. |
 | 3 | external | GitHub, CI or the network did not deliver. |

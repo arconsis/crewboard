@@ -822,14 +822,27 @@ pub enum WatchCmd {
     /// waits (CI of the PR head still runs, no answer yet, or Review), or you own none. An In
     /// Progress ticket whose PR head is behind its base shows a `hint:` line (`behind main by
     /// N commits; merge main before done`). The hint is advice and never changes the exit code.
+    ///
+    /// With a ticket (`mine <n>`): the signed thread of your ticket since your current
+    /// assignment, newest first. It shows the messages of the coordinator (answers, infos, verify
+    /// reports, unblock answers, reassign notices), the owner comments that count, and your own
+    /// messages (not the `take`). A comment that does not count (not signed by the crew, a copy,
+    /// or edited) is not shown; one line counts them. A long message is cut with a note. Only the
+    /// newest 15 messages are shown; a note counts the older ones. Read it at the start of each wake and before you
+    /// ask the coordinator. Exit 0. A ticket that the signed log does not assign to you is refused
+    /// (`mine-not-your-ticket`). It writes nothing.
     #[command(display_order = 27)]
     Mine {
+        /// Your ticket: an issue number, or `<owner>/<repo>#<n>`. Without it: the list of your
+        /// tickets.
+        issue: Option<String>,
         /// Print nothing; only the exit code tells (0 work to do now, 1 nothing to do now),
-        /// for `crewboard wake`.
-        #[arg(long, conflicts_with = "json")]
+        /// for `crewboard wake`. Not with a ticket.
+        #[arg(long, conflicts_with_all = ["json", "issue"])]
         quiet: bool,
         /// Print one JSON object instead of the text: `agent`, `rows`, `now`, `needs_agent` and
-        /// `first_ticket`. The exit code is the same.
+        /// `first_ticket`. The exit code is the same. With a ticket: `ticket`, `agent`, `since`,
+        /// `messages` (newest first), `left_out` and `not_counted`.
         #[arg(long)]
         json: bool,
         #[command(flatten)]
