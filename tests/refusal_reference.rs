@@ -94,7 +94,10 @@ fn the_refusal_page_is_generated_from_the_catalog() {
         fs::write(&path, &want).unwrap();
         return;
     }
-    let have = fs::read_to_string(&path).unwrap_or_default();
+    // a Windows checkout may turn LF into CRLF; the page is the same text either way
+    let have = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         have == want,
         "{PAGE} is out of date; run `CREWBOARD_UPDATE_DOCS=1 cargo test --test refusal_reference`"
