@@ -98,7 +98,7 @@ fn init_with_a_crew_login_and_the_flag_is_a_usage_error() {
         owner.path(),
         &init_args(&["--crew-login", "crew-bot", "--insecure-one-account"]),
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(o.stderr.contains("cannot be used with"), "{}", o.stderr);
     assert!(fake.requests().is_empty(), "{:?}", fake.requests());
 }

@@ -8,6 +8,7 @@
 //! The parsing and the judgement are pure functions. Only [`run`] reads the board.
 use super::AgentCtx;
 use super::tickets::load_world_cached;
+use crate::base::TicketRef;
 use crate::clock::parse_ts;
 use crate::error::{CbError, CbResult};
 use crate::services::ticket_loader::read_messages;
@@ -69,13 +70,13 @@ fn ends_block(l: &str) -> bool {
         || l.trim() == REDELIVERED_MARKER
 }
 
-fn parse_where(l: &str) -> Option<(String, u64)> {
+fn parse_where(l: &str) -> Option<TicketRef> {
     let w = l.strip_prefix("where: ")?.split_whitespace().next()?;
     let (repo, n) = w.rsplit_once('#')?;
     if !repo.contains('/') {
         return None;
     }
-    Some((repo.to_string(), n.parse().ok()?))
+    Some(TicketRef::new(repo, n.parse().ok()?))
 }
 
 fn parse_from_line(l: &str) -> Option<(String, String)> {
@@ -149,7 +150,7 @@ pub fn parse_events(text: &str) -> Vec<WakeEvent> {
             .iter()
             .find_map(|h| h.strip_prefix("ts: "))
             .and_then(|t| parse_ts(t.trim()));
-        if let (Some((to, kind)), Some((repo, issue))) = (from, wh) {
+        if let (Some((to, kind)), Some(TicketRef { repo, issue })) = (from, wh) {
             let mut end = block.len();
             while end > 1 && block[end - 1].trim().is_empty() {
                 end -= 1;
@@ -251,10 +252,11 @@ pub fn judge(
     let mut seen_tickets = BTreeSet::new();
     let mut out = Vec::new();
     for ((repo, issue, _, _), e) in cands {
-        if !seen_tickets.contains(&(repo.clone(), issue)) && seen_tickets.len() >= MAX_TICKETS {
+        let t = TicketRef::new(repo.clone(), issue);
+        if !seen_tickets.contains(&t) && seen_tickets.len() >= MAX_TICKETS {
             continue;
         }
-        seen_tickets.insert((repo.clone(), issue));
+        seen_tickets.insert(t);
         let Some(own) = own_of(&repo, issue) else {
             continue;
         };
@@ -298,9 +300,8 @@ pub fn run(
     redeliver_to: Option<&Path>,
 ) -> CbResult<String> {
     let since = match since {
-        Some(s) => parse_ts(s).ok_or_else(|| {
-            CbError::config(format!("--since: '{s}' is not YYYY-MM-DDTHH:MM:SSZ"))
-        })?,
+        Some(s) => parse_ts(s)
+            .ok_or_else(|| CbError::usage(format!("--since: '{s}' is not YYYY-MM-DDTHH:MM:SSZ")))?,
         None => 0,
     };
     let text = std::fs::read_to_string(events_file)

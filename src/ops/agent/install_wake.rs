@@ -105,6 +105,7 @@ fn parse(text: &str) -> Installed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::ids;
 
     #[test]
     fn the_flags_check_the_interval_and_a_rerun_line_keeps_only_what_is_not_default() {
@@ -139,7 +140,7 @@ mod tests {
         };
         let ok: Installer = |_, _| Ok("installed u (cron, every 5m); log: /l\n".into());
         assert_eq!(install(ok, &spec, &t).unwrap().status.len(), 1);
-        let bad: Installer = |_, _| Err(CbError::refused("second-wake-job", "x\nfix: y"));
+        let bad: Installer = |_, _| Err(CbError::refused(ids::SECOND_WAKE_JOB, "x\nfix: y"));
         assert_eq!(install(bad, &spec, &t).unwrap_err().exit().code(), 2);
     }
 

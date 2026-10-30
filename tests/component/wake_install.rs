@@ -521,7 +521,7 @@ fn a_wrong_option_exits_4_and_writes_nothing() {
     let no_rt = r.install_rt("Linux", "systemd", &dir, "codex", &nope, &[]);
     assert_eq!(no_rt.code, 4, "{}", no_rt.all());
     let bad_every = r.install("Linux", "systemd", &dir, &["--every", "soon"]);
-    assert_eq!(bad_every.code, 4, "{}", bad_every.all());
+    assert_eq!(bad_every.code, 64, "{}", bad_every.all());
     let claude = r.path("nvm/claude").display().to_string();
     let mac_cron = r.install_rt("Darwin", "cron", &dir, "claude", &claude, &[]);
     assert_eq!(mac_cron.code, 4, "{}", mac_cron.all());

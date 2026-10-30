@@ -45,13 +45,13 @@ use super::owner_applied::{Proof, names_this_ticket, patch_applied, tied};
 use super::pr_evidence::fetch_pr_files;
 use super::pr_read::{MergedPr, read_pr};
 use super::{Me, load_world_cached, me_of, needs_owner_lines, post, remember, to_agent};
+use crate::base::ids;
 use crate::error::CbResult;
 use crate::ops::say::check_body_text;
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::Refusal;
 use crate::rules::evidence::parse_pr_url;
-use crate::rules::ids;
 use crate::rules::status::{
     DoneReason, Status, Transition, check_status_transition, dropped_final,
 };
@@ -98,20 +98,17 @@ pub fn reason_of(reason: Option<&str>) -> CbResult<Option<String>> {
 pub fn judge_status(key: &str, status: Status, why: bool) -> Result<(), Refusal> {
     match status {
         Status::Done => Err(Refusal::new(
-            "status-no-change",
+            ids::STATUS_NO_CHANGE,
             format!("{key} is already Done"),
         )),
         Status::Dropped if why => Err(Refusal::new(
-            "status-no-change",
+            ids::STATUS_NO_CHANGE,
             format!("{key} is already Dropped"),
         )),
         Status::Dropped => Err(dropped_final()),
         _ => Ok(()),
     }
 }
-
-/// The rule of a drop on a board whose Status field has no option Dropped.
-pub const CLOSE_DROPPED_OPTION_MISSING: &str = "dropped-option-missing";
 
 /// A drop needs the option Dropped on the board (an older board lacks it until `init` runs
 /// again). Pure.
@@ -120,7 +117,7 @@ pub fn check_dropped_option(key: &str, has_option: bool) -> Result<(), Refusal> 
         return Ok(());
     }
     Err(Refusal::new(
-        CLOSE_DROPPED_OPTION_MISSING,
+        ids::DROPPED_OPTION_MISSING,
         format!(
             "the Status field of the board has no option Dropped, so {key} cannot be dropped: the owner runs `crewboard init` once more (it adds the option and keeps every other one). Nothing was written"
         ),
@@ -362,12 +359,12 @@ fn find_owner_route_merge(
 
 /// `close <issue> [--why <text>]` (coordinator).
 pub fn close_ticket(ac: &AgentCtx, issue_arg: &str, reason: Option<&str>) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     require_writer(&me)?;
     let reason = reason_of(reason)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     close_loaded(ac, &me, &t, reason.as_deref())
 }
 
@@ -376,7 +373,7 @@ fn require_writer(me: &Me) -> Result<(), Refusal> {
         Ok(())
     } else {
         Err(Refusal::new(
-            "status-wrong-writer",
+            ids::STATUS_WRONG_WRITER,
             "close is a coordinator action",
         ))
     }
@@ -683,7 +680,7 @@ mod tests {
     fn a_drop_needs_the_option_and_the_refusal_names_init() {
         assert!(check_dropped_option("o/r#12", true).is_ok());
         let r = check_dropped_option("o/r#12", false).unwrap_err();
-        assert_eq!(r.rule, CLOSE_DROPPED_OPTION_MISSING);
+        assert_eq!(r.rule, ids::DROPPED_OPTION_MISSING);
         assert!(r.message.contains("crewboard init"), "{}", r.message);
     }
 

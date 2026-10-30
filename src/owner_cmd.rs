@@ -6,6 +6,7 @@
 //! owner's account without a crew header). Parsing is pure. Whether the author may issue
 //! it is decided by the caller from the GitHub login.
 
+use crate::base::ids;
 use crate::protocol::names::AgentName;
 use crate::rules::status::Status;
 use crate::rules::{Refusal, Role};
@@ -122,11 +123,11 @@ pub fn role_name(r: Role) -> &'static str {
 }
 
 fn parse_role(s: &str) -> Result<Role, Refusal> {
-    Role::parse_named(s).map_err(|m| Refusal::new("owner-command-bad-role", m))
+    Role::parse_named(s).map_err(|m| Refusal::new(ids::OWNER_COMMAND_BAD_ROLE, m))
 }
 
 fn bad(m: impl Into<String>) -> Refusal {
-    Refusal::new("owner-command-malformed", m)
+    Refusal::new(ids::OWNER_COMMAND_MALFORMED, m)
 }
 
 fn name(s: Option<&str>) -> Result<AgentName, Refusal> {
@@ -326,13 +327,6 @@ pub fn approve_text(name: &AgentName, role: Role, key_fp: &str, item: &str, logi
     )
 }
 
-/// The rule of a target status that is not one of the board statuses.
-pub const MOVE_BAD_STATUS: &str = "move-bad-status";
-/// The rule of the target Done: a ticket ends through the coordinator's signed close.
-pub const MOVE_DONE_NEEDS_CLOSE: &str = "move-done-needs-close";
-/// The rule of the target Dropped: a ticket is dropped through the coordinator's signed note.
-pub const MOVE_DROPPED_NEEDS_CLOSE: &str = "move-dropped-needs-close";
-
 /// The status that an owner move names: a board status by its name, in any case, with `-` or `_`
 /// for the space (`in-progress`). Done, Dropped and an unknown name are refused. Pure.
 pub fn move_target(s: &str) -> Result<Status, Refusal> {
@@ -347,7 +341,7 @@ pub fn move_target(s: &str) -> Result<Status, Refusal> {
         .find(|x| x.name().to_lowercase() == want)
         .ok_or_else(|| {
             Refusal::new(
-                MOVE_BAD_STATUS,
+                ids::MOVE_BAD_STATUS,
                 format!(
                     "'{s}' is not a status: use Backlog, Ready, In Progress, Review or Blocked"
                 ),
@@ -355,11 +349,11 @@ pub fn move_target(s: &str) -> Result<Status, Refusal> {
         })?;
     match status {
         Status::Done => Err(Refusal::new(
-            MOVE_DONE_NEEDS_CLOSE,
+            ids::MOVE_DONE_NEEDS_CLOSE,
             "the owner does not move a ticket to Done: merge its PR, and the coordinator posts the signed close (`crewboard close <n>`)",
         )),
         Status::Dropped => Err(Refusal::new(
-            MOVE_DROPPED_NEEDS_CLOSE,
+            ids::MOVE_DROPPED_NEEDS_CLOSE,
             "the owner does not move a ticket to Dropped: ask the coordinator to drop it with a signed reason (`crewboard close <n> --why \"<reason>\"`)",
         )),
         _ => Ok(status),
@@ -514,12 +508,18 @@ mod tests {
         ] {
             assert_eq!(parse(t).unwrap_err().rule, "owner-command-malformed", "{t}");
         }
-        assert_eq!(move_target("Done").unwrap_err().rule, MOVE_DONE_NEEDS_CLOSE);
+        assert_eq!(
+            move_target("Done").unwrap_err().rule,
+            ids::MOVE_DONE_NEEDS_CLOSE
+        );
         assert_eq!(
             move_target("dropped").unwrap_err().rule,
-            MOVE_DROPPED_NEEDS_CLOSE
+            ids::MOVE_DROPPED_NEEDS_CLOSE
         );
-        assert_eq!(move_target("Elsewhere").unwrap_err().rule, MOVE_BAD_STATUS);
+        assert_eq!(
+            move_target("Elsewhere").unwrap_err().rule,
+            ids::MOVE_BAD_STATUS
+        );
         // the reason line is free text: a status word in it changes nothing
         assert_eq!(
             parse("/crew move Ready\nDone is wrong here").unwrap(),
@@ -561,7 +561,11 @@ mod tests {
             "/crew launch a@b",
         ] {
             let e = parse(t).expect_err(t);
-            assert!(e.rule.starts_with("owner-command"), "{t}: {}", e.rule);
+            assert!(
+                e.rule.as_str().starts_with("owner-command"),
+                "{t}: {}",
+                e.rule
+            );
         }
     }
 

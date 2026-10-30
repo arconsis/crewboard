@@ -918,15 +918,15 @@ fn usage_without_a_subcommand_help_and_an_unknown_word() {
 }
 
 #[test]
-fn the_global_config_dir_may_stand_before_lock_and_a_clap_error_outside_lock_stays_4() {
-    // a clap error of another command (here: a global flag without its value) stays 4
+fn the_global_config_dir_may_stand_before_lock_and_a_clap_error_outside_lock_is_64_too() {
+    // a clap error of another command (here: a global flag without its value) is 64 too
     let o = out_of(
         std::process::Command::new(BIN)
             .args(["--config-dir"])
             .output()
             .unwrap(),
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     let r = Rig::new();
     let o = out_of(
         std::process::Command::new(BIN)

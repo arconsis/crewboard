@@ -9,6 +9,7 @@
 
 use super::AgentCtx;
 use super::join::{FetchedBoard, fetch_board_file};
+use crate::base::ids;
 use crate::config::{BoardConfig, INITIATIVE_FILE};
 use crate::error::{CbError, CbResult};
 
@@ -36,7 +37,7 @@ pub fn apply(ac: &AgentCtx, repo: &str, f: &FetchedBoard) -> CbResult<String> {
     let ident = copy.identity_changes(&f.cfg);
     if !ident.is_empty() {
         return Err(CbError::refused(
-            "board-identity-changed",
+            ids::BOARD_IDENTITY_CHANGED,
             format!(
                 "{INITIATIVE_FILE} in {repo}@{} changes {}; an agent never follows a moved board. The local copy stays as it is. If the change is right, join again: crewboard join --repo {repo}",
                 f.short_sha(),

@@ -3,6 +3,7 @@
 //! `agent profile` is shared (`selftest_cmd`, `profile_cmd`).
 
 use super::{Cli, CrewCmd, Outcome, ProfileAction, Sel, done, fail, global, refused};
+use crate::base::ids;
 use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::approve::Approval;
@@ -118,7 +119,7 @@ pub(super) fn selftest_cmd(cli: &Cli, sel: &Sel) -> Outcome {
             println!("{line}");
             done_ok()
         }
-        Ok((_, line)) => refused(Refusal::new("selftest-failed", line)),
+        Ok((_, line)) => refused(Refusal::new(ids::SELFTEST_FAILED, line)),
         Err(e) => fail(e),
     }
 }

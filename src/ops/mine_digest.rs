@@ -10,6 +10,7 @@
 //! [`VMsg::act`]: no second parser.
 use super::tickets::{load_world_cached, me_of};
 use super::{AgentCtx, parse_issue_arg};
+use crate::base::ids;
 use crate::clock::format_ts;
 use crate::comments::Comment;
 use crate::error::CbResult;
@@ -22,8 +23,6 @@ use crate::ticket::{Act, Sender, VMsg};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
-/// The rule of `mine <n>` on a ticket that the signed log does not assign to the caller.
-pub const NOT_YOUR_TICKET: &str = "mine-not-your-ticket";
 /// At most this many characters of one message body; the rest is cut with a note.
 pub const MAX_BODY_CHARS: usize = 800;
 /// At most this many messages; the older ones are counted in one note.
@@ -128,7 +127,7 @@ fn cut_body(body: &str) -> (String, usize) {
 /// issue, `msgs` the ones that count ([`crate::ticket::verified_messages`]). Pure.
 ///
 /// The ticket must be the caller's in the signed log (the agent of the latest signed
-/// assignment, [`fold_ticket`]); else the refusal [`NOT_YOUR_TICKET`]. The digest starts at the
+/// assignment, [`fold_ticket`]); else the refusal [`ids::MINE_NOT_YOUR_TICKET`]. The digest starts at the
 /// latest signed assignment to `me`, or at the reassign notice right before it (that notice
 /// names the PR that an earlier agent left).
 pub fn build(
@@ -156,7 +155,7 @@ pub fn build(
                 None => "the signed log assigns it to nobody".to_string(),
             };
             return Err(Refusal::new(
-                NOT_YOUR_TICKET,
+                ids::MINE_NOT_YOUR_TICKET,
                 format!(
                     "{key} is not your ticket: {said}. `crewboard mine <n>` shows the signed thread of your own tickets only; `crewboard mine` lists them"
                 ),
@@ -303,18 +302,12 @@ impl Digest {
 /// `mine <n>`: the digest of one own ticket. Reads what the trust check needs (the registry and
 /// the agent items, as every agent command) and the comment list of the ticket. Writes nothing.
 pub fn run(ac: &AgentCtx, issue_arg: &str) -> CbResult<Digest> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let t = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &t.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, &repo, n)?;
-    Ok(build(
-        &format!("{repo}#{n}"),
-        n,
-        &me.name,
-        &comments,
-        &msgs,
-    )?)
+    let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, &t.repo, t.issue)?;
+    Ok(build(&t.to_string(), t.issue, &me.name, &comments, &msgs)?)
 }
 
 #[cfg(test)]
@@ -455,7 +448,7 @@ mod tests {
     fn a_ticket_of_another_agent_or_of_nobody_is_refused() {
         let other = [assign(1, OTHER)];
         let e = build("a/b#7", 7, ME, &[], &other).unwrap_err();
-        assert_eq!(e.rule, NOT_YOUR_TICKET);
+        assert_eq!(e.rule, ids::MINE_NOT_YOUR_TICKET);
         assert!(e.message.contains("assigns it to other@d"), "{}", e.message);
         // reassigned away from me: not mine any more
         let away = [
@@ -474,7 +467,7 @@ mod tests {
         )];
         assert_eq!(
             build("a/b#7", 7, ME, &[], &forged).unwrap_err().rule,
-            NOT_YOUR_TICKET
+            ids::MINE_NOT_YOUR_TICKET
         );
         // control: the same ticket assigned to me works
         assert!(build("a/b#7", 7, ME, &[], &[assign(1, ME)]).is_ok());

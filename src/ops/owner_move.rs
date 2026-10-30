@@ -7,18 +7,20 @@
 //! writes the board. It runs with the owner's token only (`owner-command-not-owner`).
 
 use super::{Ctx, Global, load_world, new_owner_client, parse_issue_arg, require_owner};
+use crate::base::ids;
+use crate::board::FieldValue;
+use crate::board::ItemRef;
 use crate::error::CbResult;
 use crate::feed;
 use crate::owner_cmd::{move_target, move_text};
-use crate::rules::Refusal;
+use crate::rules::fields::Field;
+use crate::rules::fields::WriteCtx;
 use crate::rules::status::Status;
+use crate::rules::{Actor, Refusal};
 use crate::services::ticket_loader::load_ticket;
 use crate::state::StateCache;
 use crate::ticket::log::{Expected, fold_ticket};
 use serde_json::json;
-
-/// The rule of a target that needs an assignee when the signed log has none.
-pub const MOVE_NEEDS_ASSIGNEE: &str = "move-needs-assignee";
 
 /// What the move writes after its comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +50,7 @@ pub fn plan(
 ) -> Result<Plan, Refusal> {
     if from == Some(to) && log.allows(to) == Some(true) {
         return Err(Refusal::new(
-            "status-no-change",
+            ids::STATUS_NO_CHANGE,
             format!(
                 "{key} is {} on the board and in the signed log already",
                 to.name()
@@ -60,7 +62,7 @@ pub fn plan(
     } else {
         let Some(a) = log_agent else {
             return Err(Refusal::new(
-                MOVE_NEEDS_ASSIGNEE,
+                ids::MOVE_NEEDS_ASSIGNEE,
                 format!(
                     "{key} has no signed assignment, and {} needs an agent: move it to Backlog, and the coordinator assigns it (`crewboard assign`)",
                     to.name()
@@ -86,15 +88,15 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
     require_owner(&client, &cfg, "moves a ticket by hand")?;
     let ctx = Ctx::load(client, cfg, g.dir()?)?;
     let world = load_world(&ctx, &[], &mut StateCache::default())?;
-    let (repo, n) = parse_issue_arg(issue, ctx.main_repo())?;
-    let t = load_ticket(&ctx.reader(), &world.trust, &repo, n)?;
+    let tref = parse_issue_arg(issue, ctx.main_repo())?;
+    let t = load_ticket(&ctx.reader(), &world.trust, &tref)?;
     let key = t.key();
-    let raw = t.item.field("Status");
+    let raw = t.item.get(Field::Status);
     let from = raw.and_then(Status::parse);
     let log = fold_ticket(&t.msgs);
     let p = plan(&key, from, to, &log.status, log.agent.as_deref(), t.agent())?;
     let text = move_text(to, why);
-    let (id, url) = feed::post_comment(&ctx.client, &repo, n, &text)?;
+    let (id, url) = feed::post_comment(&ctx.client, &tref.repo, tref.issue, &text)?;
     let mut out = format!(
         "owner command posted: /crew move {} (comment {id}, {url})\n",
         to.name()
@@ -102,20 +104,25 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
     if !t.info.open {
         ctx.client.send(
             "PATCH",
-            &format!("repos/{repo}/issues/{n}"),
+            &format!("repos/{}/issues/{}", tref.repo, tref.issue),
             Some(&json!({"state": "open"})),
         )?;
         out.push_str(&format!("{key}: issue reopened\n"));
     }
     if let Some(a) = &p.set_agent {
-        ctx.board.set_select(&ctx.client, &t.item_id, "Agent", a)?;
+        ctx.board.write(
+            &ctx.client,
+            ItemRef::work(&t.item_id),
+            Field::Agent,
+            FieldValue::Option(a),
+            &WriteCtx::by(Actor::Owner),
+        )?;
         out.push_str(&format!("{key}: Agent {a} (the signed assignment)\n"));
     }
     if p.write_status {
         // a failed write leaves the move in the log and the board behind it: `status` shows the
         // mismatch, and the same command again writes the field (only the comment repeats)
-        ctx.board
-            .set_select(&ctx.client, &t.item_id, "Status", to.name())?;
+        ctx.board.write_status(&ctx.client, &t.item_id, to)?;
         out.push_str(&format!(
             "{key}: Status {} -> {}\n",
             raw.unwrap_or("empty"),
@@ -169,7 +176,7 @@ mod tests {
             Status::Blocked,
         ] {
             let r = plan(KEY, Some(Status::Done), to, &is(Status::Done), None, None);
-            assert_eq!(r.unwrap_err().rule, MOVE_NEEDS_ASSIGNEE, "{to:?}");
+            assert_eq!(r.unwrap_err().rule, ids::MOVE_NEEDS_ASSIGNEE, "{to:?}");
             // the board Agent alone is no assignment
             let r = plan(
                 KEY,
@@ -179,7 +186,7 @@ mod tests {
                 None,
                 Some("a@x"),
             );
-            assert_eq!(r.unwrap_err().rule, MOVE_NEEDS_ASSIGNEE, "{to:?}");
+            assert_eq!(r.unwrap_err().rule, ids::MOVE_NEEDS_ASSIGNEE, "{to:?}");
             let same = plan(
                 KEY,
                 Some(Status::Done),

@@ -18,12 +18,28 @@ Added:
 
 Changed:
 
+- **Contract change:** a usage error exits 64 for every command: an unknown option, a missing or
+  bad argument (for example an issue number that is not `12` or `owner/repo#12`), a bad
+  combination of options. It was 4 for every command except `lock`, `repeat` and `wake`. Exit 4
+  keeps its meaning: a configuration or key problem that stops the agent until a person fixes
+  it. The skill tells the agent: on 64, fix the command and run it again. A script that read 4
+  as "bad command line" reads 64 now. `--help` and `--version` stay 0. The one line of
+  `monitor` for a bad option says `exit 64`.
 - Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
   account merged without a verify gives no Done; the coordinator does not merge its own
   ticket work, and such a ticket can only be dropped.
+
+Other:
+
 - Internal: no behaviour change. Comments say what the code does, three named reasons for a
   dropped result, test-only code in the test modules, one set of test builders, and the module
   names `repeat` and `wake::precheck` instead of two more meanings of "gate".
+- Internal: no behaviour change. Board fields are a type, and every field write asks the
+  field-writer table first (the table now names the forced stop as a writer of `Doing`, which
+  `stop --force` already wrote without a check); the refusal ids are one catalog in the code; a
+  ticket is one type (`TicketRef`) in the commands, the state and the late checks.
+- Docs: [Refusal ids](docs/reference/refusals.md) lists every rule id that a refused command can
+  print, with its meaning. The page is generated from the catalog.
 
 ## v0.7.1 (2026-10-30)
 

@@ -39,6 +39,7 @@ fn monitor_outcome(code: u8) -> Outcome {
             0 => Exit::Ok,
             3 => Exit::Network,
             4 => Exit::Config,
+            64 => Exit::Usage,
             _ => Exit::Refused,
         },
         code: Some(code),
@@ -61,7 +62,12 @@ pub(super) fn monitor_fail(code: u8, reason: &str, status: &str, json: bool) -> 
 
 /// The line that `monitor` prints for a command line that clap refuses (`main` prints it).
 pub fn monitor_usage_line(clap_error: &str, json: bool) -> String {
-    ops::monitor::exit_line(4, &ops::monitor::first_line(clap_error), "", json)
+    ops::monitor::exit_line(
+        Exit::Usage.code(),
+        &ops::monitor::first_line(clap_error),
+        "",
+        json,
+    )
 }
 
 /// What `watch` gets from the flags of `monitor` and from the arguments after `--` (they win).
@@ -186,7 +192,7 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
         if let Some(v) = v
             && let Err(e) = crate::clock::parse_duration(v)
         {
-            return monitor_fail(4, &format!("{name}: {e}"), "", json);
+            return monitor_fail(Exit::Usage.code(), &format!("{name}: {e}"), "", json);
         }
     }
     let pause = match m.pause.as_deref() {
@@ -195,7 +201,7 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
             Some(d) => d,
             None => {
                 return monitor_fail(
-                    4,
+                    Exit::Usage.code(),
                     &format!("--pause: not a number of seconds (at most 86400): {p}"),
                     "",
                     json,
@@ -205,13 +211,25 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
     };
     let w = match watch_settings(m) {
         Ok(w) => w,
-        Err(e) => return monitor_fail(4, &format!("watch arguments: {e}"), "", json),
+        Err(e) => {
+            return monitor_fail(
+                Exit::Usage.code(),
+                &format!("watch arguments: {e}"),
+                "",
+                json,
+            );
+        }
     };
     for (name, v) in [("--timeout", &w.timeout), ("--interval", &w.interval)] {
         if let Some(v) = v
             && let Err(e) = crate::clock::parse_duration(v)
         {
-            return monitor_fail(4, &format!("watch arguments: {name}: {e}"), "", json);
+            return monitor_fail(
+                Exit::Usage.code(),
+                &format!("watch arguments: {name}: {e}"),
+                "",
+                json,
+            );
         }
     }
     let opts = LoopOpts {

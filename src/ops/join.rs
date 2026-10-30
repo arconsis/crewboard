@@ -3,6 +3,9 @@
 
 use super::agent::AgentRuntime;
 use super::{Ctx, Global, World, load_world, new_client, say};
+use crate::base::ids;
+use crate::board::FieldValue;
+use crate::board::ItemRef;
 use crate::clock::{now_epoch, now_ts};
 use crate::config::{
     AgentConfig, BoardConfig, ConfigDir, INITIATIVE_FILE, load_or_create_key, public_line,
@@ -13,8 +16,8 @@ use crate::error::{CbError, CbResult};
 use crate::github::Client;
 use crate::protocol::names::{AgentName, Kind, Re, To};
 use crate::registry::{fingerprint, join_body};
-use crate::rules::Role;
 use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
+use crate::rules::lifecycle::State;
 use crate::state::StateCache;
 use serde_json::Value;
 use ssh_key::PrivateKey;
@@ -92,7 +95,7 @@ fn board_config_of(
 fn check_one_agent_per_config(cd: &ConfigDir, cfg: &BoardConfig, name: &AgentName) -> CbResult<()> {
     match cd.agent_name_on_disk(&cfg.initiative) {
         Some(have) if have != name.as_str() => Err(CbError::refused(
-            "one-agent-per-config",
+            ids::ONE_AGENT_PER_CONFIG,
             format!(
                 "{} already holds agent {} for initiative {}; use another --config-dir for {name}",
                 cd.0.display(),
@@ -111,7 +114,7 @@ fn check_name_free(world: &World, name: &AgentName, key: &PrivateKey) -> CbResul
         && j.key().map(|k| fingerprint(&k)) != Some(fingerprint(key.public_key()))
     {
         return Err(CbError::refused(
-            "name-taken",
+            ids::NAME_TAKEN,
             format!("{name} is registered with another key; choose another name"),
         ));
     }
@@ -161,8 +164,9 @@ fn write_agent_fields(
 ) -> CbResult<()> {
     let w = WriteCtx {
         approved,
-        ..WriteCtx::agent_self(Role::Dev)
+        ..WriteCtx::own_item()
     };
+    // all checks before the first request: a refused field writes nothing
     let mut fields = vec![Field::Host, Field::Runtime, Field::Cursor];
     if !approved {
         fields.extend([Field::Kind, Field::Key]);
@@ -170,25 +174,23 @@ fn write_agent_fields(
     for f in fields {
         check_field_write(Item::Agent, f, &w)?;
     }
+    let at = ItemRef::agent(item_id);
+    let put = |field, value| ctx.board.write(&ctx.client, at, field, value, &w);
     let current = ctx.board.read_item(&ctx.client, item_id)?;
     if !approved {
-        ctx.board
-            .set_select(&ctx.client, item_id, "Kind", "Agent")?;
-        if current.field("State").is_none() {
+        put(Field::Kind, FieldValue::Option("Agent"))?;
+        if current.get(Field::State).is_none() {
             ctx.board
-                .set_select(&ctx.client, item_id, "State", "requested")?;
+                .write_state(&ctx.client, item_id, State::Requested)?;
         }
-        ctx.board.set_text(&ctx.client, item_id, "Key", key_line)?;
+        put(Field::Key, FieldValue::Text(key_line))?;
     }
-    ctx.board.set_text(&ctx.client, item_id, "Host", host)?;
-    ctx.board
-        .set_text(&ctx.client, item_id, "Runtime", runtime)?;
-    if current.field("Cursor").is_none() {
-        ctx.board.set_text(
-            &ctx.client,
-            item_id,
-            "Cursor",
-            &Cursor::at(now_epoch()).encode(),
+    put(Field::Host, FieldValue::Text(host))?;
+    put(Field::Runtime, FieldValue::Text(runtime))?;
+    if current.get(Field::Cursor).is_none() {
+        put(
+            Field::Cursor,
+            FieldValue::Text(&Cursor::at(now_epoch()).encode()),
         )?;
     }
     Ok(())

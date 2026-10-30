@@ -4,12 +4,16 @@
 //! signature (`protocol/`), then one comment through `feed.rs`. `ops/watch.rs` reads it back.
 
 use super::{AgentCtx, World, load_world, parse_issue_arg};
+use crate::base::TicketRef;
+use crate::base::ids;
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, Timestamp, To};
 use crate::protocol::signature::{Outgoing, sign_message};
 use crate::registry::TrustedAgent;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::rules::{Refusal, Role, limits};
 use crate::secrets;
@@ -22,9 +26,7 @@ use std::io::Read;
 pub fn prepare_body(body_file: Option<&str>, body: Option<&str>) -> CbResult<String> {
     let text = match (body_file, body) {
         (Some(_), Some(_)) => {
-            return Err(CbError::config(
-                "use either --body or --body-file, not both",
-            ));
+            return Err(CbError::usage("use either --body or --body-file, not both"));
         }
         (Some("-"), None) => {
             let mut s = String::new();
@@ -49,7 +51,7 @@ pub fn check_free_text(kind: Kind, text: &str) -> CbResult<()> {
     match crate::protocol::acts::reserved_for(kind, text) {
         None => Ok(()),
         Some(cmd) => Err(Refusal::new(
-            "text-reads-as-act",
+            ids::TEXT_READS_AS_ACT,
             format!(
                 "this {kind} text starts like a protocol act (a reader would take it for one); start with other words, or use the command that writes the act: {cmd}"
             ),
@@ -62,7 +64,7 @@ pub fn check_free_text(kind: Kind, text: &str) -> CbResult<()> {
 pub fn check_body_text(text: &str) -> CbResult<()> {
     limits::check_body(text.trim())?;
     if let Some(msg) = secrets::refusal_message(&secrets::scan(text)) {
-        return Err(Refusal::new("secret-in-body", msg).into());
+        return Err(Refusal::new(ids::SECRET_IN_BODY, msg).into());
     }
     Ok(())
 }
@@ -85,7 +87,7 @@ pub fn require_approved<'a>(world: &'a World, me: &str) -> CbResult<&'a TrustedA
             Some(_) => format!("approved, but not trusted ({why})"),
         };
         CbError::refused(
-            "sender-not-approved",
+            ids::SENDER_NOT_APPROVED,
             format!("{me} is not an approved agent: {state}"),
         )
     })
@@ -115,18 +117,16 @@ pub fn refresh_heartbeat(ac: &AgentCtx, world: &World) -> bool {
     let item = world.items.get(&ac.agent.item_id);
     let now = crate::clock::now_epoch();
     if !heartbeat_wanted(
-        item.and_then(|i| i.field("State")),
-        item.and_then(|i| i.field("Heartbeat")),
+        item.and_then(|i| i.get(Field::State)),
+        item.and_then(|i| i.get(Field::Heartbeat)),
         now,
         ac.ctx.hb_interval,
     ) {
         return false;
     }
-    match ac.ctx.board.set_text(
-        &ac.ctx.client,
-        &ac.agent.item_id,
-        "Heartbeat",
-        &crate::clock::format_ts(now),
+    match ac.write_own(
+        Field::Heartbeat,
+        FieldValue::Text(&crate::clock::format_ts(now)),
     ) {
         Ok(()) => true,
         Err(e) => {
@@ -172,7 +172,7 @@ pub fn send_signed(
     let (id, url) = feed::post_comment(&ac.ctx.client, repo, issue, &msg.to_comment())?;
     // The one place that every signed post passes: a note of the coordinator on a ticket is
     // remembered here, so that its deletion is seen (spec/security-details#deleted-notes).
-    super::own_notes::record(ac, repo, issue, kind, body, id);
+    super::own_notes::record(ac, &TicketRef::new(repo, issue), kind, body, id);
     Ok(Posted {
         id,
         url,
@@ -199,13 +199,13 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
         None => Re::None,
     };
     check_free_text(a.kind, &a.body)?;
-    let (repo, issue) = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
-    if !ac.ctx.cfg.repos.contains(&repo) {
+    let tref = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
+    if !ac.ctx.cfg.repos.contains(&tref.repo) {
         return Err(CbError::refused(
-            "repo-not-in-initiative",
+            ids::REPO_NOT_IN_INITIATIVE,
             format!(
-                "{repo} is not a repo of initiative {}",
-                ac.ctx.cfg.initiative
+                "{} is not a repo of initiative {}",
+                tref.repo, ac.ctx.cfg.initiative
             ),
         ));
     }
@@ -216,18 +216,34 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
     refresh_heartbeat(ac, &world);
     // spec/events#unread-messages-on-a-ticket: refuse while a message for the sender is unread on
     // this ticket.
-    let (comments, _) =
-        feed::issue_comments(&ac.ctx.client, &repo, issue, None, &ac.ctx.cfg.owner_login)?;
-    let held = crate::unread::held_in_cache(&cache, &repo, issue, ac.name.as_str());
-    let indexed = cache.index.tickets.contains_key(&format!("{repo}#{issue}"));
-    let line = crate::unread::guard(ac, &world, &comments, &repo, issue, held, indexed, a.anyway)?;
+    let (comments, _) = feed::issue_comments(
+        &ac.ctx.client,
+        &tref.repo,
+        tref.issue,
+        None,
+        &ac.ctx.cfg.owner_login,
+    )?;
+    let held = crate::unread::held_in_cache(&cache, &tref, ac.name.as_str());
+    let indexed = cache.index.tickets.contains_key(&tref.to_string());
+    let line = crate::unread::guard(ac, &world, &comments, &tref, held, indexed, a.anyway)?;
     let body = crate::unread::with_override(&a.body, line.as_deref());
     check_body_text(&body)?;
     let note = crate::unread::note(line.as_deref());
-    if let Some(w) = info_to_blocked_warning(ac, &world, &repo, issue, &a.to, a.kind, &body) {
+    if let Some(w) =
+        info_to_blocked_warning(ac, &world, &tref.repo, tref.issue, &a.to, a.kind, &body)
+    {
         eprint!("{w}");
     }
-    let p = send_signed(ac, &repo, issue, a.to.clone(), a.kind, re, &body, &now_ts())?;
+    let p = send_signed(
+        ac,
+        &tref.repo,
+        tref.issue,
+        a.to.clone(),
+        a.kind,
+        re,
+        &body,
+        &now_ts(),
+    )?;
     Ok(format!(
         "posted {} -> {} ({}) as comment {} in {}#{}\nref: #{}/c-{}\n{}\n{note}",
         ac.name, a.to, a.kind, p.id, p.repo, p.issue, p.issue, p.id, p.url
@@ -253,7 +269,7 @@ fn info_to_blocked_warning(
     {
         return None;
     }
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, repo, issue).ok()?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &TicketRef::new(repo, issue)).ok()?;
     if t.status().ok()? != Status::Blocked || t.agent() != Some(name.as_str()) {
         return None;
     }

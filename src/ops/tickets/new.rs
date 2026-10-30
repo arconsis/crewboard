@@ -11,15 +11,17 @@ use super::assign::assign;
 use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
 use super::board_put::{Adoption, put_on_board};
 use super::pr_evidence::fetch_pr;
-use super::{Me, load_world_cached, me_of, work_write_ctx};
+use super::{Me, load_world_cached, me_of, work_write_ctx, write_work};
+use crate::base::ids::RuleId;
+use crate::base::{TicketRef, ids};
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::evidence::parse_pr_url;
-use crate::rules::fields::{Field, Item, check_field_write};
-use crate::rules::ids;
+use crate::rules::fields::Field;
 use crate::rules::limits::check_text_field;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
@@ -54,7 +56,7 @@ pub fn apply_gate_ci(body: &str) -> Result<String, CbError> {
         .find(|g| !crate::headless::Gate::parse(g).is_ci_only())
     {
         return Err(CbError::refused(
-            "ticket-gate-conflict",
+            ids::TICKET_GATE_CONFLICT,
             format!(
                 "--gate-ci writes `Gate: {}`, but the body has its own Gate line ('{g}'): remove that line, or drop --gate-ci",
                 crate::headless::GATE_CI
@@ -85,7 +87,7 @@ pub fn apply_gate_ci(body: &str) -> Result<String, CbError> {
     Ok(out)
 }
 
-fn adopt_refused(rule: &'static str, why: String) -> CbError {
+fn adopt_refused(rule: RuleId, why: String) -> CbError {
     CbError::refused(rule, why)
 }
 
@@ -102,7 +104,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let (pr, _) = fetch_pr(ac, &u.repo, u.number)?;
     if pr.state != "open" || pr.merged {
         return Err(adopt_refused(
-            "adopt-pr-not-open",
+            ids::ADOPT_PR_NOT_OPEN,
             format!(
                 "PR {}#{} is {}: a ticket adopts an OPEN PR only",
                 pr.repo,
@@ -115,7 +117,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let prefix = auth.branch_prefix();
     let Some((_, parent_n)) = crate::rules::evidence::branch_ticket(&prefix, &pr.head_ref) else {
         return Err(adopt_refused(
-            "adopt-pr-bad-branch",
+            ids::ADOPT_PR_BAD_BRANCH,
             format!(
                 "the head branch '{}' of PR {}#{} is not {prefix}<agent>/<n>-<slug>: only a crew branch of an older ticket can be adopted",
                 pr.head_ref, pr.repo, pr.number
@@ -127,8 +129,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let parent_done: Result<(), String> = match load_ticket(
         &ac.ctx.reader(),
         &world.trust,
-        &pr.repo,
-        parent_n,
+        &TicketRef::new(&pr.repo, parent_n),
     ) {
         // An ended ticket by its signed log: Done, or Dropped (a drop leaves its PR open).
         Ok(p) if log_ended(&fold_ticket(&p.msgs).status) => Ok(()),
@@ -137,7 +138,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         Ok(p) if returned_with_pr(&p, &pr) => Ok(()),
         Ok(p) => {
             let log = fold_ticket(&p.msgs).status;
-            let board = p.item.field("Status");
+            let board = p.item.get(Field::Status);
             // A board Done or Dropped without a signed end: `close --why` refuses an ended
             // board Status, so the way out starts with the owner's move.
             let way = if board
@@ -167,7 +168,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         Err(e) => return Err(e),
     };
     if let Err(why) = parent_done {
-        return Err(adopt_refused("adopt-pr-parent-not-done", why));
+        return Err(adopt_refused(ids::ADOPT_PR_PARENT_NOT_DONE, why));
     }
     Ok(Adoption {
         url: format!("https://github.com/{}/pull/{}", pr.repo, pr.number),
@@ -222,13 +223,13 @@ Pointers: <files, issues, earlier PRs>
 pub fn check_new_ticket(title: &str, body: &str) -> Result<String, CbError> {
     if title.trim().is_empty() {
         return Err(CbError::refused(
-            "ticket-title-missing",
+            ids::TICKET_TITLE_MISSING,
             "ticket new needs --title",
         ));
     }
     if title.chars().count() > 256 {
         return Err(CbError::refused(
-            "ticket-title-too-long",
+            ids::TICKET_TITLE_TOO_LONG,
             "the title is longer than 256 characters",
         ));
     }
@@ -259,7 +260,7 @@ pub(super) fn adopt_info(
     check_work_issue(&info, repo)?;
     if !info.open {
         return Err(CbError::refused(
-            "ticket-closed",
+            ids::TICKET_CLOSED,
             format!("{repo}#{n} is closed"),
         ));
     }
@@ -283,25 +284,19 @@ pub(super) fn adopt_info(
     };
     let item = ac.ctx.board.read_item(&ac.ctx.client, &item_id)?;
     let wc = work_write_ctx(me, false);
-    if item.field("Kind").is_none() {
-        check_field_write(Item::Work, Field::Kind, &wc)?;
-        ac.ctx
-            .board
-            .set_select(&ac.ctx.client, &item_id, "Kind", "Work")?;
+    if item.get(Field::Kind).is_none() {
+        write_work(ac, &item_id, Field::Kind, FieldValue::Option("Work"), &wc)?;
     }
-    let status = item.field("Status").and_then(Status::parse_board);
+    let status = item.get(Field::Status).and_then(Status::parse_board);
     if status.is_none() {
         check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
         ac.ctx
             .board
-            .set_select(&ac.ctx.client, &item_id, "Status", Status::Backlog.name())?;
+            .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
         out.push_str("Status set to Backlog\n");
     }
-    if item.field("Gate") != Some(gate.as_str()) {
-        check_field_write(Item::Work, Field::Gate, &wc)?;
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, &item_id, "Gate", &gate)?;
+    if item.get(Field::Gate) != Some(gate.as_str()) {
+        write_work(ac, &item_id, Field::Gate, FieldValue::Text(&gate), &wc)?;
         out.push_str("Gate field set from the body\n");
     }
     let mut cache = ac.load_cache();
@@ -401,19 +396,19 @@ pub fn ticket_adopt(
     issue_arg: &str,
     assign_to: Option<&str>,
 ) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let info = fetch_issue(&ac.ctx.client, &repo, n)?;
+    let info = fetch_issue(&ac.ctx.client, &tref.repo, tref.issue)?;
     if let Some(agent) = assign_to {
         precheck_assign(ac, &world, agent, &info.title, &info.body)?;
     }
-    let (_item, mut out) = adopt_info(ac, &world, &me, info, &repo, None)?;
+    let (_item, mut out) = adopt_info(ac, &world, &me, info, &tref.repo, None)?;
     match assign_to {
         Some(agent) => out.push_str(&assign(
             ac,
-            &format!("{repo}#{n}"),
+            &tref.to_string(),
             Some(agent),
             CapOverride::default(),
             None,

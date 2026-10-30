@@ -9,6 +9,7 @@
 //!
 //! Every wake that ran also starts the back-off of the next wake for owned work.
 
+use super::WakeExit;
 use super::flow::{Flow, Reason};
 use super::runtime::Ended;
 use crate::base::ignore::best_effort_cleanup;
@@ -70,7 +71,7 @@ impl Flow<'_, '_> {
         if wrc != 0 {
             self.keep_events();
             self.log.say(&format!("wake command failed: exit {wrc}"));
-            return 70;
+            return WakeExit::WakeFailed.code();
         }
         // a wake that ends by itself ends the run of budget stops
         best_effort_cleanup(std::fs::remove_file(&self.s.paths.budget_streak));

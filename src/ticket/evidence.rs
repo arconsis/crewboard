@@ -1,4 +1,5 @@
 use super::*;
+use crate::base::TicketRef;
 use crate::comments::Comment;
 use crate::config::BoardConfig;
 use crate::protocol::names::{Kind, Re};
@@ -240,19 +241,16 @@ pub fn announced_item_ids(
     cfg: &BoardConfig,
     trust: &Trust,
 ) -> BTreeMap<String, String> {
-    let mut by_issue: BTreeMap<(String, u64), Vec<Comment>> = BTreeMap::new();
+    let mut by_issue: BTreeMap<TicketRef, Vec<Comment>> = BTreeMap::new();
     for c in comments {
         if c.body.starts_with(CREW_PREFIX) && c.body.contains("item=PVTI_") {
-            by_issue
-                .entry((c.repo.clone(), c.issue))
-                .or_default()
-                .push(c.clone());
+            by_issue.entry(c.tref()).or_default().push(c.clone());
         }
     }
     by_issue
         .into_iter()
-        .filter_map(|((repo, n), cs)| {
-            find_item_id(&verified_messages(&cs, cfg, trust)).map(|id| (format!("{repo}#{n}"), id))
+        .filter_map(|(t, cs)| {
+            find_item_id(&verified_messages(&cs, cfg, trust)).map(|id| (t.to_string(), id))
         })
         .collect()
 }

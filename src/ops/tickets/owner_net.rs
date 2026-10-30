@@ -41,6 +41,7 @@
 use super::owner_applied::{Proof, names_this_ticket, patch_applied, tied};
 use super::pr_evidence::{fetch_pr, fetch_pr_files};
 use super::{needs_owner_lines, post};
+use crate::base::TicketRef;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World};
 use crate::protocol::names::{Kind, Re, To};
@@ -221,7 +222,11 @@ fn judge(ac: &AgentCtx, world: &World, row: &TicketRow) -> CbResult<Option<Optio
 /// board Status is not written (Done is final), so the ticket stays Done until the owner moves
 /// it, and a failed run is repeated by the next poll.
 pub fn reopen(ac: &AgentCtx, world: &World, f: &Finding) -> CbResult<Reopened> {
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &f.repo, f.issue)?;
+    let t = load_ticket(
+        &ac.ctx.reader(),
+        &world.trust,
+        &TicketRef::new(&f.repo, f.issue),
+    )?;
     let marker = crate::owner_route::merged_marker(&f.pr_url);
     let question = if crate::owner_route::question_sent(&t.msgs, &marker) {
         "question sent already".to_string()

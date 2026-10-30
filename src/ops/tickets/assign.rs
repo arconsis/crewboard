@@ -6,13 +6,16 @@ use super::assign_checks::{CapOverride, check_assignable, check_capabilities, po
 use super::board_put::put_on_board;
 use super::order;
 use super::order::parse_order;
-use super::{Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx};
+use super::{
+    Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work,
+};
+use crate::base::ids;
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::Refusal;
 use crate::rules::fields::{Field, Item, check_field_write};
-use crate::rules::ids;
 use crate::rules::limits::check_text_field;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
@@ -35,7 +38,7 @@ pub fn check_assign_args(
     }
     if order.is_none() || ov.flag {
         return Err(Refusal::new(
-            "assign-needs-to",
+            ids::ASSIGN_NEEDS_TO,
             "assign needs --to <agent>; only `assign <n> --order <number>` may leave it out (it sets the queue position of a queued ticket)",
         ));
     }
@@ -69,7 +72,7 @@ fn read_assignable_issue(ac: &AgentCtx, repo: &str, n: u64) -> CbResult<(IssueIn
     check_work_issue(&info, repo)?;
     if !info.open {
         return Err(CbError::refused(
-            "ticket-closed",
+            ids::TICKET_CLOSED,
             format!("{repo}#{n} is closed"),
         ));
     }
@@ -114,12 +117,12 @@ fn ticket_on_board(
         comments,
         msgs,
     };
-    let status = match t.item.field("Status") {
+    let status = match t.item.get(Field::Status) {
         None => {
             check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
             ac.ctx
                 .board
-                .set_select(&ac.ctx.client, &item_id, "Status", Status::Backlog.name())?;
+                .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
             out.push_str("Status set to Backlog\n");
             Status::Backlog
         }
@@ -188,13 +191,15 @@ fn write_assignment(
     check_field_write(Item::Work, Field::Gate, &wc)?;
     check_field_write(Item::Work, Field::Order, &wc)?;
     // the field is created on first use, on a board that init did not make
-    order::write_order(ac, item_id, a.order)?;
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, item_id, "Agent", a.to.as_str())?;
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, item_id, "Gate", a.gate)?;
+    order::write_order(ac, item_id, a.order, &wc)?;
+    write_work(
+        ac,
+        item_id,
+        Field::Agent,
+        FieldValue::Option(a.to.as_str()),
+        &wc,
+    )?;
+    write_work(ac, item_id, Field::Gate, FieldValue::Text(a.gate), &wc)?;
     if !a.ready_unassigned {
         super::set_select_status(ac, item_id, Status::Ready)?;
     }
@@ -232,14 +237,14 @@ fn assign_queued(
                 ),
             ));
         };
-        out.push_str(&order::set_position(ac, t, o)?);
+        out.push_str(&order::set_position(ac, t, o, &wc)?);
     } else {
         let mv = order::Move {
             to: q.to,
             order: q.order,
             ov: q.ov,
         };
-        out.push_str(&order::move_queued(ac, world, t, &mv)?);
+        out.push_str(&order::move_queued(ac, world, t, &mv, &wc)?);
     }
     Ok(out)
 }
@@ -271,8 +276,8 @@ pub fn assign(
         return order::reorder(ac, issue_arg, order_text);
     };
     let to_name = AgentName::parse(to)?;
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // Writer first, before anything is added to the board.
@@ -285,17 +290,18 @@ pub fn assign(
             assignee_active_dev: true,
         },
     )?;
-    let (info, gate) = read_assignable_issue(ac, &repo, n)?;
+    let (info, gate) = read_assignable_issue(ac, &tref.repo, tref.issue)?;
     check_assignable(ac, &world, to_name.as_str())?;
     // spec/profiles#requirements-and-matching: before anything is written to the board
     let (override_lines, cap_out) = check_capabilities(&world, &info, to_name.as_str(), ov)?;
     // spec/tickets#workflow-files-the-owner-route: a ticket for workflow files goes the owner
     // route; the dev agent must know.
-    let (route_lines, route_out) = crate::owner_route::assign_lines(&info.body, n);
+    let (route_lines, route_out) = crate::owner_route::assign_lines(&info.body, tref.issue);
     let override_lines = format!("{override_lines}{route_lines}");
     let mut out = format!("{cap_out}{route_out}");
 
-    let (t, status, signed) = ticket_on_board(ac, &world, &me, info, (&repo, n), &mut out)?;
+    let (t, status, signed) =
+        ticket_on_board(ac, &world, &me, info, (&tref.repo, tref.issue), &mut out)?;
     if is_queued(&t, status, signed) {
         let q = Queued {
             to: &to_name,
@@ -308,7 +314,7 @@ pub fn assign(
     // a repair keeps the position that the ticket has; any other assign goes to the end
     let kept = t
         .item
-        .field("Order")
+        .get(Field::Order)
         .filter(|_| ready_unassigned)
         .and_then(|o| o.parse::<i64>().ok());
     let (order, order_is_default) = match order.or(kept) {
@@ -334,8 +340,8 @@ pub fn assign(
     remember(ac, &t, Status::Ready, Some(to_name.as_str()));
     out.push_str(&agent_label_lines(
         ac,
-        &repo,
-        n,
+        &tref.repo,
+        tref.issue,
         &t.info.labels,
         Some(to_name.as_str()),
     ));

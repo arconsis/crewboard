@@ -1092,7 +1092,7 @@ fn status_shows_the_board_interval_and_the_override_variable_changes_nothing() {
         &["--heartbeat-interval", "20s", "status", "--json"],
         &[],
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(o.stderr.contains("unexpected argument"), "{}", o.all());
     // the hidden test variable sets the value and warns about nothing
     let (n, o) = interval(&[(TEST_ENV, "20s")]);

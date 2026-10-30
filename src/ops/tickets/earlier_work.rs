@@ -12,6 +12,7 @@
 //! The read is a help: a read that fails never blocks the reassign.
 
 use super::pr_evidence::fetch_pr;
+use crate::base::ids::{self, RuleId};
 use crate::error::{CbError, CbResult};
 use crate::ops::AgentCtx;
 use crate::protocol::acts::EarlierWork;
@@ -148,7 +149,7 @@ pub(super) struct Adopted {
     pub closes: bool,
 }
 
-fn refuse(rule: &'static str, why: String) -> CbError {
+fn refuse(rule: RuleId, why: String) -> CbError {
     CbError::refused(rule, why)
 }
 
@@ -162,7 +163,7 @@ pub(super) fn check_adopt(ac: &AgentCtx, t: &Ticket, url: &str) -> CbResult<Adop
     check_repo(&ac.ctx.cfg, &u.repo)?;
     if !u.repo.eq_ignore_ascii_case(&t.repo) {
         return Err(refuse(
-            "adopt-pr-other-repo",
+            ids::ADOPT_PR_OTHER_REPO,
             format!(
                 "PR {}#{} is in another repo than {}: take adopts a PR of the ticket's own repo",
                 u.repo,
@@ -178,7 +179,7 @@ pub(super) fn check_adopt(ac: &AgentCtx, t: &Ticket, url: &str) -> CbResult<Adop
         .is_some_and(|n| n.repo.eq_ignore_ascii_case(&u.repo) && n.number == u.number);
     if !recorded {
         return Err(refuse(
-            "adopt-pr-not-recorded",
+            ids::ADOPT_PR_NOT_RECORDED,
             format!(
                 "the latest reassign notice on {} does not name PR {}#{} ({}): take adopts the open PR that an earlier agent left and that the coordinator's notice records; for any other PR start a branch of your own",
                 t.key(),
@@ -191,7 +192,7 @@ pub(super) fn check_adopt(ac: &AgentCtx, t: &Ticket, url: &str) -> CbResult<Adop
     let (pr, _) = fetch_pr(ac, &u.repo, u.number)?;
     if pr.state != "open" || pr.merged {
         return Err(refuse(
-            "adopt-pr-not-open",
+            ids::ADOPT_PR_NOT_OPEN,
             format!(
                 "PR {}#{} is {}: take adopts an OPEN PR only",
                 pr.repo,
@@ -206,7 +207,7 @@ pub(super) fn check_adopt(ac: &AgentCtx, t: &Ticket, url: &str) -> CbResult<Adop
         Some((_, n)) if n == t.issue => {}
         _ => {
             return Err(refuse(
-                "adopt-pr-bad-branch",
+                ids::ADOPT_PR_BAD_BRANCH,
                 format!(
                     "the head branch '{}' of PR {}#{} is not {prefix}<agent>/{}-<slug>: take adopts the crew branch of this ticket",
                     pr.head_ref, pr.repo, pr.number, t.issue
@@ -218,7 +219,7 @@ pub(super) fn check_adopt(ac: &AgentCtx, t: &Ticket, url: &str) -> CbResult<Adop
     let text = format!("{}\n{}", pr.title, pr.body);
     if !mentions_ticket(&text, &pr.repo, &t.repo, t.issue) {
         return Err(refuse(
-            "adopt-pr-not-linked",
+            ids::ADOPT_PR_NOT_LINKED,
             format!(
                 "PR {}#{} does not mention {}: it must say 'Closes #{}' (or 'Refs #{}' on the owner route)",
                 pr.repo,

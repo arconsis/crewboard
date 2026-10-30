@@ -16,11 +16,13 @@
 
 use super::pr_read::{MergedPr, read_pr};
 use super::{post, to_agent};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Refusal;
 use crate::rules::evidence::{PrFacts, parse_pr_url};
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ticket_loader::load_ticket;
 use crate::state::StateCache;
@@ -30,7 +32,7 @@ use crate::ticket::VMsg;
 /// The refusal of `done` for a merged PR.
 pub fn refusal(pr: &MergedPr) -> Refusal {
     Refusal::new(
-        "pr-already-merged",
+        ids::PR_ALREADY_MERGED,
         format!(
             "PR {} was merged at {} by {}; push nothing more to its branch. For a remaining change open a new PR from the default branch and run done with it. If the owner merged it, the coordinator runs `crewboard close <n>` (the PR body must close the issue, for example `Closes #<n>`)",
             pr.url(),
@@ -105,7 +107,7 @@ pub(super) fn tick_lines(
         let Some(item) = items.iter().find(|i| i.id == row.item_id) else {
             continue;
         };
-        let Some(url) = item.field("Evidence").and_then(pr_of_evidence) else {
+        let Some(url) = item.get(Field::Evidence).and_then(pr_of_evidence) else {
             continue;
         };
         if cache.tick.merged_told.get(&row.item_id).map(String::as_str) == Some(url) {
@@ -129,7 +131,7 @@ pub(super) fn tick_lines(
         if !pr.merged {
             continue;
         }
-        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &row.repo, row.issue) {
+        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &row.tref()) {
             Ok(t) => t,
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),

@@ -16,6 +16,7 @@
 //! probe is `ops::late`. `status` shows every late wait; `poll` gives each one as ONE event per
 //! wait and head SHA (the seen map of the state cache decides what is new).
 
+use crate::base::TicketRef;
 use crate::config::BoardConfig;
 use crate::protocol::acts::{LATE_KEY, LATE_PREFIX};
 use crate::rules::status::Status;
@@ -682,13 +683,13 @@ pub trait Probe {
         }
     }
     /// Does a signed `done` of `agent` on the ticket name this head SHA?
-    fn has_done(&self, repo: &str, issue: u64, agent: &str, sha: &str) -> Option<bool>;
+    fn has_done(&self, t: &TicketRef, agent: &str, sha: &str) -> Option<bool>;
     /// The verify state of the latest `done` of `assignee` on the ticket (not of any sender).
     /// `None`: could not be read, no assignee, or no such `done`.
-    fn verify_state(&self, repo: &str, issue: u64, assignee: Option<&str>) -> Option<VerifyState>;
+    fn verify_state(&self, t: &TicketRef, assignee: Option<&str>) -> Option<VerifyState>;
     /// The open wait of a Blocked ticket of `assignee`: a `blocked` message or a question to the
     /// owner without an answer after it. `None`: nothing is open, or it could not be read.
-    fn question_open(&self, repo: &str, issue: u64, assignee: Option<&str>) -> Option<OpenWait>;
+    fn question_open(&self, t: &TicketRef, assignee: Option<&str>) -> Option<OpenWait>;
 }
 
 /// A Blocked ticket that waits for an answer.
@@ -763,7 +764,7 @@ enum Verdict {
 /// Judges the latest `done` of a Review ticket against the open PR head.
 fn review_verdict(probe: &dyn Probe, r: &TicketRow, prefix: &mut Option<String>) -> Verdict {
     // The comments first: only a passing verify makes the PR list worth a read.
-    let (head, since) = match probe.verify_state(&r.repo, r.issue, r.agent.as_deref()) {
+    let (head, since) = match probe.verify_state(&r.tref(), r.agent.as_deref()) {
         Some(VerifyState::Verified { head, since }) => (head, since),
         Some(VerifyState::OwnerMerge) => return Verdict::OwnerMerge,
         _ => return Verdict::Unverified,
@@ -921,7 +922,7 @@ impl Scanner<'_> {
             None => {}
             Some(None) => self.clear(r, Wait::Done),
             Some(Some(since)) if now - since > self.need(Wait::Done, e.done) => {
-                match probe.has_done(&r.repo, r.issue, agent, &pr.head_sha) {
+                match probe.has_done(&r.tref(), agent, &pr.head_sha) {
                     Some(false) => {
                         let l = self.mk(
                             r,
@@ -970,9 +971,7 @@ impl Scanner<'_> {
             && a > t
         {
             self.out.read = true;
-            if self
-                .probe
-                .verify_state(&r.repo, r.issue, r.agent.as_deref())
+            if self.probe.verify_state(&r.tref(), r.agent.as_deref())
                 == Some(VerifyState::OwnerMerge)
             {
                 let l = self.mk(r, Wait::OwnerMerge, now - a, t, None, None);
@@ -987,10 +986,7 @@ impl Scanner<'_> {
         let (answer, owner) = (e.answer, e.owner.filter(|_| self.all || self.coordinator));
         if age.is_some_and(|a| answer.is_some_and(|t| a > t) || owner.is_some_and(|t| a > t)) {
             self.out.read = true;
-            if let Some(w) = self
-                .probe
-                .question_open(&r.repo, r.issue, r.agent.as_deref())
-            {
+            if let Some(w) = self.probe.question_open(&r.tref(), r.agent.as_deref()) {
                 let (wait, limit) = if w.to_owner {
                     (Wait::Owner, owner)
                 } else {

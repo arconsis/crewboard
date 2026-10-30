@@ -4,6 +4,8 @@
 
 use super::Reader;
 use crate::base::Refusal;
+use crate::base::TicketRef;
+use crate::base::ids;
 use crate::comments::Comment;
 use crate::config::BoardConfig;
 use crate::error::{CbError, CbResult};
@@ -11,6 +13,7 @@ use crate::feed;
 use crate::github::{Client, GhError};
 use crate::items::ItemSnapshot;
 use crate::registry::Trust;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::ticket::{VMsg, WORK_LABEL, find_item_id, verified_messages};
 use serde_json::Value;
@@ -68,13 +71,13 @@ pub(crate) fn parse_issue(v: &Value) -> Result<IssueInfo, GhError> {
 pub(crate) fn check_work_issue(i: &IssueInfo, repo: &str) -> Result<(), Refusal> {
     if i.is_pr {
         return Err(Refusal::new(
-            "ticket-is-pr",
+            ids::TICKET_IS_PR,
             format!("{repo}#{} is a pull request, not a ticket", i.number),
         ));
     }
     if !i.labels.iter().any(|l| l == WORK_LABEL) {
         return Err(Refusal::new(
-            "ticket-not-work",
+            ids::TICKET_NOT_WORK,
             format!("{repo}#{} has no label {WORK_LABEL}", i.number),
         ));
     }
@@ -90,7 +93,7 @@ pub(crate) fn fetch_issue(client: &Client, repo: &str, n: u64) -> CbResult<Issue
 pub(crate) fn check_repo(cfg: &BoardConfig, repo: &str) -> CbResult<()> {
     if !cfg.repos.contains(&repo.to_string()) {
         return Err(CbError::refused(
-            "repo-not-in-initiative",
+            ids::REPO_NOT_IN_INITIATIVE,
             format!("{repo} is not a repo of initiative {}", cfg.initiative),
         ));
     }
@@ -122,22 +125,22 @@ pub(crate) struct Ticket {
 
 impl Ticket {
     pub(crate) fn status(&self) -> CbResult<Status> {
-        let s = self.item.field("Status").ok_or_else(|| {
+        let s = self.item.get(Field::Status).ok_or_else(|| {
             CbError::refused(
-                "ticket-status-unset",
+                ids::TICKET_STATUS_UNSET,
                 format!("{}#{} has no Status on the board", self.repo, self.issue),
             )
         })?;
         Status::parse_board(s).ok_or_else(|| {
             CbError::refused(
-                "ticket-status-unknown",
+                ids::TICKET_STATUS_UNKNOWN,
                 format!("Status '{s}' of {}#{} is not known", self.repo, self.issue),
             )
         })
     }
 
     pub(crate) fn agent(&self) -> Option<&str> {
-        self.item.field("Agent")
+        self.item.get(Field::Agent)
     }
 
     /// The one check that an agent-facing command runs before it trusts [`Ticket::agent`]:
@@ -155,7 +158,7 @@ impl Ticket {
             None => "the signed log has no assignment for it".to_string(),
         };
         Err(crate::rules::Refusal::new(
-            "ticket-agent-not-signed",
+            ids::TICKET_AGENT_NOT_SIGNED,
             format!(
                 "{}: the board Agent is {board}, but {said}; a board field alone gives no right to act. \
                  The coordinator repairs it with `crewboard assign {} --to <agent>` (a Ready ticket) \
@@ -167,22 +170,29 @@ impl Ticket {
         ))
     }
 
+    /// The ticket.
+    pub(crate) fn tref(&self) -> TicketRef {
+        TicketRef::new(&self.repo, self.issue)
+    }
+
+    /// `owner/repo#n`.
     pub(crate) fn key(&self) -> String {
-        format!("{}#{}", self.repo, self.issue)
+        self.tref().to_string()
     }
 }
 
 /// Load a ticket: check the repo, read the issue, check that it is a `crew:work` ticket, read
 /// its messages, take the item id from the signed info comment, and read the item by id.
-pub(crate) fn load_ticket(r: &Reader, trust: &Trust, repo: &str, issue: u64) -> CbResult<Ticket> {
+pub(crate) fn load_ticket(r: &Reader, trust: &Trust, t: &TicketRef) -> CbResult<Ticket> {
+    let (repo, issue) = (t.repo.as_str(), t.issue);
     check_repo(r.cfg, repo)?;
     let info = fetch_issue(r.client, repo, issue)?;
     check_work_issue(&info, repo)?;
     let (comments, msgs) = read_messages(r, trust, repo, issue)?;
     let item_id = find_item_id(&msgs).ok_or_else(|| {
         CbError::refused(
-            "ticket-not-on-board",
-            format!("{repo}#{issue} has no signed info comment with its item id; the coordinator must `assign` it first"),
+            ids::TICKET_NOT_ON_BOARD,
+            format!("{t} has no signed info comment with its item id; the coordinator must `assign` it first"),
         )
     })?;
     let item = r.board.read_item(r.client, &item_id)?;

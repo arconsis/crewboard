@@ -72,7 +72,16 @@ impl Rig {
     }
 
     fn run(&self, args: &[&str]) -> Out {
-        let o = self.cmd(args).output().unwrap();
+        self.run_env(args, &[])
+    }
+
+    /// `run` with variables of the environment of the wake.
+    fn run_env(&self, args: &[&str], env: &[(&str, &str)]) -> Out {
+        let mut c = self.cmd(args);
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        let o = c.output().unwrap();
         Out {
             code: o.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&o.stdout).to_string(),
@@ -488,10 +497,10 @@ fn s2_print_state_dir_follows_the_agent_and_starts_nothing() {
 }
 
 #[test]
-fn a_run_without_a_wake_command_or_with_a_bad_value_is_exit_4() {
+fn a_run_without_a_wake_command_or_with_a_bad_flag_value_is_exit_64() {
     let rig = Rig::new();
     let o = rig.run(&["--lock-dir", rig.p("l.d").to_str().unwrap()]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(
         o.stderr
             .contains("poll-and-wake: no wake command (--wake-cmd, CREWBOARD_WAKE_CMD or --tick)"),
@@ -500,16 +509,36 @@ fn a_run_without_a_wake_command_or_with_a_bad_value_is_exit_4() {
     );
     assert_eq!(o.stdout, "");
     let o = rig.run(&["--wake-cmd", "true", "--work-backoff", "soon"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(
         o.stderr
             .contains("--work-backoff needs whole seconds or off, got 'soon'"),
         "{}",
         o.all()
     );
-    // an unknown option is a usage error, also exit 4
-    let o = rig.run(&["--wake-cmd", "true", "--no-such-flag"]);
+    let o = rig.run(&["--wake-cmd", "true", "--heartbeat-every", "abc"]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(
+        o.stderr
+            .contains("--heartbeat-every needs whole seconds, got 'abc'"),
+        "{}",
+        o.all()
+    );
+    // the same value from the environment is a config error: exit 4
+    let o = rig.run_env(
+        &["--wake-cmd", "true"],
+        &[("CREWBOARD_HEARTBEAT_EVERY", "abc")],
+    );
     assert_eq!(o.code, 4, "{}", o.all());
+    assert!(
+        o.stderr
+            .contains("--heartbeat-every needs whole seconds, got 'abc'"),
+        "{}",
+        o.all()
+    );
+    // an unknown option is a usage error: exit 64
+    let o = rig.run(&["--wake-cmd", "true", "--no-such-flag"]);
+    assert_eq!(o.code, 64, "{}", o.all());
 }
 
 #[test]

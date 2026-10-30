@@ -76,18 +76,18 @@ impl Probe for Fake {
             None => None,
         }
     }
-    fn has_done(&self, _: &str, _: u64, _: &str, _: &str) -> Option<bool> {
+    fn has_done(&self, _: &TicketRef, _: &str, _: &str) -> Option<bool> {
         self.done
     }
-    fn verify_state(&self, _: &str, _: u64, _: Option<&str>) -> Option<VerifyState> {
+    fn verify_state(&self, _: &TicketRef, _: Option<&str>) -> Option<VerifyState> {
         self.calls.set(self.calls.get() + 1);
         self.verify.clone()
     }
-    fn question_open(&self, _: &str, issue: u64, _: Option<&str>) -> Option<OpenWait> {
+    fn question_open(&self, t: &TicketRef, _: Option<&str>) -> Option<OpenWait> {
         self.calls.set(self.calls.get() + 1);
         self.question.map(|created| OpenWait {
             created,
-            to_owner: self.to_owner.contains(&issue),
+            to_owner: self.to_owner.contains(&t.issue),
         })
     }
 }

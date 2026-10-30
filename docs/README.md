@@ -32,6 +32,7 @@ Reference:
 
 - [CLI reference](reference/cli.md): every command and option, generated from `--help`.
 - [Exit codes](reference/exit-codes.md): the one list of exit codes of every command.
+- [Refusal ids](reference/refusals.md): every rule id that a refused command can print, generated from the code.
 
 For contributors:
 

@@ -6,11 +6,13 @@ use super::{
     Me, check_status_unchanged, facts, load_world_cached, me_of, post, remember, set_select_status,
     sync_needs_owner, unread_guard,
 };
+use crate::base::{TicketRef, ids};
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::park_body;
 use crate::protocol::names::{Kind, Re, To};
-use crate::rules::ids;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::{State, check_take};
 use crate::rules::status::{BlockReason, Status, Transition, check_status_transition};
 use crate::rules::text::shell_quote;
@@ -40,7 +42,7 @@ pub(crate) fn check_take_state(
                 _ => "it is leaving: run `crewboard stop` to finish, then `crewboard join` again",
             };
             Err(Refusal::new(
-                "agent-not-active",
+                ids::AGENT_NOT_ACTIVE,
                 format!("{agent} is {name}, not active: {fix}"),
             ))
         }
@@ -66,7 +68,7 @@ fn plan_take(
     ac: &AgentCtx,
     world: &World,
     me: &Me,
-    (repo, n): (String, u64),
+    tref: TicketRef,
     interrupt: Option<&str>,
     park: Option<&str>,
     adopt_pr: Option<&str>,
@@ -74,7 +76,7 @@ fn plan_take(
     // A paused agent finishes its current step and takes nothing new (spec/board#lifecycle).
     // Resuming a blocked ticket after an answer is the current step, so only a new ticket is
     // refused.
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     if t.status()? == Status::Ready {
         crate::rules::lifecycle::check_not_paused(me.state)?;
@@ -87,7 +89,7 @@ fn plan_take(
         from == Status::Ready || (from == Status::Blocked && t.agent() == Some(me.name.as_str()));
     if interrupt.is_some() && !ok {
         return Err(CbError::refused(
-            "interrupt-needs-ready-ticket",
+            ids::INTERRUPT_NEEDS_READY_TICKET,
             format!(
                 "--interrupt needs a Ready ticket or an answered Blocked ticket of yours, {} is {}",
                 t.key(),
@@ -112,7 +114,7 @@ fn plan_take(
         None => None,
         Some(_) if resume => {
             return Err(CbError::refused(
-                "adopt-pr-needs-ready-ticket",
+                ids::ADOPT_PR_NEEDS_READY_TICKET,
                 format!(
                     "--continue-pr goes with the first take of a Ready ticket, {} is {}",
                     t.key(),
@@ -132,7 +134,7 @@ fn plan_take(
         && let Some(busy) = in_progress_key(&rows, &me.name, &t.item_id)
     {
         return Err(CbError::refused(
-            "take-agent-busy",
+            ids::TAKE_AGENT_BUSY,
             format!(
                 "{} already has {busy} In Progress; free the agent first with `block`, `ask` or `done`, then take {}; \
                      for a ticket that is ahead of it in your queue use `crewboard take <n> --interrupt --why \"<why>\"`",
@@ -191,7 +193,7 @@ fn explain_unblock_refusal(t: &Ticket, from: Status, r: Refusal) -> CbError {
 /// The rule of `--interrupt`: the new ticket must come first, that is have a strictly lower
 /// `Order` than the parked ticket.
 fn check_interrupt_rule(t: &Ticket, cur: &crate::ticket::TicketRow) -> Result<(), Refusal> {
-    let new = t.item.field("Order").and_then(|o| o.parse::<i64>().ok());
+    let new = t.item.get(Field::Order).and_then(|o| o.parse::<i64>().ok());
     crate::rules::status::check_interrupt_by_order(new, cur.order)
 }
 
@@ -209,9 +211,9 @@ fn plan_park(
     let named = named
         .map(|p| parse_issue_arg(p, ac.ctx.main_repo()))
         .transpose()?;
-    let cur = choose_park(rows, named.as_ref().map(|(r, n)| (r.as_str(), *n)))?;
+    let cur = choose_park(rows, named.as_ref())?;
     check_interrupt_rule(t, cur)?;
-    let ct = load_ticket(&ac.ctx.reader(), &world.trust, &cur.repo, cur.issue)?;
+    let ct = load_ticket(&ac.ctx.reader(), &world.trust, &cur.tref())?;
     ct.check_agent_signed()?;
     // The park posts a signed message on the old ticket, so the same guard as `block` runs
     // here, before any write. The new ticket needs no guard: `take` prints its unread
@@ -273,10 +275,10 @@ pub fn take(
     park: Option<&str>,
     adopt_pr: Option<&str>,
 ) -> CbResult<String> {
-    let issue = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if interrupt.is_some_and(|r| r.trim().is_empty()) {
         return Err(CbError::refused(
-            "interrupt-needs-reason",
+            ids::INTERRUPT_NEEDS_REASON,
             "--interrupt needs a reason (--why)",
         ));
     }
@@ -285,7 +287,7 @@ pub fn take(
     crate::ops::say::refresh_heartbeat(ac, &world);
     // The coordinator never takes (spec/board#coordinator-role), whatever the ticket looks like.
     check_take(Some(me.role))?;
-    let plan = plan_take(ac, &world, &me, issue, interrupt, park, adopt_pr)?;
+    let plan = plan_take(ac, &world, &me, tref, interrupt, park, adopt_pr)?;
     act_take(ac, &world, &me, plan)
 }
 
@@ -305,8 +307,7 @@ fn act_take(ac: &AgentCtx, world: &World, me: &Me, plan: TakePlan) -> CbResult<S
             ac,
             world,
             &t.comments,
-            &t.repo,
-            t.issue,
+            &t.tref(),
             t.agent() == Some(ac.name.as_str()),
             true,
         )
@@ -343,9 +344,7 @@ fn act_take(ac: &AgentCtx, world: &World, me: &Me, plan: TakePlan) -> CbResult<S
         },
     )?;
     set_select_status(ac, &t.item_id, Status::InProgress)?;
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &ac.agent.item_id, "Doing", &t.key())?;
+    ac.write_own(Field::Doing, FieldValue::Text(&t.key()))?;
     remember(ac, &t, Status::InProgress, t.agent());
     let label_line = sync_needs_owner(ac, &t, question_open(&t.msgs, t.agent()).is_some());
     let next = match &adopt {

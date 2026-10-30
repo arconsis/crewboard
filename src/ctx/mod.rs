@@ -10,7 +10,7 @@ mod registry_view;
 mod token;
 
 use crate::agent_env::OwnerSource;
-use crate::board::Board;
+use crate::board::{Board, FieldValue, ItemRef};
 use crate::comments::Comment;
 use crate::config::{AgentConfig, BoardConfig, ConfigDir, load_key};
 use crate::error::{CbError, CbResult};
@@ -19,6 +19,8 @@ use crate::github::{Client, GhError, resolve_owner_token, resolve_token};
 use crate::items::ItemSnapshot;
 use crate::protocol::names::AgentName;
 use crate::registry::{Registry, Trust, build_trust, resolve};
+use crate::rules::fields::{Field, WriteCtx};
+use crate::rules::lifecycle::State;
 use crate::services::Reader;
 use crate::state::StateCache;
 use ssh_key::PrivateKey;
@@ -278,6 +280,25 @@ impl AgentCtx {
         if let Err(e) = c.save(&self.state_path()) {
             eprintln!("warning: {e}");
         }
+    }
+
+    /// Write a field of this agent's own item: the agent itself is the writer
+    /// (spec/board#fields). The field-writer table checks the write ([`Board::write`]).
+    pub fn write_own(&self, field: Field, value: FieldValue<'_>) -> CbResult<()> {
+        self.ctx.board.write(
+            &self.ctx.client,
+            ItemRef::agent(&self.agent.item_id),
+            field,
+            value,
+            &WriteCtx::own_item(),
+        )
+    }
+
+    /// Write the `State` of this agent's own item. The lifecycle check is the caller's.
+    pub fn write_own_state(&self, to: State) -> CbResult<()> {
+        self.ctx
+            .board
+            .write_state(&self.ctx.client, &self.agent.item_id, to)
     }
 
     /// Save the cache; a failure is an error (the message names the path). For `watch` (cursor,

@@ -2,10 +2,12 @@
 //! ticket, and the signed assignment message. Shared by `assign`, `new`, `order` and `reassign`.
 
 use super::{post, to_agent};
+use crate::base::ids;
 use crate::ctx::{AgentCtx, World};
 use crate::error::{CbError, CbResult};
 use crate::protocol::names::{AgentName, Kind, Re};
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::services::ticket_loader::{IssueInfo, Ticket};
 use crate::ticket::declares_ci_none;
 
@@ -21,14 +23,14 @@ pub(crate) fn check_assignable_state(
 ) -> Result<(), CbError> {
     if role != Some(Role::Dev) {
         return Err(CbError::refused(
-            "status-agent-not-active-dev",
+            ids::STATUS_AGENT_NOT_ACTIVE_DEV,
             format!("{agent} is not a dev agent"),
         ));
     }
     if state != "active" && state != "working" {
         // `working` is a legacy value (never written any more): it reads as `active`.
         return Err(CbError::refused(
-            "status-agent-not-active-dev",
+            ids::STATUS_AGENT_NOT_ACTIVE_DEV,
             format!(
                 "{agent} is in State '{state}', not active{}",
                 if state == "paused" {
@@ -47,7 +49,7 @@ pub(crate) fn check_assignable_state(
 pub(super) fn check_assignable(ac: &AgentCtx, world: &World, agent: &str) -> CbResult<()> {
     let t = world.trust.get(agent).ok_or_else(|| {
         CbError::refused(
-            "status-agent-not-active-dev",
+            ids::STATUS_AGENT_NOT_ACTIVE_DEV,
             format!("{agent} is not an approved agent"),
         )
     })?;
@@ -60,7 +62,7 @@ pub(super) fn check_assignable(ac: &AgentCtx, world: &World, agent: &str) -> CbR
     let state = world
         .items
         .get(&t.item_id)
-        .and_then(|i| i.field("State"))
+        .and_then(|i| i.get(Field::State))
         .unwrap_or("?");
     check_assignable_state(agent, Some(t.role), state)
 }

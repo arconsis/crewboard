@@ -13,6 +13,7 @@
 use super::say::{require_approved, send_signed};
 use super::watch::collect;
 use super::{AgentCtx, load_world};
+use crate::base::ids;
 use crate::clock::{now_epoch, now_ts};
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
@@ -100,7 +101,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<(SelftestResult, String)> {
     )?;
     require_approved(&world, &me).map_err(|e| match e {
         CbError::Refused(r) => CbError::refused(
-            "selftest-needs-approval",
+            ids::SELFTEST_NEEDS_APPROVAL,
             format!("selftest needs an approved agent: {}", r.message),
         ),
         other => other,

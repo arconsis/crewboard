@@ -16,11 +16,12 @@ use super::assign::assign;
 use super::assign_checks::CapOverride;
 use super::new::{adopt_info, check_new_ticket, precheck_assign};
 use super::{Me, load_world_cached, me_of, post, to_agent};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::{Kind, Re};
-use crate::rules::ids;
+use crate::rules::fields::Field;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
     IssueInfo, Ticket, check_repo, fetch_issue, load_ticket, parse_issue,
@@ -75,7 +76,7 @@ struct Done {
 
 fn no_agent(old_key: &str) -> CbError {
     CbError::refused(
-        "split-no-agent",
+        ids::SPLIT_NO_AGENT,
         format!("{old_key} has no Agent; there is nobody to queue the new ticket for"),
     )
 }
@@ -101,18 +102,18 @@ fn plan_split(
 ) -> CbResult<SplitPlan> {
     let file_body = prepare_body(Some(body_file), None)?;
     let title = title.trim();
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // writer first: only the coordinator splits
     check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
     crate::ctx::load_authority(&ac.ctx)?.check_split_ticket()?;
-    let old = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let old = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     if !old.info.open {
         return Err(CbError::refused(
-            "ticket-closed",
-            format!("{repo}#{n} is closed"),
+            ids::TICKET_CLOSED,
+            format!("{tref} is closed"),
         ));
     }
     let old_key = old.key();
@@ -123,13 +124,13 @@ fn plan_split(
         .and_then(|k| k.rsplit_once('#').and_then(|(_, m)| m.parse::<u64>().ok()));
     let existing = match linked {
         Some(m) => Some(m),
-        None => find_split_issue(ac, &repo, &old_key, title)?,
+        None => find_split_issue(ac, &tref.repo, &old_key, title)?,
     };
     if existing.is_none() {
         let status = old.status()?;
         if !matches!(status, Status::InProgress | Status::Blocked) {
             return Err(CbError::refused(
-                "split-not-in-progress",
+                ids::SPLIT_NOT_IN_PROGRESS,
                 format!(
                     "{old_key} is {}; only an In Progress or Blocked ticket is split",
                     status.name()
@@ -150,8 +151,8 @@ fn plan_split(
         precheck_assign(ac, &world, a, title, &body)?;
     }
     Ok(SplitPlan {
-        repo,
-        n,
+        repo: tref.repo.clone(),
+        n: tref.issue,
         world,
         me,
         old,
@@ -247,7 +248,7 @@ fn queue_new_ticket(
         .ctx
         .board
         .read_item(&ac.ctx.client, item_id)?
-        .field("Status")
+        .get(Field::Status)
         .and_then(Status::parse_board);
     let queued = if matches!(status, Some(Status::Backlog | Status::Ready) | None) {
         let agent = p.agent.as_deref().ok_or_else(|| no_agent(&p.old_key))?;

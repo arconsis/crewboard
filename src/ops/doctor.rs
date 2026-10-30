@@ -13,11 +13,13 @@
 //! `gh`, git identity, runtime, board, AUTHORITY.md and approval. It reads, it never writes.
 
 use super::{Global, new_client, resolve_board_config};
+use crate::base::ids;
 use crate::board::Board;
 use crate::builtin_workflows;
 use crate::config::ConfigDir;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::find_on_path;
+use crate::rules::fields::Field;
 use std::path::Path;
 
 /// The headless scope line for each state.
@@ -202,7 +204,7 @@ impl SetupReport {
             (
                 text,
                 Err(CbError::refused(
-                    "setup-incomplete",
+                    ids::SETUP_INCOMPLETE,
                     format!(
                         "{n} setup check(s) failed; run the fix of each FAIL line, then `crewboard doctor --setup` again"
                     ),
@@ -653,7 +655,7 @@ pub fn judge_registry(
             let state = world
                 .items
                 .get(item_id)
-                .and_then(|i| i.field("State"))
+                .and_then(|i| i.get(Field::State))
                 .unwrap_or("unknown");
             let next = if state == "approved" {
                 "; the next step is `crewboard start`"

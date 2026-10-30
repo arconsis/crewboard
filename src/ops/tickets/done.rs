@@ -12,9 +12,11 @@ use super::pr_evidence::{
 };
 use super::{
     Me, facts, load_world_cached, me_of, needs_owner_lines, post_with, remember, unread_guard,
-    work_write_ctx_of,
+    work_write_ctx_of, write_work,
 };
 use crate::authority::Authority;
+use crate::base::ids;
+use crate::board::FieldValue;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::NamedRun;
 use crate::error::CbResult;
@@ -27,7 +29,7 @@ use crate::rules::Refusal;
 use crate::rules::evidence::{
     CiFacts, EvidenceInput, PrFacts, PrUrl, judge_evidence, parse_pr_url,
 };
-use crate::rules::fields::{Field, Item, check_field_write};
+use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::limits::check_text_field;
 use crate::rules::protected::MAX_FILES;
 use crate::rules::status::{Status, TicketFacts, check_status_transition};
@@ -89,16 +91,17 @@ struct DoneLoad {
 /// The reads of `done` that come before any decision about the PR.
 fn load_done(ac: &AgentCtx, a: &DoneArgs<'_>) -> CbResult<DoneLoad> {
     let pr_url = parse_pr_url(a.pr)?;
-    let (repo, n) = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // Events for this agent that `watch` has not delivered. Before the first write.
-    let events_line = match crate::ops::watch::unread_for_done(ac, &world, (&repo, n))? {
-        Some(unread) => crate::unread::events_verdict(&unread, a.ignore_events)?,
-        None => None,
-    };
+    let events_line =
+        match crate::ops::watch::unread_for_done(ac, &world, (&tref.repo, tref.issue))? {
+            Some(unread) => crate::unread::events_verdict(&unread, a.ignore_events)?,
+            None => None,
+        };
     crate::ops::say::refresh_heartbeat(ac, &world);
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     // --override-unread also covers the unread messages of this ticket (the same messages).
     let unread_line = unread_guard(ac, &world, &t, a.anyway || events_line.is_some())?;
@@ -108,8 +111,8 @@ fn load_done(ac: &AgentCtx, a: &DoneArgs<'_>) -> CbResult<DoneLoad> {
     };
     let from = t.status()?;
     Ok(DoneLoad {
-        repo,
-        n,
+        repo: tref.repo.clone(),
+        n: tref.issue,
         pr_url,
         world,
         me,
@@ -200,7 +203,7 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
     let files = fetch_pr_files_upto(ac, &pr.repo, pr.number, MAX_FILES + 1)?;
     if files.over(MAX_FILES) {
         return Err(Refusal::new(
-            crate::rules::protected::RULE,
+            ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
                 "{} has more than {MAX_FILES} files; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
                 format_args!("{}#{}", l.pr_url.repo, l.pr_url.number)
@@ -305,6 +308,8 @@ struct DonePlan {
     owner: Option<OwnerStep>,
     /// The new value of the board field `Evidence`.
     evidence_field: String,
+    /// Who writes `Evidence` (checked when the plan is made).
+    evidence_writer: WriteCtx,
     /// The Status to write; `None` for a re-delivery in Review.
     status_write: Option<Status>,
     /// `Doing = idle` when the agent has no other ticket In Progress.
@@ -387,11 +392,9 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
         redelivery && is_new_head(f.last_done_sha.as_deref(), Some(&ev.sha)),
     );
     check_status_transition(Some(f.from), to, f.actor, &deliver)?;
-    check_field_write(
-        Item::Work,
-        Field::Evidence,
-        &work_write_ctx_of(f.actor, f.facts.actor_is_assignee),
-    )?;
+    // checked here, before the signed message: a refused writer posts nothing
+    let evidence_writer = work_write_ctx_of(f.actor, f.facts.actor_is_assignee);
+    check_field_write(Item::Work, Field::Evidence, &evidence_writer)?;
     let ci_info = if f.local_gate.is_some() {
         format!("ci-info: {}\n", ci_info_text(f.ci))
     } else {
@@ -401,6 +404,7 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
         body: done_body(&msg, &done_notes(f, &ci_info)),
         owner: owner_step(f, &msg.sha),
         evidence_field: field,
+        evidence_writer,
         status_write: (f.from != to).then_some(to),
         idle_when_free: f.from == Status::InProgress,
         remember: to,
@@ -564,9 +568,13 @@ fn act_done(ac: &AgentCtx, l: &DoneLoad, p: &DonePlan, clock: &dyn Clock) -> CbR
         Some(o) => act_owner(ac, t, o, clock)?,
         None => String::new(),
     };
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &t.item_id, "Evidence", &p.evidence_field)?;
+    write_work(
+        ac,
+        &t.item_id,
+        Field::Evidence,
+        FieldValue::Text(&p.evidence_field),
+        &p.evidence_writer,
+    )?;
     // A re-delivery in Review keeps the Status: no Status write.
     if let Some(to) = p.status_write {
         super::set_select_status(ac, &t.item_id, to)?;
@@ -779,7 +787,7 @@ mod tests {
     }
 
     fn rule_of(r: Result<DonePlan, Refusal>) -> &'static str {
-        r.expect_err("must be refused").rule
+        r.expect_err("must be refused").rule.as_str()
     }
 
     fn question(body: &str, to: &str) -> VMsg {
@@ -911,7 +919,7 @@ mod tests {
         };
         let pr = pr_facts();
         let r = check_owner_route_keeps_ticket_open(&owner, &pr, "a/b", 12).unwrap_err();
-        assert_eq!(r.rule, crate::owner_route::KEYWORD_RULE);
+        assert_eq!(r.rule, ids::OWNER_ROUTE_CLOSING_KEYWORD);
         assert!(check_owner_route_keeps_ticket_open(&Route::Normal, &pr, "a/b", 12).is_ok());
         let refs = PrFacts {
             body: "Refs #12".into(),

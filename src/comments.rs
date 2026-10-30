@@ -2,7 +2,7 @@
 //!
 //! The plain comment type. `feed.rs` fills it from GitHub; `events.rs` and `registry.rs` read it.
 
-use crate::base::GhError;
+use crate::base::{GhError, TicketRef};
 use crate::clock::parse_ts;
 use crate::protocol::canonical::IssueRef;
 use crate::protocol::header::Message;
@@ -139,9 +139,13 @@ impl Comment {
         check_window(ts, self.created_epoch)
     }
 
+    /// The issue of the comment.
+    pub fn tref(&self) -> TicketRef {
+        TicketRef::new(&self.repo, self.issue)
+    }
+
     pub fn issue_ref(&self) -> IssueRef {
-        let (o, r) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
-        IssueRef::new(o, r, self.issue)
+        IssueRef::from(&self.tref())
     }
 
     /// Verify a message that this comment carries. The signature is checked under the current

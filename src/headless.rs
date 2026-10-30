@@ -18,12 +18,10 @@
 //! coordinator runs as another OS user, or uses another config dir without the key, and is not
 //! restricted.
 
+use crate::base::ids;
 use crate::config::ConfigDir;
 use crate::error::{CbError, CbResult};
 use crate::rules::Refusal;
-
-/// The rule name of every refusal in this module.
-pub const RULE: &str = "headless-scope";
 
 /// What a headless coordinator may do with one command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +48,7 @@ pub(crate) const DENY_RUN: &str =
 /// The refusal for a command that the scope does not allow. `command` is the name as typed.
 pub fn refusal(command: &str, why: &str) -> Refusal {
     Refusal::new(
-        RULE,
+        ids::HEADLESS_SCOPE,
         format!(
             "this config is headless: `{command}` is not allowed ({why}). A headless coordinator may only run verify, and merge for a ticket whose Gate is CI only. Leave this for the interactive coordinator and note it"
         ),
@@ -127,7 +125,7 @@ impl Gate {
 pub fn check_merge_ticket(key: &str, signed: Option<&str>, ci_none: bool) -> Result<(), Refusal> {
     let Some(gate) = signed else {
         return Err(Refusal::new(
-            RULE,
+            ids::HEADLESS_SCOPE,
             format!(
                 "no signed gate line on {key}: the Gate is not CI only. Leave the merge for the interactive coordinator and note it"
             ),
@@ -143,7 +141,7 @@ pub fn check_merge_ticket(key: &str, signed: Option<&str>, ci_none: bool) -> Res
         format!("the signed gate of {key} is '{gate}': it is not CI only")
     };
     Err(Refusal::new(
-        RULE,
+        ids::HEADLESS_SCOPE,
         format!(
             "this config is headless: merge needs a Gate that is CI only (write `Gate: ci`); {why}. Leave the merge for the interactive coordinator and note it"
         ),
@@ -159,7 +157,7 @@ pub fn check_no_open_question_headless(key: &str, open: bool) -> Result<(), Refu
         return Ok(());
     }
     Err(Refusal::new(
-        RULE,
+        ids::HEADLESS_SCOPE,
         format!(
             "this config is headless: {key} has an open question to the owner; only the interactive coordinator acts on it. Leave it for the interactive coordinator and note it"
         ),
@@ -277,7 +275,7 @@ mod tests {
     #[test]
     fn a_ticket_with_an_open_question_is_refused_and_any_other_passes() {
         let r = check_no_open_question_headless("o/r#12", true).unwrap_err();
-        assert_eq!(r.rule, RULE);
+        assert_eq!(r.rule, ids::HEADLESS_SCOPE);
         assert!(
             r.message
                 .contains("o/r#12 has an open question to the owner; only the interactive coordinator acts on it"),

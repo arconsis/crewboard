@@ -72,6 +72,7 @@ struct Edge {
     command: &'static str,
 }
 
+use crate::base::ids;
 use State::*;
 
 const fn e(from: Option<State>, to: State, by: Allowed, command: &'static str) -> Edge {
@@ -108,7 +109,7 @@ pub fn check_lifecycle(from: Option<State>, to: State, who: Who) -> Verdict {
         .find(|x| x.from == from && x.to == to)
         .ok_or_else(|| {
             Refusal::new(
-                "lifecycle-unknown-transition",
+                ids::LIFECYCLE_UNKNOWN_TRANSITION,
                 format!("{from:?} -> {to:?} is not in the lifecycle"),
             )
         })?;
@@ -120,7 +121,7 @@ pub fn check_lifecycle(from: Option<State>, to: State, who: Who) -> Verdict {
     );
     if !ok {
         return Err(Refusal::new(
-            "lifecycle-wrong-actor",
+            ids::LIFECYCLE_WRONG_ACTOR,
             format!(
                 "{from:?} -> {to:?} ('{}') is not allowed for {who:?}",
                 edge.command
@@ -136,7 +137,7 @@ pub fn check_lifecycle(from: Option<State>, to: State, who: Who) -> Verdict {
 pub fn check_resume(who: Who, owner_paused: bool) -> Verdict {
     if owner_paused && who == Who::SelfAgent {
         return Err(Refusal::new(
-            "resume-owner-paused",
+            ids::RESUME_OWNER_PAUSED,
             "the owner paused this agent (/crew pause); only the owner resumes it (/crew resume)",
         ));
     }
@@ -151,11 +152,11 @@ pub fn check_force_stop(state: Option<State>) -> Verdict {
     match state {
         Some(Approved | Active | Paused | Draining) => Ok(()),
         Some(Left) => Err(Refusal::new(
-            "stop-force-already-left",
+            ids::STOP_FORCE_ALREADY_LEFT,
             "the agent has left already (State left); without a stop in the registry log its tickets stay, and the owner records the stop with `crewboard stop --agent <name> --force`",
         )),
         Some(Requested) | None => Err(Refusal::new(
-            "stop-force-not-running",
+            ids::STOP_FORCE_NOT_RUNNING,
             "the agent is not an approved, running agent: a join request is ended with /crew reject",
         )),
     }
@@ -166,7 +167,7 @@ pub fn check_force_stop(state: Option<State>) -> Verdict {
 pub fn check_not_paused(state: Option<State>) -> Verdict {
     if state == Some(Paused) {
         return Err(Refusal::new(
-            "agent-paused",
+            ids::AGENT_PAUSED,
             "this agent is paused: it finishes its current step and takes nothing new; `crewboard resume` first",
         ));
     }
@@ -179,11 +180,11 @@ pub fn check_take(role: Option<Role>) -> Verdict {
     match role {
         Some(Role::Dev) => Ok(()),
         Some(Role::Coordinator) => Err(Refusal::new(
-            "coordinator-cannot-take",
+            ids::COORDINATOR_CANNOT_TAKE,
             "the coordinator does not take tickets",
         )),
         None => Err(Refusal::new(
-            "take-needs-role",
+            ids::TAKE_NEEDS_ROLE,
             "an agent without a role cannot take a ticket",
         )),
     }
@@ -208,7 +209,7 @@ pub fn check_single_coordinator(crew: &[CrewMember], candidate: &str, new_role: 
         .find(|m| m.name != candidate && m.role == Some(Role::Coordinator) && m.state != Left)
     {
         Some(other) => Err(Refusal::new(
-            "single-coordinator",
+            ids::SINGLE_COORDINATOR,
             format!(
                 "{} is already the coordinator; set it to Dev or stop it first (handover)",
                 other.name
@@ -226,6 +227,7 @@ mod tests {
         check_lifecycle(from, to, who)
             .expect_err("must be refused")
             .rule
+            .as_str()
     }
 
     #[test]

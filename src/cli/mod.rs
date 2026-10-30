@@ -225,7 +225,10 @@ pub fn run(cli: &Cli) -> Outcome {
     // a build without Unix process control refuses before it reads any file
     #[cfg(not(unix))]
     if matches!(cli.command, Command::Host(HostCmd::Wake { .. })) {
-        return refused(Refusal::new("unix-only", crate::wake::cmd::UNIX_ONLY));
+        return refused(Refusal::new(
+            crate::base::ids::UNIX_ONLY,
+            crate::wake::cmd::UNIX_ONLY,
+        ));
     }
     if let Some(early) = load_agent_env(cli) {
         return early;

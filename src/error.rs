@@ -2,6 +2,7 @@
 //!
 //! Every layer returns it. `main.rs` prints it and turns it into the exit code (see `exit.rs`).
 
+use crate::base::ids::RuleId;
 use crate::base::{GhError, Refusal};
 use crate::exit::Exit;
 use crate::protocol::ProtocolError;
@@ -15,6 +16,9 @@ pub enum CbError {
     Network(GhError),
     /// Configuration, key or credential problem (exit 4).
     Config(String),
+    /// A bad command line that the argument parser does not catch: a bad issue argument, a bad
+    /// value or combination of options (exit 64). The fix is a corrected command.
+    Usage(String),
 }
 
 impl CbError {
@@ -22,7 +26,11 @@ impl CbError {
         CbError::Config(m.into())
     }
 
-    pub fn refused(rule: &'static str, m: impl Into<String>) -> Self {
+    pub fn usage(m: impl Into<String>) -> Self {
+        CbError::Usage(m.into())
+    }
+
+    pub fn refused(rule: RuleId, m: impl Into<String>) -> Self {
         CbError::Refused(Refusal::new(rule, m))
     }
 
@@ -32,6 +40,7 @@ impl CbError {
             CbError::Network(GhError::Auth(_) | GhError::InsufficientScopes { .. }) => Exit::Config,
             CbError::Network(_) => Exit::Network,
             CbError::Config(_) => Exit::Config,
+            CbError::Usage(_) => Exit::Usage,
         }
     }
 }
@@ -42,6 +51,7 @@ impl fmt::Display for CbError {
             CbError::Refused(r) => write!(f, "{r}"),
             CbError::Network(e) => write!(f, "{e}"),
             CbError::Config(m) => write!(f, "configuration error: {m}"),
+            CbError::Usage(m) => write!(f, "usage error: {m}"),
         }
     }
 }
@@ -77,7 +87,10 @@ mod tests {
 
     #[test]
     fn errors_map_to_distinct_exit_codes() {
-        assert_eq!(CbError::refused("x", "m").exit(), Exit::Refused);
+        assert_eq!(
+            CbError::refused(crate::base::ids::FIELD_WRONG_WRITER, "m").exit(),
+            Exit::Refused
+        );
         assert_eq!(
             CbError::Network(GhError::Network("x".into())).exit(),
             Exit::Network
@@ -100,9 +113,11 @@ mod tests {
             Exit::Config
         );
         assert_eq!(CbError::config("x").exit(), Exit::Config);
+        assert_eq!(CbError::usage("x").exit(), Exit::Usage);
+        assert_eq!(CbError::usage("x").to_string(), "usage error: x");
         // None of the error paths may yield the "no events" code.
         for e in [
-            CbError::refused("x", "m"),
+            CbError::refused(crate::base::ids::FIELD_WRONG_WRITER, "m"),
             CbError::Network(GhError::Network("x".into())),
             CbError::config("x"),
         ] {

@@ -14,6 +14,7 @@ pub mod board;
 pub mod ci;
 #[cfg(unix)]
 pub mod detach;
+mod exit;
 pub mod fsmeta;
 pub mod help;
 pub mod judge;
@@ -30,6 +31,7 @@ pub mod takeover;
 use crate::base::ignore::best_effort_cleanup;
 use crate::clock::{Clock, format_ts};
 use board::BoardCheck;
+pub use exit::LockExit;
 use judge::{Judgement, Rules};
 use log::Log;
 use owner::{OwnerFile, sibling};
@@ -243,13 +245,13 @@ impl<'a> Session<'a> {
                         "re-entrant: {d} is already held by your parent process {held} ({}); not taking it again",
                         self.describe()
                     ));
-                return 0;
+                return LockExit::Ok.code();
             }
             self.log.say(&format!(
                     "held by your own parent process {held} ({}); not re-entered: {d} is not granted to this process (CREWBOARD_HOST_LOCK/CREWBOARD_HOST_LOCK_PID missing or different). Do not wrap a tool that takes this lock itself in run; let it honor CREWBOARD_HOST_LOCK",
                     self.describe()
                 ));
-            return 77;
+            return LockExit::HeldByAncestor.code();
         }
         let start = self.clock.now();
         if self.opts.ci_mode
@@ -266,7 +268,7 @@ impl<'a> Session<'a> {
                 if self.opts.ci_mode {
                     ci::unregister(&self.dir, &self.opts.owner);
                 }
-                return 143;
+                return LockExit::Stopped.code();
             }
             // CI first: an agent neither takes a free lock nor takes a stale one over while CI
             // runs or waits (a --gate job skips this wait: a held lock still blocks it)
@@ -276,7 +278,7 @@ impl<'a> Session<'a> {
                 None
             };
             let rc = if ci.is_some() {
-                76
+                LockExit::CiActive.code()
             } else {
                 match self.try_take(pid) {
                     Ok(true) => {
@@ -284,15 +286,15 @@ impl<'a> Session<'a> {
                             ci::unregister(&self.dir, &self.opts.owner);
                         }
                         self.lock_pid = Some(pid.to_string());
-                        return 0;
+                        return LockExit::Ok.code();
                     }
-                    Ok(false) => 75,
+                    Ok(false) => LockExit::Held.code(),
                     Err(line) => {
                         if self.opts.ci_mode {
                             ci::unregister(&self.dir, &self.opts.owner);
                         }
                         self.log.say(&line);
-                        return 1;
+                        return LockExit::No.code();
                     }
                 }
             };
@@ -369,10 +371,10 @@ impl<'a> Session<'a> {
         if !self.dir.is_dir() {
             self.log
                 .say(&format!("nothing to release: {d} does not exist"));
-            return 0;
+            return LockExit::Ok.code();
         }
         if self.nested {
-            return 0;
+            return LockExit::Ok.code();
         }
         if let Some(held) = self.ancestor_holder()
             && self.granted(held)
@@ -380,7 +382,7 @@ impl<'a> Session<'a> {
             self.log.say(&format!(
                 "nested release: {d} belongs to your parent process {held}; the outer lock stays"
             ));
-            return 0;
+            return LockExit::Ok.code();
         }
         let snap = self.snapshot();
         if !self.owns(&snap) {
@@ -390,7 +392,7 @@ impl<'a> Session<'a> {
                 self.opts.owner,
                 self.host
             ));
-            return 3;
+            return LockExit::NotOwner.code();
         }
         let gone = sibling(
             &self.dir,
@@ -403,7 +405,7 @@ impl<'a> Session<'a> {
         );
         if std::fs::rename(&self.dir, &gone).is_err() {
             self.log.say(&format!("cannot remove {d}"));
-            return 3;
+            return LockExit::NotOwner.code();
         }
         // Another taker may have replaced the lock between the check and the rename: look into the
         // renamed dir, and put it back if it is not ours.
@@ -419,10 +421,10 @@ impl<'a> Session<'a> {
                 self.opts.owner,
                 self.host
             ));
-            return 3;
+            return LockExit::NotOwner.code();
         }
         best_effort_cleanup(std::fs::remove_dir_all(&gone));
-        0
+        LockExit::Ok.code()
     }
 
     /// `status`: 0 held by a live owner, 1 free, 2 stale. It prints the answer.
@@ -433,14 +435,14 @@ impl<'a> Session<'a> {
         let snap = self.snapshot();
         if !snap.exists {
             self.log.out("free");
-            return 1;
+            return LockExit::No.code();
         }
         if let Some(why) = self.judge(&snap).why() {
             self.log.out(&format!(
                 "stale: {why}; owner {}",
                 judge::describe_owner(&snap)
             ));
-            return 2;
+            return LockExit::Stale.code();
         }
         let now = self.clock.now();
         self.log.out(&format!(
@@ -449,7 +451,7 @@ impl<'a> Session<'a> {
             judge::held_notes(&snap, now),
             judge::held_facts(&snap, &self.host, now, self.procs)
         ));
-        0
+        LockExit::Ok.code()
     }
 
     /// `break --if-dead`: 0 free, or stale and removed; 3 held by a live owner (lock untouched).
@@ -457,15 +459,15 @@ impl<'a> Session<'a> {
         let snap = self.snapshot();
         if !snap.exists {
             self.log.out("free");
-            return 0;
+            return LockExit::Ok.code();
         }
         if matches!(self.judge(&snap), Judgement::Stale { .. }) && self.take_over() {
-            return 0;
+            return LockExit::Ok.code();
         }
         let snap = self.snapshot();
         if !snap.exists {
             self.log.out("free");
-            return 0;
+            return LockExit::Ok.code();
         }
         let now = self.clock.now();
         self.log.out(&format!(
@@ -474,7 +476,7 @@ impl<'a> Session<'a> {
             judge::held_notes(&snap, now),
             judge::held_facts(&snap, &self.host, now, self.procs)
         ));
-        3
+        LockExit::NotOwner.code()
     }
 
     /// `ci-wait`: put this CI step on the waiting list.
@@ -483,19 +485,19 @@ impl<'a> Session<'a> {
         if self.ci_register(pid).is_err() {
             self.log
                 .say(&format!("cannot write the waiting list {}", w.display()));
-            return 1;
+            return LockExit::No.code();
         }
         self.log.say(&format!(
             "registered CI entry {} in {}",
             self.opts.owner,
             w.display()
         ));
-        0
+        LockExit::Ok.code()
     }
 
     pub fn ci_done(&self) -> i32 {
         ci::unregister(&self.dir, &self.opts.owner);
-        0
+        LockExit::Ok.code()
     }
 
     /// `ci-status`: 0 and a line if CI runs or waits, else 1.
@@ -503,9 +505,9 @@ impl<'a> Session<'a> {
         match self.ci_seen() {
             Some(c) => {
                 self.log.out(&c);
-                0
+                LockExit::Ok.code()
             }
-            None => 1,
+            None => LockExit::No.code(),
         }
     }
 }

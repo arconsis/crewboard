@@ -7,6 +7,7 @@
 
 use super::Refusal;
 use super::status::Status;
+use crate::base::ids;
 
 /// Why the coordinator takes a ticket from its agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +50,7 @@ impl Reason {
             .find(|r| r.word() == s.trim())
             .ok_or_else(|| {
                 Refusal::new(
-                    "status-reassign-reason",
+                    ids::STATUS_REASSIGN_REASON,
                     format!(
                         "'{}' is not a reassign reason: use one of {} (and --why for the text)",
                         s.trim(),

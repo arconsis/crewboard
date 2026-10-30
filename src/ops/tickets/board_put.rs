@@ -1,13 +1,14 @@
 //! Put an issue on the board: the part of `new`, `adopt` and `assign` that adds the item, signs
 //! the info comment that records the item id and sets `Kind`.
 
-use super::{Me, work_write_ctx};
+use super::{Me, work_write_ctx, write_work};
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::ctx::AgentCtx;
 use crate::error::CbResult;
 use crate::ops::say::send_signed;
 use crate::protocol::names::{Kind, Re, To};
-use crate::rules::fields::{Field, Item, check_field_write};
+use crate::rules::fields::Field;
 use crate::services::ticket_loader::IssueInfo;
 use crate::ticket::{info_body, info_body_adopting};
 
@@ -55,9 +56,12 @@ pub(super) fn put_on_board(
         "ticket added to the board as {id}; info comment {} records the item id\n",
         posted.id
     ));
-    check_field_write(Item::Work, Field::Kind, &work_write_ctx(me, false))?;
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, &id, "Kind", "Work")?;
+    write_work(
+        ac,
+        &id,
+        Field::Kind,
+        FieldValue::Option("Work"),
+        &work_write_ctx(me, false),
+    )?;
     Ok(id)
 }

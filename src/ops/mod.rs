@@ -49,6 +49,7 @@ pub(crate) mod tickets;
 pub mod update_cmd;
 pub(crate) mod watch;
 
+use crate::base::TicketRef;
 use crate::config::{BoardConfig, INITIATIVE_FILE, split_repo};
 use crate::error::{CbError, CbResult};
 
@@ -93,18 +94,18 @@ pub fn resolve_board_config(g: &Global) -> CbResult<BoardConfig> {
 }
 
 /// `12` (main repo) or `owner/repo#12`.
-pub fn parse_issue_arg(s: &str, main_repo: &str) -> CbResult<(String, u64)> {
+pub fn parse_issue_arg(s: &str, main_repo: &str) -> CbResult<TicketRef> {
     if let Some((repo, n)) = s.split_once('#') {
-        split_repo(repo)?;
+        split_repo(repo).map_err(|_| CbError::usage(format!("'{repo}' is not owner/repo")))?;
         let n: u64 = n
             .parse()
-            .map_err(|_| CbError::config(format!("bad issue number in '{s}'")))?;
-        return Ok((repo.to_string(), n));
+            .map_err(|_| CbError::usage(format!("bad issue number in '{s}'")))?;
+        return Ok(TicketRef::new(repo, n));
     }
     let n: u64 = s
         .parse()
-        .map_err(|_| CbError::config(format!("'{s}' is not an issue number or owner/repo#n")))?;
-    Ok((main_repo.to_string(), n))
+        .map_err(|_| CbError::usage(format!("'{s}' is not an issue number or owner/repo#n")))?;
+    Ok(TicketRef::new(main_repo, n))
 }
 
 #[cfg(test)]
@@ -113,8 +114,14 @@ mod tests {
 
     #[test]
     fn issue_args() {
-        assert_eq!(parse_issue_arg("12", "a/b").unwrap(), ("a/b".into(), 12));
-        assert_eq!(parse_issue_arg("c/d#7", "a/b").unwrap(), ("c/d".into(), 7));
+        assert_eq!(
+            parse_issue_arg("12", "a/b").unwrap(),
+            TicketRef::new("a/b", 12)
+        );
+        assert_eq!(
+            parse_issue_arg("c/d#7", "a/b").unwrap(),
+            TicketRef::new("c/d", 7)
+        );
         for bad in ["", "x", "c#7", "c/d#x", "c/d#"] {
             assert!(parse_issue_arg(bad, "a/b").is_err(), "{bad}");
         }

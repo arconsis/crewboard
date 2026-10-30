@@ -11,7 +11,9 @@
 
 use super::AgentCtx;
 use super::tickets::{load_world_cached, me_of};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::State;
 use crate::rules::options::{OptionChange, OptionEntry, merge_options, plan_prune};
 use crate::services::ticket_index::{all_item_ids, read_items_tolerant};
@@ -22,15 +24,13 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
     let me = me_of(ac, &world)?;
     if !me.actor.is_coordinator() {
         return Err(CbError::refused(
-            "prune-coordinator-only",
+            ids::PRUNE_COORDINATOR_ONLY,
             "prune is a coordinator command (the Agent options have one writer, docs/design/spec/board.md#fields)",
         ));
     }
     // The options as GitHub has them now.
-    let fresh = ac.ctx.board.read_options(&ac.ctx.client, "Agent")?;
-    if let Some(f) = ac.ctx.board.fields.get_mut("Agent") {
-        f.options = fresh.clone();
-    }
+    let fresh = ac.ctx.board.read_options(&ac.ctx.client, Field::Agent)?;
+    ac.ctx.board.cache_options(Field::Agent, fresh.clone());
     let options: Vec<OptionEntry> = fresh
         .iter()
         .map(|o| OptionEntry {
@@ -45,7 +45,7 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
             .join
             .as_ref()
             .and_then(|j| world.items.get(&j.item_id))
-            .and_then(|i| i.field("State"))
+            .and_then(|i| i.get(Field::State))
             .and_then(State::parse);
         if let Some(st) = st {
             states.insert(e.name.clone(), st);
@@ -100,7 +100,7 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
     let removing: Vec<String> = plan.remove.iter().map(|r| r.id.clone()).collect();
     ac.ctx
         .board
-        .write_options_removing(&ac.ctx.client, "Agent", &desired, &removing)?;
+        .write_options_removing(&ac.ctx.client, Field::Agent, &desired, &removing)?;
     for r in &plan.remove {
         out.push_str(&format!("removed option: {} (id {})\n", r.name, r.id));
     }
@@ -113,7 +113,7 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
         .collect();
     if !changed.is_empty() {
         return Err(CbError::refused(
-            "prune-changed-ticket-values",
+            ids::PRUNE_CHANGED_TICKET_VALUES,
             format!(
                 "the Agent value of {} ticket(s) changed during the prune: {}",
                 changed.len(),
@@ -134,7 +134,7 @@ fn agent_values(ac: &AgentCtx, ids: &[String]) -> CbResult<BTreeMap<String, Opti
     Ok(items
         .into_iter()
         .map(|i| {
-            let v = i.field("Agent").map(str::to_string);
+            let v = i.get(Field::Agent).map(str::to_string);
             (i.id, v)
         })
         .collect())

@@ -1,6 +1,7 @@
 use super::crew::{approve_all, approve_next_step, approve_to};
 use super::watch::{loop_args, watch_command_args, watch_settings};
 use super::*;
+use crate::base::ids;
 use crate::exit::Family;
 use crate::ops::approve::Approval;
 use clap::{CommandFactory, Parser};
@@ -111,7 +112,7 @@ fn join_takes_the_runtime_and_the_model_and_refuses_the_old_label_form() {
         panic!("not join");
     };
     assert_eq!(*model, None);
-    // the old form is a usage error (main maps it to exit 4) that shows the new form
+    // the old form is a usage error (main maps it to exit 64) that shows the new form
     let e = parse(&[
         "join",
         "--agent",
@@ -555,7 +556,7 @@ fn approve_all_judges_each_name_and_a_failure_does_not_hide_the_others() {
         seen.push(n.to_string());
         if n == "bad@x" {
             Err(CbError::refused(
-                "agent-rejected",
+                ids::AGENT_REJECTED,
                 format!("{n} was rejected"),
             ))
         } else {
@@ -580,7 +581,7 @@ fn approve_all_judges_each_name_and_a_failure_does_not_hide_the_others() {
     // a network error first, then a refusal: the first failure gives the exit code
     let mixed = approve_all(&names, |n| match n {
         "a@x" => Err(CbError::config("bad config")),
-        "bad@x" => Err(CbError::refused("agent-rejected", "x")),
+        "bad@x" => Err(CbError::refused(ids::AGENT_REJECTED, "x")),
         _ => Ok(ap(String::new(), true)),
     });
     assert_eq!(mixed.exit, Exit::Config);
@@ -768,7 +769,7 @@ fn report_status_refuses_an_unknown_state_before_any_config() {
         "green",
     ])
     .unwrap());
-    assert_eq!(out.exit, Exit::Config);
+    assert_eq!(out.exit, Exit::Usage);
     assert!(out.message.unwrap().contains("not a status"));
     // control: a known state gets as far as the config
     let ok = run(&Cli::try_parse_from([

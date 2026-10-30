@@ -5,7 +5,10 @@
 //! the cursor. A cycle never decides "nothing changed" from the item listing.
 
 use super::{AgentCtx, World, duties, load_world};
+use crate::base::TicketRef;
+use crate::base::ids;
 use crate::base::ignore::best_effort_output;
+use crate::board::FieldValue;
 use crate::clock::{format_ts, now_epoch, now_ts, parse_ts};
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
@@ -19,6 +22,7 @@ use crate::github::GhError;
 use crate::late::liveness::{heartbeat_due, heartbeat_state};
 use crate::protocol::replay::COPY_LOOKBACK_SECS;
 use crate::registry::CREW_PREFIX;
+use crate::rules::fields::Field;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::{StateCache, TicketSnap};
 use crate::ticket::{find_item_id, ticket_events, verified_messages};
@@ -111,7 +115,7 @@ pub fn unread_for_done(
     let board_cursor = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"));
+        .and_then(|i| i.get(Field::Cursor));
     let stored = if ac.ctx.cd.is_headless()? {
         cache.poll.local_cursor.as_deref().or(board_cursor)
     } else {
@@ -121,7 +125,7 @@ pub fn unread_for_done(
         return Ok(None);
     };
     let my_role = world.trust.get(&me).map(|t| t.role);
-    let mut my_tickets: HashSet<(String, u64)> = cache
+    let mut my_tickets: HashSet<TicketRef> = cache
         .index
         .tickets
         .iter()
@@ -132,12 +136,9 @@ pub fn unread_for_done(
                 .get(*item)
                 .is_some_and(|s| s.agent.as_deref() == Some(me.as_str()))
         })
-        .filter_map(|(k, _)| {
-            let (repo, n) = k.rsplit_once('#')?;
-            Some((repo.to_string(), n.parse().ok()?))
-        })
+        .filter_map(|(k, _)| TicketRef::parse(k))
         .collect();
-    my_tickets.insert((extra.0.to_string(), extra.1));
+    my_tickets.insert(TicketRef::new(extra.0, extra.1));
     let mut scratch = cache.clone();
     let feeds = read_feeds(ac, &cursor, &mut scratch)?;
     let copies = copy_map(&all_comments(&feeds), &ac.ctx.cfg, &world.trust);
@@ -232,10 +233,10 @@ pub fn collect(
         }
     }
     let rows = read_ticket_rows(&ac.ctx.reader(), &mut cache.index.tickets)?;
-    let my_tickets: HashSet<(String, u64)> = rows
+    let my_tickets: HashSet<TicketRef> = rows
         .iter()
         .filter(|r| r.is_agent(me.as_str()))
-        .map(|r| (r.repo.clone(), r.issue))
+        .map(crate::ticket::TicketRow::tref)
         .collect();
     // The whole feed window (fresh or not): the genuine selftest pings to judge forgeries, and
     // the earlier comments to find copies.
@@ -447,16 +448,15 @@ fn check_state_and_heartbeat(
     ac: &AgentCtx,
     world: &World,
     me: &str,
-    item_id: &str,
     my_item: &crate::items::ItemSnapshot,
     now: i64,
 ) -> CbResult<()> {
-    let state = my_item.field("State");
+    let state = my_item.get(Field::State);
     let departure = world.reg.agents.get(me).and_then(|e| e.departure);
     match departure {
         Some(d) if d.ended() => {
             return Err(CbError::refused(
-                "agent-left",
+                ids::AGENT_LEFT,
                 format!(
                     "the registry log ended {me}: it {}; stop this loop",
                     d.reason()
@@ -465,7 +465,7 @@ fn check_state_and_heartbeat(
         }
         Some(d) if state == Some("left") => {
             return Err(CbError::refused(
-                "agent-left",
+                ids::AGENT_LEFT,
                 format!(
                     "{me} has left (State left; the log: it {}); stop this loop",
                     d.reason()
@@ -479,14 +479,12 @@ fn check_state_and_heartbeat(
     }
     if state.is_some_and(heartbeat_state)
         && heartbeat_due(
-            my_item.field("Heartbeat").and_then(parse_ts),
+            my_item.get(Field::Heartbeat).and_then(parse_ts),
             now,
             ac.ctx.hb_interval,
         )
     {
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, item_id, "Heartbeat", &format_ts(now))?;
+        ac.write_own(Field::Heartbeat, FieldValue::Text(&format_ts(now)))?;
     }
     Ok(())
 }
@@ -514,7 +512,7 @@ fn read_cursor(
     now: i64,
 ) -> CbResult<CursorRead> {
     let headless = ac.ctx.cd.is_headless()?;
-    let board_cursor = my_item.field("Cursor");
+    let board_cursor = my_item.get(Field::Cursor);
     let local = if headless {
         cache.poll.local_cursor.clone()
     } else {
@@ -669,9 +667,7 @@ fn store_cursor(
             cache.poll.local_cursor = Some(next_text.to_string());
         }
     } else if *next != read.cursor || read.unset {
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, &ac.agent.item_id, "Cursor", next_text)?;
+        ac.write_own(Field::Cursor, FieldValue::Text(next_text))?;
     }
     Ok(())
 }
@@ -721,7 +717,7 @@ pub fn cycle(
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
-    check_state_and_heartbeat(ac, &world, &me, &item_id, my_item, now)?;
+    check_state_and_heartbeat(ac, &world, &me, my_item, now)?;
     let read = read_cursor(ac, cache, my_item, opts, now)?;
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();

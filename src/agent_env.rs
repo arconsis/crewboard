@@ -13,15 +13,13 @@
 //! [`decide_source`] lists every case.
 
 use crate::base::Refusal;
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 #[cfg(unix)]
 use crate::fsutil::mode_is_private;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
-
-/// The rule of an agent dir that has no `agent.env` and no token variable.
-pub const OWNER_TOKEN_RULE: &str = "owner-token-in-agent-dir";
 
 /// The variables that hold a GitHub token. A child of crewboard gets none of the caller's.
 pub const TOKEN_VARS: [&str; 4] = [
@@ -636,7 +634,7 @@ pub fn check_token_source() -> Option<Refusal> {
     (env.source() == TokenSource::Refused).then(|| {
         let dir = env.dir.display();
         Refusal::new(
-            OWNER_TOKEN_RULE,
+            ids::OWNER_TOKEN_IN_AGENT_DIR,
             format!(
                 "{dir} is an agent dir; it has no agent.env and no GH_TOKEN, so crewboard would use the login of gh (the owner). Link the env file of the crew account with `ln -sfn <file> {dir}/agent.env`, or put the crew token in {dir}/agent.env"
             ),

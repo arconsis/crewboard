@@ -5,11 +5,14 @@ use super::say::require_approved;
 use super::selftest;
 use super::{AgentCtx, Ctx, load_world};
 use crate::authority::Authority;
+use crate::base::ids;
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::ctx::authority_text;
 use crate::error::{CbError, CbResult};
 use crate::owner_cmd::role_name;
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::{CrewMember, State, Who, check_lifecycle, check_single_coordinator};
 
 pub fn brief(role: Role, name: &str, initiative: &str) -> String {
@@ -55,7 +58,7 @@ pub fn check_authority(ctx: &Ctx) -> CbResult<AuthorityCheck> {
                 }
                 Some(o) => {
                     return Err(CbError::refused(
-                        "authority-owner-mismatch",
+                        ids::AUTHORITY_OWNER_MISMATCH,
                         format!(
                             "{} names owner {o}, the board config names {}",
                             ctx.cfg.authority, ctx.cfg.owner_login
@@ -128,7 +131,7 @@ pub fn merge_advice_warning(a: &Authority, file: &str) -> String {
 /// The refusal for a failed toolchain check (rule `toolchain-unreachable`, exit 2).
 pub fn toolchain_refusal(rep: &crate::toolchain::Report) -> CbError {
     CbError::refused(
-        "toolchain-unreachable",
+        ids::TOOLCHAIN_UNREACHABLE,
         format!(
             "this agent cannot run the build tools of the repo from {}: {}. A harness sandbox may hide them (a tool in the home directory outside the work folder). Fix PATH or the sandbox and run `crewboard start` again; `status` shows the note meanwhile",
             std::env::current_dir()
@@ -192,12 +195,12 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             ac.agent.item_id
         ))
     })?;
-    let state = item.field("State").and_then(State::parse);
+    let state = item.get(Field::State).and_then(State::parse);
     // The registry log approved the agent, but `approve` writes the State `approved` a moment
     // after its signed comment. Starting now would race that write, so `start` waits for it.
     if state == Some(State::Requested) {
         return Err(CbError::refused(
-            "agent-approval-pending",
+            ids::AGENT_APPROVAL_PENDING,
             format!(
                 "{me}: the owner's approval is in the registry log, but the item State is still 'requested' (`approve` writes 'approved' a moment later); run `crewboard start` again"
             ),
@@ -215,7 +218,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             state: world
                 .items
                 .get(&t.item_id)
-                .and_then(|i| i.field("State"))
+                .and_then(|i| i.get(Field::State))
                 .and_then(State::parse)
                 .unwrap_or(State::Approved),
         })
@@ -248,7 +251,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     out.push('\n');
     if !result.passed() {
         return Err(CbError::refused(
-            "selftest-failed",
+            ids::SELFTEST_FAILED,
             format!(
                 "{line}\n{out}the agent stays in its state; fix the cause and run `crewboard start` again"
             ),
@@ -274,19 +277,13 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
         Some(State::Active) => {
             // A restarted agent shows that it is alive again (spec/board#fields: stale = no
             // heartbeat).
-            ac.ctx
-                .board
-                .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now_ts())?;
+            ac.write_own(Field::Heartbeat, FieldValue::Text(&now_ts()))?;
             out.push_str("state is already active; heartbeat written\n");
         }
         s => {
             check_lifecycle(s, State::Active, Who::SelfAgent)?;
-            ac.ctx
-                .board
-                .set_select(&ac.ctx.client, &ac.agent.item_id, "State", "active")?;
-            ac.ctx
-                .board
-                .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now_ts())?;
+            ac.write_own_state(State::Active)?;
+            ac.write_own(Field::Heartbeat, FieldValue::Text(&now_ts()))?;
             out.push_str("state: active\n");
         }
     }

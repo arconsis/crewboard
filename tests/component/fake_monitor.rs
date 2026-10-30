@@ -65,11 +65,11 @@ fn monitor_prints_one_line_for_an_error_and_exits_with_its_code() {
         (v["monitor"].as_str(), v["code"].as_u64()),
         (Some("exit"), Some(4))
     );
-    // a value that does not parse is exit 4 before any request
+    // a value that does not parse is a usage error (exit 64) before any request
     let o = fake.run(&b.dir, &["monitor", "--timeout", "soon"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(
-        o.stdout.starts_with("crewboard-watch: exit 4: --timeout"),
+        o.stdout.starts_with("crewboard-watch: exit 64: --timeout"),
         "{}",
         o.all()
     );
@@ -78,24 +78,24 @@ fn monitor_prints_one_line_for_an_error_and_exits_with_its_code() {
 #[test]
 fn arguments_after_the_dashes_reach_watch() {
     let (fake, _c, b) = crew();
-    // `--json` after `--` makes `watch` print JSON; a bad one is a configuration error
+    // `--json` after `--` makes `watch` print JSON; a bad one is a usage error
     let o = monitor(&fake, &b.dir, &["--max-cycles", "1", "--", "--bogus"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(o.stdout.contains("watch arguments"), "{}", o.all());
 }
 
 #[test]
-fn a_bad_command_line_prints_the_one_line_on_stdout_and_exits_4() {
+fn a_bad_command_line_prints_the_one_line_on_stdout_and_exits_64() {
     let (fake, _c, b) = crew();
     for args in [
         &["monitor", "--max-cycles", "abc"][..],
         &["monitor", "--no-such-flag"],
     ] {
         let o = fake.run(&b.dir, args);
-        assert_eq!(o.code, 4, "{}", o.all());
+        assert_eq!(o.code, 64, "{}", o.all());
         assert_eq!(o.stdout.lines().count(), 1, "{}", o.all());
         assert!(
-            o.stdout.starts_with("crewboard-watch: exit 4: error: "),
+            o.stdout.starts_with("crewboard-watch: exit 64: error: "),
             "{}",
             o.all()
         );
@@ -103,12 +103,12 @@ fn a_bad_command_line_prints_the_one_line_on_stdout_and_exits_4() {
         let mut j = args.to_vec();
         j.push("--json");
         let o = fake.run(&b.dir, &j);
-        assert_eq!(o.code, 4, "{}", o.all());
+        assert_eq!(o.code, 64, "{}", o.all());
         let v: serde_json::Value =
             serde_json::from_str(o.stdout.trim()).unwrap_or_else(|_| panic!("{}", o.all()));
         assert_eq!(
             (v["monitor"].as_str(), v["code"].as_u64()),
-            (Some("exit"), Some(4))
+            (Some("exit"), Some(64))
         );
     }
     // the twin: --help is still help, with exit 0

@@ -24,7 +24,7 @@
 use regex::Regex;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 struct Case {
     name: String,
@@ -179,41 +179,12 @@ fn rules_split_on_list_items_and_paragraphs() {
     );
 }
 
-/// The refusal rules that production code can print: `Refusal::new("name", ...)`, also when the
-/// name is on the next line. Files of unit tests are skipped.
+/// The refusal rules that the CLI can print: the catalog of refusal ids (`src/base/ids.rs`).
 fn cli_rules() -> BTreeSet<String> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        for e in fs::read_dir(dir).unwrap() {
-            let p = e.unwrap().path();
-            if p.is_dir() {
-                walk(&p, out);
-            } else if p.extension().is_some_and(|x| x == "rs") {
-                out.push(p);
-            }
-        }
-    }
-    let mut files = Vec::new();
-    walk(&root().join("src"), &mut files);
-    // The rule name is the first argument of `Refusal::new`, `CbError::refused` and the local
-    // `refuse` helpers, the second of `require`, or the value of a rule constant (`*RULE*` and the ids of `src/rules/ids.rs`).
-    let kebab = r"[a-z0-9]+(?:-[a-z0-9]+)+";
-    let re = Regex::new(&format!(
-        r#"(?s)(?:Refusal::new|CbError::refused|\brefuse|\badopt_refused)\(\s*"({kebab})"|\brequire\(.{{0,300}}?,\s*"({kebab})",|const (?:[A-Z_]*RULE[A-Z_]*|STATUS_[A-Z_]+|CLOSE_[A-Z_]+|TICKET_[A-Z_]+): &str = "({kebab})";"#
-    ))
-    .unwrap();
-    let mut rules = BTreeSet::new();
-    for f in files {
-        let name = f.file_name().unwrap().to_string_lossy().into_owned();
-        if name == "tests.rs" || name.ends_with("_tests.rs") {
-            continue;
-        }
-        let text = fs::read_to_string(&f).unwrap();
-        for c in re.captures_iter(&text) {
-            let hit = c.get(1).or_else(|| c.get(2)).or_else(|| c.get(3));
-            rules.insert(hit.unwrap().as_str().to_string());
-        }
-    }
-    rules
+    crewboard::rules::ids::ALL
+        .iter()
+        .map(|r| r.as_str().to_string())
+        .collect()
 }
 
 /// `name` stands in `text` as a whole word (`-` and `a-z0-9` extend a name).

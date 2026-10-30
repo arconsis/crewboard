@@ -13,6 +13,7 @@ use super::{
     to_agent, work_write_ctx_of,
 };
 use crate::authority::Authority;
+use crate::base::ids;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::CbResult;
@@ -37,7 +38,7 @@ use crate::ticket::{
 pub fn check_verify_fail_note(gate_failed: bool, note: &str) -> Result<(), Refusal> {
     if gate_failed && note.trim().is_empty() {
         return Err(Refusal::new(
-            "verify-fail-needs-note",
+            ids::VERIFY_FAIL_NEEDS_NOTE,
             "verify --fail needs --body \"<what the Gate check found>\": the dev reads it as the failure",
         ));
     }
@@ -55,14 +56,14 @@ struct VerifyLoad {
 
 /// The reads of `verify` that come before any decision about the evidence.
 fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let from = t.status()?;
     Ok(VerifyLoad {
-        n,
+        n: tref.issue,
         world,
         me,
         t,
@@ -100,10 +101,10 @@ fn latest_evidence<'a>(
     msgs: &'a [crate::ticket::VMsg],
 ) -> Result<(String, &'a crate::ticket::VMsg, EvidenceMsg), Refusal> {
     let assignee = assignee
-        .ok_or_else(|| Refusal::new("verify-no-evidence", format!("{key} has no assignee")))?;
+        .ok_or_else(|| Refusal::new(ids::VERIFY_NO_EVIDENCE, format!("{key} has no assignee")))?;
     let (done_msg, ev) = latest_done(msgs, assignee).ok_or_else(|| {
         Refusal::new(
-            "verify-no-evidence",
+            ids::VERIFY_NO_EVIDENCE,
             format!("{key} has no signed done message of {assignee} with pr, sha and ci"),
         )
     })?;
@@ -572,7 +573,7 @@ fn act_verify(
     if let Some(m) = &p.fail_move {
         super::set_select_status(ac, &t.item_id, m.to)?;
         if let Some(order) = m.order {
-            order::write_order(ac, &t.item_id, order)?;
+            order::write_order(ac, &t.item_id, order, &work_write_ctx_of(l.me.actor, false))?;
         }
         remember(ac, t, m.to, t.agent());
         out.push_str(&m.line);
@@ -819,11 +820,11 @@ mod tests {
         let mut x = fix();
         x.ci = Some(VerifyCi {
             facts: CiFacts::NotGreen(vec!["build".into(), "test".into()]),
-            findings: vec![Refusal::new("evidence-run-missing", "run 9 is gone")],
+            findings: vec![Refusal::new(ids::EVIDENCE_CI_MISSING, "run 9 is gone")],
             no_run: None,
         });
         let f = failures(&x);
-        assert_eq!(f[0], "run 9 is gone [evidence-run-missing]");
+        assert_eq!(f[0], "run 9 is gone [evidence-ci-missing]");
         assert!(f[1].ends_with("is not green: build; test"));
         x.ci = Some(VerifyCi {
             facts: CiFacts::NotQueried("HTTP 403".into()),
@@ -895,7 +896,7 @@ mod tests {
             Protect::new("AUTHORITY.md", &[]),
         )
         .unwrap_err();
-        assert_eq!(r.rule, crate::rules::protected::RULE);
+        assert_eq!(r.rule, ids::PROTECTED_PATH_OWNER_MERGE);
         // --fail reads no file list and stays allowed
         assert!(
             check_pass_allowed(None, PR_URL, "a/b#12", Protect::new("AUTHORITY.md", &[])).is_ok()

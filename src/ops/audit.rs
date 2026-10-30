@@ -9,6 +9,7 @@ use crate::clock::{format_ts, now_epoch, parse_ts};
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::late::liveness::LATE_INTERVALS;
+use crate::rules::fields::Field;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::ticket::verified_messages;
 use serde_json::json;
@@ -22,7 +23,7 @@ pub fn parse_since(s: &str, now: i64) -> CbResult<i64> {
     crate::clock::parse_duration(s)
         .map(|d| now - d.as_secs() as i64)
         .map_err(|_| {
-            CbError::config(format!(
+            CbError::usage(format!(
                 "bad --since '{s}' (use 2026-10-16T08:00:00Z or 90m or 2h)"
             ))
         })
@@ -45,11 +46,12 @@ pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<String> 
     for e in world.reg.agents.values() {
         let item = e.join.as_ref().and_then(|j| world.items.get(&j.item_id));
         let running = item
-            .and_then(|i| i.field("State"))
+            .and_then(|i| i.get(Field::State))
             .is_some_and(crate::late::liveness::heartbeat_state);
         if let (true, Some(hb)) = (
             running,
-            item.and_then(|i| i.field("Heartbeat")).and_then(parse_ts),
+            item.and_then(|i| i.get(Field::Heartbeat))
+                .and_then(parse_ts),
         ) {
             heartbeats.insert(e.name.clone(), hb);
         }
@@ -101,9 +103,9 @@ fn board_view(ctx: &Ctx, world: &World) -> CbResult<BoardView> {
             let item = world.items.get(&e.join.as_ref()?.item_id)?;
             Some(BoardAgent {
                 name: e.name.clone(),
-                role: item.field("Role").map(str::to_string),
-                key: item.field("Key").map(str::to_string),
-                state: item.field("State").map(str::to_string),
+                role: item.get(Field::Role).map(str::to_string),
+                key: item.get(Field::Key).map(str::to_string),
+                state: item.get(Field::State).map(str::to_string),
             })
         })
         .collect();

@@ -37,11 +37,12 @@
 use super::merge::merge_ticket;
 use super::verify::verify;
 use super::{Me, me_of, merged_pr, merged_unverified, owner_merge, owner_net};
+use crate::base::{TicketRef, ids};
 use crate::error::{CbError, CbResult};
 use crate::headless::Gate;
 use crate::ops::{AgentCtx, World, load_world};
 use crate::rules::Role;
-use crate::rules::ids;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_closed_tickets, discover_tickets};
 use crate::services::ticket_loader::{Ticket, load_ticket};
@@ -60,7 +61,7 @@ fn rows_of(
     items
         .iter()
         .filter(|it| {
-            it.project_number.is_none_or(|n| n == project) && status.is(it.field("Status"))
+            it.project_number.is_none_or(|n| n == project) && status.is(it.get(Field::Status))
         })
         .filter_map(|it| {
             let (key, _) = cache.index.tickets.iter().find(|(_, v)| **v == it.id)?;
@@ -115,10 +116,10 @@ impl Buckets {
                 .collect()
         };
         let in_progress_with_agent = |it: &crate::items::ItemSnapshot| {
-            Status::InProgress.is(it.field("Status")) && it.field("Agent").is_some()
+            Status::InProgress.is(it.get(Field::Status)) && it.get(Field::Agent).is_some()
         };
         Buckets {
-            review: ids(&|it| Status::Review.is(it.field("Status"))),
+            review: ids(&|it| Status::Review.is(it.get(Field::Status))),
             old: ids(&|it| {
                 in_progress_with_agent(it)
                     && crate::clock::parse_ts(&it.updated_at)
@@ -127,11 +128,11 @@ impl Buckets {
             pr: ids(&|it| {
                 in_progress_with_agent(it)
                     && it
-                        .field("Evidence")
+                        .get(Field::Evidence)
                         .and_then(merged_pr::pr_of_evidence)
                         .is_some()
             }),
-            closed: ids(&|it| is_in_work(it.field("Status")) && it.issue_closed()),
+            closed: ids(&|it| is_in_work(it.get(Field::Status)) && it.issue_closed()),
         }
     }
 }
@@ -215,18 +216,15 @@ fn closes_and_notes(
     Ok(out)
 }
 
-/// The Review tickets as `(repo, issue)`; an item without a ticket gets a `left` line in `out`.
+/// The Review tickets; an item without a ticket gets a `left` line in `out`.
 fn review_tickets(
     ids: &[String],
     cache: &crate::state::StateCache,
     out: &mut String,
-) -> Vec<(String, u64)> {
-    let mut review: Vec<(String, u64)> = Vec::new();
+) -> Vec<TicketRef> {
+    let mut review: Vec<TicketRef> = Vec::new();
     for id in ids {
-        match issue_of(cache, id).and_then(|k| {
-            let (r, n) = k.rsplit_once('#')?;
-            Some((r.to_string(), n.parse::<u64>().ok()?))
-        }) {
+        match issue_of(cache, id).and_then(|k| TicketRef::parse(&k)) {
             Some(t) => review.push(t),
             None => out.push_str(&left(
                 id,
@@ -243,7 +241,7 @@ fn review_tickets(
 fn handle_review(
     ac: &mut AgentCtx,
     s: &Scan<'_>,
-    review: Vec<(String, u64)>,
+    review: Vec<TicketRef>,
     cache: &crate::state::StateCache,
     out: &mut String,
 ) -> CbResult<()> {
@@ -252,9 +250,9 @@ fn handle_review(
     let review_rows = rows_of(s.items, cache, s.project, Status::Review);
     let (verify_late, coordinator_late) =
         crate::ops::late::review_lates(&ac.ctx, s.world, &review_rows, &s.lim, s.now);
-    for (repo, issue) in review {
-        let key = format!("{repo}#{issue}");
-        let t = match load_ticket(&ac.ctx.reader(), &s.world.trust, &repo, issue) {
+    for tref in review {
+        let key = tref.to_string();
+        let t = match load_ticket(&ac.ctx.reader(), &s.world.trust, &tref) {
             Ok(t) => t,
             Err(CbError::Refused(r)) => {
                 out.push_str(&left(&key, &format!("not readable as a ticket: {r}")));
@@ -322,7 +320,7 @@ impl TickOut {
 pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
     if !ac.ctx.cd.is_headless()? {
         return Err(CbError::refused(
-            "tick-headless-only",
+            ids::TICK_HEADLESS_ONLY,
             "tick is for a headless config dir (`headless = true`): it merges without a model that reads the Gate. The interactive coordinator uses verify and merge",
         ));
     }
@@ -331,7 +329,7 @@ pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
     let me = me_of(ac, &world)?;
     if me.role != Role::Coordinator {
         return Err(CbError::refused(
-            "verify-coordinator-only",
+            ids::VERIFY_COORDINATOR_ONLY,
             "tick is a coordinator action",
         ));
     }
@@ -415,19 +413,18 @@ fn owner_closed_lines(
     cache: &crate::state::StateCache,
 ) -> CbResult<(String, std::collections::BTreeSet<String>)> {
     let (world, me) = (s.world, s.me);
-    let mut keys: Vec<(String, u64, String)> = ids
+    let mut keys: Vec<(TicketRef, String)> = ids
         .iter()
         .filter_map(|id| {
             let (k, _) = cache.index.tickets.iter().find(|(_, v)| v.as_str() == id)?;
-            let (r, n) = k.rsplit_once('#')?;
-            Some((r.to_string(), n.parse::<u64>().ok()?, id.clone()))
+            Some((TicketRef::parse(k)?, id.clone()))
         })
         .collect();
     keys.sort();
     let mut out = String::new();
     let mut done = std::collections::BTreeSet::new();
-    for (repo, issue, id) in keys {
-        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &repo, issue) {
+    for (tref, id) in keys {
+        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &tref) {
             Ok(t) => t,
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),
@@ -446,7 +443,7 @@ fn owner_closed_lines(
             {
                 out.push_str(&merged_unverified::check_loaded(ac, &t)?);
                 out.push_str(&left(
-                    &format!("{repo}#{issue}"),
+                    &tref.to_string(),
                     &format!("Blocked, issue closed: {r}"),
                 ));
             }

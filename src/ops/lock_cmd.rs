@@ -10,6 +10,8 @@
 use crate::base::ignore::best_effort_output;
 use crate::fsutil::find_on_path;
 #[cfg(unix)]
+use crate::lock::LockExit;
+#[cfg(unix)]
 use crate::lock::args::RunCtx;
 use crate::lock::board::{BoardAgent, BoardProbe, ProbeError};
 use std::path::Path;
@@ -281,7 +283,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
         Ok(Parse::Run(p)) => *p,
         Err(msg) => {
             Log::new(&clock, None).say(&msg);
-            return 64;
+            return LockExit::Usage.code();
         }
     };
     if p.cmd == Cmd::Run
@@ -404,8 +406,13 @@ pub fn release_for(dir: &str, owner: &str) -> (i32, String) {
     ];
     let p = match crate::lock::args::parse(&argv, &env) {
         Ok(Parse::Run(p)) => *p,
-        Ok(Parse::Help) => return (64, "release: no lock command".to_string()),
-        Err(msg) => return (64, msg),
+        Ok(Parse::Help) => {
+            return (
+                LockExit::Usage.code(),
+                "release: no lock command".to_string(),
+            );
+        }
+        Err(msg) => return (LockExit::Usage.code(), msg),
     };
     let log = Log::memory(&clock);
     let procs = SystemProcs;

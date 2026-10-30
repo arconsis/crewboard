@@ -8,15 +8,12 @@
 //! The check is read-only. It never writes the cursor: only `watch` and `poll` move it.
 //! The core is a pure function over the comments of the ticket and the cursor.
 
+use crate::base::fields::Field;
+use crate::base::{TicketRef, ids};
 use crate::comments::Comment;
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
 use crate::events::{Classified, Event, EventClass, FilterEnv, classify};
-
-pub const RULE: &str = "unread-message-on-ticket";
-
-/// The rule of the agent-wide event check of `done` (spec/events#event-checkpoints-and-done).
-pub const EVENTS_RULE: &str = "unread-events";
 
 /// The event check of `done`: no unread event passes (`None`); unread events refuse unless
 /// `ignore`. With `ignore` the result is the override line for the signed body.
@@ -25,10 +22,11 @@ pub fn events_verdict(unread: &[Event], ignore: bool) -> CbResult<Option<String>
         return Ok(None);
     }
     if ignore {
-        let ids: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
+        let comments: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
         return Ok(Some(format!(
-            "override: {EVENTS_RULE} (comments {})",
-            ids.join(", ")
+            "override: {} (comments {})",
+            ids::UNREAD_EVENTS,
+            comments.join(", ")
         )));
     }
     let mut classes: Vec<String> = Vec::new();
@@ -51,7 +49,7 @@ pub fn events_verdict(unread: &[Event], ignore: bool) -> CbResult<Option<String>
         "Handle them. Then run `crewboard watch --timeout 1m` (it marks them as read) and run \
          `done` again. Use --override-unread only after you have read and handled them; never to skip them.",
     );
-    Err(CbError::refused(EVENTS_RULE, s))
+    Err(CbError::refused(ids::UNREAD_EVENTS, s))
 }
 
 /// At most this many messages are shown with their first lines in a refusal; the others
@@ -111,13 +109,12 @@ pub fn unread_for_sender(
     comments: &[Comment],
     env: &FilterEnv<'_>,
     cursor: &Cursor,
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     seen_upto: u64,
 ) -> Vec<Event> {
     let mut out: Vec<Event> = comments
         .iter()
-        .filter(|c| c.repo == repo && c.issue == issue)
+        .filter(|c| c.repo == t.repo && c.issue == t.issue)
         .filter(|c| c.id > seen_upto)
         .filter(|c| cursor.is_fresh(c.id, c.updated_epoch))
         .filter_map(|c| match classify(c, env) {
@@ -131,9 +128,9 @@ pub fn unread_for_sender(
 }
 
 /// The refusal text: names every unread message and says what to do.
-pub fn refusal_text(unread: &[Event], repo: &str, issue: u64) -> String {
+pub fn refusal_text(unread: &[Event], t: &TicketRef) -> String {
     let mut s = format!(
-        "{} unread message(s) for you on {repo}#{issue}; read them before you post:\n",
+        "{} unread message(s) for you on {t}; read them before you post:\n",
         unread.len()
     );
     s.push_str(&message_lines(unread));
@@ -148,18 +145,22 @@ pub fn refusal_text(unread: &[Event], repo: &str, issue: u64) -> String {
 /// With `anyway` the result is the override line for the signed body
 /// (spec/events#unread-messages-on-a-ticket): `override: unread-message-on-ticket (comments 123,
 /// 456)`.
-pub fn verdict(unread: &[Event], anyway: bool, repo: &str, issue: u64) -> CbResult<Option<String>> {
+pub fn verdict(unread: &[Event], anyway: bool, t: &TicketRef) -> CbResult<Option<String>> {
     if unread.is_empty() {
         return Ok(None);
     }
     if anyway {
-        let ids: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
+        let comments: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
         return Ok(Some(format!(
-            "override: {RULE} (comments {})",
-            ids.join(", ")
+            "override: {} (comments {})",
+            ids::UNREAD_MESSAGE_ON_TICKET,
+            comments.join(", ")
         )));
     }
-    Err(CbError::refused(RULE, refusal_text(unread, repo, issue)))
+    Err(CbError::refused(
+        ids::UNREAD_MESSAGE_ON_TICKET,
+        refusal_text(unread, t),
+    ))
 }
 
 /// The body with the override line added as a new last line. No line: the body unchanged.
@@ -176,13 +177,13 @@ pub fn note(line: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// Does the cached ticket index say that `me` holds `repo#issue`? Reads only the local
+/// Does the cached ticket index say that `me` holds the ticket `t`? Reads only the local
 /// cache. A ticket that is not in the cache is not held.
-pub fn held_in_cache(cache: &crate::state::StateCache, repo: &str, issue: u64, me: &str) -> bool {
+pub fn held_in_cache(cache: &crate::state::StateCache, t: &TicketRef, me: &str) -> bool {
     cache
         .index
         .tickets
-        .get(&format!("{repo}#{issue}"))
+        .get(&t.to_string())
         .and_then(|item| cache.index.ticket_snaps.get(item))
         .is_some_and(|s| s.agent.as_deref() == Some(me))
 }
@@ -206,15 +207,14 @@ pub fn is_ticket(msgs: &[crate::ticket::VMsg], indexed: bool) -> bool {
     indexed || crate::ticket::find_item_id(msgs).is_some()
 }
 
-/// The unread messages for the sender on `repo#issue`, or `None` when the check does not
+/// The unread messages for the sender on the ticket `t`, or `None` when the check does not
 /// apply: the issue is no ticket, or the agent has no readable cursor (never watched).
 /// Reads nothing new and writes nothing.
 pub fn unread_events(
     ac: &crate::ctx::AgentCtx,
     world: &crate::ctx::World,
     comments: &[Comment],
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     mine: bool,
     indexed: bool,
 ) -> Option<Vec<Event>> {
@@ -225,10 +225,10 @@ pub fn unread_events(
     let cursor = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"))
+        .and_then(|i| i.get(Field::Cursor))
         .and_then(|t| Cursor::decode(t).ok())?;
-    let my_tickets: std::collections::HashSet<(String, u64)> = if mine {
-        [(repo.to_string(), issue)].into_iter().collect()
+    let my_tickets: std::collections::HashSet<TicketRef> = if mine {
+        [t.clone()].into_iter().collect()
     } else {
         Default::default()
     };
@@ -242,9 +242,7 @@ pub fn unread_events(
         copies: &copies,
     };
     let seen_upto = own_ack_watermark(&msgs, ac.name.as_str());
-    Some(unread_for_sender(
-        comments, &env, &cursor, repo, issue, seen_upto,
-    ))
+    Some(unread_for_sender(comments, &env, &cursor, t, seen_upto))
 }
 
 /// The check for one command. `comments` are the comments of the ticket that the command
@@ -253,19 +251,17 @@ pub fn unread_events(
 ///
 /// A missing or unreadable cursor means that the agent never watched: there is nothing to
 /// compare with, so the check passes. It reads no extra data and writes nothing.
-#[allow(clippy::too_many_arguments)]
 pub fn guard(
     ac: &crate::ctx::AgentCtx,
     world: &crate::ctx::World,
     comments: &[Comment],
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     mine: bool,
     indexed: bool,
     anyway: bool,
 ) -> CbResult<Option<String>> {
-    match unread_events(ac, world, comments, repo, issue, mine, indexed) {
-        Some(unread) => verdict(&unread, anyway, repo, issue),
+    match unread_events(ac, world, comments, t, mine, indexed) {
+        Some(unread) => verdict(&unread, anyway, t),
         None => Ok(None),
     }
 }
@@ -358,7 +354,7 @@ mod tests {
     static NO_COPIES: std::sync::LazyLock<std::collections::HashMap<u64, u64>> =
         std::sync::LazyLock::new(Default::default);
 
-    fn env<'a>(w: &'a W, me: &'a AgentName, mine: &'a HashSet<(String, u64)>) -> FilterEnv<'a> {
+    fn env<'a>(w: &'a W, me: &'a AgentName, mine: &'a HashSet<TicketRef>) -> FilterEnv<'a> {
         FilterEnv {
             cfg: &w.cfg,
             me,
@@ -369,7 +365,7 @@ mod tests {
         }
     }
 
-    fn none() -> HashSet<(String, u64)> {
+    fn none() -> HashSet<TicketRef> {
         HashSet::new()
     }
 
@@ -401,8 +397,7 @@ mod tests {
             std::slice::from_ref(&answer),
             &env(&w, &m, &mine),
             &cur(-10),
-            &answer.repo,
-            answer.issue,
+            &answer.tref(),
             0,
         );
         assert_eq!(u.len(), 1);
@@ -410,10 +405,13 @@ mod tests {
             (u[0].from.as_str(), u[0].kind.as_str()),
             ("claude@a", "answer")
         );
-        let e = verdict(&u, false, &answer.repo, answer.issue).unwrap_err();
+        let e = verdict(&u, false, &answer.tref()).unwrap_err();
         assert_eq!(e.exit(), crate::exit::Exit::Refused);
         let text = e.to_string();
-        assert!(text.contains(RULE), "{text}");
+        assert!(
+            text.contains(ids::UNREAD_MESSAGE_ON_TICKET.as_str()),
+            "{text}"
+        );
         assert!(text.contains("claude@a"), "{text}");
         assert!(text.contains("answer"), "{text}");
         assert!(text.contains("issuecomment-50"), "{text}");
@@ -445,8 +443,7 @@ mod tests {
                 std::slice::from_ref(&answer),
                 &env(&w, &m, &mine),
                 &old,
-                &answer.repo,
-                answer.issue,
+                &answer.tref(),
                 0
             )
             .len(),
@@ -458,20 +455,18 @@ mod tests {
             std::slice::from_ref(&answer),
             &env(&w, &m, &mine),
             &read,
-            &answer.repo,
-            answer.issue,
+            &answer.tref(),
             0,
         );
         assert!(u.is_empty());
-        assert_eq!(verdict(&u, false, "r", 1).unwrap(), None);
+        assert_eq!(verdict(&u, false, &TicketRef::new("r", 1)).unwrap(), None);
         // read inside the overlap window: the cursor lists it as seen
         let seen = Cursor::at(T0 + 5).advance(&[(answer.id, answer.updated_epoch)]);
         let u = unread_for_sender(
             std::slice::from_ref(&answer),
             &env(&w, &m, &mine),
             &seen,
-            &answer.repo,
-            answer.issue,
+            &answer.tref(),
             0,
         );
         assert!(u.is_empty());
@@ -519,8 +514,7 @@ mod tests {
                 std::slice::from_ref(c),
                 &env(&w, &m, &mine),
                 &cur(-10),
-                &c.repo,
-                c.issue,
+                &c.tref(),
                 0,
             );
             assert!(u.is_empty(), "{}: {u:?}", c.id);
@@ -540,8 +534,7 @@ mod tests {
                 std::slice::from_ref(&to_me),
                 &env(&w, &m, &mine),
                 &cur(-10),
-                &to_me.repo,
-                to_me.issue,
+                &to_me.tref(),
                 0
             )
             .len(),
@@ -582,8 +575,7 @@ mod tests {
                 std::slice::from_ref(&c),
                 &env(&w, &m, &mine),
                 &cur(-10),
-                &c.repo,
-                c.issue,
+                &c.tref(),
                 0,
             );
             assert!(u.is_empty(), "{}: {u:?}", c.id);
@@ -609,8 +601,7 @@ mod tests {
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cur(-10),
-            &c.repo,
-            3,
+            &TicketRef::new(&c.repo, 3),
             0,
         );
         assert!(u.is_empty());
@@ -618,8 +609,7 @@ mod tests {
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cur(-10),
-            &c.repo,
-            c.issue,
+            &c.tref(),
             0,
         );
         assert_eq!(u.len(), 1);
@@ -636,19 +626,17 @@ mod tests {
                 std::slice::from_ref(&c),
                 &env(&w, &m, &none()),
                 &cur(-10),
-                &repo,
-                issue,
+                &TicketRef::new(&repo, issue),
                 0
             )
             .is_empty()
         );
-        let mine: HashSet<(String, u64)> = [(repo.clone(), issue)].into_iter().collect();
+        let mine: HashSet<TicketRef> = [TicketRef::new(repo.clone(), issue)].into_iter().collect();
         let u = unread_for_sender(
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cur(-10),
-            &repo,
-            issue,
+            &TicketRef::new(&repo, issue),
             0,
         );
         assert_eq!(u.len(), 1);
@@ -673,12 +661,11 @@ mod tests {
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cur(-10),
-            &c.repo,
-            c.issue,
+            &c.tref(),
             0,
         );
-        assert!(verdict(&u, false, &c.repo, c.issue).is_err());
-        let line = verdict(&u, true, &c.repo, c.issue).unwrap();
+        assert!(verdict(&u, false, &c.tref()).is_err());
+        let line = verdict(&u, true, &c.tref()).unwrap();
         assert_eq!(
             line.as_deref(),
             Some("override: unread-message-on-ticket (comments 57)")
@@ -692,7 +679,7 @@ mod tests {
         assert_eq!(with_override("text", None), "text");
         assert_eq!(note(None), "");
         // nothing unread: --override-unread adds no note
-        assert_eq!(verdict(&[], true, "r", 1).unwrap(), None);
+        assert_eq!(verdict(&[], true, &TicketRef::new("r", 1)).unwrap(), None);
     }
 
     #[test]
@@ -715,16 +702,15 @@ mod tests {
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cursor,
-            &c.repo,
-            c.issue,
+            &c.tref(),
             0,
         );
         assert_eq!(u.len(), 1);
         // a refusal
-        assert!(verdict(&u, false, &c.repo, c.issue).is_err());
+        assert!(verdict(&u, false, &c.tref()).is_err());
         assert_eq!(cursor.encode(), before);
         // an --override-unread send
-        assert!(verdict(&u, true, &c.repo, c.issue).is_ok());
+        assert!(verdict(&u, true, &c.tref()).is_ok());
         assert_eq!(cursor.encode(), before);
         // and the next watch still finds the message as fresh (control: only a real read
         // advances the cursor)
@@ -744,23 +730,39 @@ mod tests {
         };
         let mut cache = StateCache::default();
         // not cached: not held
-        assert!(!held_in_cache(&cache, "o/r", 7, "hermes@b"));
+        assert!(!held_in_cache(
+            &cache,
+            &TicketRef::new("o/r", 7),
+            "hermes@b"
+        ));
         cache.index.tickets.insert("o/r#7".into(), "PVTI_7".into());
         // indexed, no snapshot: not held
-        assert!(!held_in_cache(&cache, "o/r", 7, "hermes@b"));
+        assert!(!held_in_cache(
+            &cache,
+            &TicketRef::new("o/r", 7),
+            "hermes@b"
+        ));
         // held by another agent: not held
         cache
             .index
             .ticket_snaps
             .insert("PVTI_7".into(), snap(Some("codex@c")));
-        assert!(!held_in_cache(&cache, "o/r", 7, "hermes@b"));
+        assert!(!held_in_cache(
+            &cache,
+            &TicketRef::new("o/r", 7),
+            "hermes@b"
+        ));
         // held by me: held; another issue is still not
         cache
             .index
             .ticket_snaps
             .insert("PVTI_7".into(), snap(Some("hermes@b")));
-        assert!(held_in_cache(&cache, "o/r", 7, "hermes@b"));
-        assert!(!held_in_cache(&cache, "o/r", 8, "hermes@b"));
+        assert!(held_in_cache(&cache, &TicketRef::new("o/r", 7), "hermes@b"));
+        assert!(!held_in_cache(
+            &cache,
+            &TicketRef::new("o/r", 8),
+            "hermes@b"
+        ));
     }
 
     /// The cache decides whether an unaddressed owner comment refuses a `say`.
@@ -773,9 +775,11 @@ mod tests {
         let key = format!("{}#{}", c.repo, c.issue);
         let mut cache = StateCache::default();
         let check = |cache: &StateCache| {
-            let held = held_in_cache(cache, &c.repo, c.issue, "hermes@b");
-            let mine: HashSet<(String, u64)> = if held {
-                [(c.repo.clone(), c.issue)].into_iter().collect()
+            let held = held_in_cache(cache, &c.tref(), "hermes@b");
+            let mine: HashSet<TicketRef> = if held {
+                [TicketRef::new(c.repo.clone(), c.issue)]
+                    .into_iter()
+                    .collect()
             } else {
                 HashSet::new()
             };
@@ -783,11 +787,10 @@ mod tests {
                 std::slice::from_ref(&c),
                 &env(&w, &m, &mine),
                 &cur(-10),
-                &c.repo,
-                c.issue,
+                &c.tref(),
                 0,
             );
-            verdict(&u, false, &c.repo, c.issue)
+            verdict(&u, false, &c.tref())
         };
         // not cached: does not count
         assert_eq!(check(&cache).unwrap(), None);
@@ -850,17 +853,10 @@ mod tests {
         let upto = own_ack_watermark(&verified(&w, &all), "hermes@b");
         assert_eq!(upto, 55);
         let run = |upto: u64| -> Vec<u64> {
-            unread_for_sender(
-                &all,
-                &env(&w, &m, &mine),
-                &cur(-10),
-                &before.repo,
-                before.issue,
-                upto,
-            )
-            .iter()
-            .map(|e| e.comment_id)
-            .collect()
+            unread_for_sender(&all, &env(&w, &m, &mine), &cur(-10), &before.tref(), upto)
+                .iter()
+                .map(|e| e.comment_id)
+                .collect()
         };
         // without the ack watermark both are unread (control)
         assert_eq!(run(0), vec![50, 56]);
@@ -943,8 +939,7 @@ mod tests {
             std::slice::from_ref(&c),
             &env(&w, &m, &mine),
             &cur(-10),
-            &c.repo,
-            c.issue,
+            &c.tref(),
             0,
         );
         let text = render_read(&u);
@@ -983,7 +978,7 @@ mod tests {
     fn a_refusal_shows_the_first_lines_of_each_message_and_cuts_the_rest() {
         let long = "x".repeat(LINE_CHARS + 50);
         let u = vec![ev(1, &format!("first\n\nsecond\n{long}\nfourth\nfifth"))];
-        let text = refusal_text(&u, "a/b", 7);
+        let text = refusal_text(&u, &TicketRef::new("a/b", 7));
         assert!(text.contains("    first\n    second\n"), "{text}");
         assert!(
             text.contains(&format!("    {} [...]\n", "x".repeat(LINE_CHARS))),
@@ -997,7 +992,10 @@ mod tests {
         );
         // the event check of `done` shows the same text
         let e = events_verdict(&u, false).unwrap_err().to_string();
-        assert!(e.contains("    first") && e.contains(EVENTS_RULE), "{e}");
+        assert!(
+            e.contains("    first") && e.contains(ids::UNREAD_EVENTS.as_str()),
+            "{e}"
+        );
         assert!(
             e.contains(
                 "Use --override-unread only after you have read and handled them; never to skip them."
@@ -1043,26 +1041,25 @@ mod tests {
             std::slice::from_ref(&note),
             &env(&w, &m, &mine),
             &cur(-10),
-            &note.repo,
-            note.issue,
+            &note.tref(),
             0,
         );
-        let e = verdict(&unread, false, &note.repo, note.issue).unwrap_err();
-        assert!(e.to_string().contains(RULE), "{e}");
+        let e = verdict(&unread, false, &note.tref()).unwrap_err();
+        assert!(
+            e.to_string()
+                .contains(ids::UNREAD_MESSAGE_ON_TICKET.as_str()),
+            "{e}"
+        );
         // direction 2: the message is older than the cursor: the interrupt goes on
         let none_unread = unread_for_sender(
             std::slice::from_ref(&note),
             &env(&w, &m, &mine),
             &cur(600),
-            &note.repo,
-            note.issue,
+            &note.tref(),
             0,
         );
         assert!(none_unread.is_empty());
-        assert_eq!(
-            verdict(&none_unread, false, &note.repo, note.issue).unwrap(),
-            None
-        );
+        assert_eq!(verdict(&none_unread, false, &note.tref()).unwrap(), None);
         // and `take --interrupt` runs the guard on the old ticket before it writes anything:
         // the guard is in `plan_park`, which only reads, and `take` plans before it acts
         let tickets = include_str!("ops/tickets/take.rs");

@@ -12,6 +12,7 @@
 
 use super::init_identity::Mode;
 use super::{Global, new_owner_client};
+use crate::base::ids;
 use crate::board::{
     Board, OwnerInfo, OwnerKind, default_color, graphql_root, owner_info, repo_path, rest_base,
 };
@@ -22,6 +23,7 @@ use crate::ctx::decode_contents;
 use crate::error::{CbError, CbResult};
 use crate::github::projects;
 use crate::github::{Client, GhError, is_already_exists};
+use crate::rules::fields::Field;
 use crate::rules::options::{is_noop, plan_options};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -63,13 +65,17 @@ const STATUS_OPTIONS: &[&str] = &[
 /// `unassigned`; an existing `Agent` field is left alone.
 // `ensure_fields` never removes an option: an option that an adopted board holds beyond the
 // wanted ones stays.
-pub const SELECT_FIELDS: &[(&str, &[&str], &[&str])] = &[
-    ("Kind", &["Work", "Agent"], &["Work", "Agent"]),
-    ("Status", STATUS_OPTIONS, STATUS_OPTIONS),
-    ("Agent", &[], &["unassigned"]),
-    ("Role", &["Coordinator", "Dev"], &["Coordinator", "Dev"]),
+pub const SELECT_FIELDS: &[(Field, &[&str], &[&str])] = &[
+    (Field::Kind, &["Work", "Agent"], &["Work", "Agent"]),
+    (Field::Status, STATUS_OPTIONS, STATUS_OPTIONS),
+    (Field::Agent, &[], &["unassigned"]),
     (
-        "State",
+        Field::Role,
+        &["Coordinator", "Dev"],
+        &["Coordinator", "Dev"],
+    ),
+    (
+        Field::State,
         &[
             "requested",
             "approved",
@@ -91,21 +97,24 @@ pub const SELECT_FIELDS: &[(&str, &[&str], &[&str])] = &[
 
 /// The number fields of spec/board#fields. `Order` is the queue position of a Ready ticket within
 /// the queue of its agent; `init` adds it to existing boards.
-pub const NUMBER_FIELDS: &[&str] = &["Order"];
+pub const NUMBER_FIELDS: &[Field] = &[Field::Order];
 
 /// The text fields of spec/board#fields.
-pub const TEXT_FIELDS: &[&str] = &[
-    "Gate",
-    "Evidence",
-    "Heartbeat",
-    "Host",
-    "Runtime",
-    "Key",
-    "Doing",
-    "Cursor",
+pub const TEXT_FIELDS: &[Field] = &[
+    Field::Gate,
+    Field::Evidence,
+    Field::Heartbeat,
+    Field::Host,
+    Field::Runtime,
+    Field::Key,
+    Field::Doing,
+    Field::Cursor,
     // facts and declared tags of an agent (spec/profiles); `init` adds it to existing boards
-    "Capabilities",
+    Field::Capabilities,
 ];
+
+/// The title field that GitHub gives every project.
+const TITLE: &str = "Title";
 
 /// Built-in option names that GitHub gives a new project (renamed, so their ids stay).
 const STATUS_RENAMES: &[(&str, &str)] = &[("Todo", "Backlog")];
@@ -875,7 +884,7 @@ fn check_crew_login(
 ) -> CbResult<(u64, String)> {
     if crew.eq_ignore_ascii_case(owner_login) {
         return Err(CbError::refused(
-            "crew-login-is-owner",
+            ids::CREW_LOGIN_IS_OWNER,
             format!("--crew-login {crew} is the owner: agents may not act as the owner"),
         ));
     }
@@ -949,20 +958,20 @@ pub fn add_collaborator(
 /// options of the present ones. Idempotent.
 pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> CbResult<()> {
     let items_total = projects::items_total(client, &board.project_id)?;
-    for (name, wanted, seed) in SELECT_FIELDS {
-        match board.fields.get(*name) {
+    for &(name, wanted, seed) in SELECT_FIELDS {
+        match board.has_field(name) {
             None => {
                 let opts: Vec<Value> = seed
                     .iter()
                     .map(|o| json!({"name": o, "color": default_color(o), "description": ""}))
                     .collect();
-                projects::create_select_field(client, &board.project_id, name, &opts)?;
+                projects::create_select_field(client, &board.project_id, name.name(), &opts)?;
                 rep.line(format!("field {name}: created ({} options)", seed.len()));
             }
             Some(f) => {
                 if f.data_type != "SINGLE_SELECT" {
                     return Err(CbError::refused(
-                        "field-type-mismatch",
+                        ids::FIELD_TYPE_MISMATCH,
                         format!(
                             "field {name} exists as {}, it must be a single select",
                             f.data_type
@@ -970,7 +979,7 @@ pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> Cb
                     ));
                 }
                 // Rename built-in names only on a project without items.
-                let renames: &[(&str, &str)] = if *name == "Status" && items_total == 0 {
+                let renames: &[(&str, &str)] = if name == Field::Status && items_total == 0 {
                     STATUS_RENAMES
                 } else {
                     &[]
@@ -988,30 +997,30 @@ pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> Cb
             }
         }
     }
-    for name in TEXT_FIELDS {
-        match board.fields.get(*name) {
+    for &name in TEXT_FIELDS {
+        match board.has_field(name) {
             None => {
-                projects::create_text_field(client, &board.project_id, name)?;
+                projects::create_text_field(client, &board.project_id, name.name())?;
                 rep.line(format!("field {name}: created"));
             }
             Some(f) if f.data_type != "TEXT" => {
                 return Err(CbError::refused(
-                    "field-type-mismatch",
+                    ids::FIELD_TYPE_MISMATCH,
                     format!("field {name} exists as {}, it must be text", f.data_type),
                 ));
             }
             Some(_) => rep.line(format!("field {name}: ok")),
         }
     }
-    for name in NUMBER_FIELDS {
-        match board.fields.get(*name) {
+    for &name in NUMBER_FIELDS {
+        match board.has_field(name) {
             None => {
-                projects::create_number_field(client, &board.project_id, name)?;
+                projects::create_number_field(client, &board.project_id, name.name())?;
                 rep.line(format!("field {name}: created"));
             }
             Some(f) if f.data_type != "NUMBER" => {
                 return Err(CbError::refused(
-                    "field-type-mismatch",
+                    ids::FIELD_TYPE_MISMATCH,
                     format!(
                         "field {name} exists as {}, it must be a number",
                         f.data_type
@@ -1052,29 +1061,29 @@ pub fn ensure_views(
             .find(|f| f.get("name").and_then(Value::as_str) == Some(n))
             .and_then(|f| f.get("id").and_then(Value::as_u64))
     };
-    let missing_field = |n: &str| GhError::Shape(format!("REST fields list has no '{n}'"));
-    let status = id_of("Status").ok_or_else(|| missing_field("Status"))?;
-    let agent = id_of("Agent").ok_or_else(|| missing_field("Agent"))?;
+    let missing_field = |f: Field| GhError::Shape(format!("REST fields list has no '{f}'"));
+    let status = id_of(Field::Status.name()).ok_or_else(|| missing_field(Field::Status))?;
+    let agent = id_of(Field::Agent.name()).ok_or_else(|| missing_field(Field::Agent))?;
+    // `Title` is a field of GitHub itself, not a crew field
+    let columns = |fields: &[Field]| -> Vec<u64> {
+        std::iter::once(id_of(TITLE))
+            .chain(fields.iter().map(|f| id_of(f.name())))
+            .flatten()
+            .collect()
+    };
     // the columns of the ticket views: the title, the status, the agent and the queue order
-    let ticket_cols: Vec<u64> = ["Title", "Status", "Agent", "Order"]
-        .iter()
-        .filter_map(|n| id_of(n))
-        .collect();
-    let crew_cols: Vec<u64> = [
-        "Title",
-        "Role",
-        "State",
-        "Heartbeat",
-        "Host",
-        "Runtime",
-        "Capabilities",
-        "Doing",
-    ]
-    .iter()
-    .filter_map(|n| id_of(n))
-    .collect();
+    let ticket_cols = columns(&[Field::Status, Field::Agent, Field::Order]);
+    let crew_cols = columns(&[
+        Field::Role,
+        Field::State,
+        Field::Heartbeat,
+        Field::Host,
+        Field::Runtime,
+        Field::Capabilities,
+        Field::Doing,
+    ]);
     // the ticket views sort by `Order`, ascending: the queue position (spec/board#views)
-    let by_order = match id_of("Order") {
+    let by_order = match id_of(Field::Order.name()) {
         Some(order) => json!([[order, "asc"]]),
         None => json!([]),
     };
@@ -1191,7 +1200,7 @@ fn open_pr(
             status: 409 | 404, ..
         }) => {
             return Err(CbError::refused(
-                "repo-empty-no-pr",
+                ids::REPO_EMPTY_NO_PR,
                 format!(
                     "{repo} has no commit, so no pull request can be opened. Add a first commit (for example a README), then run init again; it will only open the PR."
                 ),
@@ -1282,6 +1291,7 @@ fn open_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::fields::FieldType;
 
     fn cfg() -> BoardConfig {
         BoardConfig::parse(
@@ -1338,19 +1348,27 @@ mod tests {
 
     #[test]
     fn the_field_tables_match_spec_5_1() {
-        let sel: Vec<&str> = SELECT_FIELDS.iter().map(|f| f.0).collect();
+        let sel: Vec<&str> = SELECT_FIELDS.iter().map(|f| f.0.name()).collect();
         // GitHub refuses a single select without options: every field has a seed.
         assert!(SELECT_FIELDS.iter().all(|f| !f.2.is_empty()));
         assert_eq!(sel, ["Kind", "Status", "Agent", "Role", "State"]);
         assert!(!sel.contains(&"Type"), "Type is reserved by GitHub");
-        assert_eq!(NUMBER_FIELDS, ["Order"]);
+        assert_eq!(NUMBER_FIELDS, [Field::Order]);
         assert_eq!(TEXT_FIELDS.len(), 9);
-        assert!(TEXT_FIELDS.contains(&"Capabilities"));
-        // every field the board layer writes exists in the tables
-        for f in ["Key", "Host", "Runtime", "Cursor", "Heartbeat"] {
-            assert!(TEXT_FIELDS.contains(&f), "{f}");
+        // every field of the rule table is created by init, with its own type
+        for f in Field::ALL {
+            let made = match f.kind() {
+                FieldType::SingleSelect => SELECT_FIELDS.iter().any(|s| s.0 == f),
+                FieldType::Text => TEXT_FIELDS.contains(&f),
+                FieldType::Number => NUMBER_FIELDS.contains(&f),
+            };
+            assert!(made, "{f}");
         }
-        let status = SELECT_FIELDS.iter().find(|f| f.0 == "Status").unwrap().1;
+        let status = SELECT_FIELDS
+            .iter()
+            .find(|f| f.0 == Field::Status)
+            .unwrap()
+            .1;
         assert_eq!(status.len(), 7);
         assert_eq!(status.last(), Some(&"Dropped"));
         // the options are the statuses of the rules, in their order
@@ -1359,7 +1377,11 @@ mod tests {
             .map(|s| s.name())
             .collect();
         assert_eq!(status, names.as_slice());
-        let state = SELECT_FIELDS.iter().find(|f| f.0 == "State").unwrap().1;
+        let state = SELECT_FIELDS
+            .iter()
+            .find(|f| f.0 == Field::State)
+            .unwrap()
+            .1;
         assert_eq!(state.len(), 6);
     }
 

@@ -4,6 +4,7 @@
 //! the items.
 
 use crate::base::GhError;
+use crate::base::fields::Field;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -22,7 +23,8 @@ pub struct ItemSnapshot {
     pub project_number: Option<u64>,
     /// `OPEN` or `CLOSED` for an item that is an issue; `None` for a draft item.
     pub issue_state: Option<String>,
-    /// Field name -> text or option name. Fields without a value are absent.
+    /// Board field name -> text or option name. Fields without a value are absent. Crew code
+    /// reads a value with [`ItemSnapshot::get`].
     pub fields: BTreeMap<String, String>,
 }
 
@@ -32,8 +34,9 @@ impl ItemSnapshot {
         self.issue_state.as_deref() == Some("CLOSED")
     }
 
-    pub fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
+    /// The value of `field`, or `None` when the item has no value for it.
+    pub fn get(&self, field: Field) -> Option<&str> {
+        self.fields.get(field.name()).map(String::as_str)
     }
 }
 
@@ -111,9 +114,9 @@ mod tests {
     #[test]
     fn parses_text_and_select_values_and_skips_unknown_types() {
         let it = parse_item_node(&node()).unwrap().unwrap();
-        assert_eq!(it.field("Key"), Some("ssh-ed25519 AAAA x@y"));
-        assert_eq!(it.field("State"), Some("requested"));
-        assert_eq!(it.field("Role"), None);
+        assert_eq!(it.get(Field::Key), Some("ssh-ed25519 AAAA x@y"));
+        assert_eq!(it.get(Field::State), Some("requested"));
+        assert_eq!(it.get(Field::Role), None);
         assert_eq!(it.project_number, Some(15));
         assert_eq!(it.fields.len(), 2);
     }
@@ -139,14 +142,17 @@ mod tests {
             json!({"__typename": "ProjectV2ItemFieldNumberValue", "number": 2.5, "field": {"name": "Weight"}}),
         ]);
         let it = parse_item_node(&n).unwrap().unwrap();
-        assert_eq!(it.field("Order"), Some("3"));
-        assert_eq!(it.field("Weight"), Some("2.5"));
+        assert_eq!(it.get(Field::Order), Some("3"));
+        assert_eq!(it.fields.get("Weight").map(String::as_str), Some("2.5"));
         // control: a number node without a value adds nothing
         let mut n = node();
         n["fieldValues"]["nodes"].as_array_mut().unwrap().push(
             json!({"__typename": "ProjectV2ItemFieldNumberValue", "field": {"name": "Order"}}),
         );
-        assert_eq!(parse_item_node(&n).unwrap().unwrap().field("Order"), None);
+        assert_eq!(
+            parse_item_node(&n).unwrap().unwrap().get(Field::Order),
+            None
+        );
     }
 
     #[test]
