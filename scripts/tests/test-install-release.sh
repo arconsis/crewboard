@@ -185,7 +185,7 @@ check "green: skill installed in HOME" "$(ok test -f "$H/$CANON/SKILL.md")"
 check "green: no skill tarball was asked for" "$(ok test -z "$(grep -i 'skill-' "$T/green/gh.log")")"
 check "green: claude link to the shared copy" "$(ok test "$(readlink "$H/.claude/skills/crewboard")" = "$H/$CANON")"
 check "green: the checksum is verified" "$(has "ok:   sha256 crewboard-$VER-x86_64-unknown-linux-gnu.tar.gz"; echo $?)"
-check "green: prints the version and the next step" "$(has "crewboard $VER installed at $P/bin/crewboard" && has "next:"; echo $?)"
+check "green: prints the version and the next step" "$(has "crewboard $VER installed at $P/bin/crewboard" && has "New crew (owner):" && has "First try:"; echo $?)"
 check "green: the temporary directory is removed" "$(ok test -z "$(/bin/ls -A "$TD")")"
 before_bin=$(tree "$P"); before_home=$(tree "$H")
 rerun --runtime claude

@@ -2,10 +2,10 @@
 # install.sh - install a prebuilt crewboard release: the binary, which carries the skill.
 #
 #   curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.6.0
+#   curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.8.0
 #
 # Options (after `bash -s --` when the script comes from a pipe):
-#   --version  the release tag (default: latest). "0.6.0" and "v0.6.0" are the same.
+#   --version  the release tag (default: latest). "0.8.0" and "v0.8.0" are the same.
 #   --prefix   the binary goes to <prefix>/bin/crewboard (default: ~/.local)
 #   --runtime  claude, codex, copilot or hermes. Link the skill into that runtime even when it is
 #              not found on this host. Repeat it for more runtimes. Without it, the skill is
@@ -22,8 +22,8 @@
 # If curl gets a 404 (for example on a private fork or mirror), the script uses
 # `gh release download` with your `gh` login, which needs read access to the repo.
 #
-# Upgrade: stop the loops of this host first (docs/guides/upgrade.md), because the skill
-# install replaces the loop scripts.
+# Upgrade: stop the loops of this host first (docs/guides/upgrade.md). The install replaces the
+# binary that a running wake calls and the skill files that a running agent reads.
 #
 # The whole script is one function that runs at the end, so bash has read all of it before the
 # first command runs: this is what makes `curl ... | bash` safe.
@@ -36,13 +36,13 @@ die() { echo "error: $*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage: install.sh [--version vX.Y.Z|latest] [--prefix <dir>] [--runtime <name>]... [--dry-run]
-  --version  the release tag (default: latest). "0.6.0" and "v0.6.0" are the same.
+  --version  the release tag (default: latest). "0.8.0" and "v0.8.0" are the same.
   --prefix   the binary goes to <prefix>/bin/crewboard (default: ~/.local)
   --runtime  claude, codex, copilot or hermes: link the skill into that runtime even when it is
              not found on this host (repeatable). Without it, every runtime that is present
              gets the link.
   --dry-run  download and verify the release, print the plan, change nothing else
-From a pipe: curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.6.0
+From a pipe: curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.8.0
 USAGE
 }
 
@@ -58,7 +58,7 @@ main() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --version)
-        [ $# -ge 2 ] || { echo "--version needs a tag, for example v0.6.0, or latest" >&2; exit 2; }
+        [ $# -ge 2 ] || { echo "--version needs a tag, for example v0.8.0, or latest" >&2; exit 2; }
         VERSION="$2"; shift ;;
       --prefix)
         [ $# -ge 2 ] || { echo "--prefix needs a directory" >&2; exit 2; }
@@ -191,8 +191,11 @@ main() {
   esac
   [ "$SKILL_RC" -eq 0 ] || echo "note: crewboard skill install finished with problems (see above)." >&2
   echo "upgrade: crewboard update"
-  echo "next: the owner creates a board with 'crewboard init' (docs/guides/owner.md);"
-  echo "      an agent host joins with 'crewboard join' (docs/guides/agents.md)."
+  # The same next-step lines as the overview of `crewboard --help`, so that both say one thing.
+  echo "New crew (owner): \`crewboard agent token\`, \`crewboard init\`,"
+  echo "then for each agent \`crewboard agent add\` on its host and \`crewboard approve\`."
+  echo "First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md"
+  echo "New agent: \`crewboard agent add\`, then \`crewboard doctor --setup\`."
   exit "$SKILL_RC"
 }
 

@@ -19,8 +19,13 @@ binary).
 ## What you need
 
 - macOS (arm64 or x86_64) or Linux (x86_64 or arm64, glibc 2.35 or newer: for example Debian 12
-  or Ubuntu 22.04). Windows has no prebuilt binary: [build from source](#build-from-source).
-- `curl`, `bash`, `tar`, and `sha256sum` or `shasum`.
+  or Ubuntu 22.04). Windows is not supported as an agent host. The binary
+  [builds from source](#build-from-source) and runs the owner commands; for an agent on Windows
+  use WSL.
+- `curl`, `bash`, `tar`, and `sha256sum` or `shasum` for the script.
+- `git` and `gh` 2.17 or newer ([GitHub CLI](https://cli.github.com/)) for every crewboard
+  command. `gh` is logged in as you on the owner machine.
+- `tmux`, or any terminal that stays open, on the host of the interactive coordinator.
 - Your user is enough. The script needs no root.
 
 ## Options
@@ -28,12 +33,12 @@ binary).
 Pass options after `bash -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.6.0
+curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash -s -- --version v0.8.0
 ```
 
 | Option | Default | What it does |
 |---|---|---|
-| `--version vX.Y.Z` or `latest` | `latest` | The release to install. `0.6.0` and `v0.6.0` are the same. |
+| `--version vX.Y.Z` or `latest` | `latest` | The release to install. `0.8.0` and `v0.8.0` are the same. |
 | `--prefix <dir>` | `~/.local` | The binary goes to `<dir>/bin/crewboard`. |
 | `--runtime <name>` | every runtime that is present | `claude`, `codex`, `copilot` or `hermes`. Links the skill into that runtime even when it is not found. Use it more than once for more runtimes. |
 | `--dry-run` | off | Downloads and verifies the release in a temporary directory and prints the plan. It changes nothing else. |
@@ -84,16 +89,18 @@ gh api -H 'Accept: application/vnd.github.raw' repos/<owner>/<name>/contents/ins
 
 `CREWBOARD_RELEASE_REPO` makes the script install the releases of that repository; without it,
 the script installs from `arconsis/crewboard`. Options work as above:
-`... | CREWBOARD_RELEASE_REPO=<owner>/<name> bash -s -- --version v0.6.0`.
+`... | CREWBOARD_RELEASE_REPO=<owner>/<name> bash -s -- --version v0.8.0`.
 
 ## Manual download
 
 Do the same steps by hand, for example to read each file first. Set the version and the target.
-The targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu` and
-`aarch64-unknown-linux-gnu`.
+The first line reads the latest version from GitHub; for one given release write it by hand,
+for example `V=0.8.0`. The targets are `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`.
 
 ```sh
-V=0.6.0; TARGET=aarch64-apple-darwin
+V=$(curl -fsSL https://api.github.com/repos/arconsis/crewboard/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+TARGET=aarch64-apple-darwin
 mkdir -p ~/crewboard-$V && cd ~/crewboard-$V
 gh release download v$V --repo arconsis/crewboard \
   --pattern "crewboard-$V-$TARGET.tar.gz" --pattern SHA256SUMS
