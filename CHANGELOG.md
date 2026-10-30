@@ -10,7 +10,12 @@ Fixed:
   `<initiative>.board.toml` and the `.crewboard.toml` of the init PR, and dropped
   `heartbeat_interval`, `required_tools` and every other key that `init` does not set. Now `init`
   sets only its own keys and keeps every other key and the comments of both files. A local file
-  that is not valid TOML stops `init` before the first write.
+  or a `.crewboard.toml` on the default branch that is not valid TOML stops `init` before the
+  first write.
+- An `init` rerun without an identity flag switched a board with `crew_login` or
+  `insecure_one_account` to own accounts. Now it keeps the identity mode of the board config and
+  prints `identity: ... kept`. A flag of another mode than the board config names is refused
+  before any write (`init-identity-mode-change`); the refusal says how to switch on purpose.
 - A comment flood (more than 5000 comments) on a ticket made the coordinator forget its notes on
   that ticket for good, so "flood, delete the close note, delete the flood, set the board back"
   was never seen. Now the notes stay. The ticket is read again when its board row changes and 6

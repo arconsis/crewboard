@@ -238,6 +238,97 @@ fn an_init_rerun_keeps_the_keys_and_comments_that_the_owner_added_to_both_board_
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }
 
+/// `init` of the initiative `fake` with both repos and `extra`, without an identity flag of its
+/// own.
+fn init_flags(fake: &FakeBoard, dir: &std::path::Path, extra: &[&str]) -> Out {
+    let mut v = vec![
+        "init",
+        "--initiative",
+        "fake",
+        "--repo",
+        REPO,
+        "--repo",
+        REPO2,
+        "--project",
+        "15",
+    ];
+    v.extend_from_slice(extra);
+    fake.run(dir, &v)
+}
+
+#[test]
+fn an_init_rerun_keeps_the_identity_mode_and_refuses_a_flag_of_another_mode() {
+    let fake = FakeBoard::new();
+    fake.add_user("crew-account");
+    let owner = tempfile::tempdir().unwrap();
+    let o = init_flags(&fake, owner.path(), &["--crew-login", "crew-account"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let local = owner.path().join("fake.board.toml");
+    let first = std::fs::read_to_string(&local).unwrap();
+    assert!(first.contains("crew_login = \"crew-account\""), "{first}");
+    // the init PR is merged, and the default branch lacks the second repo, so a rerun must
+    // change the file again
+    let merged = fake
+        .branch_file("crewboard/init-fake", ".crewboard.toml")
+        .unwrap()
+        .replace(&format!(", \"{REPO2}\""), "");
+    fake.set_file(REPO, ".crewboard.toml", &merged);
+
+    // a rerun without a flag (as the upgrade note says) keeps the mode in both files
+    let o = init_flags(&fake, owner.path(), &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains("identity: crew_login crew-account kept"),
+        "{}",
+        o.stdout
+    );
+    assert!(!o.stdout.contains("identity: own accounts"), "{}", o.stdout);
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), first);
+    let pr_file = fake
+        .branch_file("crewboard/init-fake", ".crewboard.toml")
+        .unwrap();
+    assert!(pr_file.contains(REPO2), "init set its key: {pr_file}");
+    assert!(
+        pr_file.contains("crew_login = \"crew-account\""),
+        "the PR drops the crew account: {pr_file}"
+    );
+
+    // a rerun with the same flag: nothing changes for the identity
+    let o = init_flags(&fake, owner.path(), &["--crew-login", "crew-account"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(!o.stdout.contains("kept ("), "{}", o.stdout);
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), first);
+
+    // a flag of another mode is refused before any write
+    let w = writes(&fake).len();
+    let o = init_flags(&fake, owner.path(), &["--insecure-one-account"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("init-identity-mode-change"),
+        "{}",
+        o.all()
+    );
+    assert!(o.stderr.contains("crew_login crew-account"), "{}", o.all());
+    assert!(o.stderr.contains("edit the identity keys"), "{}", o.all());
+    assert_eq!(writes(&fake).len(), w, "nothing was written");
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), first);
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+#[test]
+fn an_invalid_board_config_on_the_default_branch_stops_init_before_any_write() {
+    let fake = FakeBoard::new();
+    fake.set_file(REPO, ".crewboard.toml", "initiative = ");
+    let owner = tempfile::tempdir().unwrap();
+    let o = init(&fake, owner.path(), "fake", &[]);
+    assert_eq!(o.code, 4, "a configuration error: {}", o.all());
+    assert!(o.stderr.contains(".crewboard.toml on main"), "{}", o.all());
+    assert!(o.stderr.contains("not valid TOML"), "{}", o.all());
+    assert_eq!(writes(&fake), Vec::<String>::new(), "nothing was written");
+    assert!(!owner.path().join("fake.board.toml").exists());
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
 #[test]
 fn init_reports_the_three_pin_limit_and_unpins_nothing() {
     let fake = FakeBoard::new();

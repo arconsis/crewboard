@@ -130,6 +130,9 @@ struct State {
     /// `(repo, issue)` of a comment flood: the comment list of the issue never ends (each page
     /// names a next page), so a read hits the page limit.
     flooded: Vec<(String, u64)>,
+    /// Logins that `GET users/{login}` answers as a user account with write access to the repos
+    /// (a crew account for `init --crew-login`). Every other login is an organisation.
+    users: Vec<String>,
     /// Counter for the ids of options that `updateProjectV2Field` creates.
     next_option: u64,
     /// The answer of `GET repos/{r}/branches/{b}` (protection of the base branch), if set.
@@ -269,6 +272,7 @@ fn new_state(base: &str) -> State {
         next_sha: 1,
         fail_once: Vec::new(),
         flooded: Vec::new(),
+        users: Vec::new(),
         next_option: 1,
         branch_answer: None,
         branch_error: None,
@@ -425,6 +429,11 @@ impl FakeBoard {
             .unwrap()
             .flooded
             .push((REPO.to_string(), issue));
+    }
+
+    /// A user account that `init --crew-login` accepts: a user with write access to the repos.
+    pub fn add_user(&self, login: &str) {
+        self.st.lock().unwrap().users.push(login.to_string());
     }
 
     /// The flood on `issue` is deleted again: its comment list fits on one page.
@@ -1190,7 +1199,10 @@ fn route(st: &mut State, r: &Req) -> Resp {
     let seg: Vec<&str> = path.split('/').collect();
     match (r.method.as_str(), seg.as_slice()) {
         ("GET", ["", "user"]) => get_user(st),
-        ("GET", ["", "users", login]) => get_owner(login),
+        ("GET", ["", "users", login]) => get_login(st, login),
+        ("GET", ["", "repos", _, _, "collaborators", login, "permission"]) => {
+            get_permission(st, r, login)
+        }
         ("GET", ["", "rate_limit"]) => get_rate_limit(),
         ("POST", ["", "graphql"]) => graphql(st, r),
         ("GET", ["", "repos", o, n, "issues", "comments"]) => {
@@ -1307,15 +1319,26 @@ fn route(st: &mut State, r: &Req) -> Resp {
         ("GET", ["", "repos", _, _, "rules", "branches", _]) => tickets::get_branch_rules(st),
         ("GET", ["", "repos", _, _, "rulesets"]) => tickets::list_rulesets(st),
         ("POST", ["", "repos", _, _, "rulesets"]) => tickets::post_ruleset(st, &r.body),
-        _ => {
-            st.unhandled.push(format!("{} {}", r.method, r.path));
-            Resp::json(
-                501,
-                &json!({"message": format!("fake: no handler for {} {}", r.method, r.path)})
-                    .to_string(),
-            )
-        }
+        _ => no_handler(st, r),
     }
+}
+
+/// A request that no handler knows: recorded, and answered with 501.
+fn no_handler(st: &mut State, r: &Req) -> Resp {
+    st.unhandled.push(format!("{} {}", r.method, r.path));
+    Resp::json(
+        501,
+        &json!({"message": format!("fake: no handler for {} {}", r.method, r.path)}).to_string(),
+    )
+}
+
+/// `GET repos/{r}/collaborators/{login}/permission`: write for a user of
+/// [`FakeBoard::add_user`]; no handler for any other login.
+fn get_permission(st: &mut State, r: &Req, login: &str) -> Resp {
+    if st.users.iter().any(|u| u == login) {
+        return ok(json!({"permission": "write"}));
+    }
+    no_handler(st, r)
 }
 
 fn ok(v: Value) -> Resp {
@@ -1325,6 +1348,16 @@ fn ok(v: Value) -> Resp {
 /// `GET /user`
 fn get_user(st: &State) -> Resp {
     ok(json!({"login": st.viewer, "id": 1, "type": "User", "node_id": "U_fake"}))
+}
+
+/// `GET /users/{login}`: a user of [`FakeBoard::add_user`], else the owner of the project.
+fn get_login(st: &State, login: &str) -> Resp {
+    if st.users.iter().any(|u| u == login) {
+        return ok(
+            json!({"login": login, "id": 3, "type": "User", "node_id": format!("U_{login}")}),
+        );
+    }
+    get_owner(login)
 }
 
 /// `GET /users/{login}`: the owner of the project (an organisation).
@@ -1469,7 +1502,9 @@ fn graphql(st: &mut State, r: &Req) -> Resp {
     };
     let q = v["query"].as_str().unwrap_or("");
     let vars = &v["variables"];
-    let data = if q.contains("deleteProjectV2Workflow") {
+    let data = if q.contains("updateProjectV2Collaborators") {
+        json!({"updateProjectV2Collaborators": {"collaborators": {"totalCount": 1}}})
+    } else if q.contains("deleteProjectV2Workflow") {
         if let Some(m) = &st.fail_workflow_delete {
             return graphql_error(m);
         }

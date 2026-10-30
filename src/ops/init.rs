@@ -10,6 +10,7 @@
 //! `.crewboard.toml` on the default branch) keeps every key that init does not set and its
 //! comments (`config::merge_init_keys`).
 
+use super::init_identity::Mode;
 use super::{Global, new_owner_client};
 use crate::board::{
     Board, OwnerInfo, OwnerKind, default_color, graphql_root, owner_info, repo_path, rest_base,
@@ -174,6 +175,18 @@ fn board_text(
     }
 }
 
+/// An existing board config as a table. A file that is not valid TOML stops init before the
+/// first write: init keeps the keys of a board config, so it does not overwrite what it cannot
+/// read. `what` names the file.
+fn existing_table(text: &str, what: &str) -> CbResult<toml::Table> {
+    toml::from_str(text).map_err(|e| {
+        CbError::config(format!(
+            "{what}: not valid TOML: {}. init keeps the keys of an existing board config, so it does not overwrite a file it cannot read: fix the file (or remove it), then run init again. Nothing was written",
+            e.to_string().trim_end()
+        ))
+    })
+}
+
 /// The local board config file of the initiative, if there is one. A file that cannot be read
 /// is an error (init must not overwrite it).
 fn local_board_file(cd: &crate::config::ConfigDir, initiative: &str) -> CbResult<Option<String>> {
@@ -248,12 +261,16 @@ fn check_owner(client: &Client, a: &InitArgs<'_>, rep: &mut Report) -> CbResult<
     // before any write: the board needs the `project` scope of the owner token
     check_owner_scope(client, &viewer)?;
     rep.line(format!("owner: {owner_login}"));
+    Ok(owner_login)
+}
+
+/// The lines of the identity mode of the run (after an init rerun kept the mode, the kept one).
+fn mode_lines(a: &InitArgs<'_>, rep: &mut Report) {
     if a.insecure_one_account {
         rep.line("WARNING: one-account board: the agents use the owner's token and nothing separates owner from agent. Use it for a one-person trial only; for a crew run init without --insecure-one-account.");
     } else if a.crew_login.is_none() {
         rep.line("identity: own accounts: each agent joins with its own GitHub account, never yours. Invite each contributor account as a collaborator with the Write role on the repos and on the Project; `approve` shows the account of each join. (A shared crew account: init --crew-login <account>.)");
     }
-    Ok(owner_login)
 }
 
 /// The node ids of the repos, and the default branch of the first (main) repo.
@@ -533,21 +550,39 @@ pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
     check_args(&a)?;
     // An existing local board config that cannot be read stops init before the first write.
     let cd = g.dir()?;
-    if let Some(old) = local_board_file(&cd, a.initiative)? {
-        let p = cd.board_config_path(a.initiative);
-        toml::from_str::<toml::Table>(&old).map_err(|e| {
-            CbError::config(format!(
-                "{}: not valid TOML: {}. init keeps the keys of an existing board config, so it does not overwrite a file it cannot read: fix the file (or remove it), then run init again. Nothing was written",
-                p.display(),
-                e.to_string().trim_end()
-            ))
-        })?;
-    }
+    let local_path = cd.board_config_path(a.initiative).display().to_string();
+    let local = local_board_file(&cd, a.initiative)?
+        .map(|t| existing_table(&t, &local_path))
+        .transpose()?;
     let client = new_owner_client()?;
     let mut rep = Report::default();
     let owner_login = check_owner(&client, &a, &mut rep)?;
     let (repo_ids, default_branch) = read_repos(&client, a.repos, &mut rep)?;
     let main = a.repos[0].clone();
+    // The initiative file on the default branch: read once, and judged before the first write
+    // (`open_pr` uses the same read).
+    let repo_file = file_on(&client, &main, INITIATIVE_FILE, &default_branch)?;
+    let repo_what = format!("{INITIATIVE_FILE} on {default_branch} of {main}");
+    let repo_table = repo_file
+        .as_ref()
+        .map(|(t, _)| existing_table(t, &repo_what))
+        .transpose()?;
+    // An init rerun keeps the identity mode of the board config; a flag of another mode is
+    // refused here, before any write.
+    let existing: Vec<(String, Mode)> = [(local_path, local), (repo_what, repo_table)]
+        .into_iter()
+        .filter_map(|(f, t)| t.map(|t| (f, Mode::of(&t))))
+        .collect();
+    let ident = super::init_identity::resolve(a.crew_login, a.insecure_one_account, &existing)?;
+    if let Some(l) = &ident.kept {
+        rep.line(l);
+    }
+    let a = InitArgs {
+        crew_login: ident.crew_login.as_deref(),
+        insecure_one_account: ident.one_account,
+        ..a
+    };
+    mode_lines(&a, &mut rep);
     // `--with-ci` reads the repo and checks the token now, still before the first write
     let ci = if a.with_ci {
         let plan = super::init_ci::plan(&client, &main, &default_branch)?;
@@ -623,7 +658,14 @@ pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
         rep.line("PR: skipped (--no-pr)");
         None
     } else {
-        open_pr(&client, &cfg, &default_branch, ci.as_deref(), &mut rep)?
+        open_pr(
+            &client,
+            &cfg,
+            &default_branch,
+            ci.as_deref(),
+            repo_file,
+            &mut rep,
+        )?
     };
     if a.no_branch_rule {
         rep.line("branch rule: skipped (--no-branch-rule)");
@@ -1096,6 +1138,7 @@ fn open_pr(
     cfg: &BoardConfig,
     default_branch: &str,
     ci: Option<&str>,
+    repo_file: Option<(String, String)>,
     rep: &mut Report,
 ) -> CbResult<Option<String>> {
     let repo = cfg.main_repo();
@@ -1114,7 +1157,12 @@ fn open_pr(
     // initiative file on the default branch keeps every key that init does not set.
     let mut todo = Vec::new();
     for (path, text, overwrite) in &mut want {
-        let cur = file_on(client, repo, path, default_branch)?;
+        // the initiative file was read before the first write (`run`)
+        let cur = if *path == INITIATIVE_FILE {
+            repo_file.clone()
+        } else {
+            file_on(client, repo, path, default_branch)?
+        };
         if *path == INITIATIVE_FILE
             && let Some((old, _)) = &cur
         {
