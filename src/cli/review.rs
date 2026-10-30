@@ -2,6 +2,7 @@
 //! `report-status` and `tick`.
 
 use super::{Cli, Outcome, ReviewCmd, done, fail, global, refused};
+use crate::base::ignore::best_effort_output;
 use crate::error::CbError;
 use crate::ops::{self, AgentCtx};
 
@@ -95,7 +96,7 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
         {
             Ok((ac, t)) => {
                 print!("{}", t.text);
-                std::io::Write::flush(&mut std::io::stdout()).ok(); // best effort, as `done`
+                best_effort_output(std::io::Write::flush(&mut std::io::stdout()));
                 done(t.settle(&ac).map(|()| String::new()))
             }
             Err(e) => fail(e),

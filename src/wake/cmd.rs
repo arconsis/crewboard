@@ -44,6 +44,8 @@ pub use super::settings::WakeArgs;
 #[cfg(unix)]
 use super::settings::{BadFlag, Plan, Settings, bad, resolve};
 #[cfg(unix)]
+use crate::base::ignore::best_effort_output;
+#[cfg(unix)]
 use crate::clock::{Clock, SystemClock, format_ts};
 #[cfg(unix)]
 use crate::config::ConfigDir;
@@ -76,7 +78,7 @@ fn report_bad(b: &BadFlag, clock: &dyn Clock) {
             .open(&p.log)
         {
             use std::io::Write;
-            f.write_all(line.as_bytes()).ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(f.write_all(line.as_bytes()));
         }
     }
 }

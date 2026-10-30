@@ -10,6 +10,7 @@
 //! the guard judges the lock again, so a lock that another waiter took over meanwhile is not moved
 //! away. At most three attempts.
 
+use crate::base::ignore::best_effort_cleanup;
 use crate::clock::Clock;
 use crate::lock::fsmeta::mtime_epoch;
 use crate::lock::procs::{Alive, Procs};
@@ -63,7 +64,7 @@ impl Drop for Held {
     /// Remove the lock if it still names this process.
     fn drop(&mut self) {
         if read(&self.dir.join("pid")).as_deref() == Some(self.pid.to_string().as_str()) {
-            std::fs::remove_dir_all(&self.dir).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_dir_all(&self.dir));
         }
     }
 }
@@ -144,7 +145,7 @@ pub fn acquire(
                     });
                 if wrote.is_err() {
                     // a lock without its files would be judged stale by the next waiter
-                    std::fs::remove_dir_all(dir).ok(); // cleanup; a leftover file is harmless
+                    best_effort_cleanup(std::fs::remove_dir_all(dir));
                     return Acquired::Cannot;
                 }
                 return Acquired::Held(Held {

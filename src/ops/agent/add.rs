@@ -18,6 +18,7 @@ use super::shim::{
 use super::wait::{Wait, note_interrupt, poll_until};
 use super::{AddRole, AgentRuntime, absolute, exec_env_plan};
 use crate::agent_env;
+use crate::base::ignore::{best_effort_cleanup, child_may_have_ended};
 use crate::clock::SystemClock;
 use crate::config::{BoardConfig, split_repo};
 use crate::error::CbError;
@@ -764,14 +765,14 @@ pub(super) fn run_captured(mut cmd: Command, limit: Duration) -> Captured {
         match child.try_wait() {
             Ok(Some(st)) => break (st.code().unwrap_or(-1), false),
             Ok(None) if start.elapsed() >= limit => {
-                child.kill().ok(); // the child may have ended already
-                child.wait().ok(); // the child may have ended already
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
                 break (-1, true);
             }
             Ok(None) => crate::clock::pause(Duration::from_millis(10)),
             Err(_) => {
-                child.kill().ok(); // the child may have ended already
-                child.wait().ok(); // the child may have ended already
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
                 break (-1, false);
             }
         }
@@ -1188,10 +1189,10 @@ pub(super) fn make_agent_dir(dir: &Path, env: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     set_mode(dir, 0o700)?;
     let tmp = dir.join(format!(".agent.env.tmp.{}", std::process::id()));
-    std::fs::remove_file(&tmp).ok(); // cleanup; a leftover file is harmless
+    best_effort_cleanup(std::fs::remove_file(&tmp));
     std::os::unix::fs::symlink(env, &tmp)?;
     std::fs::rename(&tmp, &link).inspect_err(|_| {
-        std::fs::remove_file(&tmp).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&tmp));
     })
 }
 

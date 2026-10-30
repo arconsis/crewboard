@@ -12,6 +12,7 @@
 //! last-tick      the output of the last `tick`
 //! ```
 
+use crate::base::ignore::best_effort_output;
 use crate::clock::{Clock, format_ts};
 use std::cell::RefCell;
 use std::io::Write;
@@ -217,7 +218,7 @@ impl<'a> Log<'a> {
 
     pub fn say(&self, msg: &str) {
         let line = self.text(msg);
-        self.err.borrow_mut().write_all(line.as_bytes()).ok(); // output is best effort; a closed stream has nobody to tell
+        best_effort_output(self.err.borrow_mut().write_all(line.as_bytes()));
         self.append(&line);
     }
 
@@ -231,7 +232,7 @@ impl<'a> Log<'a> {
             .append(true)
             .open(&self.path)
         {
-            f.write_all(line.as_bytes()).ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(f.write_all(line.as_bytes()));
         }
     }
 }

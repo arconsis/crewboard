@@ -3,6 +3,7 @@
 //! with exit 0.
 
 use super::flow::Flow;
+use crate::base::ignore::best_effort_cleanup;
 use crate::lock::procs::Alive;
 use crate::wake::policy::{self, NetBackoff};
 use crate::wake::state;
@@ -104,7 +105,7 @@ impl Flow<'_, '_> {
         let Some(changed) = policy::stop_lifted_by(stop_time, &times) else {
             return true;
         };
-        std::fs::remove_file(stop).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(stop));
         self.log.say(&format!(
             "stop lifted: {} changed after the stop; polling again",
             changed.display()

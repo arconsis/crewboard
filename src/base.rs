@@ -1,6 +1,8 @@
 //! Base types that every module may import: who acts ([`Role`], [`Actor`]), a rule said no
 //! ([`Refusal`], [`Verdict`]) and a GitHub failure ([`GhError`]). This module imports nothing
-//! from the crate.
+//! from the crate. [`ignore`] names the reasons for dropping a result on purpose.
+
+pub mod ignore;
 
 use std::fmt;
 

@@ -13,6 +13,7 @@
 //!
 //! No backup of the old version is kept: the way back is `--release <old tag>`.
 
+use crate::base::ignore::{best_effort_cleanup, best_effort_output, child_may_have_ended};
 use crate::error::{CbError, CbResult};
 use crate::github::{API_BASE_ENV, GhError, parse_api_base};
 use crate::skill_embed::sha256_hex;
@@ -501,7 +502,7 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_dir_all(&self.0));
     }
 }
 
@@ -592,8 +593,8 @@ fn version_line(bin: &Path) -> Result<String, String> {
                 crate::clock::pause(Duration::from_millis(10));
             }
             Ok(None) => {
-                child.kill().ok(); // the child may have ended already
-                child.wait().ok(); // the child may have ended already
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
                 return Err("`--version` did not finish in 30 s".into());
             }
             Err(e) => return Err(format!("cannot wait for it: {e}")),
@@ -622,7 +623,7 @@ fn install_file(unpacked: &Path, exe: &Path) -> io::Result<()> {
         std::fs::rename(&new, exe)
     })();
     if res.is_err() {
-        std::fs::remove_file(&new).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&new));
         return res;
     }
     crate::fsutil::sync_parent(exe);
@@ -942,7 +943,7 @@ fn install_binary(
 
 /// Run `skill install` of the new binary.
 fn install_skill(exe: &Path, version: &str, s: &mut Say<'_>) -> Step<()> {
-    s.out.flush().ok(); // output is best effort; a closed stream has nobody to tell
+    best_effort_output(s.out.flush());
     let status = crate::spawn::status_retrying(Command::new(exe).args(["skill", "install"]));
     match status {
         Ok(st) if st.success() => Ok(()),

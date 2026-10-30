@@ -8,6 +8,7 @@
 //!
 //! The commands run through a [`Runner`], so the tests need no real toolchain.
 
+use crate::base::ignore::child_may_have_ended;
 use crate::config::RequiredTool;
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -80,8 +81,8 @@ impl Runner for ShellRunner {
                     crate::clock::pause(Duration::from_millis(10));
                 }
                 _ => {
-                    child.kill().ok(); // the child may have ended already
-                    child.wait().ok(); // the child may have ended already
+                    child_may_have_ended(child.kill());
+                    child_may_have_ended(child.wait());
                     break None;
                 }
             }

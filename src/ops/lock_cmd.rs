@@ -6,6 +6,8 @@
 //! binary through `BIN status --json` instead, so that the shell suite in `skill/loops/tests`
 //! runs unchanged against this code.
 
+#[cfg(unix)]
+use crate::base::ignore::best_effort_output;
 use crate::fsutil::find_on_path;
 #[cfg(unix)]
 use crate::lock::args::RunCtx;
@@ -273,7 +275,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
     };
     let p: Parsed = match crate::lock::args::parse(args, &env) {
         Ok(Parse::Help) => {
-            writeln!(std::io::stdout(), "{HELP}").ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(writeln!(std::io::stdout(), "{HELP}"));
             return 0;
         }
         Ok(Parse::Run(p)) => *p,
@@ -285,7 +287,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
     if p.cmd == Cmd::Run
         && let Err(line) = run_grant(&p.dir, config_dir)
     {
-        writeln!(std::io::stderr(), "{line}").ok(); // output is best effort; a closed stream has nobody to tell
+        best_effort_output(writeln!(std::io::stderr(), "{line}"));
         return 2;
     }
     let log = Log::new(&clock, p.log.as_ref().map(Into::into));

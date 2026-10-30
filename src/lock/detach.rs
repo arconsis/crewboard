@@ -10,6 +10,7 @@ use super::args::{Parsed, RunCtx};
 use super::owner::sibling;
 use super::result::ResultFile;
 use super::{Session, phys_dir, sys};
+use crate::base::ignore::{best_effort_cleanup, best_effort_output, child_may_have_ended};
 use crate::clock::format_ts;
 use crate::fsutil::Mode;
 use std::io::Write;
@@ -78,7 +79,7 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
                 "detached: pid={launcher} log={} result={result}",
                 log.display()
             ));
-            child.try_wait().ok(); // the child may have ended already
+            child_may_have_ended(child.try_wait());
             return 0;
         }
         if snap.owner_field("detached") == Some("1") && !jp.is_empty() && jp != own {
@@ -106,8 +107,8 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
         s.clock.sleep(Duration::from_millis(100));
     }
     if !ended {
-        child.kill().ok(); // the child may have ended already
-        child.wait().ok(); // the child may have ended already
+        child_may_have_ended(child.kill());
+        child_may_have_ended(child.wait());
     }
     let _ = s.release();
     1
@@ -115,7 +116,7 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
 
 /// `F` and every `F.tmp.*` (the temp files of an earlier supervisor).
 fn remove_old_results(rpath: &Path) {
-    std::fs::remove_file(rpath).ok(); // cleanup; a leftover file is harmless
+    best_effort_cleanup(std::fs::remove_file(rpath));
     let (Some(dir), Some(name)) = (rpath.parent(), rpath.file_name()) else {
         return;
     };
@@ -123,7 +124,7 @@ fn remove_old_results(rpath: &Path) {
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.filter_map(Result::ok) {
             if e.file_name().to_string_lossy().starts_with(&prefix) {
-                std::fs::remove_file(e.path()).ok(); // cleanup; a leftover file is harmless
+                best_effort_cleanup(std::fs::remove_file(e.path()));
             }
         }
     }
@@ -160,7 +161,7 @@ pub fn supervise(s: &mut Session, p: &Parsed, ctx: &RunCtx, parent: &str) -> i32
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let rc = match crate::spawn::spawn_retrying(&mut cmd) {
         Err(e) => {
-            writeln!(std::io::stderr(), "{}: {}", p.run_cmd[0], e).ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(writeln!(std::io::stderr(), "{}: {}", p.run_cmd[0], e));
             if e.kind() == std::io::ErrorKind::NotFound {
                 127
             } else {

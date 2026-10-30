@@ -6,6 +6,7 @@
 use super::fsmeta::mtime_epoch;
 use super::owner::{field, sibling};
 use super::procs::Procs;
+use crate::base::ignore::best_effort_cleanup;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -54,7 +55,7 @@ pub fn present(
         }
         let Some(m) = mtime_epoch(&f) else { continue };
         if now - m > super::judge::secs(ci_max_age) {
-            std::fs::remove_file(&f).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_file(&f));
             continue;
         }
         // a recorded pid that is dead on this host: the job is gone, so the entry is too
@@ -68,7 +69,7 @@ pub fn present(
             && ehost == host
             && !super::judge::alive_text(procs, epid)
         {
-            std::fs::remove_file(&f).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_file(&f));
             continue;
         }
         return Some(format!(
@@ -100,15 +101,15 @@ pub fn register(
     let tmp = sibling(dir, &format!(".waiting.tmp.{writer_pid}"));
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, w.join(safe_name(owner))).inspect_err(|_| {
-        std::fs::remove_file(&tmp).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&tmp));
     })
 }
 
 /// Leave the waiting list; the list directory goes when it is empty.
 pub fn unregister(dir: &Path, owner: &str) {
     let w = waiting_dir(dir);
-    std::fs::remove_file(w.join(safe_name(owner))).ok(); // cleanup; a leftover file is harmless
-    std::fs::remove_dir(&w).ok(); // cleanup; a leftover file is harmless
+    best_effort_cleanup(std::fs::remove_file(w.join(safe_name(owner))));
+    best_effort_cleanup(std::fs::remove_dir(&w));
 }
 
 #[cfg(test)]
