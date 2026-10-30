@@ -2,7 +2,11 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.7.0 (2026-10-30)
+
+Upgrade: run `crewboard init` once on an existing board; it adds the Status option `Dropped`
+and keeps every other option. A coordinator merges a verified PR with `merge`: `close --verified`
+now needs a PR that is merged already.
 
 Added:
 
