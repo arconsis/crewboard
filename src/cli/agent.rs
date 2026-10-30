@@ -41,7 +41,7 @@ fn run_unix(cli: &Cli, action: &AgentAction) -> Outcome {
     {
         let _ = (cli, action);
         refused(Refusal::new(
-            ids::UNIX_ONLY,
+            crate::base::ids::UNIX_ONLY,
             "crewboard agent needs a Unix host (macOS or Linux); this build has no loop on Windows",
         ))
     }

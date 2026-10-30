@@ -11,6 +11,7 @@ use crate::base::ignore::best_effort_output;
 use crate::fsutil::find_on_path;
 #[cfg(unix)]
 use crate::lock::LockExit;
+#[cfg(unix)]
 use crate::lock::args::RunCtx;
 use crate::lock::board::{BoardAgent, BoardProbe, ProbeError};
 use std::path::Path;
