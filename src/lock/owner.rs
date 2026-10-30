@@ -45,7 +45,7 @@ impl OwnerFile {
 
 /// Write the owner file in one step: a temp file `owner.tmp.<pid>.<n>`, then `rename`. A reader
 /// never sees half a file. The lock dir must exist: a dir that was taken over is not made again.
-pub fn write_atomic(dir: &Path, o: &OwnerFile) -> io::Result<()> {
+pub fn write_owner(dir: &Path, o: &OwnerFile) -> io::Result<()> {
     crate::fsutil::write_atomic(&dir.join("owner"), o.render().as_bytes(), Mode::Default)
 }
 
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn the_written_file_is_valid_and_leaves_no_temp_file() {
         let d = tempfile::tempdir().unwrap();
-        write_atomic(d.path(), &sample()).unwrap();
+        write_owner(d.path(), &sample()).unwrap();
         let c = std::fs::read_to_string(d.path().join("owner")).unwrap();
         assert!(is_valid(&c));
         let names: Vec<_> = std::fs::read_dir(d.path())

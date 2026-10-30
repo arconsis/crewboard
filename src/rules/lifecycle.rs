@@ -48,16 +48,14 @@ impl State {
     }
 }
 
-/// Who performs a lifecycle change.
+/// Who performs a lifecycle change. Another agent (the coordinator too) never changes a state, so
+/// it has no variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Who {
     /// The agent the item describes.
     SelfAgent,
     /// The owner.
     Owner,
-    /// Another agent (including the coordinator). Never allowed to change a state.
-    #[cfg(test)]
-    OtherAgent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,21 +249,15 @@ mod tests {
     fn join_by_the_agent_only() {
         assert!(check_lifecycle(None, Requested, Who::SelfAgent).is_ok());
         assert_eq!(rule(None, Requested, Who::Owner), "lifecycle-wrong-actor");
-        assert_eq!(
-            rule(None, Requested, Who::OtherAgent),
-            "lifecycle-wrong-actor"
-        );
     }
 
     #[test]
     fn approve_by_the_owner_only() {
         assert!(check_lifecycle(Some(Requested), Approved, Who::Owner).is_ok());
-        for who in [Who::SelfAgent, Who::OtherAgent] {
-            assert_eq!(
-                rule(Some(Requested), Approved, who),
-                "lifecycle-wrong-actor"
-            );
-        }
+        assert_eq!(
+            rule(Some(Requested), Approved, Who::SelfAgent),
+            "lifecycle-wrong-actor"
+        );
     }
 
     #[test]
@@ -280,13 +272,9 @@ mod tests {
     }
 
     #[test]
-    fn approved_to_left_by_self_or_owner_and_not_by_another_agent() {
+    fn approved_to_left_by_self_or_owner() {
         assert!(check_lifecycle(Some(Approved), Left, Who::SelfAgent).is_ok());
         assert!(check_lifecycle(Some(Approved), Left, Who::Owner).is_ok());
-        assert_eq!(
-            rule(Some(Approved), Left, Who::OtherAgent),
-            "lifecycle-wrong-actor"
-        );
     }
 
     #[test]
@@ -344,11 +332,6 @@ mod tests {
                 check_lifecycle(Some(from), to, Who::Owner).is_ok(),
                 "{from:?}->{to:?}"
             );
-            assert_eq!(
-                rule(Some(from), to, Who::OtherAgent),
-                "lifecycle-wrong-actor",
-                "{from:?}->{to:?}"
-            );
         }
     }
 
@@ -375,22 +358,25 @@ mod tests {
     }
 
     #[test]
-    fn every_edge_passes_for_its_actor_and_fails_for_an_other_agent() {
+    fn every_edge_passes_for_its_actor_and_fails_for_the_other_one() {
         for edge in EDGES {
-            let who = match edge.by {
-                Allowed::OwnerOnly => Who::Owner,
-                _ => Who::SelfAgent,
+            let (who, other) = match edge.by {
+                Allowed::OwnerOnly => (Who::Owner, Some(Who::SelfAgent)),
+                Allowed::SelfOnly => (Who::SelfAgent, Some(Who::Owner)),
+                Allowed::SelfOrOwner => (Who::SelfAgent, None),
             };
             assert!(
                 check_lifecycle(edge.from, edge.to, who).is_ok(),
                 "{}",
                 edge.command
             );
-            assert!(
-                check_lifecycle(edge.from, edge.to, Who::OtherAgent).is_err(),
-                "{}",
-                edge.command
-            );
+            if let Some(other) = other {
+                assert!(
+                    check_lifecycle(edge.from, edge.to, other).is_err(),
+                    "{}",
+                    edge.command
+                );
+            }
         }
     }
 

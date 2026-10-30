@@ -38,15 +38,6 @@ pub enum Exit {
 }
 
 impl Exit {
-    #[cfg(test)]
-    pub const ALL: [Exit; 5] = [
-        Exit::Ok,
-        Exit::NoEvents,
-        Exit::Refused,
-        Exit::Network,
-        Exit::Config,
-    ];
-
     pub fn code(self) -> u8 {
         self as u8
     }
@@ -56,22 +47,6 @@ impl Exit {
         match self {
             Exit::NoEvents => matches!(family, Family::Watch | Family::Lock | Family::Gate),
             _ => true,
-        }
-    }
-
-    /// Human-readable meaning for the given command family.
-    #[cfg(test)]
-    pub fn meaning(self, family: Family) -> &'static str {
-        match (self, family) {
-            (Exit::Ok, Family::Watch) => "events printed",
-            (Exit::Ok, Family::Other | Family::Lock | Family::Wake | Family::Gate) => "success",
-            (Exit::NoEvents, Family::Watch) => "no events (timeout or nothing new)",
-            (Exit::NoEvents, Family::Lock) => "free, or no CI",
-            (Exit::NoEvents, Family::Gate) => "a red run",
-            (Exit::NoEvents, Family::Other | Family::Wake) => "not used",
-            (Exit::Refused, _) => "refused by a rule",
-            (Exit::Network, _) => "GitHub or network error",
-            (Exit::Config, _) => "configuration or key error",
         }
     }
 }
@@ -85,6 +60,31 @@ impl From<Exit> for std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Exit {
+        const ALL: [Exit; 5] = [
+            Exit::Ok,
+            Exit::NoEvents,
+            Exit::Refused,
+            Exit::Network,
+            Exit::Config,
+        ];
+
+        /// Human-readable meaning for the given command family.
+        fn meaning(self, family: Family) -> &'static str {
+            match (self, family) {
+                (Exit::Ok, Family::Watch) => "events printed",
+                (Exit::Ok, Family::Other | Family::Lock | Family::Wake | Family::Gate) => "success",
+                (Exit::NoEvents, Family::Watch) => "no events (timeout or nothing new)",
+                (Exit::NoEvents, Family::Lock) => "free, or no CI",
+                (Exit::NoEvents, Family::Gate) => "a red run",
+                (Exit::NoEvents, Family::Other | Family::Wake) => "not used",
+                (Exit::Refused, _) => "refused by a rule",
+                (Exit::Network, _) => "GitHub or network error",
+                (Exit::Config, _) => "configuration or key error",
+            }
+        }
+    }
 
     #[test]
     fn codes_match_spec_table() {

@@ -11,6 +11,7 @@
 
 use super::steps::Steps;
 use crate::clock::{Clock, format_ts};
+use crate::fsutil::{self, Mode};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -120,9 +121,11 @@ pub fn run(input: &Input, steps: &mut dyn Steps, clock: &dyn Clock) -> Option<St
         return None;
     }
     // the stamp first: a slow or failed poll does not make the next tool call poll again
-    if let Err(e) =
-        crate::wake::state::write_atomic(&stamp_path(events), format!("{now}\n").as_bytes())
-    {
+    if let Err(e) = fsutil::write_atomic(
+        &stamp_path(events),
+        format!("{now}\n").as_bytes(),
+        Mode::Default,
+    ) {
         log_line(input, clock, &format!("cannot write the stamp: {e}"));
     }
     let mut out = Vec::new();

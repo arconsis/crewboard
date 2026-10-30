@@ -6,7 +6,7 @@ use crate::wake::flow::{Flow, Reason};
 use crate::wake::lockdir::set_mtime;
 use crate::wake::policy::{NetBackoff, Quiet, WorkBackoff};
 use crate::wake::preflight::config_dir_of_command;
-use crate::wake::procs::{Os, Proc, descendants_of, procs_of, same_processes, stop_group_with};
+use crate::wake::procs::{Os, Proc, descendant_procs, procs_of, same_processes, stop_group_with};
 use crate::wake::state;
 use crate::wake::steps::StepRc;
 use crate::wake::wake_events::with_budget_header;
@@ -2670,16 +2670,25 @@ fn p12_a_long_wake_sends_heartbeats_from_its_own_thread_and_none_after_it() {
     assert_eq!(count(), during);
 }
 
+/// The descendants of `root` in a snapshot of `ps -axo pid=,ppid=` (lines `<pid> <ppid>`), the
+/// children first as the snapshot lists them. `root` itself is not in the result.
+fn descendants(snapshot: &str, root: u32) -> Vec<u32> {
+    descendant_procs(&procs_of(snapshot), root)
+        .into_iter()
+        .map(|p| p.pid)
+        .collect()
+}
+
 #[test]
 fn descendants_come_from_a_ps_snapshot() {
     let ps = "  1     0\n 10     1\n 11    10\n 12    11\n 13    10\n 20     1\n 21    20\n junk\n";
-    let mut d = descendants_of(ps, 10);
+    let mut d = descendants(ps, 10);
     d.sort_unstable();
     assert_eq!(d, [11, 12, 13]);
-    assert!(descendants_of(ps, 12).is_empty());
-    assert!(descendants_of("", 10).is_empty());
+    assert!(descendants(ps, 12).is_empty());
+    assert!(descendants("", 10).is_empty());
     // a loop in the table ends
-    assert_eq!(descendants_of("5 6\n6 5\n", 5), [6]);
+    assert_eq!(descendants("5 6\n6 5\n", 5), [6]);
 }
 
 /// A run with the legacy dir of an older version set.

@@ -3,7 +3,8 @@
 //! of the `rc=` line that was reported, and a new run of the job (a new line) is reported again.
 //! Only this agent's dir is read. A file that starts with `#!` is a script, not a result.
 
-use super::state::{read_text, write_atomic};
+use super::state::read_text;
+use crate::fsutil::{Mode, write_atomic};
 use crate::lock::result::ResultFile;
 use std::path::{Path, PathBuf};
 
@@ -71,7 +72,11 @@ pub fn event_line(p: &Pending) -> String {
 
 /// Mark a result as reported: `<file>.seen` gets a copy of its `rc=` line.
 pub fn mark_seen(p: &Pending) -> std::io::Result<()> {
-    write_atomic(&seen_path(&p.file), format!("{}\n", p.rc_line).as_bytes())
+    write_atomic(
+        &seen_path(&p.file),
+        format!("{}\n", p.rc_line).as_bytes(),
+        Mode::Default,
+    )
 }
 
 #[cfg(test)]

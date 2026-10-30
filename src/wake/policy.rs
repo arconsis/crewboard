@@ -47,7 +47,6 @@ impl WorkBackoff {
 }
 
 /// `--max-wake`: `90`, `90s`, `45m`, `2h`; `off` and `0` give 0 (no budget).
-#[cfg(test)]
 pub fn parse_max_wake(s: &str) -> Option<u64> {
     if s == "off" {
         return Some(0);
@@ -290,7 +289,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn values_are_read_like_the_shell_read_them() {
+    fn the_values_of_the_options_parse() {
         assert_eq!(parse_whole_secs("30"), Some(30));
         for bad in ["", "x", "-1", "1.5", "5m", " 3"] {
             assert_eq!(parse_whole_secs(bad), None, "{bad:?}");

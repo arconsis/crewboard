@@ -671,30 +671,6 @@ fn green_url(repo: &str, sha: &str, left: &Remaining<'_>) -> Result<String, GhEr
         .ok_or_else(|| shape("a green run has no html_url"))
 }
 
-/// [`evaluate_sources`] for workflow runs and check runs only (statuses not asked). Only the
-/// tests of this file call it.
-#[cfg(test)]
-pub fn evaluate_ci(
-    sha: &str,
-    runs_body: &Value,
-    checks_body: &Value,
-    required: Option<&[String]>,
-) -> Result<CiFacts, GhError> {
-    evaluate_sources(
-        "o/r",
-        sha,
-        &CiBodies {
-            runs: Some(runs_body),
-            checks: Some(checks_body),
-            statuses: None,
-            named: &[],
-            ignore: &[],
-        },
-        &[],
-        required,
-    )
-}
-
 /// The runs that a judgement of evidence counts besides the default ones
 /// (spec/ci#which-ci-runs-count): the runs that the `done` message names as `named`
 /// in its `ci-runs:` line, and the runs of the command's own `--run`. A run is in one list only.

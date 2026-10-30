@@ -12,8 +12,6 @@
 //!   only if the ticket body declares `CI: none` (an owner decision).
 
 use super::Refusal;
-#[cfg(test)]
-use super::Verdict;
 
 /// A PR URL `https://github.com/<owner>/<repo>/pull/<n>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,19 +439,6 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         ci_runs,
         local_gate,
     })
-}
-
-/// Check that a recorded evidence is complete (all three parts present and non-empty). Only the
-/// tests of this file call it.
-#[cfg(test)]
-pub fn check_complete(pr: &str, sha: &str, ci: &str) -> Verdict {
-    if pr.is_empty() || sha.is_empty() || ci.is_empty() {
-        return Err(Refusal::new(
-            "status-evidence-missing",
-            "evidence needs pr, sha and ci",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -999,17 +984,6 @@ mod tests {
         let mut i = input(&p, &ci, false, &r);
         i.local_gate = gate;
         assert_eq!(rule(judge_evidence(&i)), "evidence-pr-closed");
-    }
-
-    #[test]
-    fn complete_evidence_needs_all_three_parts() {
-        assert!(check_complete("u", "s", "none").is_ok());
-        for (a, b, c) in [("", "s", "c"), ("p", "", "c"), ("p", "s", "")] {
-            assert_eq!(
-                check_complete(a, b, c).unwrap_err().rule,
-                "status-evidence-missing"
-            );
-        }
     }
 
     #[test]

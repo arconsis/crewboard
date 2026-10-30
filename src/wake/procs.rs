@@ -40,16 +40,6 @@ pub fn procs_of(snapshot: &str) -> Vec<Proc> {
         .collect()
 }
 
-/// The descendants of `root` in a snapshot of `ps -axo pid=,ppid=` (lines `<pid> <ppid>`), the
-/// children first as the snapshot lists them. `root` itself is not in the result.
-#[cfg(test)]
-pub fn descendants_of(snapshot: &str, root: u32) -> Vec<u32> {
-    descendant_procs(&procs_of(snapshot), root)
-        .into_iter()
-        .map(|p| p.pid)
-        .collect()
-}
-
 pub(super) fn descendant_procs(rows: &[Proc], root: u32) -> Vec<Proc> {
     let mut out: Vec<Proc> = Vec::new();
     let mut todo = vec![root];

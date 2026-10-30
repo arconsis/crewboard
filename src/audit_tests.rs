@@ -5,6 +5,21 @@ use crate::registry::resolve;
 use crate::registry::tests::{cfg, join_comment, owner, signed};
 use ssh_key::PrivateKey;
 
+impl FindingKind {
+    /// The kinds that `watch` also reports as security events (routed to the owner once).
+    fn is_security_event(self) -> bool {
+        matches!(
+            self,
+            FindingKind::BadSignature
+                | FindingKind::Edited
+                | FindingKind::UnknownSender
+                | FindingKind::Malformed
+                | FindingKind::Replayed
+                | FindingKind::ForeignAuthor
+        )
+    }
+}
+
 struct W {
     ka: PrivateKey,
     kb: PrivateKey,

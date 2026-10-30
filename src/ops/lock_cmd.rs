@@ -18,8 +18,8 @@ use std::path::Path;
 #[cfg(not(unix))]
 const UNIX_ONLY: &str = "refused [rule=unix-only]: crewboard lock needs a Unix host (macOS or Linux); this build has no loop on Windows";
 
-/// The first line of an error text, 200 characters at most.
-fn first_line(text: &str) -> String {
+/// The cause of a failed board check: the first line of the error text, 200 characters at most.
+fn cause_line(text: &str) -> String {
     text.lines()
         .next()
         .unwrap_or("")
@@ -36,7 +36,7 @@ fn load_for_probe(config_dir: Option<&Path>) -> Result<(), ProbeError> {
     }
     match crate::agent_env::failure() {
         Some(e) => Err(ProbeError::Failed {
-            cause: first_line(&e.to_string()),
+            cause: cause_line(&e.to_string()),
             exit: Some(4),
         }),
         None => Ok(()),
@@ -61,7 +61,7 @@ impl BoardProbe for InProcessProbe {
                 })
                 .collect()),
             Err(e) => Err(ProbeError::Failed {
-                cause: first_line(&e.to_string()),
+                cause: cause_line(&e.to_string()),
                 exit: None,
             }),
         }
@@ -97,13 +97,13 @@ impl BoardProbe for SubprocessProbe {
                     ProbeError::NotFound(format!("crewboard not found ({})", self.bin))
                 }
                 _ => ProbeError::Failed {
-                    cause: first_line(&e.to_string()),
+                    cause: cause_line(&e.to_string()),
                     exit: None,
                 },
             })?;
         if !out.status.success() {
             return Err(ProbeError::Failed {
-                cause: first_line(&String::from_utf8_lossy(&out.stderr)),
+                cause: cause_line(&String::from_utf8_lossy(&out.stderr)),
                 exit: out.status.code(),
             });
         }
@@ -197,7 +197,7 @@ pub fn ci_present(dir: &Path) -> Option<String> {
         let ci_max_age = 21600; // the default of `--ci-max-age`
         crate::lock::ci::present(
             dir,
-            &host_name(),
+            &lock_host_name(),
             ci_max_age,
             SystemClock.now(),
             &crate::lock::procs::SystemProcs,
@@ -207,7 +207,7 @@ pub fn ci_present(dir: &Path) -> Option<String> {
 
 /// The name of this host as the lock files record it (`$HOST_LOCK_HOST` for a test).
 #[cfg(unix)]
-fn host_name() -> String {
+fn lock_host_name() -> String {
     env_nonempty("HOST_LOCK_HOST")
         .or_else(crate::lock::sys::short_hostname)
         .unwrap_or_else(|| "host".to_string())
@@ -313,7 +313,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
     let ttl = env_nonempty("HOST_LOCK_BOARD_TTL")
         .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(60);
-    let host = host_name();
+    let host = lock_host_name();
     let board = BoardCheck::new(
         probe,
         ttl,

@@ -9,9 +9,8 @@
 use super::SIG_NAMESPACE;
 use super::canonical::{IssueRef, canonical};
 use super::names::{AgentName, Kind, Re, Timestamp, To};
-use super::signature::{
-    Outgoing, armor_to_sig, generate_key, sig_to_armor, sign_message, verify_message,
-};
+use super::signature::tests::armor_to_sig;
+use super::signature::{Outgoing, generate_key, sig_to_armor, sign_message, verify_message};
 use ssh_key::PublicKey;
 use std::io::Write;
 use std::path::Path;

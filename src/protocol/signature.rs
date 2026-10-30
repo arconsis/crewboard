@@ -59,21 +59,6 @@ pub fn sig_to_armor(sig_b64: &str) -> String {
     out
 }
 
-/// Convert armored `sshsig` text (for example from `ssh-keygen -Y sign`) to the header form.
-#[cfg(test)]
-pub fn armor_to_sig(armor: &str) -> Result<String, ProtocolError> {
-    let normalised = armor.replace("\r\n", "\n");
-    let body: String = normalised
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with("-----"))
-        .collect();
-    if body.is_empty() || !normalised.contains(ARMOR_BEGIN) {
-        return Err(bad_sig("not an sshsig armor"));
-    }
-    Ok(body)
-}
-
 /// Verify `sig_b64` over `data` against `public`. Refuses a wrong namespace, a wrong
 /// key, a changed message and any key that is not Ed25519.
 pub fn verify(public: &PublicKey, data: &[u8], sig_b64: &str) -> Result<(), ProtocolError> {
@@ -136,8 +121,22 @@ pub fn verify_message(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    /// Convert armored `sshsig` text (for example from `ssh-keygen -Y sign`) to the header form.
+    pub(in crate::protocol) fn armor_to_sig(armor: &str) -> Result<String, ProtocolError> {
+        let normalised = armor.replace("\r\n", "\n");
+        let body: String = normalised
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("-----"))
+            .collect();
+        if body.is_empty() || !normalised.contains(ARMOR_BEGIN) {
+            return Err(bad_sig("not an sshsig armor"));
+        }
+        Ok(body)
+    }
 
     fn issue() -> IssueRef {
         IssueRef::new("example-org", "app", 12)
