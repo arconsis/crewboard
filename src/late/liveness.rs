@@ -13,6 +13,7 @@
 //! interval. A test that uses a fixed clock passes times from that clock; nothing in this module
 //! reads the wall clock.
 
+use crate::base::ids;
 use crate::clock::parse_interval;
 use crate::error::{CbError, CbResult};
 use crate::rules::status::Status;
@@ -126,7 +127,7 @@ pub fn check_alive(agent: &str, live: &Liveness) -> Result<(), crate::rules::Ref
                 _ => None,
             };
             Err(crate::rules::Refusal::new(
-                "status-agent-not-alive",
+                ids::STATUS_AGENT_NOT_ALIVE,
                 format!(
                     "{agent} is {}: {} (docs/design/spec/board.md#fields); it would not see the ticket",
                     live.word(),
@@ -202,7 +203,7 @@ pub fn derived_reassign_reason(
             DEAD_INTERVALS * interval
         )),
         (None, l) => Err(crate::rules::Refusal::new(
-            "status-reassign-not-justified",
+            ids::STATUS_REASSIGN_NOT_JUSTIFIED,
             format!(
                 "agent {agent} is neither dead nor stopped in the registry log (State {}, liveness {}): give a reason with --reason or wait",
                 state.unwrap_or("?"),

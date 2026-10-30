@@ -12,6 +12,7 @@
 
 use super::init_identity::Mode;
 use super::{Global, new_owner_client};
+use crate::base::ids;
 use crate::board::{
     Board, OwnerInfo, OwnerKind, default_color, graphql_root, owner_info, repo_path, rest_base,
 };
@@ -883,7 +884,7 @@ fn check_crew_login(
 ) -> CbResult<(u64, String)> {
     if crew.eq_ignore_ascii_case(owner_login) {
         return Err(CbError::refused(
-            "crew-login-is-owner",
+            ids::CREW_LOGIN_IS_OWNER,
             format!("--crew-login {crew} is the owner: agents may not act as the owner"),
         ));
     }
@@ -970,7 +971,7 @@ pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> Cb
             Some(f) => {
                 if f.data_type != "SINGLE_SELECT" {
                     return Err(CbError::refused(
-                        "field-type-mismatch",
+                        ids::FIELD_TYPE_MISMATCH,
                         format!(
                             "field {name} exists as {}, it must be a single select",
                             f.data_type
@@ -1004,7 +1005,7 @@ pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> Cb
             }
             Some(f) if f.data_type != "TEXT" => {
                 return Err(CbError::refused(
-                    "field-type-mismatch",
+                    ids::FIELD_TYPE_MISMATCH,
                     format!("field {name} exists as {}, it must be text", f.data_type),
                 ));
             }
@@ -1019,7 +1020,7 @@ pub fn ensure_fields(client: &Client, board: &mut Board, rep: &mut Report) -> Cb
             }
             Some(f) if f.data_type != "NUMBER" => {
                 return Err(CbError::refused(
-                    "field-type-mismatch",
+                    ids::FIELD_TYPE_MISMATCH,
                     format!(
                         "field {name} exists as {}, it must be a number",
                         f.data_type
@@ -1199,7 +1200,7 @@ fn open_pr(
             status: 409 | 404, ..
         }) => {
             return Err(CbError::refused(
-                "repo-empty-no-pr",
+                ids::REPO_EMPTY_NO_PR,
                 format!(
                     "{repo} has no commit, so no pull request can be opened. Add a first commit (for example a README), then run init again; it will only open the PR."
                 ),

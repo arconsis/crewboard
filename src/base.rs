@@ -1,9 +1,10 @@
 //! Base types that every module may import: who acts ([`Role`], [`Actor`]), a rule said no
 //! ([`Refusal`], [`Verdict`]) and a GitHub failure ([`GhError`]). This module imports nothing
-//! from the crate. [`ignore`] names the reasons for dropping a result on purpose.
-//! [`fields::Field`] names one field of the board.
+//! from the crate. [`ignore`] names the reasons for dropping a result on purpose. [`ids`] is the
+//! catalog of the rule ids that a refusal names. [`fields::Field`] names one field of the board.
 
 pub mod fields;
+pub mod ids;
 pub mod ignore;
 
 use std::fmt;
@@ -82,15 +83,15 @@ impl Actor {
     }
 }
 
-/// A rule said no. `rule` is a stable kebab-case name; the CLI prints it and exits 2.
+/// A rule said no. `rule` is an id of the catalog ([`ids`]); the CLI prints it and exits 2.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
-    pub rule: &'static str,
+    pub rule: ids::RuleId,
     pub message: String,
 }
 
 impl Refusal {
-    pub fn new(rule: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(rule: ids::RuleId, message: impl Into<String>) -> Self {
         Refusal {
             rule,
             message: message.into(),

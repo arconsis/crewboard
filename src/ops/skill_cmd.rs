@@ -10,6 +10,7 @@
 //! longer has. Never overwrites a real directory or a link that points elsewhere. Never changes a
 //! file of a clone. Unix only (symlinks).
 
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::{self, Mode};
 use crate::skill_embed::{FILES, sha256_hex, skill_version};
@@ -71,7 +72,7 @@ fn check_runtimes(names: &[String]) -> CbResult<()> {
     for n in names {
         if !RUNTIMES.contains(&n.as_str()) {
             return Err(CbError::refused(
-                "unknown-runtime",
+                ids::UNKNOWN_RUNTIME,
                 format!("unknown runtime: {n} (use claude, codex, copilot or hermes)"),
             ));
         }
@@ -86,7 +87,7 @@ fn find_clone_skill(from: Option<&Path>, cwd: &Path) -> CbResult<PathBuf> {
         let skill = dir.join("skill");
         if !skill.join("SKILL.md").is_file() {
             return Err(CbError::refused(
-                "skill-source",
+                ids::SKILL_SOURCE,
                 format!("no skill/SKILL.md in {}", dir.display()),
             ));
         }
@@ -174,7 +175,7 @@ pub fn install(
 ) -> CbResult<u8> {
     if cfg!(not(unix)) {
         return Err(CbError::refused(
-            "unix-only",
+            ids::UNIX_ONLY,
             "crewboard skill install needs a Unix host (macOS or Linux); this build has no skill links on Windows",
         ));
     }

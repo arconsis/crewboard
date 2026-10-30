@@ -4,6 +4,7 @@
 //! signature (`protocol/`), then one comment through `feed.rs`. `ops/watch.rs` reads it back.
 
 use super::{AgentCtx, World, load_world, parse_issue_arg};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::error::{CbError, CbResult};
@@ -51,7 +52,7 @@ pub fn check_free_text(kind: Kind, text: &str) -> CbResult<()> {
     match crate::protocol::acts::reserved_for(kind, text) {
         None => Ok(()),
         Some(cmd) => Err(Refusal::new(
-            "text-reads-as-act",
+            ids::TEXT_READS_AS_ACT,
             format!(
                 "this {kind} text starts like a protocol act (a reader would take it for one); start with other words, or use the command that writes the act: {cmd}"
             ),
@@ -64,7 +65,7 @@ pub fn check_free_text(kind: Kind, text: &str) -> CbResult<()> {
 pub fn check_body_text(text: &str) -> CbResult<()> {
     limits::check_body(text.trim())?;
     if let Some(msg) = secrets::refusal_message(&secrets::scan(text)) {
-        return Err(Refusal::new("secret-in-body", msg).into());
+        return Err(Refusal::new(ids::SECRET_IN_BODY, msg).into());
     }
     Ok(())
 }
@@ -87,7 +88,7 @@ pub fn require_approved<'a>(world: &'a World, me: &str) -> CbResult<&'a TrustedA
             Some(_) => format!("approved, but not trusted ({why})"),
         };
         CbError::refused(
-            "sender-not-approved",
+            ids::SENDER_NOT_APPROVED,
             format!("{me} is not an approved agent: {state}"),
         )
     })
@@ -202,7 +203,7 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
     let (repo, issue) = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
     if !ac.ctx.cfg.repos.contains(&repo) {
         return Err(CbError::refused(
-            "repo-not-in-initiative",
+            ids::REPO_NOT_IN_INITIATIVE,
             format!(
                 "{repo} is not a repo of initiative {}",
                 ac.ctx.cfg.initiative

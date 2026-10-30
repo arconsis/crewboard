@@ -16,6 +16,7 @@
 //! `cpu:` and `ram:` come next; `tool:` tokens are cut from the end, and the cut is marked
 //! with `tools-cut:<n>` so a missing tool tag is never mistaken for a missing tool.
 
+use crate::base::ids;
 use crate::rules::limits::MAX_TEXT_FIELD_BYTES;
 use crate::rules::{Refusal, Verdict};
 use std::collections::BTreeSet;
@@ -41,7 +42,7 @@ pub fn validate_tag(s: &str) -> Result<String, Refusal> {
         Ok(s.to_string())
     } else {
         Err(Refusal::new(
-            "profile-tag-invalid",
+            ids::PROFILE_TAG_INVALID,
             format!(
                 "'{s}' is not a tag: use 1-{MAX_TAG_LEN} characters of a-z, 0-9 and '-', no '-' at the start or end (for example x86-builds)"
             ),
@@ -53,7 +54,7 @@ pub fn validate_tag(s: &str) -> Result<String, Refusal> {
 pub fn validate_tier(s: &str) -> Result<String, Refusal> {
     validate_tag(s).map_err(|_| {
         Refusal::new(
-            "profile-tier-invalid",
+            ids::PROFILE_TIER_INVALID,
             format!("'{s}' is not a tier: write it like a tag, for example low, mid or high"),
         )
     })
@@ -139,7 +140,7 @@ impl Caps {
     pub fn compose(&self) -> Result<String, Refusal> {
         if self.declared.len() > MAX_DECLARED_TAGS {
             return Err(Refusal::new(
-                "capabilities-too-long",
+                ids::CAPABILITIES_TOO_LONG,
                 format!(
                     "{} declared tags; at most {MAX_DECLARED_TAGS} fit a profile",
                     self.declared.len()
@@ -156,7 +157,7 @@ impl Caps {
         let mut out = required.join(" ");
         if out.len() > MAX_TEXT_FIELD_BYTES {
             return Err(Refusal::new(
-                "capabilities-too-long",
+                ids::CAPABILITIES_TOO_LONG,
                 format!(
                     "declared tags, tier, arch and os need {} bytes; the field holds {MAX_TEXT_FIELD_BYTES}",
                     out.len()
@@ -207,7 +208,7 @@ impl Caps {
             let marker = format!("{CUT_KEY}:{cut}");
             if !push(&mut out, &marker, 0) {
                 return Err(Refusal::new(
-                    "capabilities-too-long",
+                    ids::CAPABILITIES_TOO_LONG,
                     "no room for the tools-cut marker",
                 ));
             }
@@ -220,7 +221,7 @@ impl Caps {
 fn check_len(s: &str) -> Verdict {
     if s.len() > MAX_TEXT_FIELD_BYTES {
         return Err(Refusal::new(
-            "capabilities-too-long",
+            ids::CAPABILITIES_TOO_LONG,
             format!("{} bytes; the field holds {MAX_TEXT_FIELD_BYTES}", s.len()),
         ));
     }
@@ -240,7 +241,7 @@ pub fn parse_requirement(raw: &str) -> Result<String, Refusal> {
     let r = raw.trim().to_ascii_lowercase();
     let bad = |why: &str| {
         Refusal::new(
-            "needs-invalid",
+            ids::NEEDS_INVALID,
             format!("requirement '{raw}' is not valid: {why}"),
         )
     };
@@ -354,7 +355,7 @@ pub struct Override {
 pub fn check_override_args(override_flag: bool, reason: Option<&str>) -> Verdict {
     if override_flag && reason.map(str::trim).is_none_or(str::is_empty) {
         return Err(Refusal::new(
-            "capability-override-needs-reason",
+            ids::CAPABILITY_OVERRIDE_NEEDS_REASON,
             "--override-capabilities needs --why \"...\": the reason is recorded in the signed assignment message",
         ));
     }
@@ -397,7 +398,7 @@ pub fn check_assign(
                 String::new()
             };
             Err(Refusal::new(
-                "capability-mismatch",
+                ids::CAPABILITY_MISMATCH,
                 format!(
                     "{agent} lacks: {}{cut}. Pick an agent from `crewboard status --agents --can ...`, or override with --override-capabilities --why \"...\"",
                     miss.join(", ")
@@ -472,13 +473,13 @@ impl Applied {
 pub fn apply_change(old: &Caps, old_about: &str, c: &Change) -> Result<Applied, Refusal> {
     if let Some(t) = c.tags.iter().find(|t| c.untags.contains(t)) {
         return Err(Refusal::new(
-            "profile-tag-conflict",
+            ids::PROFILE_TAG_CONFLICT,
             format!("'{t}' is in --tag and in --untag"),
         ));
     }
     if c.tier.is_some() && c.clear_tier {
         return Err(Refusal::new(
-            "profile-tag-conflict",
+            ids::PROFILE_TAG_CONFLICT,
             "--tier and --clear-tier together",
         ));
     }
@@ -601,7 +602,7 @@ mod tests {
     }
 
     fn rule<T: std::fmt::Debug>(r: Result<T, Refusal>) -> &'static str {
-        r.expect_err("must be refused").rule
+        r.expect_err("must be refused").rule.as_str()
     }
 
     // -- tag validation -------------------------------------------------------------

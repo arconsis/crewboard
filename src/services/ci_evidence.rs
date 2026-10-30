@@ -2,6 +2,7 @@
 //! spec/tickets#verification-by-the-coordinator). [`fetch_ci`] does the GET calls; the judgement
 //! is `domain::ci::evaluate::evaluate_sources`.
 
+use crate::base::ids;
 use crate::base::{GhError, Refusal};
 use crate::domain::ci::evaluate::{
     CiBodies, NamedRun, SRC_CHECKS, SRC_RUNS, SRC_STATUSES, check_named_run, evaluate_sources,
@@ -121,7 +122,7 @@ fn read_named_run(
         Ok(r) => r.body,
         Err(GhError::Http { status: 404, .. }) => {
             return Err(Refusal::new(
-                "evidence-run-ref",
+                ids::EVIDENCE_RUN_REF,
                 format!("run {} does not exist in {}", n.id, n.repo),
             )
             .into());

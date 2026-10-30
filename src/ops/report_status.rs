@@ -5,6 +5,7 @@
 
 use super::AgentCtx;
 use super::tickets::{load_world_cached, me_of};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use serde_json::{Value, json};
@@ -46,7 +47,7 @@ pub fn run(ac: &AgentCtx, state: &str, text: &str) -> CbResult<String> {
     let me = me_of(ac, &world)?;
     if !me.actor.is_coordinator() {
         return Err(CbError::refused(
-            "report-status-coordinator-only",
+            ids::REPORT_STATUS_COORDINATOR_ONLY,
             "report-status is a coordinator command (docs/design/spec/board.md#status-updates)",
         ));
     }
@@ -73,7 +74,7 @@ pub fn run(ac: &AgentCtx, state: &str, text: &str) -> CbResult<String> {
     let back_body = node.get("body").and_then(Value::as_str).unwrap_or("");
     if back_id != id || from_line(back_body) != Some(me.name.as_str()) {
         return Err(CbError::refused(
-            "report-status-readback",
+            ids::REPORT_STATUS_READBACK,
             format!(
                 "the status update {id} was created, but the newest update reads back as {back_id} with first line '{}'",
                 back_body.lines().next().unwrap_or("")

@@ -18,6 +18,7 @@ use super::lifecycle::{open_tickets, rows_of};
 use super::registry_post::state_event_key;
 use super::tickets::{load_world_cached, me_of, reassign_derived, tag_earlier_work};
 use super::{AgentCtx, Global, World, new_client, resolve_board_config};
+use crate::base::ids;
 use crate::board::{FieldValue, ItemRef};
 use crate::clock::now_ts;
 use crate::config::ConfigDir;
@@ -39,19 +40,19 @@ fn target<'a>(
 ) -> CbResult<(&'a str, Option<State>, Option<Departure>)> {
     if me == Some(name) {
         return Err(CbError::refused(
-            "stop-force-self",
+            ids::STOP_FORCE_SELF,
             "an agent stops itself with a plain `crewboard stop`; --force is for another agent",
         ));
     }
     let entry = world.reg.agents.get(name).ok_or_else(|| {
         CbError::refused(
-            "no-join-request",
+            ids::NO_JOIN_REQUEST,
             format!("{name} has no valid join request in the registry issue"),
         )
     })?;
     if !entry.approved() {
         return Err(CbError::refused(
-            "agent-not-approved",
+            ids::AGENT_NOT_APPROVED,
             format!("{name} is not an approved agent"),
         ));
     }
@@ -61,7 +62,7 @@ fn target<'a>(
         .is_some_and(|t| t.role == Role::Coordinator)
     {
         return Err(CbError::refused(
-            "stop-force-not-dev",
+            ids::STOP_FORCE_NOT_DEV,
             format!(
                 "{name} is the coordinator: the owner hands the role over (`/crew role {name} dev`), then stops it"
             ),
@@ -73,13 +74,13 @@ fn target<'a>(
         .map(|j| j.item_id.as_str())
         .ok_or_else(|| {
             CbError::refused(
-                "no-join-request",
+                ids::NO_JOIN_REQUEST,
                 format!("{name} has no agent item on the board"),
             )
         })?;
     if let Some(d) = entry.departure.filter(|d| d.ended()) {
         return Err(CbError::refused(
-            "stop-force-already-left",
+            ids::STOP_FORCE_ALREADY_LEFT,
             format!("the registry log ended {name} already: it {}", d.reason()),
         ));
     }
@@ -153,7 +154,7 @@ fn owner_stop(ctx: &Ctx, name: &AgentName) -> CbResult<String> {
     let logged = matches!(departure, Some(Departure::OwnerStop(_)));
     if state == Some(State::Left) && logged {
         return Err(CbError::refused(
-            "stop-force-already-left",
+            ids::STOP_FORCE_ALREADY_LEFT,
             format!(
                 "{name} is stopped already: the log has the owner's /crew stop and State is left"
             ),
@@ -187,7 +188,7 @@ fn coordinator_stop(ac: &AgentCtx, name: &AgentName) -> CbResult<String> {
     let me = me_of(ac, &world)?;
     if me.role != Role::Coordinator {
         return Err(CbError::refused(
-            "stop-force-needs-coordinator",
+            ids::STOP_FORCE_NEEDS_COORDINATOR,
             "stop --force is for the coordinator or the owner; a dev agent stops itself with `crewboard stop`",
         ));
     }

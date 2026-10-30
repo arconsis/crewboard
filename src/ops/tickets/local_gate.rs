@@ -1,5 +1,6 @@
 //! The local gate of `ci_mode: local`: the text of `--local-run` and the checks of `done` and `verify` for it.
 
+use crate::base::ids;
 use crate::error::CbResult;
 use crate::rules::Refusal;
 
@@ -10,14 +11,14 @@ const MAX_LOCAL_GATE_BYTES: usize = 400;
 /// longer counts.
 pub(crate) fn local_gate_not_enabled() -> Refusal {
     Refusal::new(
-        "local-gate-not-enabled",
+        ids::LOCAL_GATE_NOT_ENABLED,
         "--local-run needs `ci_mode: local` in AUTHORITY.md on the default branch (the owner sets it); it is `ci` now. Nothing was written",
     )
 }
 
 pub(crate) fn local_gate_not_enabled_for_evidence() -> Refusal {
     Refusal::new(
-        "local-gate-not-enabled",
+        ids::LOCAL_GATE_NOT_ENABLED,
         "the evidence is a local gate (`ci: local-gate`), but AUTHORITY.md `ci_mode` is `ci` now, so it does not count. The dev agent runs `crewboard done` again with a CI run of the head",
     )
 }
@@ -47,13 +48,13 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
     let t = text.trim();
     if t.is_empty() {
         return Err(Refusal::new(
-            "local-gate-missing",
+            ids::LOCAL_GATE_MISSING,
             "--local-run needs the text of the local gate: \"<host>: <command> rc=0, log <path>\"",
         )
         .into());
     }
     if t.contains(['\n', '\r']) || t.len() > MAX_LOCAL_GATE_BYTES {
-        return Err(Refusal::new("local-gate-invalid", local_gate_invalid_message(t)).into());
+        return Err(Refusal::new(ids::LOCAL_GATE_INVALID, local_gate_invalid_message(t)).into());
     }
     crate::ops::say::check_body_text(t)?;
     Ok(t.to_string())
@@ -70,7 +71,7 @@ pub(super) fn local_gate_for_done(
         (false, Some(_)) => Err(local_gate_not_enabled().into()),
         (false, None) => Ok(None),
         (true, None) => Err(Refusal::new(
-            "local-gate-missing",
+            ids::LOCAL_GATE_MISSING,
             "AUTHORITY.md has `ci_mode: local`: done needs --local-run \"<host>: <command> rc=0, log <path>\" (the CI of the head is not judged)",
         )
         .into()),
@@ -92,7 +93,7 @@ pub(super) fn local_gate_for_verify(
     }
     if arg.is_some() && !evidence_local {
         return Err(Refusal::new(
-            "local-gate-unexpected",
+            ids::LOCAL_GATE_UNEXPECTED,
             "--local-run is for a local-gate done; the latest done of the dev has CI evidence. Run verify without it",
         )
         .into());
@@ -100,7 +101,7 @@ pub(super) fn local_gate_for_verify(
     match arg {
         Some(t) => check_local_gate_text(t).map(Some),
         None if evidence_local && auth.ci_mode.is_local() && !gate_failed => Err(Refusal::new(
-            "local-gate-missing",
+            ids::LOCAL_GATE_MISSING,
             "the latest done is a local-gate done: verify needs --local-run \"<what you checked: host, command, rc, log>\" (to fail it without a gate run: --fail --body)",
         )
         .into()),

@@ -30,6 +30,7 @@
 //! Whatever the keys say, the owner alone merges a PR that changes a protected path
 //! ([`crate::rules::protected`]).
 
+use crate::base::ids;
 use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
@@ -121,7 +122,7 @@ impl Default for Authority {
 }
 
 fn bad(m: impl Into<String>) -> Refusal {
-    Refusal::new("authority-bad-front-matter", m)
+    Refusal::new(ids::AUTHORITY_BAD_FRONT_MATTER, m)
 }
 
 fn unquote(v: &str) -> String {
@@ -353,7 +354,7 @@ impl Authority {
             Ok(())
         } else {
             Err(Refusal::new(
-                "authority-no-ticket-creation",
+                ids::AUTHORITY_NO_TICKET_CREATION,
                 "AUTHORITY.md: coordinator_may_create_tickets is false; the owner adds the ticket to the board",
             ))
         }
@@ -365,7 +366,7 @@ impl Authority {
             Ok(())
         } else {
             Err(Refusal::new(
-                "authority-split-not-allowed",
+                ids::AUTHORITY_SPLIT_NOT_ALLOWED,
                 "AUTHORITY.md: coordinator_may_split_tickets is false; the owner splits the ticket",
             ))
         }
@@ -377,7 +378,7 @@ impl Authority {
             Ok(())
         } else {
             Err(Refusal::new(
-                "authority-no-prs",
+                ids::AUTHORITY_NO_PRS,
                 "AUTHORITY.md: dev_may_open_prs is false; ask the owner how to deliver",
             ))
         }
@@ -387,7 +388,7 @@ impl Authority {
     pub fn check_head_branch(&self, head_ref: &str) -> Verdict {
         if self.protected.iter().any(|p| p == head_ref) {
             Err(Refusal::new(
-                "evidence-branch-protected",
+                ids::EVIDENCE_BRANCH_PROTECTED,
                 format!("the PR head '{head_ref}' is a protected branch (AUTHORITY.md: protected)"),
             ))
         } else {
@@ -401,13 +402,13 @@ impl Authority {
     pub fn check_merge(&self) -> Verdict {
         if self.owner_only("merge") {
             return Err(Refusal::new(
-                "authority-needs-owner",
+                ids::AUTHORITY_NEEDS_OWNER,
                 "AUTHORITY.md: merge is in needs_owner; only the owner merges (needs_owner is advice from 0.4: set coordinator_may_merge: false instead)",
             ));
         }
         if !self.coordinator_may_merge {
             return Err(Refusal::new(
-                "authority-merge-not-allowed",
+                ids::AUTHORITY_MERGE_NOT_ALLOWED,
                 "AUTHORITY.md: coordinator_may_merge is false; the owner merges",
             ));
         }

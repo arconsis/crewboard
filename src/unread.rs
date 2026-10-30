@@ -9,15 +9,11 @@
 //! The core is a pure function over the comments of the ticket and the cursor.
 
 use crate::base::fields::Field;
+use crate::base::ids;
 use crate::comments::Comment;
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
 use crate::events::{Classified, Event, EventClass, FilterEnv, classify};
-
-pub const RULE: &str = "unread-message-on-ticket";
-
-/// The rule of the agent-wide event check of `done` (spec/events#event-checkpoints-and-done).
-pub const EVENTS_RULE: &str = "unread-events";
 
 /// The event check of `done`: no unread event passes (`None`); unread events refuse unless
 /// `ignore`. With `ignore` the result is the override line for the signed body.
@@ -26,10 +22,11 @@ pub fn events_verdict(unread: &[Event], ignore: bool) -> CbResult<Option<String>
         return Ok(None);
     }
     if ignore {
-        let ids: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
+        let comments: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
         return Ok(Some(format!(
-            "override: {EVENTS_RULE} (comments {})",
-            ids.join(", ")
+            "override: {} (comments {})",
+            ids::UNREAD_EVENTS,
+            comments.join(", ")
         )));
     }
     let mut classes: Vec<String> = Vec::new();
@@ -52,7 +49,7 @@ pub fn events_verdict(unread: &[Event], ignore: bool) -> CbResult<Option<String>
         "Handle them. Then run `crewboard watch --timeout 1m` (it marks them as read) and run \
          `done` again. Use --override-unread only after you have read and handled them; never to skip them.",
     );
-    Err(CbError::refused(EVENTS_RULE, s))
+    Err(CbError::refused(ids::UNREAD_EVENTS, s))
 }
 
 /// At most this many messages are shown with their first lines in a refusal; the others
@@ -154,13 +151,17 @@ pub fn verdict(unread: &[Event], anyway: bool, repo: &str, issue: u64) -> CbResu
         return Ok(None);
     }
     if anyway {
-        let ids: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
+        let comments: Vec<String> = unread.iter().map(|e| e.comment_id.to_string()).collect();
         return Ok(Some(format!(
-            "override: {RULE} (comments {})",
-            ids.join(", ")
+            "override: {} (comments {})",
+            ids::UNREAD_MESSAGE_ON_TICKET,
+            comments.join(", ")
         )));
     }
-    Err(CbError::refused(RULE, refusal_text(unread, repo, issue)))
+    Err(CbError::refused(
+        ids::UNREAD_MESSAGE_ON_TICKET,
+        refusal_text(unread, repo, issue),
+    ))
 }
 
 /// The body with the override line added as a new last line. No line: the body unchanged.
@@ -414,7 +415,10 @@ mod tests {
         let e = verdict(&u, false, &answer.repo, answer.issue).unwrap_err();
         assert_eq!(e.exit(), crate::exit::Exit::Refused);
         let text = e.to_string();
-        assert!(text.contains(RULE), "{text}");
+        assert!(
+            text.contains(ids::UNREAD_MESSAGE_ON_TICKET.as_str()),
+            "{text}"
+        );
         assert!(text.contains("claude@a"), "{text}");
         assert!(text.contains("answer"), "{text}");
         assert!(text.contains("issuecomment-50"), "{text}");
@@ -998,7 +1002,10 @@ mod tests {
         );
         // the event check of `done` shows the same text
         let e = events_verdict(&u, false).unwrap_err().to_string();
-        assert!(e.contains("    first") && e.contains(EVENTS_RULE), "{e}");
+        assert!(
+            e.contains("    first") && e.contains(ids::UNREAD_EVENTS.as_str()),
+            "{e}"
+        );
         assert!(
             e.contains(
                 "Use --override-unread only after you have read and handled them; never to skip them."
@@ -1049,7 +1056,11 @@ mod tests {
             0,
         );
         let e = verdict(&unread, false, &note.repo, note.issue).unwrap_err();
-        assert!(e.to_string().contains(RULE), "{e}");
+        assert!(
+            e.to_string()
+                .contains(ids::UNREAD_MESSAGE_ON_TICKET.as_str()),
+            "{e}"
+        );
         // direction 2: the message is older than the cursor: the interrupt goes on
         let none_unread = unread_for_sender(
             std::slice::from_ref(&note),

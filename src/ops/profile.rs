@@ -10,6 +10,7 @@
 use super::say::{require_approved, send_signed};
 use super::tickets::load_world_cached;
 use super::{AgentCtx, Ctx, Global, World, load_world, new_client, resolve_board_config};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::board::ItemRef;
 use crate::capabilities::facts::{self, RealProbe};
@@ -51,7 +52,7 @@ pub fn prepare(a: &SetArgs) -> CbResult<Change> {
             let text = super::say::prepare_body(Some(f), None)?;
             if text.chars().count() > MAX_ABOUT_CHARS {
                 return Err(CbError::refused(
-                    "profile-about-too-long",
+                    ids::PROFILE_ABOUT_TOO_LONG,
                     format!(
                         "the background text has {} characters; the limit is {MAX_ABOUT_CHARS}. Write a short text and point to a document",
                         text.chars().count()
@@ -354,20 +355,20 @@ pub fn set_agent(g: &Global, agent: &str, change: &Change) -> CbResult<String> {
     let world = load_world(&ctx, &[], &mut crate::state::StateCache::default())?;
     let entry = world.reg.agents.get(name.as_str()).ok_or_else(|| {
         CbError::refused(
-            "no-join-request",
+            ids::NO_JOIN_REQUEST,
             format!("{name} has no valid join request in the registry issue"),
         )
     })?;
     if !entry.approved() {
         return Err(CbError::refused(
-            "agent-not-approved",
+            ids::AGENT_NOT_APPROVED,
             format!("{name} is not an approved agent"),
         ));
     }
     let join = entry
         .join
         .as_ref()
-        .ok_or_else(|| CbError::refused("no-join-request", format!("{name} has no join")))?;
+        .ok_or_else(|| CbError::refused(ids::NO_JOIN_REQUEST, format!("{name} has no join")))?;
     let item = world.items.get(&join.item_id).ok_or_else(|| {
         CbError::config(format!("agent item {} is not readable by id", join.item_id))
     })?;
@@ -445,7 +446,7 @@ pub fn show(g: &Global, agent: Option<&str>, json_out: bool) -> CbResult<String>
     let world = load_world(&ctx, &extra, &mut cache)?;
     let entry = world.reg.agents.get(&target).ok_or_else(|| {
         CbError::refused(
-            "no-join-request",
+            ids::NO_JOIN_REQUEST,
             format!("{target} has no valid join request in the registry issue"),
         )
     })?;

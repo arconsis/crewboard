@@ -287,7 +287,7 @@ pub(super) fn check(p: &Profile, from: Option<Status>, to: Status, actor: Actor)
 fn word(v: &Verdict) -> &'static str {
     match v {
         Ok(()) => "ok",
-        Err(r) => r.rule,
+        Err(r) => r.rule.as_str(),
     }
 }
 

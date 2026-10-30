@@ -13,6 +13,7 @@
 //! `gh`, git identity, runtime, board, AUTHORITY.md and approval. It reads, it never writes.
 
 use super::{Global, new_client, resolve_board_config};
+use crate::base::ids;
 use crate::board::Board;
 use crate::builtin_workflows;
 use crate::config::ConfigDir;
@@ -203,7 +204,7 @@ impl SetupReport {
             (
                 text,
                 Err(CbError::refused(
-                    "setup-incomplete",
+                    ids::SETUP_INCOMPLETE,
                     format!(
                         "{n} setup check(s) failed; run the fix of each FAIL line, then `crewboard doctor --setup` again"
                     ),

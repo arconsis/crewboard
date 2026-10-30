@@ -15,6 +15,7 @@ use super::{
     work_write_ctx_of, write_work,
 };
 use crate::authority::Authority;
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::NamedRun;
@@ -201,7 +202,7 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
     let files = fetch_pr_files_upto(ac, &pr.repo, pr.number, MAX_FILES + 1)?;
     if files.over(MAX_FILES) {
         return Err(Refusal::new(
-            crate::rules::protected::RULE,
+            ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
                 "{} has more than {MAX_FILES} files; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
                 format_args!("{}#{}", l.pr_url.repo, l.pr_url.number)
@@ -785,7 +786,7 @@ mod tests {
     }
 
     fn rule_of(r: Result<DonePlan, Refusal>) -> &'static str {
-        r.expect_err("must be refused").rule
+        r.expect_err("must be refused").rule.as_str()
     }
 
     fn question(body: &str, to: &str) -> VMsg {
@@ -917,7 +918,7 @@ mod tests {
         };
         let pr = pr_facts();
         let r = check_owner_route_keeps_ticket_open(&owner, &pr, "a/b", 12).unwrap_err();
-        assert_eq!(r.rule, crate::owner_route::KEYWORD_RULE);
+        assert_eq!(r.rule, ids::OWNER_ROUTE_CLOSING_KEYWORD);
         assert!(check_owner_route_keeps_ticket_open(&Route::Normal, &pr, "a/b", 12).is_ok());
         let refs = PrFacts {
             body: "Refs #12".into(),

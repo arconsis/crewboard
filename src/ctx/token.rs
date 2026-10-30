@@ -2,12 +2,10 @@
 //! may run with it (spec/identity#identity-modes).
 
 use crate::agent_env::OwnerSource;
+use crate::base::ids;
 use crate::config::BoardConfig;
 use crate::error::{CbError, CbResult};
 use crate::github::Client;
-
-/// The rule of an owner command whose token is not the board owner's.
-pub const OWNER_NOT_OWNER_RULE: &str = "owner-command-not-owner";
 
 /// Owner commands (init, approve, audit, move, `pause|resume|stop --agent`, `stop --force` of the
 /// owner, `agent profile set --agent`) need the token of the board owner `owner`. `source` says
@@ -34,7 +32,7 @@ pub fn judge_owner(viewer: &str, owner: &str, source: OwnerSource, action: &str)
         }
     };
     Err(CbError::refused(
-        OWNER_NOT_OWNER_RULE,
+        ids::OWNER_COMMAND_NOT_OWNER,
         format!("only the board owner {owner} {action}. This is an owner command: {why}"),
     ))
 }
@@ -81,7 +79,7 @@ pub fn judge_agent(viewer: &str, cfg: &BoardConfig) -> CbResult<()> {
         None => "their own account (the board names no crew_login)".to_string(),
     };
     Err(CbError::refused(
-        "agent-uses-owner-token",
+        ids::AGENT_USES_OWNER_TOKEN,
         format!(
             "this token is the owner {viewer}; agents of initiative {} act as {who}. Load the agent's token (`crewboard agent with-env --env-file ...`), never the owner's. Only the owner can make a one-person trial (`insecure_one_account = true`, `crewboard init --insecure-one-account`)",
             cfg.initiative
@@ -97,7 +95,7 @@ pub fn judge_agent_account(viewer: &str, name: &str, bound: &str) -> CbResult<()
         return Ok(());
     }
     Err(CbError::refused(
-        "agent-token-not-crew",
+        ids::AGENT_TOKEN_NOT_CREW,
         format!(
             "this token is {viewer}; the registry binds {name} to the account {bound} (the account that wrote its join). Load the token of {bound}, or join again with this account under another agent name"
         ),
@@ -145,7 +143,7 @@ mod tests {
 
     fn rule_of(r: CbResult<()>) -> Option<&'static str> {
         match r {
-            Err(CbError::Refused(r)) => Some(r.rule),
+            Err(CbError::Refused(r)) => Some(r.rule.as_str()),
             _ => None,
         }
     }
@@ -225,7 +223,7 @@ mod tests {
             for v in ["crew-bot", "mallory"] {
                 assert_eq!(
                     rule_of(judge_owner(v, o, gh, "may approve")),
-                    Some(OWNER_NOT_OWNER_RULE)
+                    Some(ids::OWNER_COMMAND_NOT_OWNER.as_str())
                 );
             }
         }

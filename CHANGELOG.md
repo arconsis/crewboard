@@ -24,6 +24,10 @@ Changed:
 - Internal: no behaviour change. Comments say what the code does, three named reasons for a
   dropped result, test-only code in the test modules, one set of test builders, and the module
   names `repeat` and `wake::precheck` instead of two more meanings of "gate".
+- Internal: no behaviour change. Board fields are a type, and every field write asks the
+  field-writer table first; the refusal ids are one catalog in the code.
+- Docs: [Refusal ids](docs/reference/refusals.md) lists every rule id that a refused command can
+  print, with its meaning. The page is generated from the catalog.
 
 ## v0.7.1 (2026-10-30)
 

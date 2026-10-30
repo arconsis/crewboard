@@ -5,6 +5,7 @@ use super::{
     Me, agent_label_lines, load_world_cached, me_of, post, remember, sync_needs_owner, to_agent,
     work_write_ctx, work_write_ctx_of, write_work,
 };
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::error::{CbError, CbResult};
@@ -74,7 +75,9 @@ pub fn reassign(
         // Within Ready only the Agent changes; the writer is still the coordinator.
         require_coordinator(me.actor)?;
         if !justified {
-            return Err(Refusal::new("status-reassign-reason", "reassign needs a reason").into());
+            return Err(
+                Refusal::new(ids::STATUS_REASSIGN_REASON, "reassign needs a reason").into(),
+            );
         }
     } else {
         check_status_transition(Some(from), target, me.actor, &reassign)?;
@@ -173,7 +176,7 @@ fn reassign_reason(
         Why::Derived => {
             let Some(a) = old else {
                 return Err(CbError::refused(
-                    "status-reassign-not-justified",
+                    ids::STATUS_REASSIGN_NOT_JUSTIFIED,
                     format!("{} has no agent, so there is nothing to derive", t.key()),
                 ));
             };
@@ -313,7 +316,7 @@ pub fn reassign_derived(
         .and_then(Status::parse_board)
         .ok_or_else(|| {
             CbError::refused(
-                "ticket-status-unknown",
+                ids::TICKET_STATUS_UNKNOWN,
                 format!("{} has no known Status", row.key()),
             )
         })?;
@@ -379,7 +382,7 @@ fn require_coordinator(actor: Actor) -> Result<(), Refusal> {
         Ok(())
     } else {
         Err(Refusal::new(
-            "status-wrong-writer",
+            ids::STATUS_WRONG_WRITER,
             "reassign is a coordinator action",
         ))
     }

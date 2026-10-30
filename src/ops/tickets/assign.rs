@@ -9,13 +9,13 @@ use super::order::parse_order;
 use super::{
     Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work,
 };
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::Refusal;
 use crate::rules::fields::{Field, Item, check_field_write};
-use crate::rules::ids;
 use crate::rules::limits::check_text_field;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
@@ -38,7 +38,7 @@ pub fn check_assign_args(
     }
     if order.is_none() || ov.flag {
         return Err(Refusal::new(
-            "assign-needs-to",
+            ids::ASSIGN_NEEDS_TO,
             "assign needs --to <agent>; only `assign <n> --order <number>` may leave it out (it sets the queue position of a queued ticket)",
         ));
     }
@@ -72,7 +72,7 @@ fn read_assignable_issue(ac: &AgentCtx, repo: &str, n: u64) -> CbResult<(IssueIn
     check_work_issue(&info, repo)?;
     if !info.open {
         return Err(CbError::refused(
-            "ticket-closed",
+            ids::TICKET_CLOSED,
             format!("{repo}#{n} is closed"),
         ));
     }

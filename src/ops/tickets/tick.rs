@@ -37,12 +37,12 @@
 use super::merge::merge_ticket;
 use super::verify::verify;
 use super::{Me, me_of, merged_pr, merged_unverified, owner_merge, owner_net};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::headless::Gate;
 use crate::ops::{AgentCtx, World, load_world};
 use crate::rules::Role;
 use crate::rules::fields::Field;
-use crate::rules::ids;
 use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_closed_tickets, discover_tickets};
 use crate::services::ticket_loader::{Ticket, load_ticket};
@@ -323,7 +323,7 @@ impl TickOut {
 pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
     if !ac.ctx.cd.is_headless()? {
         return Err(CbError::refused(
-            "tick-headless-only",
+            ids::TICK_HEADLESS_ONLY,
             "tick is for a headless config dir (`headless = true`): it merges without a model that reads the Gate. The interactive coordinator uses verify and merge",
         ));
     }
@@ -332,7 +332,7 @@ pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
     let me = me_of(ac, &world)?;
     if me.role != Role::Coordinator {
         return Err(CbError::refused(
-            "verify-coordinator-only",
+            ids::VERIFY_COORDINATOR_ONLY,
             "tick is a coordinator action",
         ));
     }

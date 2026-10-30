@@ -8,6 +8,7 @@ use super::{
     check_owner_route, load_world_cached, me_of, post, question_open_since, remember, set_status,
     sync_needs_owner, to_agent,
 };
+use crate::base::ids;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::names::{Kind, Re};
@@ -45,15 +46,11 @@ pub fn close(ac: &AgentCtx, issue_arg: &str, how: CloseHow<'_>) -> CbResult<Stri
     }
 }
 
-/// The rule of a `close --verified` whose PR is still open: Done means a merged PR, so the
-/// coordinator merges it with `merge`.
-pub const CLOSE_VERIFIED_NOT_MERGED: &str = "close-verified-not-merged";
-
 /// The refusal of `close --verified` without a merged PR.
 fn not_merged(key: &str, what: &str) -> Refusal {
     let n = key.rsplit('#').next().unwrap_or(key);
     Refusal::new(
-        CLOSE_VERIFIED_NOT_MERGED,
+        ids::CLOSE_VERIFIED_NOT_MERGED,
         format!(
             "{key}: {what}; `close --verified` needs the PR merged at the head of the passing verify. Merge it with `crewboard merge {n}`. Nothing was written"
         ),
@@ -73,7 +70,7 @@ fn check_verified_head(key: &str, pr: &PrFacts, verified: Option<&str>) -> Resul
     }
     if !pr.merged {
         return Err(Refusal::new(
-            "close-verified-head-moved",
+            ids::CLOSE_VERIFIED_HEAD_MOVED,
             format!(
                 "{key}: PR {}#{} is closed without a merge; `close --verified` needs a PR that is merged at the verified head. Nothing was written",
                 pr.repo, pr.number
@@ -83,7 +80,7 @@ fn check_verified_head(key: &str, pr: &PrFacts, verified: Option<&str>) -> Resul
     match verified {
         Some(h) if h.trim().eq_ignore_ascii_case(pr.head_sha.trim()) => Ok(()),
         seen => Err(Refusal::new(
-            "close-verified-head-moved",
+            ids::CLOSE_VERIFIED_HEAD_MOVED,
             format!(
                 "{key}: the head of PR {}#{} is {}, but the passing verify saw {}. Run `verify` again for the new head. Nothing was written",
                 pr.repo,
@@ -191,7 +188,10 @@ mod tests {
     }
 
     fn rule(p: &PrFacts, seen: Option<&str>) -> &'static str {
-        check_verified_head("o/r#7", p, seen).unwrap_err().rule
+        check_verified_head("o/r#7", p, seen)
+            .unwrap_err()
+            .rule
+            .as_str()
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         for seen in [Some("abc"), Some("def"), None] {
             assert_eq!(
                 rule(&pr("open", false, "abc"), seen),
-                CLOSE_VERIFIED_NOT_MERGED
+                ids::CLOSE_VERIFIED_NOT_MERGED
             );
         }
         let m = check_verified_head("o/r#7", &pr("open", false, "abc"), Some("abc"))

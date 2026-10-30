@@ -12,10 +12,8 @@
 //!   (`init-identity-mode-change`). A file without a mode key (an own-accounts board, or an old
 //!   trial board) takes the mode of the flag.
 
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
-
-/// The rule of a rerun whose flag asks for another identity mode than the board config has.
-pub const INIT_IDENTITY_MODE_CHANGE: &str = "init-identity-mode-change";
 
 /// The identity mode of a board config.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +102,7 @@ pub fn resolve(
                 .find(|(_, m)| *m != Mode::OwnAccounts && !m.same_kind(&want))
             {
                 return Err(CbError::refused(
-                    INIT_IDENTITY_MODE_CHANGE,
+                    ids::INIT_IDENTITY_MODE_CHANGE,
                     format!(
                         "{file} sets the identity mode {}, and this run asks for {}. {how}",
                         have.describe(),
@@ -120,7 +118,7 @@ pub fn resolve(
             };
             if let Some((file, other)) = existing.iter().find(|(_, m)| m != first) {
                 return Err(CbError::refused(
-                    INIT_IDENTITY_MODE_CHANGE,
+                    ids::INIT_IDENTITY_MODE_CHANGE,
                     format!(
                         "{} sets the identity mode {}, but {file} sets {}. Pass the flag of the mode you want (--crew-login or --insecure-one-account), or make both files name the same mode. {how}",
                         existing[0].0,
@@ -216,18 +214,18 @@ mod tests {
         let e = resolve(None, true, &file(Mode::Crew("crew-bot".into())))
             .unwrap_err()
             .to_string();
-        assert!(e.contains(INIT_IDENTITY_MODE_CHANGE), "{e}");
+        assert!(e.contains(ids::INIT_IDENTITY_MODE_CHANGE.as_str()), "{e}");
         assert!(e.contains("crew_login crew-bot"), "{e}");
         assert!(e.contains("edit the identity keys"), "{e}");
         let e = resolve(Some("crew-bot"), false, &file(Mode::OneAccount))
             .unwrap_err()
             .to_string();
-        assert!(e.contains(INIT_IDENTITY_MODE_CHANGE), "{e}");
+        assert!(e.contains(ids::INIT_IDENTITY_MODE_CHANGE.as_str()), "{e}");
         let two = vec![
             ("demo.board.toml".to_string(), Mode::Crew("crew-bot".into())),
             (".crewboard.toml".to_string(), Mode::OwnAccounts),
         ];
         let e = resolve(None, false, &two).unwrap_err().to_string();
-        assert!(e.contains(INIT_IDENTITY_MODE_CHANGE), "{e}");
+        assert!(e.contains(ids::INIT_IDENTITY_MODE_CHANGE.as_str()), "{e}");
     }
 }

@@ -5,6 +5,7 @@
 //! the cursor. A cycle never decides "nothing changed" from the item listing.
 
 use super::{AgentCtx, World, duties, load_world};
+use crate::base::ids;
 use crate::base::ignore::best_effort_output;
 use crate::board::FieldValue;
 use crate::clock::{format_ts, now_epoch, now_ts, parse_ts};
@@ -457,7 +458,7 @@ fn check_state_and_heartbeat(
     match departure {
         Some(d) if d.ended() => {
             return Err(CbError::refused(
-                "agent-left",
+                ids::AGENT_LEFT,
                 format!(
                     "the registry log ended {me}: it {}; stop this loop",
                     d.reason()
@@ -466,7 +467,7 @@ fn check_state_and_heartbeat(
         }
         Some(d) if state == Some("left") => {
             return Err(CbError::refused(
-                "agent-left",
+                ids::AGENT_LEFT,
                 format!(
                     "{me} has left (State left; the log: it {}); stop this loop",
                     d.reason()

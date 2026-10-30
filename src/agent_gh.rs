@@ -13,6 +13,7 @@
 //! `crewboard agent with-env`. `CREWBOARD_GH_KEEP_TOKEN=1` keeps them, for a runtime whose shell really
 //! holds the crew token. `CREWBOARD_AGENT_GH` names another `gh` executable (tests).
 
+use crate::base::ids;
 use crate::config::BoardConfig;
 use crate::error::{CbError, CbResult};
 use std::process::{Command, Stdio};
@@ -128,7 +129,7 @@ pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String
     }
     if account.eq_ignore_ascii_case(&cfg.owner_login) {
         return Err(CbError::refused(
-            "agent-gh-not-crew",
+            ids::AGENT_GH_NOT_CREW,
             format!(
                 "the registry binds this agent to the owner account {account}; on a crew board an agent never acts as the owner. Join again with the token of the crew account or of your own account"
             ),
@@ -153,7 +154,7 @@ pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String
                 l.clone()
             };
             Err(CbError::refused(
-                "agent-gh-not-crew",
+                ids::AGENT_GH_NOT_CREW,
                 format!(
                     "plain `gh` in the shell of this agent acts as {who}; this agent of initiative {init} acts as {crew} (the account that the registry bound to it). Its PRs and comments would carry the wrong identity. Make the crew gh shim for this agent, then run again. Replace <agent-dir> with the config directory of this agent and <work-dir> with its checkout:\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --env-file ~/.config/crewboard/{init}.env\n  crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --work-dir <work-dir> --crew-login {crew}\nThe second command sets the git identity of the checkout; it reads the id of {crew} from <agent-dir>/crew-id, which `crewboard agent add` writes.\nThen load the exports (PATH with the shim first, empty GH_CONFIG_DIR) in the terminal of the agent, in every new terminal, also when the shim exists already:\n  eval \"$(crewboard agent env --agent-dir ~/.config/crewboard/agents/<agent-dir>)\"\nFrom any shell, start the runtime with the exports instead:\n  crewboard agent exec --agent-dir ~/.config/crewboard/agents/<agent-dir> -- <runtime>\nAn unattended wake uses `crewboard wake install --shim-dir` instead. `crewboard agent add` does all of this for a new agent, and `crewboard doctor --setup` checks it. Details: docs/guides/runtimes/gh-shim.md",
                     init = cfg.initiative
@@ -184,7 +185,7 @@ mod tests {
 
     fn refusal(r: CbResult<String>) -> Option<&'static str> {
         match r {
-            Err(CbError::Refused(r)) => Some(r.rule),
+            Err(CbError::Refused(r)) => Some(r.rule.as_str()),
             _ => None,
         }
     }

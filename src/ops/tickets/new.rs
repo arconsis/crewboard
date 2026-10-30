@@ -12,6 +12,8 @@ use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
 use super::board_put::{Adoption, put_on_board};
 use super::pr_evidence::fetch_pr;
 use super::{Me, load_world_cached, me_of, work_write_ctx, write_work};
+use crate::base::ids;
+use crate::base::ids::RuleId;
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
@@ -20,7 +22,6 @@ use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::evidence::parse_pr_url;
 use crate::rules::fields::Field;
-use crate::rules::ids;
 use crate::rules::limits::check_text_field;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
@@ -55,7 +56,7 @@ pub fn apply_gate_ci(body: &str) -> Result<String, CbError> {
         .find(|g| !crate::headless::Gate::parse(g).is_ci_only())
     {
         return Err(CbError::refused(
-            "ticket-gate-conflict",
+            ids::TICKET_GATE_CONFLICT,
             format!(
                 "--gate-ci writes `Gate: {}`, but the body has its own Gate line ('{g}'): remove that line, or drop --gate-ci",
                 crate::headless::GATE_CI
@@ -86,7 +87,7 @@ pub fn apply_gate_ci(body: &str) -> Result<String, CbError> {
     Ok(out)
 }
 
-fn adopt_refused(rule: &'static str, why: String) -> CbError {
+fn adopt_refused(rule: RuleId, why: String) -> CbError {
     CbError::refused(rule, why)
 }
 
@@ -103,7 +104,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let (pr, _) = fetch_pr(ac, &u.repo, u.number)?;
     if pr.state != "open" || pr.merged {
         return Err(adopt_refused(
-            "adopt-pr-not-open",
+            ids::ADOPT_PR_NOT_OPEN,
             format!(
                 "PR {}#{} is {}: a ticket adopts an OPEN PR only",
                 pr.repo,
@@ -116,7 +117,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let prefix = auth.branch_prefix();
     let Some((_, parent_n)) = crate::rules::evidence::branch_ticket(&prefix, &pr.head_ref) else {
         return Err(adopt_refused(
-            "adopt-pr-bad-branch",
+            ids::ADOPT_PR_BAD_BRANCH,
             format!(
                 "the head branch '{}' of PR {}#{} is not {prefix}<agent>/<n>-<slug>: only a crew branch of an older ticket can be adopted",
                 pr.head_ref, pr.repo, pr.number
@@ -168,7 +169,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         Err(e) => return Err(e),
     };
     if let Err(why) = parent_done {
-        return Err(adopt_refused("adopt-pr-parent-not-done", why));
+        return Err(adopt_refused(ids::ADOPT_PR_PARENT_NOT_DONE, why));
     }
     Ok(Adoption {
         url: format!("https://github.com/{}/pull/{}", pr.repo, pr.number),
@@ -223,13 +224,13 @@ Pointers: <files, issues, earlier PRs>
 pub fn check_new_ticket(title: &str, body: &str) -> Result<String, CbError> {
     if title.trim().is_empty() {
         return Err(CbError::refused(
-            "ticket-title-missing",
+            ids::TICKET_TITLE_MISSING,
             "ticket new needs --title",
         ));
     }
     if title.chars().count() > 256 {
         return Err(CbError::refused(
-            "ticket-title-too-long",
+            ids::TICKET_TITLE_TOO_LONG,
             "the title is longer than 256 characters",
         ));
     }
@@ -260,7 +261,7 @@ pub(super) fn adopt_info(
     check_work_issue(&info, repo)?;
     if !info.open {
         return Err(CbError::refused(
-            "ticket-closed",
+            ids::TICKET_CLOSED,
             format!("{repo}#{n} is closed"),
         ));
     }
