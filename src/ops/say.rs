@@ -26,9 +26,7 @@ use std::io::Read;
 pub fn prepare_body(body_file: Option<&str>, body: Option<&str>) -> CbResult<String> {
     let text = match (body_file, body) {
         (Some(_), Some(_)) => {
-            return Err(CbError::config(
-                "use either --body or --body-file, not both",
-            ));
+            return Err(CbError::usage("use either --body or --body-file, not both"));
         }
         (Some("-"), None) => {
             let mut s = String::new();

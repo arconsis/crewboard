@@ -29,7 +29,7 @@ pub fn run_with_env(cmd: &[String]) -> Failed {
         return crate::error::CbError::config("agent with-env: no command").into();
     };
     let Some(env) = crate::agent_env::current() else {
-        return crate::error::CbError::config("agent with-env: --env-file is required").into();
+        return crate::error::CbError::usage("agent with-env: --env-file is required").into();
     };
     let mut c = std::process::Command::new(program);
     c.args(&cmd[1..]);

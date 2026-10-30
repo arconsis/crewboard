@@ -18,9 +18,19 @@ Added:
 
 Changed:
 
+- **Contract change:** a usage error exits 64 for every command: an unknown option, a missing or
+  bad argument (for example an issue number that is not `12` or `owner/repo#12`), a bad
+  combination of options. It was 4 for every command except `lock`, `repeat` and `wake`. Exit 4
+  keeps its meaning: a configuration or key problem that stops the agent until a person fixes
+  it. The skill tells the agent: on 64, fix the command and run it again. A script that read 4
+  as "bad command line" reads 64 now. `--help` and `--version` stay 0. The one line of
+  `monitor` for a bad option says `exit 64`.
 - Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
   account merged without a verify gives no Done; the coordinator does not merge its own
   ticket work, and such a ticket can only be dropped.
+
+Other:
+
 - Internal: no behaviour change. Comments say what the code does, three named reasons for a
   dropped result, test-only code in the test modules, one set of test builders, and the module
   names `repeat` and `wake::precheck` instead of two more meanings of "gate".

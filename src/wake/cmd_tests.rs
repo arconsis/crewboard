@@ -417,6 +417,7 @@ fn p3b_exit_4_passes_through_and_a_missing_wake_command_is_refused() {
         e.text,
         "no wake command (--wake-cmd, CREWBOARD_WAKE_CMD or --tick)"
     );
+    assert_eq!(e.code, 64, "a missing command is a usage error");
     assert!(e.paths.is_none(), "the line comes before the log is known");
     // the other direction: the environment gives the wake command, and so does --tick
     let env = |k: &str| (k == "CREWBOARD_WAKE_CMD").then(|| "true".to_string());
@@ -1205,8 +1206,8 @@ fn bad_values_are_refused_with_the_texts_of_the_shell() {
     );
     assert_eq!(
         (e.code, e.paths.is_some()),
-        (4, true),
-        "the line goes to the log too"
+        (64, true),
+        "a bad flag value is a usage error; the line goes to the log too"
     );
     assert_eq!(
         text(&["--retry-delays", "10 x"]).text,
@@ -2536,7 +2537,7 @@ fn no_in_progress_ticket_is_one_log_line_and_no_message() {
 }
 
 #[test]
-fn tb3_a_bad_budget_or_heartbeat_is_exit_4_and_logged() {
+fn tb3_a_bad_budget_or_heartbeat_is_exit_64_as_a_flag_4_from_the_env_and_logged() {
     let rig = Rig::new();
     for (flag, bad_value, text) in [
         (
@@ -2563,7 +2564,27 @@ fn tb3_a_bad_budget_or_heartbeat_is_exit_4_and_logged() {
     ] {
         let e = rig.settings(&[flag, bad_value], &[]).unwrap_err();
         assert!(e.text.contains(text), "{flag} {bad_value}: {}", e.text);
-        assert_eq!(e.code, 4);
+        assert_eq!(e.code, 64, "a bad value typed as a flag is a usage error");
+        assert!(e.paths.is_some(), "the line goes to the log");
+    }
+    // the same bad value from the environment is a config error: a person fixes the setup (the
+    // rig passes --retry-delays as a flag, so its variable is tested in the component suite)
+    for (var, bad_value, text) in [
+        (
+            "CREWBOARD_HEARTBEAT_EVERY",
+            "abc",
+            "--heartbeat-every needs whole seconds, got 'abc'",
+        ),
+        ("CREWBOARD_MAX_WAKE", "soon", "--max-wake needs a duration"),
+        (
+            "CREWBOARD_WORK_BACKOFF",
+            "soon",
+            "--work-backoff needs whole seconds or off",
+        ),
+    ] {
+        let e = rig.settings(&[], &[(var, bad_value)]).unwrap_err();
+        assert!(e.text.contains(text), "{var}={bad_value}: {}", e.text);
+        assert_eq!(e.code, 4, "{var}");
         assert!(e.paths.is_some(), "the line goes to the log");
     }
     let s = rig.settings(&["--max-wake", "off"], &[]).unwrap();

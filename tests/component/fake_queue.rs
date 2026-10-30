@@ -603,7 +603,7 @@ fn report_status_reads_back_and_status_lists_tickets_with_liveness() {
         "report-status-coordinator-only",
     );
     let o = fake.run(&c.dir, &["report-status", "--health", "green"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert_eq!(fake.status_updates().len(), 1);
     // refusal: the newest update does not read back as ours
     fake.foreign_status_update_next();

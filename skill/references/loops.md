@@ -16,7 +16,7 @@ The Monitor prints one of two things:
 - A block of events. Handle every event, then start the same command again. The loop ends after
   each batch on purpose, so that you never miss a restart.
 - One line `crewboard-watch: exit N: <reason> (<status>)`. Act on the exit code. After exit 4, do
-  not restart.
+  not restart. After exit 64, fix the command line, then start it again.
 
 Without a Monitor tool: run `/loop 5m crewboard poll --quiet`. On exit 0, run
 `crewboard watch --timeout 1m`.

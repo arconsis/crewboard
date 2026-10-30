@@ -153,14 +153,14 @@ fn crewboard_bin(run: &WakeArgs, host: &Host, sys: &dyn Sys) -> Result<PathBuf, 
 fn install(a: &InstallArgs, f: &Flags, host: &Host, sys: &dyn Sys) -> Result<String, CbError> {
     let run = &a.run;
     if run.print_state_dir || run.agent_job.print_cmd || run.wake_cmd.is_some() {
-        return Err(cfg_err(
+        return Err(CbError::usage(
             "--print-state-dir, --print-cmd and --wake-cmd are options of the wake, not of the install",
         ));
     }
     let secs = clock::parse_secs(&a.every)
         .filter(|s| *s > 0)
         .ok_or_else(|| {
-            cfg_err(format!(
+            CbError::usage(format!(
                 "--every needs a duration such as 5m, got '{}'",
                 a.every
             ))

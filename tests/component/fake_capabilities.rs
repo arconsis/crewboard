@@ -123,7 +123,7 @@ fn profile_facts_declared_tags_owner_changes_and_signed_history() {
     assert!(o.stderr.contains("secret-in-body"), "{}", o.all());
     assert!(!o.all().contains(&token), "the secret is not echoed");
     // nothing to change is a usage error, not a silent success
-    assert_eq!(set_profile(&fake, &b, &[]).code, 4);
+    assert_eq!(set_profile(&fake, &b, &[]).code, 64);
     assert_eq!(caps(&fake, &b), original, "a refusal writes nothing");
     assert!(profile_records(&fake).is_empty(), "a refusal posts nothing");
 
@@ -388,9 +388,9 @@ fn assign_refuses_a_capability_mismatch_and_records_an_override_with_its_reason(
     );
     let o = assign(t2, &["--override-capabilities", "--why", "  "]);
     assert_eq!(o.code, 2, "{}", o.all());
-    // a reason without the flag is a usage error (exit 4)
+    // a reason without the flag is a usage error (exit 64)
     let o = assign(t2, &["--why", "because"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     untouched(&fake, t2);
 
     // pass: an override with a reason is recorded in the signed assignment message

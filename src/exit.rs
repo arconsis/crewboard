@@ -10,9 +10,10 @@ pub enum Family {
     /// `watch` and `poll`, and `mine` (exit 1: the agent owns no In Progress or Ready ticket).
     Watch,
     /// `lock`: its own codes (spec/host-lock): 0, 1 (free, no CI), 2, 3, 64, 75, 76, 77, or
-    /// the code of the command that `run` ran.
+    /// the code of the command that `run` ran (`lock::LockExit`).
     Lock,
-    /// `wake`: 0, 2, 3, 4, 70 (the wake command failed), 71 (the lock cannot be taken).
+    /// `wake`: 0, 2, 3, 4, 64, 70 (the wake command failed), 71 (the lock cannot be taken)
+    /// (`wake::WakeExit`).
     Wake,
     /// `repeat`: 0 all runs green, 1 a red run, 2 the commit changed, 3 CI did not finish, 4 setup
     /// error, 64 usage.
@@ -33,8 +34,11 @@ pub enum Exit {
     Refused = 2,
     /// GitHub or network error.
     Network = 3,
-    /// Configuration or key error.
+    /// Configuration or key error: a real stop until a person fixes the setup.
     Config = 4,
+    /// Usage error: a bad command line (an unknown option, a missing or bad argument, a bad
+    /// combination of options). Fix the command and run it again. The code of BSD `sysexits.h`.
+    Usage = 64,
 }
 
 impl Exit {
@@ -62,12 +66,13 @@ mod tests {
     use super::*;
 
     impl Exit {
-        const ALL: [Exit; 5] = [
+        const ALL: [Exit; 6] = [
             Exit::Ok,
             Exit::NoEvents,
             Exit::Refused,
             Exit::Network,
             Exit::Config,
+            Exit::Usage,
         ];
 
         /// Human-readable meaning for the given command family.
@@ -84,6 +89,7 @@ mod tests {
                 (Exit::Refused, _) => "refused by a rule",
                 (Exit::Network, _) => "GitHub or network error",
                 (Exit::Config, _) => "configuration or key error",
+                (Exit::Usage, _) => "usage error: fix the command and run it again",
             }
         }
     }
@@ -91,7 +97,7 @@ mod tests {
     #[test]
     fn codes_match_spec_table() {
         let codes: Vec<u8> = Exit::ALL.iter().map(|e| e.code()).collect();
-        assert_eq!(codes, vec![0, 1, 2, 3, 4]);
+        assert_eq!(codes, vec![0, 1, 2, 3, 4, 64]);
     }
 
     #[test]
@@ -100,7 +106,7 @@ mod tests {
         assert!(Exit::NoEvents.allowed_for(Family::Watch));
         // Must be refused: other commands never return 1.
         assert!(!Exit::NoEvents.allowed_for(Family::Other));
-        for e in [Exit::Refused, Exit::Network, Exit::Config] {
+        for e in [Exit::Refused, Exit::Network, Exit::Config, Exit::Usage] {
             assert_ne!(e.code(), Exit::NoEvents.code());
         }
     }

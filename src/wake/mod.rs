@@ -15,6 +15,7 @@ pub mod adapters;
 pub mod cmd;
 pub mod describe_head;
 pub mod events;
+mod exit;
 pub mod finish;
 pub mod flow;
 pub mod heartbeat;
@@ -36,3 +37,5 @@ pub mod steps;
 pub mod tick;
 pub mod wake_events;
 pub mod words;
+
+pub use exit::WakeExit;

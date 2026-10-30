@@ -23,7 +23,7 @@ pub fn parse_since(s: &str, now: i64) -> CbResult<i64> {
     crate::clock::parse_duration(s)
         .map(|d| now - d.as_secs() as i64)
         .map_err(|_| {
-            CbError::config(format!(
+            CbError::usage(format!(
                 "bad --since '{s}' (use 2026-10-16T08:00:00Z or 90m or 2h)"
             ))
         })

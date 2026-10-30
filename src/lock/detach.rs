@@ -48,7 +48,7 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
     else {
         s.log.say(&format!("cannot write {}", log.display()));
         let _ = s.release();
-        return 1;
+        return super::LockExit::No.code();
     };
     let err = out.try_clone();
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("crewboard"));
@@ -64,7 +64,7 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
         Err(e) => {
             s.log.say(&format!("the detached job did not start ({e})"));
             let _ = s.release();
-            return 1;
+            return super::LockExit::No.code();
         }
     };
     let launcher = child.id();
@@ -141,12 +141,12 @@ pub fn supervise(s: &mut Session, p: &Parsed, ctx: &RunCtx, parent: &str) -> i32
             "the lock {} is not held for the detached job; not starting it",
             s.dir.display()
         ));
-        return 1;
+        return super::LockExit::No.code();
     }
     s.detached = true;
     let own = s.procs.pid();
     if s.write_owner(&own.to_string()).is_err() {
-        return 1;
+        return super::LockExit::No.code();
     }
     let mut cmd = Command::new(&p.run_cmd[0]);
     cmd.args(&p.run_cmd[1..])

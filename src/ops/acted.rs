@@ -300,9 +300,8 @@ pub fn run(
     redeliver_to: Option<&Path>,
 ) -> CbResult<String> {
     let since = match since {
-        Some(s) => parse_ts(s).ok_or_else(|| {
-            CbError::config(format!("--since: '{s}' is not YYYY-MM-DDTHH:MM:SSZ"))
-        })?,
+        Some(s) => parse_ts(s)
+            .ok_or_else(|| CbError::usage(format!("--since: '{s}' is not YYYY-MM-DDTHH:MM:SSZ")))?,
         None => 0,
     };
     let text = std::fs::read_to_string(events_file)

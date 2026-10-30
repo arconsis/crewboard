@@ -714,9 +714,9 @@ pub enum WatchCmd {
     /// Agent: block until there are new events for this agent, print them, exit. With `--loop`
     /// it keeps waiting, as a silent loop for a Monitor tool: it prints nothing while there are no
     /// events, prints the events once and exits 0 when there are some, and on an error prints ONE
-    /// line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2, 3 or
-    /// 4). `--loop` is the old command `monitor`, which stays callable for ever. With `--loop`,
-    /// `--json` prints the events and that last line as JSON.
+    /// line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2, 3,
+    /// 4, or 64 for a bad option). `--loop` is the old command `monitor`, which stays callable
+    /// for ever. With `--loop`, `--json` prints the events and that last line as JSON.
     #[command(display_order = 4)]
     Watch {
         /// How long to wait (default: `timeout` of the `[loop]` table of the agent config, else 30m).
@@ -770,8 +770,8 @@ pub enum WatchCmd {
     /// Agent: a silent loop around `watch` for a Monitor tool. It prints nothing while there are
     /// no events, prints the events once and exits 0 when there are some, and on an error prints
     /// ONE line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2,
-    /// 3 or 4). Arguments after `--` go to `watch`. `watch --loop` is the same command. The name
-    /// `monitor` stays for ever, because Monitor tool configs call it.
+    /// 3, 4, or 64 for a bad option). Arguments after `--` go to `watch`. `watch --loop` is the
+    /// same command. The name `monitor` stays for ever, because Monitor tool configs call it.
     #[command(hide = true, display_order = 6)]
     Monitor {
         #[command(flatten)]
@@ -950,7 +950,7 @@ pub enum HostCmd {
     /// backup: the way back is `--release <old tag>`. Exit codes: 0 (also "already installed" and
     /// "latest is older, not downgrading"), 2 (refused: no release for this platform, release
     /// missing or not readable, checksum, tarball or version check failed), 3 (a failed step:
-    /// a write or the download), 4 (usage, or a token that GitHub refuses). When the binary is
+    /// a write or the download), 4 (a token that GitHub refuses), 64 (usage). When the binary is
     /// updated but `skill install` fails, the exit code is that of `skill install` (1: a SKIP,
     /// 3: a failed step).
     /// Needs a release for aarch64-apple-darwin, x86_64-apple-darwin, x86_64-unknown-linux-gnu or

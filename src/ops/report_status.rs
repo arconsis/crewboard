@@ -39,7 +39,7 @@ pub fn from_line(body: &str) -> Option<&str> {
 
 pub fn run(ac: &AgentCtx, state: &str, text: &str) -> CbResult<String> {
     let status = api_status(state).ok_or_else(|| {
-        CbError::config(format!(
+        CbError::usage(format!(
             "'{state}' is not a status: use on-track, at-risk, off-track, inactive or complete"
         ))
     })?;

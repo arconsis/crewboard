@@ -288,12 +288,12 @@ o=$("$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" --log "$FAKE_DIR/p.log" 
 ok=1; [ "$rc" -eq 3 ] && [ "$(WAKES)" -eq 0 ] && [ -z "$o" ] && grep -q 'exit 3: network down' "$FAKE_DIR/p.log" && ok=0
 case_result "P3 exit 3 -> rc 3, no wake, logged" $ok "rc=$rc, wakes=$(WAKES)"
 
-# P3b: exit 4 passes through; missing wake command is refused
+# P3b: exit 4 passes through; a missing wake command is a usage error (64)
 new_case p3b; echo '4||no key' >"$FAKE_DIR/plan"
 "$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" >/dev/null 2>&1; rc4=$?
 env -u CREWBOARD_WAKE_CMD "$P" --lock-dir "$FAKE_DIR/lock" >/dev/null 2>&1; rcn=$?
-ok=1; [ "$rc4" -eq 4 ] && [ "$rcn" -eq 4 ] && ok=0
-case_result "P3b exit 4 passes through; no wake command -> 4" $ok "rc=$rc4 and $rcn"
+ok=1; [ "$rc4" -eq 4 ] && [ "$rcn" -eq 64 ] && ok=0
+case_result "P3b exit 4 passes through; no wake command -> 64" $ok "rc=$rc4 and $rcn"
 
 # P3d: a failing poll logs the code AND the reason: the FIRST stderr line, cut to 200 characters,
 # without control characters. The fake prints a config error, then a hint line.
@@ -450,8 +450,8 @@ rm -f "$FAKE_DIR/last-wake"
 "$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" --work-backoff off >/dev/null 2>&1
 woff=$(WAKES)
 "$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" --work-backoff soon >/dev/null 2>&1; rcb=$?
-ok=1; [ "$w5" -eq 1 ] && [ "$woff" -eq 1 ] && [ "$rcb" -eq 4 ] && ok=0
-case_result "P10b --work-backoff 5 wakes, off does not, junk -> 4" $ok "wakes after 5=$w5, after off=$woff, junk rc=$rcb"
+ok=1; [ "$w5" -eq 1 ] && [ "$woff" -eq 1 ] && [ "$rcb" -eq 64 ] && ok=0
+case_result "P10b --work-backoff 5 wakes, off does not, junk -> 64" $ok "wakes after 5=$w5, after off=$woff, junk rc=$rcb"
 
 # P11: an event wake starts the back-off too (a quiet tick right after it does not wake for work)
 new_case p11; { echo '0||'; echo '1||'; } >"$FAKE_DIR/plan"; echo 0 >"$FAKE_DIR/plan.mine"
@@ -760,11 +760,11 @@ seen=$(env -i HOME="$T" PATH=/usr/bin:/bin GH_TOKEN=owner-token GITHUB_TOKEN=own
 crewboard --config-dir "$CAD/dev1" agent exec -- /bin/sh -c 'exit 7'; rc7=$?
 ok=1; [ "$rc" -eq 0 ] && [ "$seen" = "$dev1/bin|$dev1/gh-empty-config|$dev1|unset|unset" ] && [ "$rc7" -eq 7 ] && ok=0
 case_result "XE1 agent exec: agent exports set, caller token gone, exit code kept" $ok "rc=$rc,$rc7, seen=$seen"
-# XE1b: the other direction: a missing agent dir or a missing command exits 4 and runs nothing
+# XE1b: the other direction: a missing agent dir exits 4, a missing command exits 64 (usage), and nothing runs
 crewboard --config-dir "$CAD/nope" agent exec -- /bin/sh -c ": >'$FAKE_DIR/ran'" >/dev/null 2>&1; r1=$?
 crewboard --config-dir "$CAD/dev1" agent exec -- >/dev/null 2>&1; r2=$?
-ok=1; [ "$r1" -eq 4 ] && [ "$r2" -eq 4 ] && [ ! -e "$FAKE_DIR/ran" ] && ok=0
-case_result "XE1b agent exec without agent dir or command -> 4, nothing runs" $ok "rc=$r1,$r2"
+ok=1; [ "$r1" -eq 4 ] && [ "$r2" -eq 64 ] && [ ! -e "$FAKE_DIR/ran" ] && ok=0
+case_result "XE1b agent exec without agent dir -> 4, without command -> 64, nothing runs" $ok "rc=$r1,$r2"
 
 # ---------------- agent add ----------------
 echo "== crewboard agent add"
@@ -921,13 +921,13 @@ bs "$BD" "$BOOT/work" >"$FAKE_DIR/out" 2>&1; rc=$?
 ok=1; [ "$rc" -eq 0 ] && grep -q '^agent add: \[6/7\] git config: done' "$FAKE_DIR/out" \
   && [ "$(git -C "$wt" config user.email)" = "4242+crew-bot@users.noreply.github.com" ] && ok=0
 case_result "B5f a changed git e-mail: step 6 sets it again" $ok "rc=$rc"
-# B6: usage errors exit 4 and run nothing
+# B6: usage errors (a missing target, a bad option value) exit 64 and run nothing
 new_case b6
 crewboard agent add --agent-dir "$BD" --env-file "$BOOT/crew.env" --agent dev1@host-b --runtime claude --work-dir "$wt" >/dev/null 2>"$FAKE_DIR/e1"; r1=$?
 crewboard agent add --agent-dir "$BD" --env-file "$BOOT/crew.env" --agent dev1@host-b --runtime vim --repo a/b --work-dir "$wt" >/dev/null 2>"$FAKE_DIR/e2"; r2=$?
-ok=1; [ "$r1" -eq 4 ] && [ "$r2" -eq 4 ] && grep -q 'a repository <owner>/<repo> or a board file is required' "$FAKE_DIR/e1" \
+ok=1; [ "$r1" -eq 64 ] && [ "$r2" -eq 64 ] && grep -q 'a repository <owner>/<repo> or a board file is required' "$FAKE_DIR/e1" \
   && grep -q "invalid value 'vim'" "$FAKE_DIR/e2" && [ "$(ncalls)" -eq 0 ] && ok=0
-case_result "B6 bootstrap usage errors -> 4, nothing runs" $ok "rc=$r1,$r2"
+case_result "B6 bootstrap usage errors -> 64, nothing runs" $ok "rc=$r1,$r2"
 
 # B7: --role coordinator: the same steps as a dev; the approve line names --role coordinator;
 # after the approval the next step names the headless bootstrap of the same coordinator
@@ -1240,12 +1240,12 @@ i=0; while [ ! -e "$FAKE_DIR/res" ] && [ "$i" -lt 150 ]; do sleep 0.1; i=$((i + 
 j=0; while [ -e "$HL" ] && [ "$j" -lt 30 ]; do sleep 0.1; j=$((j + 1)); done
 ok=1; grep -q '^rc=0 ' "$FAKE_DIR/res" 2>/dev/null && [ ! -e "$HL" ] && ok=0
 case_result "TB11b the detached job ends after the stop: result, lock released" $ok "result=$(cat "$FAKE_DIR/res" 2>/dev/null | cut -c1-30)"
-# TB3: a bad --max-wake is refused before any poll; 1m30s style is not a duration
+# TB3: a bad --max-wake flag is a usage error (64) before any poll; 1m30s style is not a duration
 new_case tb3 '0||'
 "$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" --max-wake soon >/dev/null 2>&1; r1=$?
 "$P" --wake-cmd "$WAKE" --lock-dir "$FAKE_DIR/lock" --max-wake 1m30s >/dev/null 2>&1; r2=$?
-ok=1; [ "$r1" -eq 4 ] && [ "$r2" -eq 4 ] && [ "$(ncalls)" -eq 0 ] && ok=0
-case_result "TB3 bad --max-wake -> 4, no poll" $ok "rc=$r1/$r2, calls=$(ncalls)"
+ok=1; [ "$r1" -eq 64 ] && [ "$r2" -eq 64 ] && [ "$(ncalls)" -eq 0 ] && ok=0
+case_result "TB3 bad --max-wake -> 64, no poll" $ok "rc=$r1/$r2, calls=$(ncalls)"
 
 # TB4 to TB7: where the work of the ticket is, and no override line in the message.
 # A crew-like setup: a bare remote, a work dir with one clone under it on the ticket branch.

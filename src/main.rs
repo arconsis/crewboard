@@ -61,14 +61,14 @@ fn real_main() -> ExitCode {
     let cli = match cli::Cli::try_parse() {
         Ok(c) => c,
         Err(e) => {
-            // clap exits with 2 on a usage error, but 2 means "refused by a rule" here.
-            // A bad command line is a configuration problem (4); help and version are 0.
+            // clap exits with 2 on a usage error, but 2 means "refused by a rule" here. A bad
+            // command line is a usage error (64) for every command; help and version are 0.
             let code = if e.use_stderr() {
-                Exit::Config
+                Exit::Usage
             } else {
                 Exit::Ok
             };
-            if code == Exit::Config && is_monitor_form(&args) {
+            if code == Exit::Usage && is_monitor_form(&args) {
                 // a Monitor tool reads standard output: one line, as for every other error
                 let json = args.iter().any(|a| a == "--json");
                 writeln!(
@@ -89,15 +89,6 @@ fn real_main() -> ExitCode {
                 return code.into();
             }
             e.print().ok(); // output is best effort; a closed stream has nobody to tell
-            if code == Exit::Config
-                && matches!(
-                    first_command(&args).as_deref(),
-                    Some("lock" | "gate" | "repeat")
-                )
-            {
-                // `lock` and `repeat` (old name `gate`) exit 64 for a bad command line (the exit table of the host lock)
-                return ExitCode::from(64);
-            }
             return code.into();
         }
     };

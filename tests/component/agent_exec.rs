@@ -181,13 +181,13 @@ fn exec_with_a_missing_dir_exits_4_and_runs_nothing() {
         text(&o.stderr)
     );
     assert!(!marker.exists());
-    // a missing command is a usage error, also exit 4
+    // a missing command is a usage error: exit 64
     let (_t2, d) = agent_dir();
     let o = cb(
         &["agent", "exec", "--agent-dir", d.to_str().unwrap(), "--"],
         &[],
     );
-    assert_eq!(o.status.code(), Some(4), "{}", text(&o.stderr));
+    assert_eq!(o.status.code(), Some(64), "{}", text(&o.stderr));
 }
 
 #[test]
@@ -381,7 +381,7 @@ fn with_env_refuses_what_the_loader_refuses_and_runs_nothing() {
     assert_eq!(o.status.code(), Some(4));
     assert!(text(&o.stderr).contains("not found"));
     let o = cb(&["agent", "with-env", "--", "/bin/sh", "-c", &run], &[]);
-    assert_eq!(o.status.code(), Some(4));
+    assert_eq!(o.status.code(), Some(64));
     assert!(text(&o.stderr).contains("--env-file is required"));
     assert!(!marker.exists());
 }

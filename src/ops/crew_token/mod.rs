@@ -196,7 +196,7 @@ pub fn run_set(a: &SetArgs) -> CbResult<String> {
 fn initiative_of(flag: Option<&str>) -> CbResult<String> {
     if let Some(i) = flag {
         if !valid_initiative_name(i) {
-            return Err(CbError::config(format!(
+            return Err(CbError::usage(format!(
                 "--initiative: '{i}' is not a valid initiative name"
             )));
         }

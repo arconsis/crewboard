@@ -114,6 +114,7 @@ fn wake_cmd(cli: &Cli, w: &crate::wake::cmd::WakeArgs) -> Outcome {
                 0 => Exit::Ok,
                 3 => Exit::Network,
                 4 => Exit::Config,
+                64 => Exit::Usage,
                 _ => Exit::Refused,
             },
             code: Some(code),
