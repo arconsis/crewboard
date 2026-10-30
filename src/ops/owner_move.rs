@@ -7,11 +7,15 @@
 //! writes the board. It runs with the owner's token only (`owner-command-not-owner`).
 
 use super::{Ctx, Global, load_world, new_owner_client, parse_issue_arg, require_owner};
+use crate::board::FieldValue;
+use crate::board::ItemRef;
 use crate::error::CbResult;
 use crate::feed;
 use crate::owner_cmd::{move_target, move_text};
-use crate::rules::Refusal;
+use crate::rules::fields::Field;
+use crate::rules::fields::WriteCtx;
 use crate::rules::status::Status;
+use crate::rules::{Actor, Refusal};
 use crate::services::ticket_loader::load_ticket;
 use crate::state::StateCache;
 use crate::ticket::log::{Expected, fold_ticket};
@@ -89,7 +93,7 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
     let (repo, n) = parse_issue_arg(issue, ctx.main_repo())?;
     let t = load_ticket(&ctx.reader(), &world.trust, &repo, n)?;
     let key = t.key();
-    let raw = t.item.field("Status");
+    let raw = t.item.get(Field::Status);
     let from = raw.and_then(Status::parse);
     let log = fold_ticket(&t.msgs);
     let p = plan(&key, from, to, &log.status, log.agent.as_deref(), t.agent())?;
@@ -108,14 +112,19 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
         out.push_str(&format!("{key}: issue reopened\n"));
     }
     if let Some(a) = &p.set_agent {
-        ctx.board.set_select(&ctx.client, &t.item_id, "Agent", a)?;
+        ctx.board.write(
+            &ctx.client,
+            ItemRef::work(&t.item_id),
+            Field::Agent,
+            FieldValue::Option(a),
+            &WriteCtx::by(Actor::Owner),
+        )?;
         out.push_str(&format!("{key}: Agent {a} (the signed assignment)\n"));
     }
     if p.write_status {
         // a failed write leaves the move in the log and the board behind it: `status` shows the
         // mismatch, and the same command again writes the field (only the comment repeats)
-        ctx.board
-            .set_select(&ctx.client, &t.item_id, "Status", to.name())?;
+        ctx.board.write_status(&ctx.client, &t.item_id, to)?;
         out.push_str(&format!(
             "{key}: Status {} -> {}\n",
             raw.unwrap_or("empty"),

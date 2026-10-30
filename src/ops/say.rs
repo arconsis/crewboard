@@ -4,12 +4,14 @@
 //! signature (`protocol/`), then one comment through `feed.rs`. `ops/watch.rs` reads it back.
 
 use super::{AgentCtx, World, load_world, parse_issue_arg};
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, Timestamp, To};
 use crate::protocol::signature::{Outgoing, sign_message};
 use crate::registry::TrustedAgent;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::rules::{Refusal, Role, limits};
 use crate::secrets;
@@ -115,18 +117,16 @@ pub fn refresh_heartbeat(ac: &AgentCtx, world: &World) -> bool {
     let item = world.items.get(&ac.agent.item_id);
     let now = crate::clock::now_epoch();
     if !heartbeat_wanted(
-        item.and_then(|i| i.field("State")),
-        item.and_then(|i| i.field("Heartbeat")),
+        item.and_then(|i| i.get(Field::State)),
+        item.and_then(|i| i.get(Field::Heartbeat)),
         now,
         ac.ctx.hb_interval,
     ) {
         return false;
     }
-    match ac.ctx.board.set_text(
-        &ac.ctx.client,
-        &ac.agent.item_id,
-        "Heartbeat",
-        &crate::clock::format_ts(now),
+    match ac.write_own(
+        Field::Heartbeat,
+        FieldValue::Text(&crate::clock::format_ts(now)),
     ) {
         Ok(()) => true,
         Err(e) => {

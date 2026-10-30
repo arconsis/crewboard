@@ -48,6 +48,7 @@ use crate::protocol::names::{Kind, Re, To};
 use crate::registry::Trust;
 use crate::rules::Role;
 use crate::rules::evidence::CiFacts;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::state::StateCache;
@@ -328,7 +329,7 @@ pub fn agent_inputs(ctx: &Ctx, world: &World, now: i64) -> Vec<AgentLate> {
                     .is_some_and(|a| a.role == Role::Coordinator),
                 since,
                 live: derive(
-                    item.and_then(|i| i.field("State")),
+                    item.and_then(|i| i.get(Field::State)),
                     since,
                     now,
                     ctx.hb_interval,

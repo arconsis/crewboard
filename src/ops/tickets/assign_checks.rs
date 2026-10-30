@@ -6,6 +6,7 @@ use crate::ctx::{AgentCtx, World};
 use crate::error::{CbError, CbResult};
 use crate::protocol::names::{AgentName, Kind, Re};
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::services::ticket_loader::{IssueInfo, Ticket};
 use crate::ticket::declares_ci_none;
 
@@ -60,7 +61,7 @@ pub(super) fn check_assignable(ac: &AgentCtx, world: &World, agent: &str) -> CbR
     let state = world
         .items
         .get(&t.item_id)
-        .and_then(|i| i.field("State"))
+        .and_then(|i| i.get(Field::State))
         .unwrap_or("?");
     check_assignable_state(agent, Some(t.role), state)
 }

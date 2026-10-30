@@ -1,6 +1,7 @@
 use super::*;
 use crate::events::{Event, EventClass, TicketSnap};
 use crate::protocol::names::Kind;
+use crate::rules::fields::Field;
 use crate::rules::status::{BoardStatus, Status};
 use std::collections::BTreeMap;
 
@@ -99,9 +100,9 @@ impl TicketRow {
             repo: repo.to_string(),
             issue: n.parse().ok()?,
             item_id: it.id.clone(),
-            status: it.field("Status").map(BoardStatus::parse),
-            agent: it.field("Agent").map(str::to_string),
-            order: it.field("Order").and_then(|o| o.parse::<i64>().ok()),
+            status: it.get(Field::Status).map(BoardStatus::parse),
+            agent: it.get(Field::Agent).map(str::to_string),
+            order: it.get(Field::Order).and_then(|o| o.parse::<i64>().ok()),
             updated: crate::clock::parse_ts(&it.updated_at),
         })
     }

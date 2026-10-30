@@ -20,6 +20,7 @@ use crate::error::{CbError, CbResult};
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::{Kind, Re};
+use crate::rules::fields::Field;
 use crate::rules::ids;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
@@ -247,7 +248,7 @@ fn queue_new_ticket(
         .ctx
         .board
         .read_item(&ac.ctx.client, item_id)?
-        .field("Status")
+        .get(Field::Status)
         .and_then(Status::parse_board);
     let queued = if matches!(status, Some(Status::Backlog | Status::Ready) | None) {
         let agent = p.agent.as_deref().ok_or_else(|| no_agent(&p.old_key))?;

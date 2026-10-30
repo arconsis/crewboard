@@ -16,6 +16,7 @@ use crate::cursor::Cursor;
 use crate::error::CbResult;
 use crate::rules::Role;
 use crate::rules::evidence::CiFacts;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::{State, Who};
 use crate::rules::status::Status;
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
@@ -323,7 +324,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     let cursor = match world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"))
+        .and_then(|i| i.get(Field::Cursor))
         .map(Cursor::decode)
     {
         Some(Ok(c)) => c,

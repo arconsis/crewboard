@@ -11,14 +11,15 @@ use super::assign::assign;
 use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
 use super::board_put::{Adoption, put_on_board};
 use super::pr_evidence::fetch_pr;
-use super::{Me, load_world_cached, me_of, work_write_ctx};
+use super::{Me, load_world_cached, me_of, work_write_ctx, write_work};
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::evidence::parse_pr_url;
-use crate::rules::fields::{Field, Item, check_field_write};
+use crate::rules::fields::Field;
 use crate::rules::ids;
 use crate::rules::limits::check_text_field;
 use crate::rules::status::{Status, Transition, check_status_transition};
@@ -137,7 +138,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         Ok(p) if returned_with_pr(&p, &pr) => Ok(()),
         Ok(p) => {
             let log = fold_ticket(&p.msgs).status;
-            let board = p.item.field("Status");
+            let board = p.item.get(Field::Status);
             // A board Done or Dropped without a signed end: `close --why` refuses an ended
             // board Status, so the way out starts with the owner's move.
             let way = if board
@@ -283,25 +284,19 @@ pub(super) fn adopt_info(
     };
     let item = ac.ctx.board.read_item(&ac.ctx.client, &item_id)?;
     let wc = work_write_ctx(me, false);
-    if item.field("Kind").is_none() {
-        check_field_write(Item::Work, Field::Kind, &wc)?;
-        ac.ctx
-            .board
-            .set_select(&ac.ctx.client, &item_id, "Kind", "Work")?;
+    if item.get(Field::Kind).is_none() {
+        write_work(ac, &item_id, Field::Kind, FieldValue::Option("Work"), &wc)?;
     }
-    let status = item.field("Status").and_then(Status::parse_board);
+    let status = item.get(Field::Status).and_then(Status::parse_board);
     if status.is_none() {
         check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
         ac.ctx
             .board
-            .set_select(&ac.ctx.client, &item_id, "Status", Status::Backlog.name())?;
+            .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
         out.push_str("Status set to Backlog\n");
     }
-    if item.field("Gate") != Some(gate.as_str()) {
-        check_field_write(Item::Work, Field::Gate, &wc)?;
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, &item_id, "Gate", &gate)?;
+    if item.get(Field::Gate) != Some(gate.as_str()) {
+        write_work(ac, &item_id, Field::Gate, FieldValue::Text(&gate), &wc)?;
         out.push_str("Gate field set from the body\n");
     }
     let mut cache = ac.load_cache();

@@ -4,6 +4,7 @@
 use super::{AgentCtx, World};
 use crate::late::liveness::{Liveness, derive, last_seen};
 use crate::rules::Actor;
+use crate::rules::fields::Field;
 use crate::ticket::{VMsg, verified_messages};
 
 pub fn registry_msgs(ac: &AgentCtx, world: &World) -> Vec<VMsg> {
@@ -33,7 +34,7 @@ pub fn agent_since(world: &World, name: &str) -> Option<i64> {
         .map(|c| c.created_epoch);
     let updated = item.and_then(|i| crate::clock::parse_ts(&i.updated_at));
     let heartbeat = item
-        .and_then(|i| i.field("Heartbeat"))
+        .and_then(|i| i.get(Field::Heartbeat))
         .and_then(crate::clock::parse_ts);
     baseline(
         heartbeat.and_then(|h| last_seen(Some(h), updated)),
@@ -57,7 +58,7 @@ pub fn agent_liveness(
         .get(agent)
         .and_then(|e| e.join.as_ref())
         .and_then(|j| world.items.get(&j.item_id));
-    let state = item.and_then(|i| i.field("State")).map(str::to_string);
+    let state = item.and_then(|i| i.get(Field::State)).map(str::to_string);
     let since = agent_since(world, agent);
     let live = derive(state.as_deref(), since, now, interval);
     (state, since, live)

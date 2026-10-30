@@ -572,7 +572,7 @@ fn act_verify(
     if let Some(m) = &p.fail_move {
         super::set_select_status(ac, &t.item_id, m.to)?;
         if let Some(order) = m.order {
-            order::write_order(ac, &t.item_id, order)?;
+            order::write_order(ac, &t.item_id, order, &work_write_ctx_of(l.me.actor, false))?;
         }
         remember(ac, t, m.to, t.agent());
         out.push_str(&m.line);

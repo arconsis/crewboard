@@ -6,10 +6,12 @@ use super::{
     Me, check_status_unchanged, facts, load_world_cached, me_of, post, remember, set_select_status,
     sync_needs_owner, unread_guard,
 };
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::park_body;
 use crate::protocol::names::{Kind, Re, To};
+use crate::rules::fields::Field;
 use crate::rules::ids;
 use crate::rules::lifecycle::{State, check_take};
 use crate::rules::status::{BlockReason, Status, Transition, check_status_transition};
@@ -191,7 +193,7 @@ fn explain_unblock_refusal(t: &Ticket, from: Status, r: Refusal) -> CbError {
 /// The rule of `--interrupt`: the new ticket must come first, that is have a strictly lower
 /// `Order` than the parked ticket.
 fn check_interrupt_rule(t: &Ticket, cur: &crate::ticket::TicketRow) -> Result<(), Refusal> {
-    let new = t.item.field("Order").and_then(|o| o.parse::<i64>().ok());
+    let new = t.item.get(Field::Order).and_then(|o| o.parse::<i64>().ok());
     crate::rules::status::check_interrupt_by_order(new, cur.order)
 }
 
@@ -343,9 +345,7 @@ fn act_take(ac: &AgentCtx, world: &World, me: &Me, plan: TakePlan) -> CbResult<S
         },
     )?;
     set_select_status(ac, &t.item_id, Status::InProgress)?;
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &ac.agent.item_id, "Doing", &t.key())?;
+    ac.write_own(Field::Doing, FieldValue::Text(&t.key()))?;
     remember(ac, &t, Status::InProgress, t.agent());
     let label_line = sync_needs_owner(ac, &t, question_open(&t.msgs, t.agent()).is_some());
     let next = match &adopt {

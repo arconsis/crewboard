@@ -15,9 +15,12 @@
 
 use super::say::{require_approved, send_signed};
 use super::{AgentCtx, World, load_world};
+use crate::board::FieldValue;
+use crate::board::ItemRef;
 use crate::clock::{Clock, SystemClock, format_ts};
 use crate::error::{CbError, CbResult};
 use crate::protocol::names::{AgentName, Kind, Re, To};
+use crate::rules::fields::Field;
 use crate::rules::fields::WriteCtx;
 use crate::rules::lifecycle::State;
 use crate::rules::status::{BlockReason, Status, TicketFacts, check_not_owner_route, check_verify};
@@ -84,7 +87,7 @@ pub(crate) fn me_of(ac: &AgentCtx, world: &World) -> CbResult<Me> {
         state: world
             .items
             .get(&ac.agent.item_id)
-            .and_then(|i| i.field("State"))
+            .and_then(|i| i.get(Field::State))
             .and_then(State::parse),
         name,
     })
@@ -137,18 +140,14 @@ pub(crate) fn write_status(
     {
         return Ok(());
     }
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, item_id, "Status", to.name())?;
+    ac.ctx.board.write_status(&ac.ctx.client, item_id, to)?;
     Ok(())
 }
 
 /// The Status write of a command that has called [`check_status_unchanged`] before its signed
 /// message: no second read.
 pub(crate) fn set_select_status(ac: &AgentCtx, item_id: &str, to: Status) -> CbResult<()> {
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, item_id, "Status", to.name())?;
+    ac.ctx.board.write_status(&ac.ctx.client, item_id, to)?;
     Ok(())
 }
 
@@ -172,7 +171,7 @@ pub(crate) fn check_status_unchanged(
     wanted: Option<Status>,
 ) -> CbResult<StatusNow> {
     let now = ac.ctx.board.read_item(&ac.ctx.client, item_id)?;
-    let seen = now.field("Status").and_then(Status::parse_board);
+    let seen = now.get(Field::Status).and_then(Status::parse_board);
     if seen == Some(expected) {
         return Ok(StatusNow::Unchanged);
     }
@@ -184,7 +183,7 @@ pub(crate) fn check_status_unchanged(
         format!(
             "{key} was {} when this command read it and is {} now: somebody moved it meanwhile. Read it again (`crewboard status`) and decide again; nothing was written",
             expected.name(),
-            now.field("Status").unwrap_or("without a Status")
+            now.get(Field::Status).unwrap_or("without a Status")
         ),
     ))
 }
@@ -333,17 +332,30 @@ fn check_owner_route(t: &Ticket) -> Result<(), Refusal> {
     check_not_owner_route(&t.key(), on_owner_route)
 }
 
+/// Write a field of a ticket. The field-writer table checks `who` first ([`Board::write`]).
+///
+/// [`Board::write`]: crate::board::Board::write
+fn write_work(
+    ac: &AgentCtx,
+    item_id: &str,
+    field: Field,
+    value: FieldValue<'_>,
+    who: &WriteCtx,
+) -> CbResult<()> {
+    ac.ctx
+        .board
+        .write(&ac.ctx.client, ItemRef::work(item_id), field, value, who)
+}
+
 fn work_write_ctx(me: &Me, assigned: bool) -> WriteCtx {
     work_write_ctx_of(me.actor, assigned)
 }
 
 fn work_write_ctx_of(actor: Actor, assigned: bool) -> WriteCtx {
     WriteCtx {
-        actor,
-        is_subject: false,
         is_assigned: assigned,
-        owner_approval: false,
         approved: true,
+        ..WriteCtx::by(actor)
     }
 }
 

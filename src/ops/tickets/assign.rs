@@ -6,7 +6,10 @@ use super::assign_checks::{CapOverride, check_assignable, check_capabilities, po
 use super::board_put::put_on_board;
 use super::order;
 use super::order::parse_order;
-use super::{Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx};
+use super::{
+    Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work,
+};
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
@@ -114,12 +117,12 @@ fn ticket_on_board(
         comments,
         msgs,
     };
-    let status = match t.item.field("Status") {
+    let status = match t.item.get(Field::Status) {
         None => {
             check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
             ac.ctx
                 .board
-                .set_select(&ac.ctx.client, &item_id, "Status", Status::Backlog.name())?;
+                .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
             out.push_str("Status set to Backlog\n");
             Status::Backlog
         }
@@ -188,13 +191,15 @@ fn write_assignment(
     check_field_write(Item::Work, Field::Gate, &wc)?;
     check_field_write(Item::Work, Field::Order, &wc)?;
     // the field is created on first use, on a board that init did not make
-    order::write_order(ac, item_id, a.order)?;
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, item_id, "Agent", a.to.as_str())?;
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, item_id, "Gate", a.gate)?;
+    order::write_order(ac, item_id, a.order, &wc)?;
+    write_work(
+        ac,
+        item_id,
+        Field::Agent,
+        FieldValue::Option(a.to.as_str()),
+        &wc,
+    )?;
+    write_work(ac, item_id, Field::Gate, FieldValue::Text(a.gate), &wc)?;
     if !a.ready_unassigned {
         super::set_select_status(ac, item_id, Status::Ready)?;
     }
@@ -232,14 +237,14 @@ fn assign_queued(
                 ),
             ));
         };
-        out.push_str(&order::set_position(ac, t, o)?);
+        out.push_str(&order::set_position(ac, t, o, &wc)?);
     } else {
         let mv = order::Move {
             to: q.to,
             order: q.order,
             ov: q.ov,
         };
-        out.push_str(&order::move_queued(ac, world, t, &mv)?);
+        out.push_str(&order::move_queued(ac, world, t, &mv, &wc)?);
     }
     Ok(out)
 }
@@ -308,7 +313,7 @@ pub fn assign(
     // a repair keeps the position that the ticket has; any other assign goes to the end
     let kept = t
         .item
-        .field("Order")
+        .get(Field::Order)
         .filter(|_| ready_unassigned)
         .and_then(|o| o.parse::<i64>().ok());
     let (order, order_is_default) = match order.or(kept) {

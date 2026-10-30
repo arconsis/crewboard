@@ -10,6 +10,8 @@
 use super::say::{require_approved, send_signed};
 use super::tickets::load_world_cached;
 use super::{AgentCtx, Ctx, Global, World, load_world, new_client, resolve_board_config};
+use crate::board::FieldValue;
+use crate::board::ItemRef;
 use crate::capabilities::facts::{self, RealProbe};
 use crate::capabilities::{Applied, Body, Caps, Change, apply_change, tier_rank};
 use crate::clock::now_ts;
@@ -27,7 +29,8 @@ use serde_json::json;
 /// and the owner; a longer one belongs in a document that the text points to.
 pub const MAX_ABOUT_CHARS: usize = 4000;
 
-pub const FIELD: &str = "Capabilities";
+/// The board field of the profile.
+pub const FIELD: Field = Field::Capabilities;
 
 /// The raw arguments of `agent profile set`.
 #[derive(Debug, Clone, Default)]
@@ -76,20 +79,30 @@ pub fn prepare(a: &SetArgs) -> CbResult<Change> {
 /// Who may write the `Capabilities` field of which agent
 /// (spec/profiles#who-may-change-a-profile-and-the-history): the agent itself, or the owner. A dev
 /// agent and the coordinator cannot write the profile of another agent.
-pub fn judge_target(actor: Actor, target: &str, me: Option<&str>) -> CbResult<()> {
+/// Returns the facts of the write for [`crate::board::Board::write`].
+pub fn judge_target(actor: Actor, target: &str, me: Option<&str>) -> CbResult<WriteCtx> {
     let ctx = WriteCtx {
-        actor,
         is_subject: me == Some(target),
-        is_assigned: false,
-        owner_approval: false,
         approved: true,
+        ..WriteCtx::by(actor)
     };
-    check_field_write(Item::Agent, Field::Capabilities, &ctx)?;
-    Ok(())
+    check_field_write(Item::Agent, FIELD, &ctx)?;
+    Ok(ctx)
 }
 
 fn board_has_field(ctx: &Ctx) -> bool {
-    ctx.board.fields.contains_key(FIELD)
+    ctx.board.has_field(FIELD).is_some()
+}
+
+/// Write the `Capabilities` field of an agent item.
+fn write_caps(ctx: &Ctx, item_id: &str, composed: &str, who: &WriteCtx) -> CbResult<()> {
+    ctx.board.write(
+        &ctx.client,
+        ItemRef::agent(item_id),
+        FIELD,
+        FieldValue::Text(composed),
+        who,
+    )
 }
 
 fn missing_field_error(ctx: &Ctx) -> CbError {
@@ -102,7 +115,7 @@ fn missing_field_error(ctx: &Ctx) -> CbError {
 }
 
 pub fn caps_of(item: Option<&ItemSnapshot>) -> Caps {
-    Caps::parse(item.and_then(|i| i.field(FIELD)).unwrap_or(""))
+    Caps::parse(item.and_then(|i| i.get(FIELD)).unwrap_or(""))
 }
 
 /// Detect the facts of this host, write them to the `Capabilities` field and the body of the
@@ -129,8 +142,7 @@ pub fn write_facts(
     let old = caps_of(item);
     let new = old.clone().with_facts(found.tokens());
     let composed = new.compose()?;
-    let me = WriteCtx::agent_self(Role::Dev);
-    check_field_write(Item::Agent, Field::Capabilities, &me)?;
+    let me = WriteCtx::own_item();
     let mut out = format!(
         "facts: {} ({} of {} tools)\n",
         found
@@ -143,10 +155,10 @@ pub fn write_facts(
         found.tools.len(),
         tool_names.len()
     );
-    if item.and_then(|i| i.field(FIELD)) == Some(composed.as_str()) {
+    if item.and_then(|i| i.get(FIELD)) == Some(composed.as_str()) {
         out.push_str("capabilities: unchanged\n");
     } else {
-        ctx.board.set_text(&ctx.client, item_id, FIELD, &composed)?;
+        write_caps(ctx, item_id, &composed, &me)?;
         out.push_str(&format!("capabilities: {composed}\n"));
     }
     // the body: keep the background text, replace the facts
@@ -186,12 +198,11 @@ pub fn set_toolchain_flag(
         caps.facts.push(TOOLCHAIN_FLAG.to_string());
     }
     let composed = caps.compose()?;
-    let me = WriteCtx::agent_self(Role::Dev);
-    check_field_write(Item::Agent, Field::Capabilities, &me)?;
-    if item.and_then(|i| i.field(FIELD)) == Some(composed.as_str()) {
+    let me = WriteCtx::own_item();
+    if item.and_then(|i| i.get(FIELD)) == Some(composed.as_str()) {
         return Ok(String::new());
     }
-    ctx.board.set_text(&ctx.client, item_id, FIELD, &composed)?;
+    write_caps(ctx, item_id, &composed, &me)?;
     Ok(format!("capabilities: {composed}\n"))
 }
 
@@ -249,10 +260,16 @@ fn plan(
     Ok((applied, body, draft))
 }
 
+/// The agent whose profile changes, and the facts of the write.
+struct Target<'a> {
+    name: &'a str,
+    item: &'a ItemSnapshot,
+    who: WriteCtx,
+}
+
 fn apply(
     ctx: &Ctx,
-    name: &str,
-    item: &ItemSnapshot,
+    target: &Target<'_>,
     applied: &Applied,
     body: &Body,
     draft: Option<&crate::board::Draft>,
@@ -260,9 +277,9 @@ fn apply(
 ) -> CbResult<String> {
     let composed = applied.caps.compose()?;
     let mut out = String::new();
-    if item.field(FIELD) != Some(composed.as_str()) {
-        ctx.board
-            .set_text(&ctx.client, &item.id, FIELD, &composed)?;
+    let Target { name, item, who } = target;
+    if item.get(FIELD) != Some(composed.as_str()) {
+        write_caps(ctx, &item.id, &composed, who)?;
         out.push_str(&format!("capabilities: {composed}\n"));
     }
     if let Some(d) = draft {
@@ -283,7 +300,7 @@ pub fn set_own(ac: &AgentCtx, change: &Change) -> CbResult<String> {
     let me = ac.name.to_string();
     let world = load_world_cached(ac)?;
     let trusted = require_approved(&world, &me)?;
-    judge_target(Actor::Agent(trusted.role), &me, Some(&me))?;
+    let who = judge_target(Actor::Agent(trusted.role), &me, Some(&me))?;
     let item = world.items.get(&ac.agent.item_id).ok_or_else(|| {
         CbError::config(format!("agent item {} is not readable", ac.agent.item_id))
     })?;
@@ -312,8 +329,11 @@ pub fn set_own(ac: &AgentCtx, change: &Change) -> CbResult<String> {
     );
     out.push_str(&apply(
         &ac.ctx,
-        &me,
-        item,
+        &Target {
+            name: &me,
+            item,
+            who,
+        },
         &applied,
         &body,
         draft.as_ref(),
@@ -329,7 +349,7 @@ pub fn set_agent(g: &Global, agent: &str, change: &Change) -> CbResult<String> {
     let cfg = resolve_board_config(g)?;
     let client = super::new_owner_client()?;
     super::require_owner(&client, &cfg, "may set the profile of another agent")?;
-    judge_target(Actor::Owner, name.as_str(), None)?;
+    let who = judge_target(Actor::Owner, name.as_str(), None)?;
     let ctx = Ctx::load(client, cfg, g.dir()?)?;
     let world = load_world(&ctx, &[], &mut crate::state::StateCache::default())?;
     let entry = world.reg.agents.get(name.as_str()).ok_or_else(|| {
@@ -368,8 +388,11 @@ pub fn set_agent(g: &Global, agent: &str, change: &Change) -> CbResult<String> {
     );
     out.push_str(&apply(
         &ctx,
-        name.as_str(),
-        item,
+        &Target {
+            name: name.as_str(),
+            item,
+            who,
+        },
         &applied,
         &body,
         draft.as_ref(),
@@ -446,7 +469,7 @@ pub fn show(g: &Global, agent: Option<&str>, json_out: bool) -> CbResult<String>
             "facts": caps.facts,
             "tools_cut": caps.tools_cut,
             "unknown_tokens": caps.unknown,
-            "capabilities": item.field(FIELD),
+            "capabilities": item.get(FIELD),
             "about": body.about,
             "history": hist.iter().map(|h| json!({"comment": h.comment_id, "by": h.by, "change": h.summary})).collect::<Vec<_>>(),
         })

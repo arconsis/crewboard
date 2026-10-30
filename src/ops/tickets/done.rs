@@ -12,9 +12,10 @@ use super::pr_evidence::{
 };
 use super::{
     Me, facts, load_world_cached, me_of, needs_owner_lines, post_with, remember, unread_guard,
-    work_write_ctx_of,
+    work_write_ctx_of, write_work,
 };
 use crate::authority::Authority;
+use crate::board::FieldValue;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::NamedRun;
 use crate::error::CbResult;
@@ -27,7 +28,7 @@ use crate::rules::Refusal;
 use crate::rules::evidence::{
     CiFacts, EvidenceInput, PrFacts, PrUrl, judge_evidence, parse_pr_url,
 };
-use crate::rules::fields::{Field, Item, check_field_write};
+use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::limits::check_text_field;
 use crate::rules::protected::MAX_FILES;
 use crate::rules::status::{Status, TicketFacts, check_status_transition};
@@ -305,6 +306,8 @@ struct DonePlan {
     owner: Option<OwnerStep>,
     /// The new value of the board field `Evidence`.
     evidence_field: String,
+    /// Who writes `Evidence` (checked when the plan is made).
+    evidence_writer: WriteCtx,
     /// The Status to write; `None` for a re-delivery in Review.
     status_write: Option<Status>,
     /// `Doing = idle` when the agent has no other ticket In Progress.
@@ -387,11 +390,9 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
         redelivery && is_new_head(f.last_done_sha.as_deref(), Some(&ev.sha)),
     );
     check_status_transition(Some(f.from), to, f.actor, &deliver)?;
-    check_field_write(
-        Item::Work,
-        Field::Evidence,
-        &work_write_ctx_of(f.actor, f.facts.actor_is_assignee),
-    )?;
+    // checked here, before the signed message: a refused writer posts nothing
+    let evidence_writer = work_write_ctx_of(f.actor, f.facts.actor_is_assignee);
+    check_field_write(Item::Work, Field::Evidence, &evidence_writer)?;
     let ci_info = if f.local_gate.is_some() {
         format!("ci-info: {}\n", ci_info_text(f.ci))
     } else {
@@ -401,6 +402,7 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
         body: done_body(&msg, &done_notes(f, &ci_info)),
         owner: owner_step(f, &msg.sha),
         evidence_field: field,
+        evidence_writer,
         status_write: (f.from != to).then_some(to),
         idle_when_free: f.from == Status::InProgress,
         remember: to,
@@ -564,9 +566,13 @@ fn act_done(ac: &AgentCtx, l: &DoneLoad, p: &DonePlan, clock: &dyn Clock) -> CbR
         Some(o) => act_owner(ac, t, o, clock)?,
         None => String::new(),
     };
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &t.item_id, "Evidence", &p.evidence_field)?;
+    write_work(
+        ac,
+        &t.item_id,
+        Field::Evidence,
+        FieldValue::Text(&p.evidence_field),
+        &p.evidence_writer,
+    )?;
     // A re-delivery in Review keeps the Status: no Status write.
     if let Some(to) = p.status_write {
         super::set_select_status(ac, &t.item_id, to)?;

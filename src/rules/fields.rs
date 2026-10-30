@@ -4,35 +4,21 @@
 //! The table [`FIELD_RULES`] is the data; [`check_field_write`] is the function.
 //! `Status` and `State` are not written here: they have transition tables of their own
 //! (`status.rs`, `lifecycle.rs`).
+//!
+//! The board writes a field only through `Board::write`, which asks [`check_field_write`]
+//! first: "one writer per field" holds by construction. A field is a [`Field`], never a string,
+//! so a misspelt field name does not compile. [`Field::name`] is the name on the board. The
+//! type lives in `base::fields`, so a module that only reads fields needs no rule.
 
 use super::{Actor, Verdict, require};
 use super::{Refusal, Role};
+pub use crate::base::fields::{Field, FieldType};
+use crate::base::ids;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Work,
     Agent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Field {
-    Kind,
-    Status,
-    Agent,
-    /// Optional queue position of a Ready ticket within its agent's queue (number; lowest first).
-    Order,
-    Gate,
-    Evidence,
-    Role,
-    State,
-    Heartbeat,
-    Host,
-    Runtime,
-    Key,
-    Doing,
-    Cursor,
-    /// Facts (detected) plus declared tags of an agent (spec/profiles).
-    Capabilities,
 }
 
 /// Who may write a field.
@@ -51,6 +37,10 @@ pub enum Writer {
     /// The agent the item describes, or the owner. Not another agent, not the coordinator
     /// (spec/profiles: profiles).
     SelfOrOwner,
+    /// The agent the item describes. At a forced stop (`stop --force`) the owner or the
+    /// coordinator writes it for the stopped agent, which cannot write any more
+    /// (spec/board#lifecycle).
+    SelfOrForcedStop,
     /// Written through a transition table, never directly.
     Transition,
 }
@@ -83,13 +73,13 @@ pub const FIELD_RULES: &[FieldRule] = &[
     r(Item::Agent, Field::Host, Writer::SelfOnly),
     r(Item::Agent, Field::Runtime, Writer::SelfOnly),
     r(Item::Agent, Field::Key, Writer::SelfUntilApproved),
-    r(Item::Agent, Field::Doing, Writer::SelfOnly),
+    r(Item::Agent, Field::Doing, Writer::SelfOrForcedStop),
     r(Item::Agent, Field::Cursor, Writer::SelfOnly),
     r(Item::Agent, Field::Capabilities, Writer::SelfOrOwner),
 ];
 
 /// Facts about one write attempt.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WriteCtx {
     pub actor: Actor,
     /// The item is an agent item and the actor is the agent it describes.
@@ -100,6 +90,8 @@ pub struct WriteCtx {
     pub owner_approval: bool,
     /// The agent was approved, so its key is frozen.
     pub approved: bool,
+    /// The write is part of a forced stop of the agent the item describes (`stop --force`).
+    pub forced_stop: bool,
 }
 
 pub fn check_field_write(item: Item, field: Field, ctx: &WriteCtx) -> Verdict {
@@ -128,6 +120,14 @@ pub fn check_field_write(item: Item, field: Field, ctx: &WriteCtx) -> Verdict {
             !a.is_owner() && ctx.is_subject,
             "field-wrong-writer",
             &format!("{field:?} may be written only by the agent itself"),
+        ),
+        Writer::SelfOrForcedStop => require(
+            (!a.is_owner() && ctx.is_subject)
+                || (ctx.forced_stop && (a.is_owner() || a.is_coordinator())),
+            "field-wrong-writer",
+            &format!(
+                "{field:?} may be written only by the agent itself, or by the owner or the coordinator at a forced stop"
+            ),
         ),
         Writer::SelfOrOwner => require(
             a.is_owner() || ctx.is_subject,
@@ -158,16 +158,32 @@ pub fn check_field_write(item: Item, field: Field, ctx: &WriteCtx) -> Verdict {
     }
 }
 
-/// Convenience for tests and callers: a context for an agent writing its own item.
 impl WriteCtx {
-    pub fn agent_self(role: Role) -> Self {
+    /// `actor` writes, with no other fact: not the subject, not assigned, no approval.
+    pub const fn by(actor: Actor) -> Self {
         WriteCtx {
-            actor: Actor::Agent(role),
-            is_subject: true,
+            actor,
+            is_subject: false,
             is_assigned: false,
             owner_approval: false,
             approved: false,
+            forced_stop: false,
         }
+    }
+
+    /// An agent with `role` writes its own item.
+    pub const fn agent_self(role: Role) -> Self {
+        WriteCtx {
+            is_subject: true,
+            ..WriteCtx::by(Actor::Agent(role))
+        }
+    }
+
+    /// An agent writes its own item, and its role is not a fact of the write (a self-only
+    /// field, or an agent before its approval). No self rule reads the role. `Dev` is the role
+    /// with the fewest rights, so a use for any other field fails closed.
+    pub const fn own_item() -> Self {
+        WriteCtx::agent_self(Role::Dev)
     }
 }
 
@@ -176,13 +192,7 @@ mod tests {
     use super::*;
 
     fn ctx(actor: Actor) -> WriteCtx {
-        WriteCtx {
-            actor,
-            is_subject: false,
-            is_assigned: false,
-            owner_approval: false,
-            approved: false,
-        }
+        WriteCtx::by(actor)
     }
     const COORD: Actor = Actor::Agent(Role::Coordinator);
     const DEV: Actor = Actor::Agent(Role::Dev);
@@ -360,6 +370,66 @@ mod tests {
             )),
             "use-transition"
         );
+    }
+
+    #[test]
+    fn doing_by_the_agent_itself_or_at_a_forced_stop_by_the_owner_or_the_coordinator() {
+        assert!(check_field_write(Item::Agent, Field::Doing, &WriteCtx::own_item()).is_ok());
+        for stopper in [Actor::Owner, COORD] {
+            let mut c = ctx(stopper);
+            assert_eq!(
+                rule_of(check_field_write(Item::Agent, Field::Doing, &c)),
+                "field-wrong-writer"
+            );
+            c.forced_stop = true;
+            assert!(check_field_write(Item::Agent, Field::Doing, &c).is_ok());
+        }
+        // a dev agent cannot stop another agent, so the flag does not help it
+        let mut d = ctx(DEV);
+        d.forced_stop = true;
+        assert_eq!(
+            rule_of(check_field_write(Item::Agent, Field::Doing, &d)),
+            "field-wrong-writer"
+        );
+        // the flag opens Doing only, not the other self fields
+        let mut o = ctx(Actor::Owner);
+        o.forced_stop = true;
+        assert_eq!(
+            rule_of(check_field_write(Item::Agent, Field::Heartbeat, &o)),
+            "field-wrong-writer"
+        );
+    }
+
+    #[test]
+    fn every_field_has_one_rule_and_keeps_its_board_name() {
+        let names: Vec<&str> = Field::ALL.iter().map(|f| f.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "Kind",
+                "Status",
+                "Agent",
+                "Order",
+                "Gate",
+                "Evidence",
+                "Role",
+                "State",
+                "Heartbeat",
+                "Host",
+                "Runtime",
+                "Key",
+                "Doing",
+                "Cursor",
+                "Capabilities"
+            ]
+        );
+        for f in Field::ALL {
+            assert!(FIELD_RULES.iter().any(|r| r.field == f), "{f} has no rule");
+            assert_eq!(f.to_string(), f.name());
+        }
+        assert_eq!(Field::Order.kind(), FieldType::Number);
+        assert_eq!(Field::Status.kind(), FieldType::SingleSelect);
+        assert_eq!(Field::Doing.kind(), FieldType::Text);
     }
 
     #[test]

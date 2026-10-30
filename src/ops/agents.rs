@@ -8,6 +8,7 @@ use crate::capabilities::{Caps, is_met, parse_requirement, tier_rank};
 use crate::clock::now_epoch;
 use crate::error::{CbError, CbResult};
 use crate::owner_cmd::role_name;
+use crate::rules::fields::Field;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::StateCache;
 use crate::state::TicketIndex;
@@ -229,7 +230,7 @@ pub fn run(g: &Global, can: &[String], json_out: bool) -> CbResult<String> {
             name: e.name.clone(),
             role: role_name(t.role).to_string(),
             state: item
-                .and_then(|i| i.field("State"))
+                .and_then(|i| i.get(Field::State))
                 .unwrap_or("?")
                 .to_string(),
             liveness: live.word().to_string(),
@@ -237,7 +238,7 @@ pub fn run(g: &Global, can: &[String], json_out: bool) -> CbResult<String> {
             load: load_of(&trows, &e.name),
             caps: caps_of(item),
             capabilities: item
-                .and_then(|i| i.field(super::profile::FIELD))
+                .and_then(|i| i.get(super::profile::FIELD))
                 .unwrap_or("")
                 .to_string(),
         });

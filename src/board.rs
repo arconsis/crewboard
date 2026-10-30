@@ -2,8 +2,14 @@
 //!
 //! Rules built in here (spec/board#fields, spec/board#item-ids-are-the-source-of-truth):
 //!
-//! - Every text write goes through [`Board::set_text`], which checks the 1024-byte limit
-//!   first ([`crate::rules::limits::check_text_field`]).
+//! - Every field value is written by [`Board::write`], which asks the field-writer table
+//!   ([`check_field_write`]) first: "one writer per field" holds by construction. Two fields
+//!   are the exception: `Status` and `State` are written by [`Board::write_status`] and
+//!   [`Board::write_state`], which run no check of their own. Their gate is the transition
+//!   check of the caller (`rules::status`, `rules::lifecycle`). A field is a [`Field`], never a
+//!   string.
+//! - Every text write checks the 1024-byte limit first
+//!   ([`crate::rules::limits::check_text_field`]).
 //! - Single-select options are written only by [`Board::write_options`]: it merges with the
 //!   existing ids (the complete-list rule), writes, reads back, and checks with
 //!   `verify_ids_kept` that no earlier id was lost.
@@ -14,11 +20,14 @@ use crate::config::split_repo;
 use crate::error::{CbError, CbResult};
 use crate::github::{Client, GhError};
 use crate::items::{ITEM_FRAGMENT, ItemSnapshot, parse_item_node};
+use crate::rules::fields::{Field, FieldType, Item, WriteCtx, check_field_write};
+use crate::rules::lifecycle::State;
 use crate::rules::limits::check_text_field;
 use crate::rules::options::{
     DesiredOption, OptionEntry, check_option_limit, names_missing_after, rebase_on_fresh,
     verify_ids_kept, verify_ids_kept_except,
 };
+use crate::rules::status::Status;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -28,6 +37,53 @@ pub struct OptionInfo {
     pub name: String,
     pub color: String,
     pub description: String,
+}
+
+/// A field by its name on the board. Crew code names a field with a [`Field`]; a test can name a
+/// scratch field of its own. There is no impl for `str`, so a misspelt field name does not
+/// compile.
+pub trait FieldName {
+    fn board_name(&self) -> &str;
+}
+
+impl FieldName for Field {
+    fn board_name(&self) -> &str {
+        self.name()
+    }
+}
+
+/// The item that a field write goes to: a ticket (`Work`) or an agent item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemRef<'a> {
+    pub item: Item,
+    pub id: &'a str,
+}
+
+impl<'a> ItemRef<'a> {
+    pub fn work(id: &'a str) -> Self {
+        ItemRef {
+            item: Item::Work,
+            id,
+        }
+    }
+
+    pub fn agent(id: &'a str) -> Self {
+        ItemRef {
+            item: Item::Agent,
+            id,
+        }
+    }
+}
+
+/// A value for [`Board::write`]. Its type must be the type of the field ([`Field::kind`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldValue<'a> {
+    Text(&'a str),
+    /// A single-select option by name. The option must exist.
+    Option(&'a str),
+    Number(i64),
+    /// No value (for example the `Agent` of a reassigned ticket).
+    Clear,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,9 +250,8 @@ fn parse_fields(v: &Value) -> CbResult<BTreeMap<String, FieldInfo>> {
 impl Board {
     /// The Status field of the board has the option of `status` (a board that `init` made
     /// before the option existed lacks Dropped).
-    pub fn has_status_option(&self, status: crate::rules::status::Status) -> bool {
-        self.fields
-            .get("Status")
+    pub fn has_status_option(&self, status: Status) -> bool {
+        self.has_field(Field::Status)
             .is_some_and(|f| f.option_id(status.name()).is_some())
     }
 
@@ -248,13 +303,32 @@ impl Board {
         Ok(())
     }
 
-    pub fn field(&self, name: &str) -> CbResult<&FieldInfo> {
+    /// The field, or a config error that names `init` when the board lacks it.
+    pub fn field(&self, field: impl FieldName) -> CbResult<&FieldInfo> {
+        self.field_by_name(field.board_name())
+    }
+
+    /// [`Board::field`] by the name on the board (inside the option writer, where the name is
+    /// already resolved).
+    fn field_by_name(&self, name: &str) -> CbResult<&FieldInfo> {
         self.fields.get(name).ok_or_else(|| {
             CbError::config(format!(
                 "the board has no field '{name}'; run `crewboard init --project {}` first",
                 self.number
             ))
         })
+    }
+
+    /// The field, or `None` when the board lacks it.
+    pub fn has_field(&self, field: impl FieldName) -> Option<&FieldInfo> {
+        self.fields.get(field.board_name())
+    }
+
+    /// Replace the cached options of a field (after a fresh read).
+    pub fn cache_options(&mut self, field: impl FieldName, options: Vec<OptionInfo>) {
+        if let Some(f) = self.fields.get_mut(field.board_name()) {
+            f.options = options;
+        }
     }
 
     /// Read items by id. The answer has one entry per id, `None` for an unknown id.
@@ -368,10 +442,14 @@ impl Board {
     /// item without a value. One GraphQL read per 100
     /// items. The listing lags for items added in the last minutes, so a caller
     /// that must know every user of an option adds the items it knows by id.
-    pub fn list_select_values(&self, client: &Client, field: &str) -> CbResult<Vec<ListedValue>> {
+    pub fn list_select_values(
+        &self,
+        client: &Client,
+        field: impl FieldName,
+    ) -> CbResult<Vec<ListedValue>> {
         let q = "query($p:ID!,$f:String!,$after:String){node(id:$p){... on ProjectV2{items(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{id v:fieldValueByName(name:$f){... on ProjectV2ItemFieldSingleSelectValue{name optionId}}}}}}}";
         let mut out = Vec::new();
-        self.each_item_page(client, q, json!({"f": field}), |nodes| {
+        self.each_item_page(client, q, json!({"f": field.board_name()}), |nodes| {
             for n in nodes {
                 let Some(id) = n.get("id").and_then(Value::as_str) else {
                     continue;
@@ -448,14 +526,59 @@ impl Board {
             })
     }
 
-    /// The only text write. Refuses a value over 1024 bytes before any request.
-    pub fn set_text(
+    /// THE write of a field value (spec/board#fields, "One writer per field"). The field-writer
+    /// table decides first ([`check_field_write`]): a refused write sends no request. `who` holds
+    /// the facts of the write. `Status` and `State` are refused here (`use-transition`): their
+    /// writers are [`Board::write_status`] and [`Board::write_state`].
+    pub fn write(
+        &self,
+        client: &Client,
+        at: ItemRef<'_>,
+        field: Field,
+        value: FieldValue<'_>,
+        who: &WriteCtx,
+    ) -> CbResult<()> {
+        check_field_write(at.item, field, who)?;
+        self.put(client, at.id, field, value)
+    }
+
+    /// The `Status` of a ticket. The Status flow (spec/tickets#status-flow-and-writers) is checked
+    /// by the caller with the transition rules of [`crate::rules::status`].
+    pub fn write_status(&self, client: &Client, item_id: &str, to: Status) -> CbResult<()> {
+        self.put(
+            client,
+            item_id,
+            Field::Status,
+            FieldValue::Option(to.name()),
+        )
+    }
+
+    /// The `State` of an agent item. The lifecycle (spec/board#lifecycle) is checked by the
+    /// caller with the transition rules of [`crate::rules::lifecycle`].
+    pub fn write_state(&self, client: &Client, item_id: &str, to: State) -> CbResult<()> {
+        self.put(client, item_id, Field::State, FieldValue::Option(to.name()))
+    }
+
+    /// The request behind every field write. The value type must be the field type
+    /// ([`value_fits`]): a wrong type is an error before any request, in every build.
+    fn put(
         &self,
         client: &Client,
         item_id: &str,
-        field: &str,
-        value: &str,
+        field: Field,
+        value: FieldValue<'_>,
     ) -> CbResult<()> {
+        value_fits(field, value)?;
+        match value {
+            FieldValue::Text(t) => self.set_text(client, item_id, field, t),
+            FieldValue::Option(o) => self.set_select(client, item_id, field, o),
+            FieldValue::Number(n) => self.set_number(client, item_id, field, n),
+            FieldValue::Clear => self.clear_field(client, item_id, field),
+        }
+    }
+
+    /// The text write. Refuses a value over 1024 bytes before any request.
+    fn set_text(&self, client: &Client, item_id: &str, field: Field, value: &str) -> CbResult<()> {
         check_text_field(value)?;
         let f = self.field(field)?;
         client.graphql(
@@ -478,8 +601,8 @@ impl Board {
             .ok_or_else(|| GhError::Shape("addProjectV2ItemById returned no item id".into()).into())
     }
 
-    /// Clear a field value (for example the `Agent` of a reassigned ticket).
-    pub fn clear_field(&self, client: &Client, item_id: &str, field: &str) -> CbResult<()> {
+    /// Clear a field value.
+    fn clear_field(&self, client: &Client, item_id: &str, field: Field) -> CbResult<()> {
         let f = self.field(field)?;
         client.graphql(
             "mutation($p:ID!,$i:ID!,$f:ID!){clearProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f}){projectV2Item{id}}}",
@@ -489,11 +612,11 @@ impl Board {
     }
 
     /// Set a single-select value by option name. The option must exist.
-    pub fn set_select(
+    fn set_select(
         &self,
         client: &Client,
         item_id: &str,
-        field: &str,
+        field: Field,
         option: &str,
     ) -> CbResult<()> {
         let f = self.field(field)?;
@@ -511,13 +634,7 @@ impl Board {
     }
 
     /// Set a number field. A number field has no options: nothing to keep or resend.
-    pub fn set_number(
-        &self,
-        client: &Client,
-        item_id: &str,
-        field: &str,
-        value: i64,
-    ) -> CbResult<()> {
+    fn set_number(&self, client: &Client, item_id: &str, field: Field, value: i64) -> CbResult<()> {
         let f = self.field(field)?;
         if f.data_type != "NUMBER" {
             return Err(CbError::refused(
@@ -538,7 +655,8 @@ impl Board {
     /// Make sure a number field exists. A missing field is created; a field of another type is
     /// refused (`field-type-mismatch`). Returns true if the field was created. Used for the
     /// optional `Order` field.
-    pub fn ensure_number_field(&mut self, client: &Client, name: &str) -> CbResult<bool> {
+    pub fn ensure_number_field(&mut self, client: &Client, field: Field) -> CbResult<bool> {
+        let name = field.name();
         match self.fields.get(name) {
             None => {
                 client.graphql(
@@ -560,9 +678,18 @@ impl Board {
     }
 
     /// Read the options of one single-select field from GitHub (not from the cache).
-    pub fn read_options(&self, client: &Client, field: &str) -> CbResult<Vec<OptionInfo>> {
+    pub fn read_options(
+        &self,
+        client: &Client,
+        field: impl FieldName,
+    ) -> CbResult<Vec<OptionInfo>> {
+        self.read_options_by_name(client, field.board_name())
+    }
+
+    /// [`Board::read_options`] by the name on the board (inside the option writer).
+    fn read_options_by_name(&self, client: &Client, name: &str) -> CbResult<Vec<OptionInfo>> {
         let fresh = Board::load(client, &self.owner, self.number)?;
-        Ok(fresh.field(field)?.options.clone())
+        Ok(fresh.field_by_name(name)?.options.clone())
     }
 
     /// THE writer of single-select options (spec/board#fields). `desired` must come from
@@ -571,10 +698,10 @@ impl Board {
     pub fn write_options(
         &mut self,
         client: &Client,
-        field: &str,
+        field: impl FieldName,
         desired: &[DesiredOption],
     ) -> CbResult<Vec<OptionInfo>> {
-        self.write_options_inner(client, field, desired, &[], &[])
+        self.write_options_inner(client, field.board_name(), desired, &[], &[])
     }
 
     /// The same writer for `init`, which turns a pristine built-in name into ours: `renames`
@@ -583,11 +710,11 @@ impl Board {
     pub fn write_options_renaming(
         &mut self,
         client: &Client,
-        field: &str,
+        field: impl FieldName,
         desired: &[DesiredOption],
         renames: &[(&str, &str)],
     ) -> CbResult<Vec<OptionInfo>> {
-        self.write_options_inner(client, field, desired, &[], renames)
+        self.write_options_inner(client, field.board_name(), desired, &[], renames)
     }
 
     /// The same writer for `prune`: the ids in `removing` are meant to be gone. Every other
@@ -595,11 +722,11 @@ impl Board {
     pub fn write_options_removing(
         &mut self,
         client: &Client,
-        field: &str,
+        field: impl FieldName,
         desired: &[DesiredOption],
         removing: &[String],
     ) -> CbResult<Vec<OptionInfo>> {
-        self.write_options_inner(client, field, desired, removing, &[])
+        self.write_options_inner(client, field.board_name(), desired, removing, &[])
     }
 
     /// The one write behind the three public writers. A kept id keeps its name unless
@@ -620,7 +747,7 @@ impl Board {
         let mut desired = desired.to_vec();
         for attempt in 0..2 {
             let fresh = Board::load(client, &self.owner, self.number)?;
-            let f = fresh.field(field)?.clone();
+            let f = fresh.field_by_name(field)?.clone();
             let before = f.entries();
             desired = rebase_on_fresh(&desired, &before, removing);
             let expected: Vec<OptionEntry> = before
@@ -649,7 +776,7 @@ impl Board {
                 json!({"f": f.id, "o": inputs}),
             )?;
             // Read back from GitHub and check that every earlier id survived.
-            let after = self.read_options(client, field)?;
+            let after = self.read_options_by_name(client, field)?;
             let after_entries: Vec<OptionEntry> = after
                 .iter()
                 .map(|o| OptionEntry {
@@ -677,6 +804,27 @@ impl Board {
             return Ok(after);
         }
         Err(CbError::config("option write: no attempt ran"))
+    }
+}
+
+/// A value of the type of the field (`Clear` fits every field). The other case is a bug of the
+/// caller: an internal error, and the request is not sent, so a text mutation never reaches a
+/// single-select field.
+fn value_fits(field: Field, value: FieldValue<'_>) -> CbResult<()> {
+    let fits = matches!(
+        (field.kind(), value),
+        (FieldType::Text, FieldValue::Text(_))
+            | (FieldType::SingleSelect, FieldValue::Option(_))
+            | (FieldType::Number, FieldValue::Number(_))
+            | (_, FieldValue::Clear)
+    );
+    if fits {
+        Ok(())
+    } else {
+        Err(CbError::config(format!(
+            "internal error: the field {field} ({:?}) gets a value of another type; nothing was sent",
+            field.kind()
+        )))
     }
 }
 
@@ -757,19 +905,38 @@ mod tests {
     }
 
     #[test]
+    fn a_value_of_another_type_is_an_internal_error_in_every_build() {
+        assert!(value_fits(Field::Gate, FieldValue::Text("x")).is_ok());
+        assert!(value_fits(Field::Kind, FieldValue::Option("o1")).is_ok());
+        assert!(value_fits(Field::Order, FieldValue::Number(1)).is_ok());
+        for f in Field::ALL {
+            assert!(value_fits(f, FieldValue::Clear).is_ok(), "{f}");
+        }
+        let e = value_fits(Field::Kind, FieldValue::Text("Work")).unwrap_err();
+        assert!(
+            e.to_string().contains(
+                "internal error: the field Kind (SingleSelect) gets a value of another type"
+            ),
+            "{e}"
+        );
+        assert!(value_fits(Field::Gate, FieldValue::Option("o1")).is_err());
+        assert!(value_fits(Field::Order, FieldValue::Text("1")).is_err());
+    }
+
+    #[test]
     fn parses_fields_and_options() {
         let b = Board::from_json(&project_json(), "example-org", OwnerKind::Org).unwrap();
         assert_eq!(b.number, 15);
         assert_eq!(b.fields.len(), 2);
-        assert_eq!(b.field("Kind").unwrap().option_id("Agent"), Some("o2"));
-        assert_eq!(b.field("Kind").unwrap().option_id("Nope"), None);
-        assert_eq!(b.field("Gate").unwrap().data_type, "TEXT");
+        assert_eq!(b.field(Field::Kind).unwrap().option_id("Agent"), Some("o2"));
+        assert_eq!(b.field(Field::Kind).unwrap().option_id("Nope"), None);
+        assert_eq!(b.field(Field::Gate).unwrap().data_type, "TEXT");
     }
 
     #[test]
     fn a_missing_field_is_a_config_error_that_names_init() {
         let b = Board::from_json(&project_json(), "example-org", OwnerKind::Org).unwrap();
-        let e = b.field("Cursor").unwrap_err();
+        let e = b.field(Field::Cursor).unwrap_err();
         assert_eq!(e.exit(), crate::exit::Exit::Config);
         assert!(e.to_string().contains("init"));
         assert!(Board::from_json(&json!({"id": "x"}), "o", OwnerKind::Org).is_err());
@@ -784,7 +951,7 @@ mod tests {
     #[test]
     fn the_options_payload_keeps_every_existing_id_color_and_description() {
         let b = Board::from_json(&project_json(), "example-org", OwnerKind::Org).unwrap();
-        let f = b.field("Kind").unwrap();
+        let f = b.field(Field::Kind).unwrap();
         // an add: the complete list, the two old options with their ids, the new one without
         let desired = crate::rules::options::merge_options(
             &f.entries(),

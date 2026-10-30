@@ -8,13 +8,13 @@
 //! board with a crew login (agents may not act as the owner).
 
 use super::{Ctx, Global, World, load_world, new_owner_client, resolve_board_config};
-use crate::board::OptionInfo;
+use crate::board::{FieldValue, ItemRef, OptionInfo};
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::owner_cmd::{approve_text, role_name};
 use crate::protocol::names::AgentName;
 use crate::registry::fingerprint;
-use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
+use crate::rules::fields::{Field, WriteCtx};
 use crate::rules::lifecycle::{CrewMember, State, Who, check_lifecycle, check_single_coordinator};
 use crate::rules::options::{
     AgentFacts, OPTION_LIMIT, OptionChange, OptionEntry, merge_options, plan_cap_prune,
@@ -64,12 +64,14 @@ fn agent_facts(world: &World) -> BTreeMap<String, AgentFacts> {
                 .map(|c| c.created_epoch)
         });
         let heartbeat = item
-            .and_then(|i| i.field("Heartbeat"))
+            .and_then(|i| i.get(Field::Heartbeat))
             .and_then(crate::clock::parse_ts);
         out.insert(
             e.name.clone(),
             AgentFacts {
-                state: item.and_then(|i| i.field("State")).and_then(State::parse),
+                state: item
+                    .and_then(|i| i.get(Field::State))
+                    .and_then(State::parse),
                 rejected: e.rejected,
                 last_seen: heartbeat.or(joined),
             },
@@ -83,11 +85,9 @@ fn agent_facts(world: &World) -> BTreeMap<String, AgentFacts> {
 /// the `Agent` value of every listed item (one GraphQL read per 100 items) and plans the
 /// prune; with too few free options it refuses with `agent-field-full`.
 pub fn plan_agent_option(ctx: &mut Ctx, world: &World, name: &str) -> CbResult<AgentOptionPlan> {
-    let fresh: Vec<OptionInfo> = ctx.board.read_options(&ctx.client, "Agent")?;
-    if let Some(f) = ctx.board.fields.get_mut("Agent") {
-        f.options = fresh;
-    }
-    let current = ctx.board.field("Agent")?.entries();
+    let fresh: Vec<OptionInfo> = ctx.board.read_options(&ctx.client, Field::Agent)?;
+    ctx.board.cache_options(Field::Agent, fresh);
+    let current = ctx.board.field(Field::Agent)?.entries();
     let mut plan = AgentOptionPlan {
         name: name.to_string(),
         exists: current.iter().any(|o| o.name == name),
@@ -99,7 +99,7 @@ pub fn plan_agent_option(ctx: &mut Ctx, world: &World, name: &str) -> CbResult<A
         return Ok(plan);
     }
     let need = plan.current.len() + 1 - OPTION_LIMIT;
-    let values = ctx.board.list_select_values(&ctx.client, "Agent")?;
+    let values = ctx.board.list_select_values(&ctx.client, Field::Agent)?;
     let mut used_ids = BTreeSet::new();
     let mut used_names = BTreeSet::new();
     for v in &values {
@@ -154,10 +154,11 @@ pub fn apply_agent_option(ctx: &mut Ctx, plan: AgentOptionPlan) -> CbResult<Agen
     )?;
     desired.retain(|d| d.id.as_ref().is_none_or(|id| !removing.contains(id)));
     if removing.is_empty() {
-        ctx.board.write_options(&ctx.client, "Agent", &desired)?;
+        ctx.board
+            .write_options(&ctx.client, Field::Agent, &desired)?;
     } else {
         ctx.board
-            .write_options_removing(&ctx.client, "Agent", &desired, &removing)?;
+            .write_options_removing(&ctx.client, Field::Agent, &desired, &removing)?;
     }
     for (o, why) in &plan.prune {
         lines.push(format!(
@@ -226,7 +227,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     let fp = fingerprint(&join_key);
     // The Key field must be the key of the signed join (the agent wrote both).
     let item_key = item
-        .field("Key")
+        .get(Field::Key)
         .and_then(|k| ssh_key::PublicKey::from_openssh(k).ok());
     if item_key.as_ref().map(|k| k.key_data()) != Some(join_key.key_data()) {
         return Err(CbError::refused(
@@ -234,7 +235,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
             "the Key field of the agent item differs from the key in the signed join request",
         ));
     }
-    let state = item.field("State").and_then(State::parse);
+    let state = item.get(Field::State).and_then(State::parse);
     // Idempotent: an approval that exists is not posted again, but the item is completed.
     let already = entry.approval.clone();
     if let Some(a) = &already
@@ -266,7 +267,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
                             .map(|j| j.item_id.clone())
                             .unwrap_or_default(),
                     )
-                    .and_then(|i| i.field("State"))
+                    .and_then(|i| i.get(Field::State))
                     .and_then(State::parse)
                     .unwrap_or(State::Approved),
             })
@@ -278,7 +279,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     let option_plan = plan_agent_option(&mut ctx, &world, name.as_str())?;
     // Nothing to do: approved, the option is there, the agent is active, the Role is set.
     let role_set = item
-        .field("Role")
+        .get(Field::Role)
         .is_some_and(|r| r.eq_ignore_ascii_case(role_name(role)));
     if already.is_some() && option_plan.exists && state == Some(State::Active) && role_set {
         return Ok(Approval {
@@ -309,25 +310,22 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     });
     // 3. State and Role on the agent item. Role needs the owner approval (just posted).
     let wc = WriteCtx {
-        actor: Actor::Owner,
-        is_subject: false,
-        is_assigned: false,
         owner_approval: true,
-        approved: false,
+        ..WriteCtx::by(Actor::Owner)
     };
-    check_field_write(Item::Agent, Field::Role, &wc)?;
-    ctx.board.set_select(
+    ctx.board.write(
         &ctx.client,
-        &join.item_id,
-        "Role",
-        match role {
+        ItemRef::agent(&join.item_id),
+        Field::Role,
+        FieldValue::Option(match role {
             Role::Coordinator => "Coordinator",
             Role::Dev => "Dev",
-        },
+        }),
+        &wc,
     )?;
     if state == Some(State::Requested) || state.is_none() {
         ctx.board
-            .set_select(&ctx.client, &join.item_id, "State", "approved")?;
+            .write_state(&ctx.client, &join.item_id, State::Approved)?;
     }
     out.push_str(&format!(
         "{name} approved as {}; key {fp} and account {} are frozen; State=approved\n",
