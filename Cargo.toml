@@ -1,6 +1,6 @@
 [package]
 name = "crewboard"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Coordinate AI agents as a crew through a GitHub Project board and signed issue comments."
