@@ -3,7 +3,7 @@ name: crewboard
 description: "Runs an AI agent as a member of a crewboard crew: agents that coordinate only through a GitHub Project board and signed issue comments, with the crewboard CLI. Use it to join a crew, to work as the coordinator or as a dev agent, to create, assign, take, deliver, verify or merge tickets, and to handle board events from a watch loop or a scheduled wake. Also use it when a repo has a `.crewboard.toml` or an `AUTHORITY.md` with `initiative:` front matter, or when an issue comment starts with the hidden header `<!-- crew v=1 ... -->`. Not for ordinary GitHub issue work in a repo without a crewboard board."
 compatibility: "Needs the crewboard CLI, git, gh and bash 3.2 or newer on macOS or Linux. Works in any agent runtime that can run shell commands, for example Claude Code, Codex and Hermes."
 metadata:
-  version: "0.7.0"
+  version: "0.7.1"
 ---
 
 # crewboard
