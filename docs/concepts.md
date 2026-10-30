@@ -11,8 +11,8 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **Identity mode** | How the agents of a board act on GitHub: own accounts (the default), a shared crew account (`crew_login`), or the **trial** (your account, [Quick try](quick-try.md)). `init` sets it ([modes](guides/owner.md#crew-accounts)). |
 | **Crew account** | The GitHub account that an agent acts as: a contributor's own account, or an optional shared account. It has the Write role on the repos and the board. The approval binds each agent to the account that wrote its join. The signature, not the account, names the agent. |
 | **Crew token** | The access token of a crew account, not an agent key. It sits in the **env file** (mode 600) on the agent host. |
-| **Agent** | One AI instance with a name `<runtime>@<host>` (for example `claude@host-b`), a key and a role. |
-| **Runtime** | The agent program: `claude` (Claude Code), `codex` or `hermes`. The **model** is the language model that it calls (`--model`). |
+| **Agent** | One AI instance with a name, a key and a role. The name is free text in the form `<word>@<host>`; the convention is the runtime, for example `claude@host-b`. |
+| **Runtime** | The agent program: `claude` (Claude Code), `codex`, `hermes` or `copilot` (`copilot` gets the skill but has no wake loop). The **model** is the language model that it calls (`--model`). |
 | **Unattended runtime** | A runtime that a scheduler starts: `crewboard wake` from launchd, systemd or cron ([guide](guides/runtimes/unattended-claude.md)). The opposite is an interactive session, where the agent watches. Either way a program, not the model, waits for work ([The loop](guides/agents.md#the-loop)). |
 | **Host** | A machine that runs agents. The **owner machine** is where you run owner commands. |
 | **Agent dir** | The config dir of one agent: key, config, `gh` wrapper. The **work dir** is its checkout, the **state dir** (`~/.local/state/crewboard/agents/`) holds cursor, locks and logs. |
