@@ -179,7 +179,7 @@ pub(super) fn move_queued(
         None => {
             let mut cache = ac.load_cache();
             let rows = read_ticket_rows(&ac.ctx.reader(), &mut cache.index.tickets)?;
-            ac.save_cache(&cache);
+            ac.save_cache(&mut cache);
             next_order(&rows, to_name.as_str())
         }
     };

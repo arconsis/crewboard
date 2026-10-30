@@ -89,8 +89,16 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                     .and_then(|ac| ops::report_status::run(&ac, health, &t)),
             )
         }
-        ReviewCmd::Tick { sel } => done(
-            AgentCtx::load(&global(cli, sel, false)).and_then(|mut ac| ops::tickets::tick(&mut ac)),
-        ),
+        // The output first, then the reported deleted notes are forgotten (`TickOut::settle`).
+        ReviewCmd::Tick { sel } => match AgentCtx::load(&global(cli, sel, false))
+            .and_then(|mut ac| ops::tickets::tick(&mut ac).map(|t| (ac, t)))
+        {
+            Ok((ac, t)) => {
+                print!("{}", t.text);
+                std::io::Write::flush(&mut std::io::stdout()).ok(); // best effort, as `done`
+                done(t.settle(&ac).map(|()| String::new()))
+            }
+            Err(e) => fail(e),
+        },
     }
 }

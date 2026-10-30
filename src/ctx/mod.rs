@@ -273,7 +273,7 @@ impl AgentCtx {
 
     /// Save the cache; a failure is a warning. For caches that only hold what a run read
     /// (indexes, etags): a lost save repeats work at the next run.
-    pub fn save_cache(&self, c: &StateCache) {
+    pub fn save_cache(&self, c: &mut StateCache) {
         // A lost save repeats work at the next run: say so, never stay silent.
         if let Err(e) = c.save(&self.state_path()) {
             eprintln!("warning: {e}");
@@ -282,7 +282,7 @@ impl AgentCtx {
 
     /// Save the cache; a failure is an error (the message names the path). For `watch` (cursor,
     /// selftest nonces) and `tick` (throttle): a lost save would repeat events or work.
-    pub fn save_cache_required(&self, c: &StateCache) -> crate::error::CbResult<()> {
+    pub fn save_cache_required(&self, c: &mut StateCache) -> crate::error::CbResult<()> {
         c.save(&self.state_path())
     }
 }

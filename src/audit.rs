@@ -151,12 +151,27 @@ pub struct BoardView {
 }
 
 /// The key that identifies one security event, also in the owner message that reports it:
-/// `<repo>#<issue>/c-<comment id>:<reason>`.
+/// `<repo>#<issue>/c-<comment id>:<reason>`, the repo in lower case (GitHub names are
+/// case-insensitive, so `Org/Repo` and `org/repo` give one key).
 pub fn event_key(repo: &str, issue: u64, comment_id: u64, reason: &str) -> String {
-    format!("{repo}#{issue}/c-{comment_id}:{reason}")
+    format!(
+        "{}#{issue}/c-{comment_id}:{reason}",
+        repo.to_ascii_lowercase()
+    )
 }
 
-/// The events that a valid message `kind=info`, `to=owner` already reported (`event=` lines).
+/// An `event=` key with the repo part (before the first `#`) in lower case, so that a key that an
+/// older build wrote with another spelling of the repo still matches. A key without `#` (an agent
+/// state) stays as it is.
+fn normalized_key(k: &str) -> String {
+    match k.split_once('#') {
+        Some((repo, rest)) => format!("{}#{rest}", repo.to_ascii_lowercase()),
+        None => k.to_string(),
+    }
+}
+
+/// The events that a valid message `kind=info`, `to=owner` already reported (`event=` lines),
+/// with the repo part of each key in lower case.
 pub fn reported_events(msgs: &[VMsg]) -> HashSet<String> {
     msgs.iter()
         .filter(|m| m.kind == Some(Kind::Info) && m.to == "owner")
@@ -165,7 +180,7 @@ pub fn reported_events(msgs: &[VMsg]) -> HashSet<String> {
             m.body
                 .lines()
                 .filter_map(|l| l.strip_prefix("event="))
-                .map(|k| k.trim().to_string())
+                .map(|k| normalized_key(k.trim()))
                 .collect::<Vec<_>>()
         })
         .collect()

@@ -203,7 +203,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     let refreshed = super::board_refresh::refresh(ac)?;
     let mut cache = ac.load_cache();
     let world = load_world(&ac.ctx, std::slice::from_ref(&ac.agent.item_id), &mut cache)?;
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     let trusted = require_approved(&world, &me)?;
     let role = trusted.role;
     let item = world.items.get(&ac.agent.item_id).ok_or_else(|| {

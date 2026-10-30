@@ -12,18 +12,26 @@
 //! A legitimate writer changes the field a moment before it posts its message, so a mismatch
 //! seen once may be a write in flight. A ticket is reported when the mismatch is still there at
 //! the next cycle and the item has been quiet for [`QUIET_SECS`]. The report is ONE signed
-//! `info` to the owner per ticket and board status (the line `event=` is the key, read back
-//! from the registry issue like the security events, so a restart or a lost cache repeats
-//! nothing), and one `status-mismatch` event for the coordinator.
+//! `info` to the owner per ticket and state of its signed log (the line `event=` is the key,
+//! read back from the registry issue like the security events, so a restart or a lost cache
+//! repeats nothing, and a board that flips between statuses gives one report), and one
+//! `status-mismatch` event for the coordinator.
+//!
+//! Limits of the reads: a move to Done or Dropped and a mismatch that waits are read at once. A
+//! move out of Done or Dropped waits in a queue (`setback_queue`), and a cycle reads at most
+//! [`SETBACKS_PER_CYCLE`] of them, the oldest first. A ticket whose comment list is too large
+//! (more than `MAX_PAGES` pages) cannot be judged: one `notes-not-checked` event, and the
+//! ticket stays under check (a false Done too). It is read again when its board row changes or
+//! after the slow interval of `own_notes` (`NoteState::notes_too_large`), not in every cycle.
 
-use super::own_notes::ReadResult;
+use super::own_notes::{NotChecked, ReadResult};
 use super::registry_post::{liveness_event, post_registry};
 use super::{AgentCtx, World};
 use crate::audit::reported_events;
 use crate::events::{Event, SecurityEvent};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, To};
-use crate::state::{StateCache, TicketSnap};
+use crate::state::{StateCache, TOO_LARGE_RECHECK_SECS, TicketSnap, note_key};
 use crate::ticket::log::{fold_ticket, status_contradicts, status_mismatch_text};
 use crate::ticket::{TicketRow, VMsg, verified_messages};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -31,31 +39,55 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 /// A mismatch counts only when the item has not changed for this long (seconds).
 pub const QUIET_SECS: i64 = 60;
 
+/// At most this many tickets that another writer moved out of Done or Dropped are read in one
+/// cycle, the oldest move first; the others wait in `setback_queue` for a later cycle.
+pub const SETBACKS_PER_CYCLE: usize = 5;
+
 /// The tickets to check this cycle: a Status that changed to Done or Dropped since the last
-/// snapshot, a Status that changed from Done or Dropped to another one (the board was set back
-/// behind a close), or a mismatch that an earlier cycle saw and could not report yet. A ticket
-/// that this cycle changed itself (`own`) is skipped. Pure.
+/// snapshot, a mismatch that an earlier cycle saw and could not settle yet (`pending`; one that
+/// `waiting` holds back is read only when its row moves), and at most [`SETBACKS_PER_CYCLE`]
+/// tickets whose Status changed from Done or Dropped to another one (the board was set back
+/// behind a close). A set-back goes into `queue` first, with `now`; the oldest leave it when they
+/// are read. A ticket that this cycle changed itself (`own`) is skipped. Pure.
 pub fn candidates<'a>(
     rows: &'a [TicketRow],
     prev: &BTreeMap<String, TicketSnap>,
     pending: &BTreeSet<String>,
+    queue: &mut BTreeMap<String, i64>,
     own: &HashSet<&str>,
+    waiting: impl Fn(&TicketRow) -> bool,
+    now: i64,
 ) -> Vec<&'a TicketRow> {
-    rows.iter()
-        .filter(|r| !own.contains(r.item_id.as_str()))
-        .filter(|r| {
-            let was_ended = |p: &TicketSnap| {
-                p.status
-                    .as_deref()
-                    .and_then(crate::rules::status::Status::parse)
-                    .is_some_and(crate::rules::status::Status::ended)
-            };
-            pending.contains(&r.item_id)
-                || prev.get(&r.item_id).is_some_and(|p| {
-                    p.status.as_deref() != r.status_str() && (r.ended() || was_ended(p))
-                })
-        })
-        .collect()
+    let was_ended = |p: &TicketSnap| {
+        p.status
+            .as_deref()
+            .and_then(crate::rules::status::Status::parse)
+            .is_some_and(crate::rules::status::Status::ended)
+    };
+    queue.retain(|i, _| rows.iter().any(|r| r.item_id == *i));
+    let mut out = Vec::new();
+    for r in rows.iter().filter(|r| !own.contains(r.item_id.as_str())) {
+        let moved = prev
+            .get(&r.item_id)
+            .filter(|p| p.status.as_deref() != r.status_str());
+        if (moved.is_some() && r.ended()) || (pending.contains(&r.item_id) && !waiting(r)) {
+            queue.remove(&r.item_id);
+            out.push(r);
+        } else if moved.is_some_and(was_ended) {
+            queue.entry(r.item_id.clone()).or_insert(now);
+        }
+    }
+    let mut oldest: Vec<(i64, String)> = queue
+        .iter()
+        .filter(|(i, _)| !own.contains(i.as_str()))
+        .map(|(i, at)| (*at, i.clone()))
+        .collect();
+    oldest.sort();
+    for (_, item) in oldest.into_iter().take(SETBACKS_PER_CYCLE) {
+        queue.remove(&item);
+        out.extend(rows.iter().find(|r| r.item_id == item));
+    }
+    out
 }
 
 /// What to do with one checked ticket.
@@ -79,9 +111,12 @@ pub fn judge(contradicts: bool, was_pending: bool, quiet: bool) -> Verdict {
     }
 }
 
-/// The key of the report: one per ticket and board status.
-pub fn event_key(repo: &str, issue: u64, board_status: &str) -> String {
-    format!("{repo}#{issue}/status:{board_status}")
+/// The key of the report: one per ticket (the repo in lower case) and state of its signed log,
+/// named by the id of the latest verified comment of the ticket (`0`: none). A board that flips
+/// between statuses gives one report; the owner hears again only after a new signed message,
+/// which no crew token can write.
+pub fn event_key(repo: &str, issue: u64, last_signed: u64) -> String {
+    format!("{}/status@c-{last_signed}", note_key(repo, issue))
 }
 
 /// The signed `info` to the owner.
@@ -100,6 +135,9 @@ pub(super) struct LogCheck {
     /// The tickets (`owner/repo#n`) whose comment list the check read: the note check of the
     /// cycle does not read them again.
     pub(super) read: HashSet<String>,
+    /// The tickets whose list was too large to judge (`own_notes::judge_read`): the caller
+    /// reports, shows and settles them as the note check's.
+    pub(super) not_checked: Vec<NotChecked>,
 }
 
 /// Check the tickets that changed. Never fails the cycle: an unreadable ticket is looked at
@@ -115,11 +153,21 @@ pub(super) fn status_log_duty(
     now: i64,
 ) -> LogCheck {
     let own_ids: HashSet<&str> = own.iter().map(|(i, _)| i.as_str()).collect();
+    // a too-large ticket that waits for its slow read (`own_notes`)
+    let large = cache.notes.notes_too_large.clone();
+    let waiting = |r: &TicketRow| {
+        large
+            .get(&note_key(&r.repo, r.issue))
+            .is_some_and(|at| now - at < TOO_LARGE_RECHECK_SECS)
+    };
     let todo = candidates(
         rows,
         &cache.index.ticket_snaps,
         &cache.liveness.status_pending,
+        &mut cache.liveness.setback_queue,
         &own_ids,
+        waiting,
+        now,
     );
     // A ticket that left the list (or is not checked now) keeps no memory.
     cache
@@ -145,13 +193,14 @@ pub(super) fn status_log_duty(
             &ac.ctx.cfg.owner_login,
         );
         if let ReadResult::TooLarge = ReadResult::of(&read) {
-            // A repeat gives the same error: no recheck, one note, and the note memory of the
-            // ticket ends (`own_notes::judge_read`).
+            // The Status cannot be judged now, so it stays under check (a false Done too). It is
+            // read again when its row moves or after the slow interval (`waiting`), not in
+            // every cycle; the event comes once (`own_notes::judge_read`).
             eprintln!(
-                "crewboard: cannot check {} against the log: its comment list is too large; not checked again",
+                "crewboard: cannot check {} against the log: its comment list is too large; read again when its board row changes",
                 row.key()
             );
-            cache.liveness.status_pending.remove(&row.item_id);
+            cache.liveness.status_pending.insert(row.item_id.clone());
             let (_, note) = super::own_notes::judge_read(
                 &mut cache.notes,
                 ac.name.as_str(),
@@ -162,14 +211,7 @@ pub(super) fn status_log_duty(
                 |_, _| false,
                 now,
             );
-            let text = note.unwrap_or_else(|| {
-                format!(
-                    "{}: the comment list is too large to check its Status against the signed log",
-                    row.key()
-                )
-            });
-            out.events
-                .push(liveness_event(ac, super::own_notes::NOT_CHECKED, text));
+            out.not_checked.extend(note);
             continue;
         }
         let comments = match read {
@@ -203,7 +245,9 @@ pub(super) fn status_log_duty(
             Some(&comments),
             now,
         ));
-        let log = fold_ticket(&verified_messages(&comments, &ac.ctx.cfg, &world.trust));
+        let msgs = verified_messages(&comments, &ac.ctx.cfg, &world.trust);
+        let last_signed = msgs.last().map_or(0, |m| m.comment_id);
+        let log = fold_ticket(&msgs);
         let board = row.status_str();
         match judge(status_contradicts(&log, board), was_pending, quiet) {
             Verdict::Clear => {
@@ -214,7 +258,7 @@ pub(super) fn status_log_duty(
             }
             Verdict::Report => {
                 cache.liveness.status_pending.remove(&row.item_id);
-                let ekey = event_key(&row.repo, row.issue, board.unwrap_or("empty"));
+                let ekey = event_key(&row.repo, row.issue, last_signed);
                 if reported.contains(&ekey) {
                     continue;
                 }
@@ -292,15 +336,88 @@ mod tests {
         .into();
         let pending: BTreeSet<_> = ["late".to_string()].into();
         let own: HashSet<&str> = ["mine"].into();
-        let got: Vec<&str> = candidates(&rows, &prev, &pending, &own)
+        let mut queue = BTreeMap::new();
+        let got: Vec<&str> = candidates(&rows, &prev, &pending, &mut queue, &own, |_| false, 9)
             .iter()
             .map(|r| r.item_id.as_str())
             .collect();
         // `new` has no snapshot (a fresh cache replays nothing); `mine` was changed by us;
         // `review` changed, but not to or from Done or Dropped (`status` and `audit` cover it); a
         // move to Dropped ends the ticket like Done; a move out of Done or Dropped sets the board
-        // back behind a close
-        assert_eq!(got, vec!["moved", "late", "dropped", "setback", "reopened"]);
+        // back behind a close (through the queue, so they come last)
+        assert_eq!(got, vec!["moved", "late", "dropped", "reopened", "setback"]);
+        assert!(queue.is_empty(), "{queue:?}");
+        // a pending ticket that waits (a too-large list) is read only when its row moves
+        let got = candidates(
+            &rows,
+            &prev,
+            &pending,
+            &mut queue,
+            &own,
+            |r| r.item_id == "late",
+            9,
+        );
+        assert!(!got.iter().any(|r| r.item_id == "late"));
+        let moved: BTreeMap<_, _> = [("late".to_string(), snap("Review"))].into();
+        let got = candidates(&rows, &moved, &pending, &mut queue, &own, |_| true, 9);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].item_id, "late");
+    }
+
+    #[test]
+    fn at_most_five_set_backs_are_read_per_cycle_the_oldest_first() {
+        let rows: Vec<TicketRow> = (1..=12)
+            .map(|i| row(&format!("it{i:02}"), "Review"))
+            .collect();
+        let prev: BTreeMap<_, _> = rows
+            .iter()
+            .map(|r| (r.item_id.clone(), snap("Done")))
+            .collect();
+        let none = BTreeSet::new();
+        let own = HashSet::new();
+        let mut queue = BTreeMap::new();
+        let ids = |v: Vec<&TicketRow>| v.iter().map(|r| r.item_id.clone()).collect::<Vec<_>>();
+        let first = ids(candidates(
+            &rows,
+            &prev,
+            &none,
+            &mut queue,
+            &own,
+            |_| false,
+            100,
+        ));
+        assert_eq!(first, ["it01", "it02", "it03", "it04", "it05"]);
+        assert_eq!(queue.len(), 7);
+        // the next cycles: the snapshot follows the board, so only the queue is left
+        let now: BTreeMap<_, _> = rows
+            .iter()
+            .map(|r| (r.item_id.clone(), snap("Review")))
+            .collect();
+        let second = ids(candidates(
+            &rows,
+            &now,
+            &none,
+            &mut queue,
+            &own,
+            |_| false,
+            160,
+        ));
+        assert_eq!(second, ["it06", "it07", "it08", "it09", "it10"]);
+        let third = ids(candidates(
+            &rows,
+            &now,
+            &none,
+            &mut queue,
+            &own,
+            |_| false,
+            220,
+        ));
+        assert_eq!(third, ["it11", "it12"]);
+        assert!(queue.is_empty());
+        // a queued ticket that left the board leaves the queue
+        let mut q: BTreeMap<String, i64> = [("gone".to_string(), 1)].into();
+        assert!(candidates(&rows, &now, &none, &mut q, &own, |_| false, 300).is_empty());
+        assert!(q.is_empty());
     }
 
     #[test]
@@ -313,14 +430,17 @@ mod tests {
     }
 
     #[test]
-    fn the_key_names_the_ticket_and_the_board_status() {
-        assert_eq!(event_key("o/r", 7, "Done"), "o/r#7/status:Done");
+    fn the_key_names_the_ticket_and_the_state_of_its_signed_log() {
+        // one key per ticket and signed log, whatever the board shows; the repo in lower case
+        assert_eq!(event_key("O/R", 7, 1234), "o/r#7/status@c-1234");
+        assert_eq!(event_key("o/r", 7, 1234), event_key("O/R", 7, 1234));
+        assert_ne!(event_key("o/r", 7, 1234), event_key("o/r", 7, 1300));
         let body = report_body(
             "o/r#7",
-            "o/r#7/status:Done",
+            "o/r#7/status@c-1234",
             "ticket o/r#7: board Status is Done, the log shows Review",
         );
-        assert!(body.contains("\nevent=o/r#7/status:Done\n"), "{body}");
+        assert!(body.contains("\nevent=o/r#7/status@c-1234\n"), "{body}");
         assert!(body.contains("detected, not prevented"), "{body}");
         // `reported_events` reads the key back from the posted text
         let m = VMsg {
@@ -336,6 +456,6 @@ mod tests {
             re: Re::None,
             body,
         };
-        assert!(reported_events(&[m]).contains("o/r#7/status:Done"));
+        assert!(reported_events(&[m]).contains("o/r#7/status@c-1234"));
     }
 }

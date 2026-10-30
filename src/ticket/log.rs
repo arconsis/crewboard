@@ -153,6 +153,20 @@ pub fn agent_contradicts(log: &LogTicket, board_agent: Option<&str>) -> bool {
     board_agent.is_some() && board_agent != log.agent.as_deref()
 }
 
+/// The board shows an end (Done or Dropped) that the signed log does not show: somebody set
+/// the field by hand (the owner in the web UI, or a crew token). Pure.
+pub fn unsigned_end(board: Status, log: &Expected) -> bool {
+    board.ended() && !matches!(log, Expected::Is(s) if s.ended())
+}
+
+/// The way out of a board-only end, for a refusal text: the owner moves the ticket back in the
+/// signed log, then the coordinator drops it with a reason. `n`: the issue number.
+pub fn unsigned_end_remedy(n: u64) -> String {
+    format!(
+        "no signed message ends it, so the board Status alone does not count. The owner moves it back in the signed log first (`crewboard move {n} Backlog`, with the owner's token), then the coordinator drops it (`crewboard close {n} --why \"<text>\"`)"
+    )
+}
+
 /// The finding text of a ticket whose board `Status` the log does not support.
 pub fn status_mismatch_text(key: &str, board_status: Option<&str>, log: &LogTicket) -> String {
     format!(

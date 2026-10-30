@@ -356,6 +356,14 @@ fn reported_events_come_from_info_messages_to_the_owner_only() {
             Kind::Info,
             "Security event\nevent=a/b#2/c-9:bad-signature\n",
         ),
+        // a report of an older build, with another spelling of the repo
+        m(
+            5,
+            sender("c@x", Role::Coordinator),
+            "owner",
+            Kind::Info,
+            "Security event\nevent=A/B#2/c-13:bad-signature\nevent=claude@a/state:left\n",
+        ),
         // to the coordinator, not to the owner
         m(
             2,
@@ -382,8 +390,12 @@ fn reported_events_come_from_info_messages_to_the_owner_only() {
         ),
     ];
     let got = reported_events(&msgs);
-    assert_eq!(got.len(), 1);
+    assert_eq!(got.len(), 3, "{got:?}");
     assert!(got.contains("a/b#2/c-9:bad-signature"));
+    // the key of the other spelling matches the key that is built now
+    assert!(got.contains(&event_key("a/b", 2, 13, "bad-signature")));
+    // a key without a repo stays as it is
+    assert!(got.contains("claude@a/state:left"));
 }
 
 #[test]
@@ -545,6 +557,11 @@ fn key_words_are_stable() {
     assert_eq!(
         event_key("a/b", 2, 9, "bad-signature"),
         "a/b#2/c-9:bad-signature"
+    );
+    // the repo spelling does not change the key
+    assert_eq!(
+        event_key("A/B", 2, 9, "bad-signature"),
+        event_key("a/b", 2, 9, "bad-signature")
     );
     assert!(!FindingKind::WrongWriter.is_security_event());
     assert!(!FindingKind::HeaderlessOwner.is_security_event());

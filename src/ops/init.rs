@@ -6,13 +6,17 @@
 //! options (complete-list merge with read-back, never a removal), the four views (REST),
 //! labels (HTTP 422 means "reuse"), the registry issue, and its pin (3-pin limit: report,
 //! never unpin). It opens one pull request in the main repo with `AUTHORITY.md` and
-//! `.crewboard.toml`. It never merges.
+//! `.crewboard.toml`. It never merges. A board config that exists (the local file, and
+//! `.crewboard.toml` on the default branch) keeps every key that init does not set and its
+//! comments (`config::merge_init_keys`).
 
 use super::{Global, new_owner_client};
 use crate::board::{
     Board, OwnerInfo, OwnerKind, default_color, graphql_root, owner_info, repo_path, rest_base,
 };
-use crate::config::{BoardConfig, INITIATIVE_FILE, split_repo, valid_initiative_name};
+use crate::config::{
+    BoardConfig, INITIATIVE_FILE, merge_init_keys, split_repo, valid_initiative_name,
+};
 use crate::ctx::decode_contents;
 use crate::error::{CbError, CbResult};
 use crate::github::projects;
@@ -144,11 +148,41 @@ A PR that changes this file, `.crewboard.toml`, `.github/workflows/**`, `.github
     )
 }
 
+/// The first line of a board config file that `init` writes.
+const INITIATIVE_HEADER: &str =
+    "# crewboard initiative file (no secrets). Agents find the board through it.\n";
+
 pub fn initiative_file(cfg: &BoardConfig) -> String {
-    format!(
-        "# crewboard initiative file (no secrets). Agents find the board through it.\n{}",
-        cfg.to_toml()
-    )
+    format!("{INITIATIVE_HEADER}{}", cfg.to_toml())
+}
+
+/// The board config text that `init` writes over `existing` (`None`: no file yet): the keys of
+/// `init` from `cfg`, every other key and comment of the file kept (`merge_init_keys`). `what`
+/// names the file in an error. Also returns the kept keys.
+fn board_text(
+    existing: Option<&str>,
+    cfg: &BoardConfig,
+    what: &str,
+) -> CbResult<(String, Vec<String>)> {
+    match existing {
+        None => Ok((initiative_file(cfg), Vec::new())),
+        Some(old) => merge_init_keys(old, cfg, INITIATIVE_HEADER).map_err(|e| {
+            CbError::config(format!(
+                "{what}: {e}. init keeps the keys of an existing board config, so it does not overwrite a file it cannot read: fix the file (or remove it), then run init again"
+            ))
+        }),
+    }
+}
+
+/// The local board config file of the initiative, if there is one. A file that cannot be read
+/// is an error (init must not overwrite it).
+fn local_board_file(cd: &crate::config::ConfigDir, initiative: &str) -> CbResult<Option<String>> {
+    let p = cd.board_config_path(initiative);
+    match std::fs::read_to_string(&p) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(CbError::config(format!("{}: {e}", p.display()))),
+    }
 }
 
 /// Content of a file on a ref, or `None` on 404. Returns `(text, sha)`.
@@ -470,26 +504,45 @@ fn ensure_pin(
     Ok(())
 }
 
-/// Writes the board config file of the initiative into the config directory.
+/// Writes the board config file of the initiative into the config directory. An existing file
+/// keeps every key that init does not set (`heartbeat_interval`, `required_tools`, ...) and its
+/// comments.
 fn write_board_config(
     cd: &crate::config::ConfigDir,
     cfg: &BoardConfig,
     rep: &mut Report,
 ) -> CbResult<()> {
     cfg.validate()?;
+    let path = cd.board_config_path(&cfg.initiative);
+    let old = local_board_file(cd, &cfg.initiative)?;
+    let (text, kept) = board_text(old.as_deref(), cfg, &path.display().to_string())?;
     std::fs::create_dir_all(&cd.0)
         .map_err(|e| CbError::config(format!("{}: {e}", cd.0.display())))?;
-    std::fs::write(cd.board_config_path(&cfg.initiative), initiative_file(cfg))
-        .map_err(|e| CbError::config(format!("write board config: {e}")))?;
-    rep.line(format!(
-        "board config written: {}",
-        cd.board_config_path(&cfg.initiative).display()
-    ));
+    std::fs::write(&path, text).map_err(|e| CbError::config(format!("write board config: {e}")))?;
+    rep.line(format!("board config written: {}", path.display()));
+    if !kept.is_empty() {
+        rep.line(format!(
+            "board config: kept the keys that init does not set: {}",
+            kept.join(", ")
+        ));
+    }
     Ok(())
 }
 
 pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
     check_args(&a)?;
+    // An existing local board config that cannot be read stops init before the first write.
+    let cd = g.dir()?;
+    if let Some(old) = local_board_file(&cd, a.initiative)? {
+        let p = cd.board_config_path(a.initiative);
+        toml::from_str::<toml::Table>(&old).map_err(|e| {
+            CbError::config(format!(
+                "{}: not valid TOML: {}. init keeps the keys of an existing board config, so it does not overwrite a file it cannot read: fix the file (or remove it), then run init again. Nothing was written",
+                p.display(),
+                e.to_string().trim_end()
+            ))
+        })?;
+    }
     let client = new_owner_client()?;
     let mut rep = Report::default();
     let owner_login = check_owner(&client, &a, &mut rep)?;
@@ -530,7 +583,6 @@ pub fn run(g: &Global, a: InitArgs<'_>) -> CbResult<String> {
     // what came before stays, and a second run continues.
     let workflows = delete_status_writers(&client, &board, &mut rep)?;
     ensure_labels(&client, a.repos, &mut rep)?;
-    let cd = g.dir()?;
     let (reg_number, reg_node, locked) = ensure_registry_issue(&client, &cd, &a, &main, &mut rep)?;
     ensure_pin(&client, &main, reg_number, &reg_node, &mut rep)?;
     ensure_lock(&client, &main, reg_number, locked, &mut rep);
@@ -1058,14 +1110,22 @@ fn open_pr(
         want.push((super::init_ci::CI_PATH, text.to_string(), false));
     }
 
-    // Which files differ from the default branch? AUTHORITY.md is never overwritten.
+    // Which files differ from the default branch? AUTHORITY.md is never overwritten. The
+    // initiative file on the default branch keeps every key that init does not set.
     let mut todo = Vec::new();
-    for (path, text, overwrite) in &want {
-        match file_on(client, repo, path, default_branch)? {
+    for (path, text, overwrite) in &mut want {
+        let cur = file_on(client, repo, path, default_branch)?;
+        if *path == INITIATIVE_FILE
+            && let Some((old, _)) = &cur
+        {
+            let what = format!("{INITIATIVE_FILE} on {default_branch} of {repo}");
+            *text = board_text(Some(old), cfg, &what)?.0;
+        }
+        match cur {
             Some((cur, _)) if cur == *text => {
                 rep.line(format!("{path}: identical on {default_branch}"))
             }
-            Some(_) if !overwrite => rep.line(format!(
+            Some(_) if !*overwrite => rep.line(format!(
                 "{path}: exists on {default_branch}, left as the owner wrote it"
             )),
             _ => todo.push((*path, text.clone())),

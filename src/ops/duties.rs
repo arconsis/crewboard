@@ -58,6 +58,9 @@ pub struct Duty {
     /// Security events that the duties found themselves (`deleted-message`, `own_notes`). The
     /// cycle shows them with the security events of the feed.
     pub security: Vec<SecurityEvent>,
+    /// The `notes-not-checked` events of this cycle, reported to the owner already. The cycle
+    /// settles them (`own_notes::settle_not_checked`) after it showed them.
+    pub not_checked: Vec<super::own_notes::NotChecked>,
 }
 
 /// The duties of every agent. Reads `rows` (the tickets, by id) and writes only to the agent's
@@ -432,6 +435,55 @@ fn security_duty(c: &Cycle, security: &[SecurityEvent], duty: &mut Duty) -> CbRe
     Ok(())
 }
 
+/// The `notes-not-checked` events: ONE signed `info` to the owner per ticket and reason (the
+/// `event=` key, read back from the registry issue), and one event for the coordinator each
+/// time until the cycle settles it. A failed post fails the cycle, as for a security event: the
+/// next cycle raises the event again.
+fn not_checked_duty(
+    c: &Cycle,
+    list: Vec<super::own_notes::NotChecked>,
+    duty: &mut Duty,
+) -> CbResult<()> {
+    let mut reported = reported_events(&c.msgs);
+    for n in list {
+        if duty
+            .not_checked
+            .iter()
+            .any(|d| d.key == n.key && d.why == n.why)
+        {
+            continue;
+        }
+        let key = n.event_key();
+        let told = if reported.contains(&key) {
+            "the owner was told already".to_string()
+        } else {
+            let body = format!(
+                "Notes not checked: {}\nevent={key}\n{}.\n{}\n",
+                n.key,
+                n.text,
+                match n.why {
+                    super::own_notes::NotCheckedWhy::TooLarge => {
+                        "A comment flood can hide a deleted signed note, and a Status that cannot be judged stays under check. Check the ticket, its board history and the audit log of the organization."
+                    }
+                    super::own_notes::NotCheckedWhy::NoItem => {
+                        "The board item of the ticket is gone, so a later deletion of a signed note on it is not seen. Check the board history."
+                    }
+                }
+            );
+            let p = post_registry(c.ac, To::Owner, Kind::Info, Re::None, &body)?;
+            reported.insert(key);
+            format!("told the owner: {}", p.url)
+        };
+        duty.events.push(liveness_event(
+            c.ac,
+            super::own_notes::NOT_CHECKED,
+            format!("{}; {told}", n.text),
+        ));
+        duty.not_checked.push(n);
+    }
+    Ok(())
+}
+
 /// The owner-route safety net. The headless coordinator may not write; its `tick` logs the
 /// finding instead.
 fn owner_route_duty(c: &Cycle, cache: &mut StateCache, duty: &mut Duty) -> CbResult<()> {
@@ -540,14 +592,11 @@ pub fn coordinator_duties(
         now,
     );
     found.extend(notes.security);
-    duty.events.extend(
-        notes
-            .not_checked
-            .into_iter()
-            .map(|text| liveness_event(ac, super::own_notes::NOT_CHECKED, text)),
-    );
     let all: Vec<SecurityEvent> = security.iter().chain(&found).cloned().collect();
     security_duty(&c, &all, &mut duty)?;
+    let mut not_checked = check.not_checked;
+    not_checked.extend(notes.not_checked);
+    not_checked_duty(&c, not_checked, &mut duty)?;
     duty.security = found;
     owner_route_duty(&c, cache, &mut duty)?;
     Ok(duty)

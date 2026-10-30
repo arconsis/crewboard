@@ -357,7 +357,9 @@ the last one. So the sender remembers what it posted.
   note of the coordinator is still there (so "set the board back, then delete the note" is seen).
   A cycle reads at most 5 marked tickets, the oldest mark first; a read that keeps the mark moves
   it to the back, so every marked ticket is read within `ceil(marked / 5)` cycles. A ticket with
-  remembered notes and no board row any more is read once by its issue number. One read is one
+  remembered notes and no board row any more is read once by its issue number, when its newest
+  note is older than 10 minutes (a long `watch` learns a new ticket from the comment feed, which
+  can lag behind the note that `ticket new` recorded). One read is one
   comment-list read: up to 50 REST pages of 100 comments, plus one GraphQL lookup of the editors
   per edited owner comment. A legitimate move of a ticket (`take`, `done`) costs one read in the
   next cycle of the coordinator. The Status check of the cycle
@@ -372,14 +374,25 @@ the last one. So the sender remembers what it posted.
   already). Until then the next cycle raises it again, so a failed post loses nothing. The
   coordinator posts ONE signed `info` to the owner (the `event=` key), as for the other security
   events. A `poll --quiet` keeps the memory as it was, so the next real cycle raises the event.
+- **A comment flood.** A ticket with more than 5000 comments (50 pages) cannot be read complete.
+  Its notes stay, and the coordinator raises one `notes-not-checked` event and tells the owner
+  once (a signed `info` with the key `event=<repo>#<n>/notes-not-checked:too-large`). The ticket
+  is then not read in every cycle (a read costs 50 pages), but again when its board row changes
+  and 6 hours after the last read. So "flood, delete the close note, delete the flood, set the
+  board back" is seen at the set-back: the row changed, the list fits again, and the gone note is
+  `deleted-message`. A board Status that cannot be judged stays under the Status check (a false
+  Done too), with the same reads.
+- **Settled after the output.** A `notes-not-checked` event changes the memory only after it was
+  shown and its owner report was posted (or was there already), as `deleted-message`. A cycle
+  that fails later (`watch` repeats it) raises it again. A `poll --quiet` keeps the memory as it
+  was, so the next real cycle raises it once.
 - **Limits.** Only the coordinator's own notes, and only that coordinator sees the event. A
   headless config dir has its own state file, so it sees the notes of its own `tick` only. A
   fresh host or a lost state file remembers nothing. `audit` and `status`, on any host, cannot
   see a deletion: they have no memory of what was posted. A ticket whose board item was deleted
-  is compared once by its issue number, with one `notes-not-checked` event; after that its notes
-  are forgotten, so a later deletion on it is not seen. A ticket with more than 5000 comments
-  (50 pages) cannot be read complete: its notes are forgotten with one `notes-not-checked`
-  event, and it is not read again.
+  is compared once by its issue number, with one `notes-not-checked` event (and one owner
+  report, `...:no-board-item`); after that its notes are forgotten, so a later deletion on it is
+  not seen. On a ticket with a comment flood, a deletion is seen only when the list fits again.
 
 See [own_notes.rs](../../../src/ops/own_notes.rs) and [state.rs](../../../src/state.rs)
 (`NoteState`).

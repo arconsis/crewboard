@@ -211,7 +211,7 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
     }
     let mut cache = ac.load_cache();
     let world = load_world(&ac.ctx, std::slice::from_ref(&ac.agent.item_id), &mut cache)?;
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     require_approved(&world, ac.name.as_str())?;
     refresh_heartbeat(ac, &world);
     // spec/events#unread-messages-on-a-ticket: refuse while a message for the sender is unread on

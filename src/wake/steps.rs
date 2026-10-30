@@ -205,11 +205,13 @@ impl Steps for InProcess {
     }
 
     fn tick(&mut self, out: &mut Vec<u8>) -> StepRc {
-        match self.with(|ac| plain(ops::tickets::tick(ac))) {
-            Ok(text) => {
-                out.extend_from_slice(text.as_bytes());
-                StepRc::ok()
-            }
+        // the output first, then the reported deleted notes are forgotten (`TickOut::settle`)
+        match self.with(|ac| {
+            let t = plain(ops::tickets::tick(ac))?;
+            out.extend_from_slice(t.text.as_bytes());
+            plain(t.settle(ac))
+        }) {
+            Ok(()) => StepRc::ok(),
             Err(rc) => rc,
         }
     }
