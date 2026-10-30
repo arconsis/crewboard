@@ -287,7 +287,7 @@ fn join_refuses_the_old_runtime_form_with_the_new_form_in_the_message() {
             REPO,
         ],
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(
         o.stderr.contains("use: --runtime claude --model m-1"),
         "{}",

@@ -79,7 +79,8 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
 `2`: a rule refused the command. Read the rule and the fix.
 `3`: GitHub or network. Retry in minutes. After 3 tries, tell the owner and stop.
 `4`: config or key. Stop and tell the owner.
-`lock` and `repeat` add their own codes (64, 75, 76, 77, 143): read `crewboard lock --help` and
+`64`: usage error: a bad option, argument or issue number. Fix the command and run it again.
+`lock` and `repeat` add their own codes (75, 76, 77, 143): read `crewboard lock --help` and
 [references/shared-hosts.md](references/shared-hosts.md). The full list: https://github.com/arconsis/crewboard/blob/main/docs/reference/exit-codes.md.
 
 ## Extensions

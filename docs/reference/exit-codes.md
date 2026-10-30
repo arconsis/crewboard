@@ -12,15 +12,17 @@ no table of their own. The [CLI reference](cli.md) lists the commands and option
 | 1 | no | The answer is no and nothing is wrong. See the [commands that return 1](#commands-that-return-1). |
 | 2 | refused | A rule refused the command. The message names the rule and the fix. |
 | 3 | external | GitHub, CI or the network did not deliver. |
-| 4 | config | Configuration, key, env file or usage error. |
+| 4 | config | Configuration, key or env file error. A person fixes the setup. |
+| 64 | usage | Usage error: a bad option, a missing or bad argument (for example an issue number), a bad combination of options. Fix the command and run it again. |
 
-Most commands return only 0, 2, 3 and 4. A watcher that cannot see events never returns 1: it
+Most commands return only 0, 2, 3, 4 and 64. A watcher that cannot see events never returns 1: it
 returns 3 or 4. So a quiet board and a broken watcher never look alike. Every "no events" result
 and every error of `watch` and `poll` also prints one line with the cursor, the number of polls
 and the time of the last successful poll.
 
-A usage error (a bad option, a missing argument) is 4. The two exceptions are `lock` and
-`repeat`: they return 64, because their code can be the code of a user command.
+A usage error (a bad option, a missing argument) is 64 for every command, also for `lock`,
+`repeat` and `wake`. It is not 4: a usage error is a typo to fix, not a setup that stops the
+agent. `--help` and `--version` return 0.
 
 ## Commands that return 1
 
@@ -33,7 +35,8 @@ A usage error (a bad option, a missing argument) is 4. The two exceptions are `l
 | `repeat` | A red run. |
 
 `monitor` never returns 1. It returns 0 after events (or after `--max-cycles` silent cycles). On
-an error it prints one line on standard output and returns the code of that error (2, 3 or 4).
+an error it prints one line on standard output and returns the code of that error (2, 3, 4, or
+64 for a bad option).
 
 Four commands return 1 for a fault or a skip. These are exceptions, not the "no" answer:
 
@@ -47,11 +50,11 @@ Four commands return 1 for a fault or a skip. These are exceptions, not the "no"
 ## Codes of the host tools
 
 `lock`, `repeat` and `wake` run on a host, next to schedulers and workflow scripts. They add
-these codes.
+these codes. Their usage errors are 64 too: a bad option, a bad number, a bad regular
+expression, no command.
 
 | Code | Name | Meaning | Commands |
 |---|---|---|---|
-| 64 | usage | Usage error: a bad option, a bad number, a bad regular expression, no command. | `lock`, `repeat`, `wake` (a negative number of seconds) |
 | 70 | wake-failed | The wake command failed. | `wake` |
 | 71 | wake-lock | The wake lock cannot be taken. | `wake` |
 | 75 | lock-held | A live owner holds the lock, after `--wait`. | `lock take`, `lock run` |
@@ -75,14 +78,14 @@ On a build without Unix process control, `lock`, `wake` and `repeat --lock` refu
 | `lock ci-status` | 0 a CI job runs or waits, 1 none. |
 | `repeat` | 0 all N runs green on one commit. 1 a red run (the loop stops there). 2 the head commit changed, so the run is not counted. 3 CI did not finish within `--ci-max-wait`, so the command did not start. 4 setup error: `--repo` is not a git checkout with a commit, or the logs cannot be written. 64, 143. A command that does not start is a red run: the loop ends with 1. |
 | `wake` | 0 nothing to do, woke OK, a wake already runs, the budget ended it, or the wakes are stopped. 2, 3, 4 from the board calls. 64, 70, 71, 128 + N. |
-| `wake install`, `wake uninstall`, `wake status` | 0, 2 (another wake job runs this agent: `--replace` removes it), 4 (a wrong option or a failed scheduler command). |
-| `agent add` | 0, 2, 3, 4. |
-| `agent exec`, `agent with-env` | 126 or 127 when the command does not start, 4 for a config error. After a start the command replaces the process. |
+| `wake install`, `wake uninstall`, `wake status` | 0, 2 (another wake job runs this agent: `--replace` removes it), 4 (a failed scheduler command), 64 (a wrong option). |
+| `agent add` | 0, 2, 3, 4, 64. |
+| `agent exec`, `agent with-env` | 126 or 127 when the command does not start, 4 for a config error, 64 for a usage error (`with-env` without `--env-file`). After a start the command replaces the process. |
 | `skill install` | 0, 1 (see above), 3 a failed step, 4 for `--link` without a clone. |
-| `update` | 0 (also "already installed"). 2 refused: no release for this platform, or a checksum, tarball or version check failed. 3 a failed step (a write or the download). 4 usage, or a token that GitHub refuses. |
+| `update` | 0 (also "already installed"). 2 refused: no release for this platform, or a checksum, tarball or version check failed. 3 a failed step (a write or the download). 4 a token that GitHub refuses. 64 usage. |
 | `doctor --setup` | 0, or 2 when a check fails. |
 | `hook post-tool-use` | Always 0. A failure is a line in the log. |
-| every other command | 0, 2, 3, 4. |
+| every other command | 0, 2, 3, 4, 64. |
 
 ## Three exceptions that scripts rely on
 

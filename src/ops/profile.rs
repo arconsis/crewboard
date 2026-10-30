@@ -70,7 +70,7 @@ pub fn prepare(a: &SetArgs) -> CbResult<Change> {
         about,
     };
     if c.is_empty() {
-        return Err(CbError::config(
+        return Err(CbError::usage(
             "nothing to change: give --tag, --untag, --tier, --clear-tier or --about-file",
         ));
     }

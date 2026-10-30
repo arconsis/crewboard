@@ -264,7 +264,7 @@ fn mine_json_matches_text_verdicts() {
     agree(&fake, 0, "work", true);
     // the twin: the two forms cannot be mixed
     let o = fake.run(&b.dir, &["mine", "--json", "--quiet"]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
 }
 
 #[test]

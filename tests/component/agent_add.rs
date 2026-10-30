@@ -794,7 +794,12 @@ fn b6_usage_errors_exit_4_and_write_nothing() {
         "--runtime",
         "claude",
     ]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(
+        o.code,
+        64,
+        "a missing argument is a usage error: {}",
+        o.all()
+    );
     assert!(
         o.stderr
             .contains("a repository <owner>/<repo> or a board file is required"),
@@ -813,7 +818,7 @@ fn b6_usage_errors_exit_4_and_write_nothing() {
         "--env-file",
         &env,
     ]);
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(
         o.stderr.contains("vim") && o.stderr.contains("claude"),
         "{}",

@@ -171,7 +171,7 @@ fn the_old_flags_of_done_are_gone() {
         let s = scene();
         s.say("1", "wait for my review");
         let o = s.done(&[old]);
-        assert_eq!(o.code, 4, "{old}: {}", o.all());
+        assert_eq!(o.code, 64, "{old}: {}", o.all());
         assert!(
             o.stderr.contains("unexpected argument"),
             "{old}: {}",

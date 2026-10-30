@@ -16,11 +16,18 @@ pub enum CbError {
     Network(GhError),
     /// Configuration, key or credential problem (exit 4).
     Config(String),
+    /// A bad command line that the argument parser does not catch: a bad issue argument, a bad
+    /// value or combination of options (exit 64). The fix is a corrected command.
+    Usage(String),
 }
 
 impl CbError {
     pub fn config(m: impl Into<String>) -> Self {
         CbError::Config(m.into())
+    }
+
+    pub fn usage(m: impl Into<String>) -> Self {
+        CbError::Usage(m.into())
     }
 
     pub fn refused(rule: RuleId, m: impl Into<String>) -> Self {
@@ -33,6 +40,7 @@ impl CbError {
             CbError::Network(GhError::Auth(_) | GhError::InsufficientScopes { .. }) => Exit::Config,
             CbError::Network(_) => Exit::Network,
             CbError::Config(_) => Exit::Config,
+            CbError::Usage(_) => Exit::Usage,
         }
     }
 }
@@ -43,6 +51,7 @@ impl fmt::Display for CbError {
             CbError::Refused(r) => write!(f, "{r}"),
             CbError::Network(e) => write!(f, "{e}"),
             CbError::Config(m) => write!(f, "configuration error: {m}"),
+            CbError::Usage(m) => write!(f, "usage error: {m}"),
         }
     }
 }
@@ -104,6 +113,8 @@ mod tests {
             Exit::Config
         );
         assert_eq!(CbError::config("x").exit(), Exit::Config);
+        assert_eq!(CbError::usage("x").exit(), Exit::Usage);
+        assert_eq!(CbError::usage("x").to_string(), "usage error: x");
         // None of the error paths may yield the "no events" code.
         for e in [
             CbError::refused(crate::base::ids::FIELD_WRONG_WRITER, "m"),

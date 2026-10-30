@@ -49,11 +49,11 @@ fn a_non_utf8_argument_gives_a_usage_error_and_no_panic() {
 #[test]
 fn a_valid_command_line_still_works_after_the_change() {
     // control: the same helper path, with a plain argument, gives the usual refusal (a bad
-    // command line is exit 4)
+    // command line is exit 64)
     let o = run(vec![OsString::from("no-such-command")]);
     assert_eq!(
         o.status.code(),
-        Some(4),
+        Some(64),
         "{}",
         String::from_utf8_lossy(&o.stderr)
     );

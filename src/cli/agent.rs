@@ -78,7 +78,7 @@ fn run_unix(cli: &Cli, action: &AgentAction) -> Outcome {
             },
             AgentAction::WithEnv { cmd } => {
                 if cli.env_file.is_none() {
-                    return fail(CbError::config("agent with-env: --env-file is required"));
+                    return fail(CbError::usage("agent with-env: --env-file is required"));
                 }
                 failed(ops::agent::run_with_env(cmd))
             }
@@ -138,6 +138,7 @@ fn run_unix(cli: &Cli, action: &AgentAction) -> Outcome {
                         0 => Exit::Ok,
                         2 => Exit::Refused,
                         3 => Exit::Network,
+                        64 => Exit::Usage,
                         _ => Exit::Config,
                     },
                     code: Some(code),

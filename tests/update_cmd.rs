@@ -551,7 +551,7 @@ fn bad_options_are_usage_errors() {
         vec!["--repo", "a/b/c"],
     ] {
         let r = h.run(&args, &[]);
-        assert_eq!(r.code, 4, "{args:?}: {}", r.all());
+        assert_eq!(r.code, 64, "{args:?}: {}", r.all());
     }
     h.unchanged();
 }

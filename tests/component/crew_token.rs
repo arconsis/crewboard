@@ -207,6 +207,6 @@ fn the_old_name_is_gone() {
         &format!("{TOKEN}\n"),
         &["--initiative", "my-crew"],
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 64, "{}", o.all());
     assert!(o.stderr.contains("unrecognized subcommand"), "{}", o.all());
 }

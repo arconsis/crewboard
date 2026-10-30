@@ -22,6 +22,7 @@ use crate::base::ignore::{best_effort_cleanup, child_may_have_ended};
 use crate::clock::SystemClock;
 use crate::config::{BoardConfig, split_repo};
 use crate::error::CbError;
+use crate::exit::Exit;
 use crate::fsutil::{find_on_path, set_mode};
 use crate::github::{Client, Token};
 use crate::ops::{Global, join};
@@ -100,10 +101,21 @@ pub struct AddArgs {
 /// Why no plan could be made. Nothing was written.
 #[derive(Debug)]
 pub(super) enum Early {
-    /// A bad value or a missing one: one line.
+    /// A value that does not fit the host or the files: one line, exit 4.
     Msg(String),
+    /// A missing or malformed argument: one line, exit 64 (usage).
+    Usage(String),
     /// The env file does not load: the report of step 1.
     Env(String),
+}
+
+impl Early {
+    /// The one line, without its exit code.
+    fn text(self) -> String {
+        match self {
+            Early::Msg(m) | Early::Usage(m) | Early::Env(m) => m,
+        }
+    }
 }
 
 impl From<String> for Early {
@@ -238,6 +250,10 @@ fn run_add_plan(a: &AddArgs) -> u8 {
             eprintln!("{PREFIX} {}", redact(&m, &early_secrets(a)));
             4
         }
+        Err(Early::Usage(m)) => {
+            eprintln!("{PREFIX} {}", redact(&m, &early_secrets(a)));
+            Exit::Usage.code()
+        }
         Err(Early::Env(m)) => {
             // the message of the loader holds no value, and is cleaned all the same
             let m = redact(&m, &early_secrets(a));
@@ -268,16 +284,21 @@ pub(super) enum Target {
 }
 
 /// A path that exists and ends in `.toml` is a board file; anything else must be `owner/repo`.
-pub(super) fn classify_target(s: &str, is_file: bool) -> Result<Target, String> {
+/// A board file that is not there is a file problem (exit 4); a form that is neither is a usage
+/// error (64).
+pub(super) fn classify_target(s: &str, is_file: bool) -> Result<Target, Early> {
     if s.ends_with(".toml") {
         return if is_file {
             Ok(Target::File(PathBuf::from(s)))
         } else {
-            Err(format!("board file not found: {s}"))
+            Err(Early::Msg(format!("board file not found: {s}")))
         };
     }
-    split_repo(s)
-        .map_err(|_| format!("'{s}' is neither a board file (.toml) nor <owner>/<repo>"))?;
+    split_repo(s).map_err(|_| {
+        Early::Usage(format!(
+            "'{s}' is neither a board file (.toml) nor <owner>/<repo>"
+        ))
+    })?;
     Ok(Target::Repo(s.to_string()))
 }
 
@@ -394,7 +415,9 @@ pub(super) fn derive(
     facts: &HostFacts,
     env_default_exists: &dyn Fn(&Path) -> bool,
 ) -> Result<Plan, String> {
-    let target = target_of(a, &|p: &str| Path::new(p).is_file())?;
+    // `load_board` ran `target_of` first, so this call cannot fail in a run; the text is for
+    // a direct call of `derive` (the tests).
+    let target = target_of(a, &|p: &str| Path::new(p).is_file()).map_err(Early::text)?;
     if a.target.is_some() && a.repo.is_some() && matches!(target, Target::Repo(_)) {
         return Err("pass the repository once: as the argument or with --repo".into());
     }
@@ -499,8 +522,9 @@ pub(super) fn derive(
     })
 }
 
-/// What the argument and the options name: the positional first, else `--board-file`, else `--repo`.
-fn target_of(a: &AddArgs, is_file: &dyn Fn(&str) -> bool) -> Result<Target, String> {
+/// What the argument and the options name: the positional first, else `--board-file`, else
+/// `--repo`. None of them is a missing argument: a usage error.
+fn target_of(a: &AddArgs, is_file: &dyn Fn(&str) -> bool) -> Result<Target, Early> {
     if let Some(t) = &a.target {
         return classify_target(t, is_file(t));
     }
@@ -509,7 +533,9 @@ fn target_of(a: &AddArgs, is_file: &dyn Fn(&str) -> bool) -> Result<Target, Stri
     }
     match &a.repo {
         Some(r) => classify_target(r, false),
-        None => Err("a repository <owner>/<repo> or a board file is required".into()),
+        None => Err(Early::Usage(
+            "a repository <owner>/<repo> or a board file is required".into(),
+        )),
     }
 }
 
@@ -562,7 +588,7 @@ fn load_board(a: &AddArgs) -> Result<Option<BoardConfig>, Early> {
 
 pub(super) fn strip_prefix(e: &CbError) -> String {
     match e {
-        CbError::Config(m) => m.clone(),
+        CbError::Config(m) | CbError::Usage(m) => m.clone(),
         other => other.to_string(),
     }
 }

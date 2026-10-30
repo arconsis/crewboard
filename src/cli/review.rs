@@ -81,7 +81,7 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                 Err(e) => return fail(e),
             };
             if ops::report_status::api_status(health).is_none() {
-                return fail(CbError::config(format!(
+                return fail(CbError::usage(format!(
                     "'{health}' is not a status: use on-track, at-risk, off-track, inactive or complete"
                 )));
             }

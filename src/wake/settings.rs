@@ -4,6 +4,7 @@
 //! environment. A flag wins over the environment, the environment over the default. No phase
 //! of the run reads the environment again.
 
+use super::WakeExit;
 use super::job::{self as wake_job, Direct};
 use crate::config::AgentConfig;
 use crate::wake::policy::{self, WorkBackoff};
@@ -134,7 +135,9 @@ pub struct MaxWake {
 }
 
 /// A flag or value that is wrong. `paths` is set when the state dir is known by then: the line
-/// then also goes to the log. `code` is the exit code (4, or 64 for a negative number).
+/// then also goes to the log. `code` is the exit code: 64 (usage) for a bad value given as a
+/// flag, a negative number or no wake command; 4 (config) for a bad value from the environment
+/// or a setup that does not fit.
 #[derive(Debug, Clone)]
 pub struct BadFlag {
     pub text: String,
@@ -146,16 +149,46 @@ pub(super) fn bad(text: impl Into<String>) -> BadFlag {
     BadFlag {
         text: text.into(),
         paths: None,
-        code: 4,
+        code: WakeExit::Config.code(),
+    }
+}
+
+/// Where a value came from. A wrong value typed as a flag is a usage error (64); the same value
+/// from its environment variable is a config error (4): a person fixes the setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Flag,
+    Env,
+}
+
+impl Source {
+    fn exit(self) -> WakeExit {
+        match self {
+            Source::Flag => WakeExit::Usage,
+            Source::Env => WakeExit::Config,
+        }
+    }
+}
+
+/// The flag, else the variable, else the default, with the source of the value.
+fn value_of(
+    flag: Option<&String>,
+    env: &dyn Fn(&str) -> Option<String>,
+    var: &str,
+    default: &str,
+) -> (String, Source) {
+    match flag {
+        Some(v) => (v.clone(), Source::Flag),
+        None => (env(var).unwrap_or_else(|| default.to_string()), Source::Env),
     }
 }
 
 /// A wrong value once the state dir is known: the line also goes to the log.
-fn bad_logged(paths: &Paths, text: String) -> BadFlag {
+fn bad_logged(paths: &Paths, from: Source, text: String) -> BadFlag {
     BadFlag {
         text,
         paths: Some(Box::new(paths.clone())),
-        code: 4,
+        code: from.exit().code(),
     }
 }
 
@@ -310,60 +343,64 @@ fn numbers(
     env: &dyn Fn(&str) -> Option<String>,
     paths: &Paths,
 ) -> Result<Numbers, BadFlag> {
-    let bad_logged = |text: String| bad_logged(paths, text);
-    let wb_raw = a
-        .work_backoff
-        .clone()
-        .or_else(|| env("CREWBOARD_WORK_BACKOFF"))
-        .unwrap_or_else(|| policy::DEFAULT_WORK_BACKOFF.to_string());
+    let bad_logged = |from: Source, text: String| bad_logged(paths, from, text);
+    let (wb_raw, wb_from) = value_of(
+        a.work_backoff.as_ref(),
+        env,
+        "CREWBOARD_WORK_BACKOFF",
+        &policy::DEFAULT_WORK_BACKOFF.to_string(),
+    );
     let work_backoff = WorkBackoff::parse(&wb_raw).ok_or_else(|| {
-        bad_logged(format!(
-            "--work-backoff needs whole seconds or off, got '{wb_raw}'"
-        ))
+        bad_logged(
+            wb_from,
+            format!("--work-backoff needs whole seconds or off, got '{wb_raw}'"),
+        )
     })?;
-    let rd_raw = a
-        .retry_delays
-        .clone()
-        .or_else(|| env("CREWBOARD_RETRY_DELAYS"))
-        .unwrap_or_else(|| policy::DEFAULT_RETRY_DELAYS.to_string());
+    let (rd_raw, rd_from) = value_of(
+        a.retry_delays.as_ref(),
+        env,
+        "CREWBOARD_RETRY_DELAYS",
+        policy::DEFAULT_RETRY_DELAYS,
+    );
     let retry_delays = policy::parse_delays(&rd_raw).ok_or_else(|| {
-        bad_logged(format!(
-            "--retry-delays needs whole seconds, got '{rd_raw}'"
-        ))
+        bad_logged(
+            rd_from,
+            format!("--retry-delays needs whole seconds, got '{rd_raw}'"),
+        )
     })?;
     let empty_grace = match (a.empty_grace, env("CREWBOARD_EMPTY_GRACE")) {
         (Some(n), _) => n,
         (None, None) => policy::DEFAULT_EMPTY_GRACE,
         (None, Some(v)) => v.trim().parse().map_err(|_| {
-            bad_logged(format!(
-                "CREWBOARD_EMPTY_GRACE needs a number of seconds, got '{v}'"
-            ))
+            bad_logged(
+                Source::Env,
+                format!("CREWBOARD_EMPTY_GRACE needs a number of seconds, got '{v}'"),
+            )
         })?,
     };
-    let hb_raw = a
-        .heartbeat_every
-        .clone()
-        .or_else(|| env("CREWBOARD_HEARTBEAT_EVERY"))
-        .unwrap_or_else(|| "300".to_string());
+    let (hb_raw, hb_from) = value_of(
+        a.heartbeat_every.as_ref(),
+        env,
+        "CREWBOARD_HEARTBEAT_EVERY",
+        "300",
+    );
     let heartbeat_every = hb_raw
         .parse::<u64>()
         .ok()
         .filter(|_| hb_raw.bytes().all(|b| b.is_ascii_digit()))
         .ok_or_else(|| {
-            bad_logged(format!(
-                "--heartbeat-every needs whole seconds, got '{hb_raw}'"
-            ))
+            bad_logged(
+                hb_from,
+                format!("--heartbeat-every needs whole seconds, got '{hb_raw}'"),
+            )
         })?;
-    let mw_raw = a
-        .max_wake
-        .clone()
-        .or_else(|| env("CREWBOARD_MAX_WAKE"))
-        .unwrap_or_else(|| "45m".to_string());
+    let (mw_raw, mw_from) = value_of(a.max_wake.as_ref(), env, "CREWBOARD_MAX_WAKE", "45m");
     let max_wake = MaxWake {
         secs: super::policy::parse_max_wake(&mw_raw).ok_or_else(|| {
-            bad_logged(format!(
-                "--max-wake needs a duration (45m, 90s, 2h) or off, got '{mw_raw}'"
-            ))
+            bad_logged(
+                mw_from,
+                format!("--max-wake needs a duration (45m, 90s, 2h) or off, got '{mw_raw}'"),
+            )
         })?,
         text: mw_raw,
     };
@@ -373,12 +410,10 @@ fn numbers(
         ("--empty-grace", empty_grace),
     ] {
         if v < 0 {
-            return Err(BadFlag {
-                code: 64,
-                ..bad_logged(format!(
-                    "{name} needs a number of seconds of 0 or more, got {v}"
-                ))
-            });
+            return Err(bad_logged(
+                Source::Flag,
+                format!("{name} needs a number of seconds of 0 or more, got {v}"),
+            ));
         }
     }
     Ok(Numbers {
@@ -396,7 +431,10 @@ fn print_cmd_text(direct: &Option<Direct>, tick: bool, paths: &Paths) -> Result<
     match (direct, tick) {
         (Some(d), _) => Ok(d.text.clone()),
         (None, true) => Ok(wake_job::tick_text(&paths.log)),
-        (None, false) => Err(bad("--print-cmd needs --runtime or --tick")),
+        (None, false) => Err(BadFlag {
+            code: WakeExit::Usage.code(),
+            ..bad("--print-cmd needs --runtime or --tick")
+        }),
     }
 }
 
@@ -436,9 +474,10 @@ pub fn resolve(
     }
     let wake_cmd = if direct.is_some() { None } else { wake_cmd };
     if !a.tick && wake_cmd.is_none() && direct.is_none() {
-        return Err(bad(
-            "no wake command (--wake-cmd, CREWBOARD_WAKE_CMD or --tick)",
-        ));
+        return Err(BadFlag {
+            code: WakeExit::Usage.code(),
+            ..bad("no wake command (--wake-cmd, CREWBOARD_WAKE_CMD or --tick)")
+        });
     }
     let n = numbers(a, env, &paths)?;
     Ok(Plan::Run(Box::new(Settings {

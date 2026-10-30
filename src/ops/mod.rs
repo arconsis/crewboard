@@ -96,15 +96,15 @@ pub fn resolve_board_config(g: &Global) -> CbResult<BoardConfig> {
 /// `12` (main repo) or `owner/repo#12`.
 pub fn parse_issue_arg(s: &str, main_repo: &str) -> CbResult<TicketRef> {
     if let Some((repo, n)) = s.split_once('#') {
-        split_repo(repo)?;
+        split_repo(repo).map_err(|_| CbError::usage(format!("'{repo}' is not owner/repo")))?;
         let n: u64 = n
             .parse()
-            .map_err(|_| CbError::config(format!("bad issue number in '{s}'")))?;
+            .map_err(|_| CbError::usage(format!("bad issue number in '{s}'")))?;
         return Ok(TicketRef::new(repo, n));
     }
     let n: u64 = s
         .parse()
-        .map_err(|_| CbError::config(format!("'{s}' is not an issue number or owner/repo#n")))?;
+        .map_err(|_| CbError::usage(format!("'{s}' is not an issue number or owner/repo#n")))?;
     Ok(TicketRef::new(main_repo, n))
 }
 

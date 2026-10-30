@@ -9,7 +9,7 @@
 //! 4. under the lock: `tick`, or `wake_events` (the events file and the receipts) and
 //!    `finish` (the wake command through `runtime`, then its results and the back-off).
 
-use super::{precheck, preflight, wake_events};
+use super::{WakeExit, precheck, preflight, wake_events};
 use crate::clock::{Clock, format_ts};
 use crate::fsutil::{self, Mode};
 use crate::lock::procs::Procs;
@@ -133,14 +133,14 @@ impl Flow<'_, '_> {
                 self.log.say(&format!(
                     "a wake already runs (pid {pid}, started {started}); not starting another"
                 ));
-                Lock::End(0)
+                Lock::End(WakeExit::Ok.code())
             }
             Acquired::Cannot => {
                 self.log.say(&format!(
                     "cannot take the lock {}",
                     self.s.paths.lock.display()
                 ));
-                Lock::End(71)
+                Lock::End(WakeExit::LockUnavailable.code())
             }
         }
     }
@@ -225,7 +225,7 @@ impl Flow<'_, '_> {
                 self.log
                     .say(&format!("crewboard {call} failed: exit 3: {}", rc.msg));
                 self.net_failed();
-                3
+                WakeExit::Network.code()
             }
             4 => self.stop_on_4(call, &rc.msg),
             n => {
@@ -245,7 +245,7 @@ impl Flow<'_, '_> {
             self.log.say(&format!(
                 "crewboard {call} exit 4: {reason}. The env file cannot be used; fix it (the next run tries again)"
             ));
-            return 4;
+            return WakeExit::Config.code();
         }
         let line = format!("{} {call}: {reason}\n", format_ts(self.clock.now()));
         self.put(&self.s.paths.stop, line.as_bytes());
@@ -268,6 +268,6 @@ impl Flow<'_, '_> {
                 self.log.line(&format!("told the coordinator on {t}"));
             }
         }
-        4
+        WakeExit::Config.code()
     }
 }

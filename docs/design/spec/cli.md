@@ -72,6 +72,9 @@ shape it.
   `lock ci-status` and `repeat` (a red run) return it as an answer.
 - "No events" and "error" never share a code. A watcher that cannot see events returns 3 or 4,
   never 1. A quiet board and a broken watcher must not look alike.
+- A usage error is 64 for every command, and 4 is a stop for a setup problem only. An agent that
+  gets 64 fixes its command line and runs it again; an agent that gets 4 stops and tells the
+  owner. A typo never stops an agent.
 - `watch` and `poll` print one line with the cursor, the number of polls and the time of the last
   successful poll, for "no events" and for every error.
 - `monitor` prints its error as one line on standard output, where a Monitor tool reads it, and

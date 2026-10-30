@@ -1,8 +1,8 @@
 //! The subcommands of `crewboard lock`: the dispatch, `--pid runner`, and `run` (a child that
 //! holds the lock for exactly as long as it lives).
 
-use super::Session;
 use super::args::{Cmd, Parsed, PidArg, RunCtx};
+use super::{LockExit, Session};
 #[cfg(unix)]
 use crate::base::ignore::best_effort_output;
 
@@ -34,7 +34,7 @@ pub fn dispatch(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
             Some(r) => Some(r.to_string()),
             None => {
                 s.log.say(NO_RUNNER);
-                return 64;
+                return LockExit::Usage.code();
             }
         },
         _ => None,
@@ -85,7 +85,7 @@ fn run_job(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
         if s.nested {
             s.log
                 .say("cannot detach a job inside a lock that your parent process holds");
-            return 64;
+            return LockExit::Usage.code();
         }
         return detach::start(s, p, ctx);
     }
@@ -93,7 +93,7 @@ fn run_job(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
     // handles signals; `crewboard lock run` itself installs its handler only here)
     if ctx.output.is_some() && sys::stop_requested().is_some() {
         let _ = s.release();
-        return 143;
+        return LockExit::Stopped.code();
     }
     sys::catch_term_int_hup();
     let spawned = spawn_job(s, p, ctx);
@@ -139,7 +139,11 @@ fn run_job(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
         },
     };
     let _ = s.release();
-    if got_signal { 143 } else { code }
+    if got_signal {
+        LockExit::Stopped.code()
+    } else {
+        code
+    }
 }
 
 /// Start the command of `run` with the grant for its children. The directory and the output file

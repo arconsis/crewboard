@@ -26,9 +26,9 @@ fn text(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn no_arguments_print_the_overview_to_stderr_and_exit_4_as_before() {
+fn no_arguments_print_the_overview_to_stderr_and_exit_64_as_a_usage_error() {
     let o = run(&[]);
-    assert_eq!(o.status.code(), Some(4));
+    assert_eq!(o.status.code(), Some(64));
     assert!(o.stdout.is_empty());
     let err = text(&o.stderr);
     assert!(
