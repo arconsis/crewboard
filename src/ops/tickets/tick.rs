@@ -37,7 +37,7 @@
 use super::merge::merge_ticket;
 use super::verify::verify;
 use super::{Me, me_of, merged_pr, merged_unverified, owner_merge, owner_net};
-use crate::base::ids;
+use crate::base::{TicketRef, ids};
 use crate::error::{CbError, CbResult};
 use crate::headless::Gate;
 use crate::ops::{AgentCtx, World, load_world};
@@ -216,18 +216,15 @@ fn closes_and_notes(
     Ok(out)
 }
 
-/// The Review tickets as `(repo, issue)`; an item without a ticket gets a `left` line in `out`.
+/// The Review tickets; an item without a ticket gets a `left` line in `out`.
 fn review_tickets(
     ids: &[String],
     cache: &crate::state::StateCache,
     out: &mut String,
-) -> Vec<(String, u64)> {
-    let mut review: Vec<(String, u64)> = Vec::new();
+) -> Vec<TicketRef> {
+    let mut review: Vec<TicketRef> = Vec::new();
     for id in ids {
-        match issue_of(cache, id).and_then(|k| {
-            let (r, n) = k.rsplit_once('#')?;
-            Some((r.to_string(), n.parse::<u64>().ok()?))
-        }) {
+        match issue_of(cache, id).and_then(|k| TicketRef::parse(&k)) {
             Some(t) => review.push(t),
             None => out.push_str(&left(
                 id,
@@ -244,7 +241,7 @@ fn review_tickets(
 fn handle_review(
     ac: &mut AgentCtx,
     s: &Scan<'_>,
-    review: Vec<(String, u64)>,
+    review: Vec<TicketRef>,
     cache: &crate::state::StateCache,
     out: &mut String,
 ) -> CbResult<()> {
@@ -253,9 +250,9 @@ fn handle_review(
     let review_rows = rows_of(s.items, cache, s.project, Status::Review);
     let (verify_late, coordinator_late) =
         crate::ops::late::review_lates(&ac.ctx, s.world, &review_rows, &s.lim, s.now);
-    for (repo, issue) in review {
-        let key = format!("{repo}#{issue}");
-        let t = match load_ticket(&ac.ctx.reader(), &s.world.trust, &repo, issue) {
+    for tref in review {
+        let key = tref.to_string();
+        let t = match load_ticket(&ac.ctx.reader(), &s.world.trust, &tref) {
             Ok(t) => t,
             Err(CbError::Refused(r)) => {
                 out.push_str(&left(&key, &format!("not readable as a ticket: {r}")));
@@ -416,19 +413,18 @@ fn owner_closed_lines(
     cache: &crate::state::StateCache,
 ) -> CbResult<(String, std::collections::BTreeSet<String>)> {
     let (world, me) = (s.world, s.me);
-    let mut keys: Vec<(String, u64, String)> = ids
+    let mut keys: Vec<(TicketRef, String)> = ids
         .iter()
         .filter_map(|id| {
             let (k, _) = cache.index.tickets.iter().find(|(_, v)| v.as_str() == id)?;
-            let (r, n) = k.rsplit_once('#')?;
-            Some((r.to_string(), n.parse::<u64>().ok()?, id.clone()))
+            Some((TicketRef::parse(k)?, id.clone()))
         })
         .collect();
     keys.sort();
     let mut out = String::new();
     let mut done = std::collections::BTreeSet::new();
-    for (repo, issue, id) in keys {
-        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &repo, issue) {
+    for (tref, id) in keys {
+        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &tref) {
             Ok(t) => t,
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),
@@ -447,7 +443,7 @@ fn owner_closed_lines(
             {
                 out.push_str(&merged_unverified::check_loaded(ac, &t)?);
                 out.push_str(&left(
-                    &format!("{repo}#{issue}"),
+                    &tref.to_string(),
                     &format!("Blocked, issue closed: {r}"),
                 ));
             }

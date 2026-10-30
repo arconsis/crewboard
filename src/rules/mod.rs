@@ -18,7 +18,7 @@ pub mod text;
 
 // re-export; new code imports from base
 pub use crate::base::ids;
-pub use crate::base::{Actor, Refusal, Role, Verdict};
+pub use crate::base::{Actor, Refusal, Role, TicketRef, Verdict};
 
 /// Turn a condition into a verdict.
 pub(crate) fn require(cond: bool, rule: ids::RuleId, message: &str) -> Verdict {

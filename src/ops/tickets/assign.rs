@@ -276,8 +276,8 @@ pub fn assign(
         return order::reorder(ac, issue_arg, order_text);
     };
     let to_name = AgentName::parse(to)?;
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // Writer first, before anything is added to the board.
@@ -290,17 +290,18 @@ pub fn assign(
             assignee_active_dev: true,
         },
     )?;
-    let (info, gate) = read_assignable_issue(ac, &repo, n)?;
+    let (info, gate) = read_assignable_issue(ac, &tref.repo, tref.issue)?;
     check_assignable(ac, &world, to_name.as_str())?;
     // spec/profiles#requirements-and-matching: before anything is written to the board
     let (override_lines, cap_out) = check_capabilities(&world, &info, to_name.as_str(), ov)?;
     // spec/tickets#workflow-files-the-owner-route: a ticket for workflow files goes the owner
     // route; the dev agent must know.
-    let (route_lines, route_out) = crate::owner_route::assign_lines(&info.body, n);
+    let (route_lines, route_out) = crate::owner_route::assign_lines(&info.body, tref.issue);
     let override_lines = format!("{override_lines}{route_lines}");
     let mut out = format!("{cap_out}{route_out}");
 
-    let (t, status, signed) = ticket_on_board(ac, &world, &me, info, (&repo, n), &mut out)?;
+    let (t, status, signed) =
+        ticket_on_board(ac, &world, &me, info, (&tref.repo, tref.issue), &mut out)?;
     if is_queued(&t, status, signed) {
         let q = Queued {
             to: &to_name,
@@ -339,8 +340,8 @@ pub fn assign(
     remember(ac, &t, Status::Ready, Some(to_name.as_str()));
     out.push_str(&agent_label_lines(
         ac,
-        &repo,
-        n,
+        &tref.repo,
+        tref.issue,
         &t.info.labels,
         Some(to_name.as_str()),
     ));

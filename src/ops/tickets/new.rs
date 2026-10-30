@@ -12,8 +12,8 @@ use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
 use super::board_put::{Adoption, put_on_board};
 use super::pr_evidence::fetch_pr;
 use super::{Me, load_world_cached, me_of, work_write_ctx, write_work};
-use crate::base::ids;
 use crate::base::ids::RuleId;
+use crate::base::{TicketRef, ids};
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
@@ -129,8 +129,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
     let parent_done: Result<(), String> = match load_ticket(
         &ac.ctx.reader(),
         &world.trust,
-        &pr.repo,
-        parent_n,
+        &TicketRef::new(&pr.repo, parent_n),
     ) {
         // An ended ticket by its signed log: Done, or Dropped (a drop leaves its PR open).
         Ok(p) if log_ended(&fold_ticket(&p.msgs).status) => Ok(()),
@@ -397,19 +396,19 @@ pub fn ticket_adopt(
     issue_arg: &str,
     assign_to: Option<&str>,
 ) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let info = fetch_issue(&ac.ctx.client, &repo, n)?;
+    let info = fetch_issue(&ac.ctx.client, &tref.repo, tref.issue)?;
     if let Some(agent) = assign_to {
         precheck_assign(ac, &world, agent, &info.title, &info.body)?;
     }
-    let (_item, mut out) = adopt_info(ac, &world, &me, info, &repo, None)?;
+    let (_item, mut out) = adopt_info(ac, &world, &me, info, &tref.repo, None)?;
     match assign_to {
         Some(agent) => out.push_str(&assign(
             ac,
-            &format!("{repo}#{n}"),
+            &tref.to_string(),
             Some(agent),
             CapOverride::default(),
             None,

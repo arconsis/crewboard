@@ -1,4 +1,5 @@
 use super::*;
+use crate::base::TicketRef;
 use crate::events::{Event, EventClass, TicketSnap};
 use crate::protocol::names::Kind;
 use crate::rules::fields::Field;
@@ -107,8 +108,14 @@ impl TicketRow {
         })
     }
 
+    /// The ticket of the row.
+    pub fn tref(&self) -> TicketRef {
+        TicketRef::new(&self.repo, self.issue)
+    }
+
+    /// `owner/repo#n`.
     pub fn key(&self) -> String {
-        format!("{}#{}", self.repo, self.issue)
+        self.tref().to_string()
     }
 
     pub fn snap(&self) -> TicketSnap {

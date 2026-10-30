@@ -5,6 +5,7 @@
 //! the cursor. A cycle never decides "nothing changed" from the item listing.
 
 use super::{AgentCtx, World, duties, load_world};
+use crate::base::TicketRef;
 use crate::base::ids;
 use crate::base::ignore::best_effort_output;
 use crate::board::FieldValue;
@@ -124,7 +125,7 @@ pub fn unread_for_done(
         return Ok(None);
     };
     let my_role = world.trust.get(&me).map(|t| t.role);
-    let mut my_tickets: HashSet<(String, u64)> = cache
+    let mut my_tickets: HashSet<TicketRef> = cache
         .index
         .tickets
         .iter()
@@ -135,12 +136,9 @@ pub fn unread_for_done(
                 .get(*item)
                 .is_some_and(|s| s.agent.as_deref() == Some(me.as_str()))
         })
-        .filter_map(|(k, _)| {
-            let (repo, n) = k.rsplit_once('#')?;
-            Some((repo.to_string(), n.parse().ok()?))
-        })
+        .filter_map(|(k, _)| TicketRef::parse(k))
         .collect();
-    my_tickets.insert((extra.0.to_string(), extra.1));
+    my_tickets.insert(TicketRef::new(extra.0, extra.1));
     let mut scratch = cache.clone();
     let feeds = read_feeds(ac, &cursor, &mut scratch)?;
     let copies = copy_map(&all_comments(&feeds), &ac.ctx.cfg, &world.trust);
@@ -235,10 +233,10 @@ pub fn collect(
         }
     }
     let rows = read_ticket_rows(&ac.ctx.reader(), &mut cache.index.tickets)?;
-    let my_tickets: HashSet<(String, u64)> = rows
+    let my_tickets: HashSet<TicketRef> = rows
         .iter()
         .filter(|r| r.is_agent(me.as_str()))
-        .map(|r| (r.repo.clone(), r.issue))
+        .map(crate::ticket::TicketRow::tref)
         .collect();
     // The whole feed window (fresh or not): the genuine selftest pings to judge forgeries, and
     // the earlier comments to find copies.

@@ -91,16 +91,17 @@ struct DoneLoad {
 /// The reads of `done` that come before any decision about the PR.
 fn load_done(ac: &AgentCtx, a: &DoneArgs<'_>) -> CbResult<DoneLoad> {
     let pr_url = parse_pr_url(a.pr)?;
-    let (repo, n) = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(a.issue, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // Events for this agent that `watch` has not delivered. Before the first write.
-    let events_line = match crate::ops::watch::unread_for_done(ac, &world, (&repo, n))? {
-        Some(unread) => crate::unread::events_verdict(&unread, a.ignore_events)?,
-        None => None,
-    };
+    let events_line =
+        match crate::ops::watch::unread_for_done(ac, &world, (&tref.repo, tref.issue))? {
+            Some(unread) => crate::unread::events_verdict(&unread, a.ignore_events)?,
+            None => None,
+        };
     crate::ops::say::refresh_heartbeat(ac, &world);
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     // --override-unread also covers the unread messages of this ticket (the same messages).
     let unread_line = unread_guard(ac, &world, &t, a.anyway || events_line.is_some())?;
@@ -110,8 +111,8 @@ fn load_done(ac: &AgentCtx, a: &DoneArgs<'_>) -> CbResult<DoneLoad> {
     };
     let from = t.status()?;
     Ok(DoneLoad {
-        repo,
-        n,
+        repo: tref.repo.clone(),
+        n: tref.issue,
         pr_url,
         world,
         me,

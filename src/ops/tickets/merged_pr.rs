@@ -131,7 +131,7 @@ pub(super) fn tick_lines(
         if !pr.merged {
             continue;
         }
-        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &row.repo, row.issue) {
+        let t = match load_ticket(&ac.ctx.reader(), &world.trust, &row.tref()) {
             Ok(t) => t,
             Err(CbError::Refused(_)) => continue,
             Err(e) => return Err(e),

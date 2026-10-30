@@ -130,12 +130,12 @@ pub(super) fn set_position(
 /// `assign <issue> --order <order>` (coordinator) without `--to`.
 pub(super) fn reorder(ac: &mut AgentCtx, issue_arg: &str, order: &str) -> CbResult<String> {
     let order = parse_order(order)?;
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     let who = work_write_ctx(&me, false);
     check_field_write(Item::Work, Field::Order, &who)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     set_position(ac, &t, order, &who)
 }
 

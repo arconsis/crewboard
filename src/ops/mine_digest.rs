@@ -302,18 +302,12 @@ impl Digest {
 /// `mine <n>`: the digest of one own ticket. Reads what the trust check needs (the registry and
 /// the agent items, as every agent command) and the comment list of the ticket. Writes nothing.
 pub fn run(ac: &AgentCtx, issue_arg: &str) -> CbResult<Digest> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let t = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &t.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, &repo, n)?;
-    Ok(build(
-        &format!("{repo}#{n}"),
-        n,
-        &me.name,
-        &comments,
-        &msgs,
-    )?)
+    let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, &t.repo, t.issue)?;
+    Ok(build(&t.to_string(), t.issue, &me.name, &comments, &msgs)?)
 }
 
 #[cfg(test)]

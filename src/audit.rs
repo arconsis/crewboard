@@ -20,6 +20,7 @@
 //!
 //! Pure: the caller reads the comments, the registry, the heartbeats and the board fields.
 
+use crate::base::TicketRef;
 use crate::comments::Comment;
 use crate::config::BoardConfig;
 use crate::protocol::acts::{Act, parse};
@@ -308,14 +309,14 @@ struct Valid {
 
 fn wrong_writers(valid: &[Valid], cfg: &BoardConfig) -> Vec<Finding> {
     let mut out = Vec::new();
-    let mut per_issue: BTreeMap<(String, u64), Vec<&Valid>> = BTreeMap::new();
+    let mut per_issue: BTreeMap<TicketRef, Vec<&Valid>> = BTreeMap::new();
     for v in valid {
         // The registry issue carries joins, approvals, old pings and pongs and lifecycle notices.
         if v.repo == cfg.main_repo() && v.issue == cfg.registry_issue {
             continue;
         }
         per_issue
-            .entry((v.repo.clone(), v.issue))
+            .entry(TicketRef::new(v.repo.clone(), v.issue))
             .or_default()
             .push(v);
     }

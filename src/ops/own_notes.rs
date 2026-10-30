@@ -48,6 +48,7 @@
 //!   when its list fits again.
 
 use super::{AgentCtx, World};
+use crate::base::TicketRef;
 use crate::clock::{format_ts, now_epoch};
 use crate::comments::Comment;
 use crate::error::{CbError, CbResult};
@@ -59,7 +60,7 @@ use crate::protocol::acts::{Act, parse};
 use crate::protocol::names::Kind;
 use crate::rules::fields::Field;
 use crate::services::ticket_loader::Ticket;
-use crate::state::{NoteKind, NoteState, PostedNote, TOO_LARGE_RECHECK_SECS, TicketSnap, note_key};
+use crate::state::{NoteKind, NoteState, PostedNote, TOO_LARGE_RECHECK_SECS, TicketSnap};
 use crate::ticket::TicketRow;
 use crate::ticket::log::{fold_ticket, status_contradicts};
 use crate::ticket::verified_messages;
@@ -91,17 +92,17 @@ pub fn note_kind(kind: Kind, body: &str) -> Option<NoteKind> {
 
 /// Remember a note that this agent just posted as comment `id` (called by `say::send_signed`).
 /// The registry issue is no ticket. A failed save is a warning: the post stands.
-pub(super) fn record(ac: &AgentCtx, repo: &str, issue: u64, kind: Kind, body: &str, id: u64) {
+pub(super) fn record(ac: &AgentCtx, t: &TicketRef, kind: Kind, body: &str, id: u64) {
     let Some(k) = note_kind(kind, body) else {
         return;
     };
-    if repo == ac.ctx.main_repo() && issue == ac.ctx.cfg.registry_issue {
+    if t.repo == ac.ctx.main_repo() && t.issue == ac.ctx.cfg.registry_issue {
         return;
     }
     let now = now_epoch();
     let mut cache = ac.load_cache();
     cache.notes.record(
-        &note_key(repo, issue),
+        &t.key(),
         PostedNote {
             id,
             kind: k,
@@ -139,13 +140,12 @@ pub fn missing(remembered: &[PostedNote], read: Option<&[Comment]>) -> Vec<Poste
 pub fn check_ticket(
     notes: &mut NoteState,
     me: &str,
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     read: Option<&[Comment]>,
     contradicts: bool,
     now: i64,
 ) -> Vec<SecurityEvent> {
-    let key = note_key(repo, issue);
+    let key = t.key();
     if notes.of(&key).is_empty() {
         notes.notes_recheck.remove(&key);
         return Vec::new();
@@ -164,7 +164,7 @@ pub fn check_ticket(
     } else {
         notes.notes_recheck.remove(&key);
     }
-    gone.iter().map(|n| event(me, repo, issue, n)).collect()
+    gone.iter().map(|n| event(me, t, n)).collect()
 }
 
 /// Forget the notes of the `deleted-message` events in `shown`. The caller calls it only after
@@ -174,22 +174,22 @@ pub fn check_ticket(
 /// mark when nothing else is wrong. Other events are ignored. Pure.
 pub fn settle(notes: &mut NoteState, shown: &[SecurityEvent]) {
     for s in shown.iter().filter(|s| s.reason == Reason::DeletedMessage) {
-        notes.forget(&note_key(&s.repo, s.issue), s.comment_id);
+        notes.forget(&TicketRef::new(&s.repo, s.issue).key(), s.comment_id);
     }
 }
 
-fn event(me: &str, repo: &str, issue: u64, n: &PostedNote) -> SecurityEvent {
+fn event(me: &str, t: &TicketRef, n: &PostedNote) -> SecurityEvent {
     SecurityEvent {
         reason: Reason::DeletedMessage,
         comment_id: n.id,
-        repo: repo.to_string(),
-        issue,
-        url: format!("https://github.com/{repo}/issues/{issue}"),
+        repo: t.repo.clone(),
+        issue: t.issue,
+        url: format!("https://github.com/{}/issues/{}", t.repo, t.issue),
         author: "(deleted)".into(),
         created_at: format_ts(n.at),
         claimed_from: Some(me.to_string()),
         detail: format!(
-            "the signed {} note (comment {}) that {me} posted on {repo}#{issue} at {} is not among the comments of the issue any more: somebody deleted it",
+            "the signed {} note (comment {}) that {me} posted on {t} at {} is not among the comments of the issue any more: somebody deleted it",
             n.kind.as_str(),
             n.id,
             format_ts(n.at)
@@ -199,22 +199,17 @@ fn event(me: &str, repo: &str, issue: u64, n: &PostedNote) -> SecurityEvent {
 
 /// [`check_ticket`] for a read of the coordinator: the contradiction comes from the signed log of
 /// the comments that were read and the board Status.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the facts of one read; a struct would only rename them"
-)]
 pub(super) fn check_read(
     ac: &AgentCtx,
     world: &World,
     notes: &mut NoteState,
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     board: Option<&str>,
     read: Option<&[Comment]>,
     now: i64,
 ) -> Vec<SecurityEvent> {
     let contra = read.is_some_and(|c| contradicts(ac, world, c, board));
-    check_ticket(notes, ac.name.as_str(), repo, issue, read, contra, now)
+    check_ticket(notes, ac.name.as_str(), t, read, contra, now)
 }
 
 /// Does the board Status contradict the signed log of the comments that were read?
@@ -237,14 +232,11 @@ pub enum Target<'a> {
 }
 
 impl Target<'_> {
-    /// The repo and the issue number.
-    pub fn ticket(&self) -> Option<(String, u64)> {
+    /// The ticket.
+    pub fn ticket(&self) -> Option<TicketRef> {
         match self {
-            Target::Row(r) => Some((r.repo.clone(), r.issue)),
-            Target::Gone(key) => {
-                let (repo, n) = key.rsplit_once('#')?;
-                Some((repo.to_string(), n.parse().ok()?))
-            }
+            Target::Row(r) => Some(r.tref()),
+            Target::Gone(key) => TicketRef::parse(key),
         }
     }
 }
@@ -267,7 +259,7 @@ pub fn to_read<'a>(
 ) -> Vec<Target<'a>> {
     let open: Vec<(&TicketRow, String)> = rows
         .iter()
-        .map(|r| (r, note_key(&r.repo, r.issue)))
+        .map(|r| (r, r.tref().key()))
         .filter(|(r, key)| !done.contains(&r.key()) && !notes.of(key).is_empty())
         .collect();
     let changed = |r: &TicketRow| {
@@ -296,7 +288,7 @@ pub fn to_read<'a>(
             }
         })
         .collect();
-    let on_board: BTreeSet<String> = rows.iter().map(|r| note_key(&r.repo, r.issue)).collect();
+    let on_board: BTreeSet<String> = rows.iter().map(|r| r.tref().key()).collect();
     let newest = |k: &str| notes.of(k).iter().map(|n| n.at).max().unwrap_or(i64::MIN);
     marked.extend(
         notes
@@ -379,29 +371,29 @@ impl NotChecked {
         format!("{}/{NOT_CHECKED}:{}", self.key, self.why.as_str())
     }
 
-    fn too_large(repo: &str, issue: u64, has_notes: bool) -> Self {
+    fn too_large(t: &TicketRef, has_notes: bool) -> Self {
         let what = if has_notes {
             "the signed notes of this coordinator on it and its board Status"
         } else {
             "its board Status"
         };
         NotChecked {
-            key: note_key(repo, issue),
+            key: t.key(),
             why: NotCheckedWhy::TooLarge,
             text: format!(
-                "{repo}#{issue}: the comment list has more than {MAX_PAGES} pages ({} comments), too large to read complete; {what} are checked again when its board row changes, or {} hours after the last read, and a deletion is seen only when the list fits again",
+                "{t}: the comment list has more than {MAX_PAGES} pages ({} comments), too large to read complete; {what} are checked again when its board row changes, or {} hours after the last read, and a deletion is seen only when the list fits again",
                 MAX_PAGES * 100,
                 TOO_LARGE_RECHECK_SECS / 3600
             ),
         }
     }
 
-    fn no_item(repo: &str, issue: u64) -> Self {
+    fn no_item(t: &TicketRef) -> Self {
         NotChecked {
-            key: note_key(repo, issue),
+            key: t.key(),
             why: NotCheckedWhy::NoItem,
             text: format!(
-                "{repo}#{issue}: the ticket has no board item any more (deleted from the board?); its comments were compared once with the signed notes of this coordinator, which are not checked any more"
+                "{t}: the ticket has no board item any more (deleted from the board?); its comments were compared once with the signed notes of this coordinator, which are not checked any more"
             ),
         }
     }
@@ -423,21 +415,16 @@ impl NotChecked {
 ///   forgotten when the event is settled. A gone note stays until its own event is settled.
 ///
 /// `contradicts` is asked only for a complete list of a ticket with a row. Pure.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the facts of one read; a struct would only rename them"
-)]
 pub fn judge_read(
     notes: &mut NoteState,
     me: &str,
-    repo: &str,
-    issue: u64,
+    t: &TicketRef,
     read: ReadResult<'_>,
     board: Option<Option<&str>>,
     contradicts: impl FnOnce(&[Comment], Option<&str>) -> bool,
     now: i64,
 ) -> (Vec<SecurityEvent>, Option<NotChecked>) {
-    let key = note_key(repo, issue);
+    let key = t.key();
     match (read, board) {
         (ReadResult::TooLarge, _) => {
             if let Some(at) = notes.notes_too_large.get_mut(&key) {
@@ -450,28 +437,22 @@ pub fn judge_read(
             if has_notes {
                 notes.mark(&key, now);
             }
-            (
-                Vec::new(),
-                Some(NotChecked::too_large(repo, issue, has_notes)),
-            )
+            (Vec::new(), Some(NotChecked::too_large(t, has_notes)))
         }
-        (ReadResult::Failed, _) => (check_ticket(notes, me, repo, issue, None, false, now), None),
+        (ReadResult::Failed, _) => (check_ticket(notes, me, t, None, false, now), None),
         (ReadResult::Complete(c), Some(status)) => {
             notes.notes_too_large.remove(&key);
             let contra = contradicts(c, status);
-            (
-                check_ticket(notes, me, repo, issue, Some(c), contra, now),
-                None,
-            )
+            (check_ticket(notes, me, t, Some(c), contra, now), None)
         }
         (ReadResult::Complete(c), None) => {
             notes.notes_too_large.remove(&key);
             if notes.of(&key).is_empty() {
                 return (Vec::new(), None);
             }
-            let gone = check_ticket(notes, me, repo, issue, Some(c), false, now);
+            let gone = check_ticket(notes, me, t, Some(c), false, now);
             notes.mark(&key, now);
-            (gone, Some(NotChecked::no_item(repo, issue)))
+            (gone, Some(NotChecked::no_item(t)))
         }
     }
 }
@@ -526,24 +507,28 @@ pub(super) fn cycle_duty(
     now: i64,
 ) -> NoteCycle {
     let mut out = NoteCycle::default();
-    let todo: Vec<(String, u64, Option<Option<String>>)> =
-        to_read(rows, prev, own, done, notes, now)
-            .into_iter()
-            .filter_map(|t| {
-                let (repo, issue) = t.ticket()?;
-                let board = match t {
-                    Target::Row(r) => Some(r.status_str().map(str::to_string)),
-                    Target::Gone(_) => None,
-                };
-                Some((repo, issue, board))
-            })
-            .collect();
-    for (repo, issue, board) in todo {
-        let read =
-            feed::issue_comments(&ac.ctx.client, &repo, issue, None, &ac.ctx.cfg.owner_login);
+    let todo: Vec<(TicketRef, Option<Option<String>>)> = to_read(rows, prev, own, done, notes, now)
+        .into_iter()
+        .filter_map(|t| {
+            let ticket = t.ticket()?;
+            let board = match t {
+                Target::Row(r) => Some(r.status_str().map(str::to_string)),
+                Target::Gone(_) => None,
+            };
+            Some((ticket, board))
+        })
+        .collect();
+    for (t, board) in todo {
+        let read = feed::issue_comments(
+            &ac.ctx.client,
+            &t.repo,
+            t.issue,
+            None,
+            &ac.ctx.cfg.owner_login,
+        );
         if let Err(e) = &read {
             eprintln!(
-                "crewboard: cannot read {repo}#{issue} to check the notes of this coordinator ({e}); {}",
+                "crewboard: cannot read {t} to check the notes of this coordinator ({e}); {}",
                 if matches!(ReadResult::of(&read), ReadResult::TooLarge) {
                     "read again when its board row changes"
                 } else {
@@ -554,8 +539,7 @@ pub(super) fn cycle_duty(
         let (security, note) = judge_read(
             notes,
             ac.name.as_str(),
-            &repo,
-            issue,
+            &t,
             ReadResult::of(&read),
             board.as_ref().map(Option::as_deref),
             |c, status| contradicts(ac, world, c, status),
@@ -576,8 +560,7 @@ pub(super) fn tick_check(ac: &AgentCtx, world: &World, t: &Ticket) -> CbResult<V
         ac,
         world,
         &mut cache.notes,
-        &t.repo,
-        t.issue,
+        &t.tref(),
         t.item.get(Field::Status),
         Some(&t.comments),
         now_epoch(),
@@ -698,7 +681,14 @@ mod tests {
         let mut n = notes(&[note(10, "assignment"), note(12, "close")]);
         // `None`: the read failed or saw only a part of the list
         assert!(missing(n.of("o/r#7"), None).is_empty());
-        let got = check_ticket(&mut n, "c@x", "o/r", 7, None, false, 1_790_000_200);
+        let got = check_ticket(
+            &mut n,
+            "c@x",
+            &TicketRef::new("o/r", 7),
+            None,
+            false,
+            1_790_000_200,
+        );
         assert!(got.is_empty());
         assert_eq!(n.of("o/r#7").len(), 2, "nothing is forgotten");
         assert!(n.notes_recheck.contains_key("o/r#7"));
@@ -707,8 +697,7 @@ mod tests {
         let got = check_ticket(
             &mut n,
             "c@x",
-            "o/r",
-            7,
+            &TicketRef::new("o/r", 7),
             Some(&[comment(10)]),
             false,
             1_790_000_200,
@@ -721,8 +710,7 @@ mod tests {
             check_ticket(
                 &mut n,
                 "c@x",
-                "o/r",
-                7,
+                &TicketRef::new("o/r", 7),
                 Some(&[comment(10)]),
                 false,
                 1_790_000_200
@@ -736,7 +724,14 @@ mod tests {
     fn a_deleted_note_is_raised_once_with_the_ticket_the_kind_and_the_id() {
         let mut n = notes(&[note(10, "assignment"), note(12, "close")]);
         let read = [comment(10), comment(11)];
-        let got = check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200);
+        let got = check_ticket(
+            &mut n,
+            "c@x",
+            &TicketRef::new("o/r", 7),
+            Some(&read),
+            false,
+            1_790_000_200,
+        );
         assert_eq!(got.len(), 1);
         let s = &got[0];
         assert_eq!(s.reason, Reason::DeletedMessage);
@@ -751,11 +746,29 @@ mod tests {
         // the second read of the same list raises nothing: the note is forgotten once settled
         settle(&mut n, &got);
         assert!(
-            check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200).is_empty()
+            check_ticket(
+                &mut n,
+                "c@x",
+                &TicketRef::new("o/r", 7),
+                Some(&read),
+                false,
+                1_790_000_200
+            )
+            .is_empty()
         );
         assert_eq!(n.of("o/r#7"), &[note(10, "assignment")]);
         // a ticket without memory is not compared at all
-        assert!(check_ticket(&mut n, "c@x", "o/r", 8, Some(&[]), true, 1_790_000_200).is_empty());
+        assert!(
+            check_ticket(
+                &mut n,
+                "c@x",
+                &TicketRef::new("o/r", 8),
+                Some(&[]),
+                true,
+                1_790_000_200
+            )
+            .is_empty()
+        );
         assert!(!n.notes_recheck.contains_key("o/r#8"));
     }
 
@@ -763,12 +776,26 @@ mod tests {
     fn a_deleted_note_stays_remembered_and_is_raised_again_until_it_is_settled() {
         let mut n = notes(&[note(10, "assignment"), note(12, "close")]);
         let read = [comment(10)];
-        let first = check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200);
+        let first = check_ticket(
+            &mut n,
+            "c@x",
+            &TicketRef::new("o/r", 7),
+            Some(&read),
+            false,
+            1_790_000_200,
+        );
         assert_eq!(first.len(), 1);
         // the report failed: nothing is settled, so the note and the mark stay
         assert_eq!(n.of("o/r#7").len(), 2);
         assert!(n.notes_recheck.contains_key("o/r#7"));
-        let again = check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200);
+        let again = check_ticket(
+            &mut n,
+            "c@x",
+            &TicketRef::new("o/r", 7),
+            Some(&read),
+            false,
+            1_790_000_200,
+        );
         assert_eq!(again, first, "the next cycle raises the same event");
         // only the shown and reported event is forgotten; other events change nothing
         let mut other = again[0].clone();
@@ -779,7 +806,15 @@ mod tests {
         settle(&mut n, &again);
         assert_eq!(n.of("o/r#7"), &[note(10, "assignment")]);
         assert!(
-            check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200).is_empty()
+            check_ticket(
+                &mut n,
+                "c@x",
+                &TicketRef::new("o/r", 7),
+                Some(&read),
+                false,
+                1_790_000_200
+            )
+            .is_empty()
         );
     }
 
@@ -787,11 +822,29 @@ mod tests {
     fn a_board_that_contradicts_the_log_keeps_the_ticket_for_a_read_next_cycle() {
         let mut n = notes(&[note(12, "close")]);
         let read = [comment(12)];
-        assert!(check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), true, 1_790_000_200).is_empty());
+        assert!(
+            check_ticket(
+                &mut n,
+                "c@x",
+                &TicketRef::new("o/r", 7),
+                Some(&read),
+                true,
+                1_790_000_200
+            )
+            .is_empty()
+        );
         assert!(n.notes_recheck.contains_key("o/r#7"));
         // the board agrees again: no more reads
         assert!(
-            check_ticket(&mut n, "c@x", "o/r", 7, Some(&read), false, 1_790_000_200).is_empty()
+            check_ticket(
+                &mut n,
+                "c@x",
+                &TicketRef::new("o/r", 7),
+                Some(&read),
+                false,
+                1_790_000_200
+            )
+            .is_empty()
         );
         assert!(!n.notes_recheck.contains_key("o/r#7"));
         // a contradiction without a close note of this coordinator costs no read per cycle
@@ -800,8 +853,7 @@ mod tests {
             check_ticket(
                 &mut a,
                 "c@x",
-                "o/r",
-                7,
+                &TicketRef::new("o/r", 7),
                 Some(&[comment(10)]),
                 true,
                 1_790_000_200
@@ -820,7 +872,7 @@ mod tests {
     }
 
     fn issue_of(t: &Target<'_>) -> u64 {
-        t.ticket().unwrap().1
+        t.ticket().unwrap().issue
     }
 
     fn snap(status: &str) -> TicketSnap {
@@ -832,16 +884,22 @@ mod tests {
 
     #[test]
     fn the_note_key_does_not_depend_on_the_spelling_of_the_repo() {
-        assert_eq!(note_key("Org/Repo", 7), note_key("org/repo", 7));
-        assert_eq!(note_key("Org/Repo", 7), "org/repo#7");
+        assert_eq!(
+            TicketRef::new("Org/Repo", 7).key(),
+            TicketRef::new("org/repo", 7).key()
+        );
+        assert_eq!(TicketRef::new("Org/Repo", 7).key(), "org/repo#7");
         // recorded as typed (`Org/Repo#7`), compared with the config spelling of the rows
         let mut n = NoteState::default();
-        n.record(&note_key("Org/Repo", 7), note(12, "close"), 1_790_000_100);
+        n.record(
+            &TicketRef::new("Org/Repo", 7).key(),
+            note(12, "close"),
+            1_790_000_100,
+        );
         let got = check_ticket(
             &mut n,
             "c@x",
-            "org/repo",
-            7,
+            &TicketRef::new("org/repo", 7),
             Some(&[]),
             false,
             1_790_000_200,
@@ -853,7 +911,11 @@ mod tests {
         );
         // a row of the config spelling is read for a note recorded with another spelling
         let mut m = NoteState::default();
-        m.record(&note_key("Org/Repo", 7), note(12, "close"), 1_790_000_100);
+        m.record(
+            &TicketRef::new("Org/Repo", 7).key(),
+            note(12, "close"),
+            1_790_000_100,
+        );
         let rows = [TicketRow {
             repo: "org/repo".into(),
             ..row("moved", 7, "Review")
@@ -866,8 +928,7 @@ mod tests {
             check_ticket(
                 &mut m,
                 "c@x",
-                "org/repo",
-                8,
+                &TicketRef::new("org/repo", 8),
                 Some(&[]),
                 false,
                 1_790_000_200
@@ -917,7 +978,14 @@ mod tests {
                 // the board still contradicts the log: the read keeps the mark and moves it
                 // to the back
                 let read = [comment(i * 10)];
-                check_ticket(&mut n, "c@x", "o/r", i, Some(&read), true, 2_000 + cycle);
+                check_ticket(
+                    &mut n,
+                    "c@x",
+                    &TicketRef::new("o/r", i),
+                    Some(&read),
+                    true,
+                    2_000 + cycle,
+                );
                 seen.insert(i);
             }
         }
@@ -988,14 +1056,13 @@ mod tests {
         let got = to_read(&rows, &prev, &none, &HashSet::new(), &n, NOW);
         // the row-less ticket has no mark: it goes first
         assert_eq!(got, vec![Target::Gone("o/r#7"), Target::Row(&rows[0])]);
-        assert_eq!(got[0].ticket(), Some(("o/r".to_string(), 7)));
+        assert_eq!(got[0].ticket(), Some(TicketRef::new("o/r", 7)));
         // its read compares once: the deleted close note is raised, and one note
         let read = [comment(10)];
         let (ev, nc) = judge_read(
             &mut n,
             "c@x",
-            "o/r",
-            7,
+            &TicketRef::new("o/r", 7),
             ReadResult::Complete(&read),
             None,
             |_, _| unreachable!("a ticket without a row has no board Status"),
@@ -1025,8 +1092,7 @@ mod tests {
         let (ev, nc) = judge_read(
             &mut m,
             "c@x",
-            "o/r",
-            7,
+            &TicketRef::new("o/r", 7),
             ReadResult::Complete(&read),
             None,
             |_, _| false,
@@ -1087,8 +1153,7 @@ mod tests {
             judge_read(
                 n,
                 "c@x",
-                "o/r",
-                7,
+                &TicketRef::new("o/r", 7),
                 ReadResult::TooLarge,
                 Some(Some("Dropped")),
                 |_, _| unreachable!(),
@@ -1122,8 +1187,7 @@ mod tests {
         let (ev, nc) = judge_read(
             &mut n,
             "c@x",
-            "o/r",
-            7,
+            &TicketRef::new("o/r", 7),
             ReadResult::Complete(&read),
             Some(Some("In Progress")),
             |_, _| false,
@@ -1141,8 +1205,7 @@ mod tests {
         let (ev, nc) = judge_read(
             &mut m,
             "c@x",
-            "o/r",
-            7,
+            &TicketRef::new("o/r", 7),
             ReadResult::Failed,
             Some(None),
             |_, _| false,

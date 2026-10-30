@@ -52,14 +52,14 @@ pub fn reassign(
         reason: stated.as_deref(),
     };
     crate::capabilities::check_override_args(ov.flag, ov.reason)?;
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     let new_agent = to.map(AgentName::parse).transpose()?;
     if let Some(a) = &new_agent {
         check_assignable(ac, &world, a.as_str())?;
     }
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     let (override_lines, cap_out) = match &new_agent {
         Some(a) => check_capabilities(&world, &t.info, a.as_str(), ov)?,
         None => (String::new(), String::new()),
@@ -149,8 +149,8 @@ pub fn reassign(
     remember(ac, &t, target, new_agent.as_ref().map(AgentName::as_str));
     out.push_str(&agent_label_lines(
         ac,
-        &repo,
-        n,
+        &tref.repo,
+        tref.issue,
         &t.info.labels,
         new_agent.as_ref().map(AgentName::as_str),
     ));

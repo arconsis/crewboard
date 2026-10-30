@@ -224,7 +224,7 @@ fn unread_guard(
 ) -> CbResult<Option<String>> {
     let mine = t.agent() == Some(ac.name.as_str());
     // the ticket was loaded from the board: it is a ticket
-    crate::unread::guard(ac, world, &t.comments, &t.repo, t.issue, mine, true, anyway)
+    crate::unread::guard(ac, world, &t.comments, &t.tref(), mine, true, anyway)
 }
 
 fn to_agent(name: &str) -> CbResult<To> {

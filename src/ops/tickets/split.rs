@@ -102,18 +102,18 @@ fn plan_split(
 ) -> CbResult<SplitPlan> {
     let file_body = prepare_body(Some(body_file), None)?;
     let title = title.trim();
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    check_repo(&ac.ctx.cfg, &repo)?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    check_repo(&ac.ctx.cfg, &tref.repo)?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     // writer first: only the coordinator splits
     check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
     crate::ctx::load_authority(&ac.ctx)?.check_split_ticket()?;
-    let old = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let old = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     if !old.info.open {
         return Err(CbError::refused(
             ids::TICKET_CLOSED,
-            format!("{repo}#{n} is closed"),
+            format!("{tref} is closed"),
         ));
     }
     let old_key = old.key();
@@ -124,7 +124,7 @@ fn plan_split(
         .and_then(|k| k.rsplit_once('#').and_then(|(_, m)| m.parse::<u64>().ok()));
     let existing = match linked {
         Some(m) => Some(m),
-        None => find_split_issue(ac, &repo, &old_key, title)?,
+        None => find_split_issue(ac, &tref.repo, &old_key, title)?,
     };
     if existing.is_none() {
         let status = old.status()?;
@@ -151,8 +151,8 @@ fn plan_split(
         precheck_assign(ac, &world, a, title, &body)?;
     }
     Ok(SplitPlan {
-        repo,
-        n,
+        repo: tref.repo.clone(),
+        n: tref.issue,
         world,
         me,
         old,

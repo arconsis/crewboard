@@ -4,6 +4,7 @@
 
 use super::Reader;
 use crate::base::Refusal;
+use crate::base::TicketRef;
 use crate::base::ids;
 use crate::comments::Comment;
 use crate::config::BoardConfig;
@@ -169,14 +170,21 @@ impl Ticket {
         ))
     }
 
+    /// The ticket.
+    pub(crate) fn tref(&self) -> TicketRef {
+        TicketRef::new(&self.repo, self.issue)
+    }
+
+    /// `owner/repo#n`.
     pub(crate) fn key(&self) -> String {
-        format!("{}#{}", self.repo, self.issue)
+        self.tref().to_string()
     }
 }
 
 /// Load a ticket: check the repo, read the issue, check that it is a `crew:work` ticket, read
 /// its messages, take the item id from the signed info comment, and read the item by id.
-pub(crate) fn load_ticket(r: &Reader, trust: &Trust, repo: &str, issue: u64) -> CbResult<Ticket> {
+pub(crate) fn load_ticket(r: &Reader, trust: &Trust, t: &TicketRef) -> CbResult<Ticket> {
+    let (repo, issue) = (t.repo.as_str(), t.issue);
     check_repo(r.cfg, repo)?;
     let info = fetch_issue(r.client, repo, issue)?;
     check_work_issue(&info, repo)?;
@@ -184,7 +192,7 @@ pub(crate) fn load_ticket(r: &Reader, trust: &Trust, repo: &str, issue: u64) -> 
     let item_id = find_item_id(&msgs).ok_or_else(|| {
         CbError::refused(
             ids::TICKET_NOT_ON_BOARD,
-            format!("{repo}#{issue} has no signed info comment with its item id; the coordinator must `assign` it first"),
+            format!("{t} has no signed info comment with its item id; the coordinator must `assign` it first"),
         )
     })?;
     let item = r.board.read_item(r.client, &item_id)?;

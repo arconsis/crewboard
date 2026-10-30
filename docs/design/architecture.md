@@ -61,7 +61,7 @@ I/O. `tests/layering.rs` freezes the import graph.
 - `src/protocol/former.rs`: former names of the main repo with a cutoff, so old signatures still verify after a move.
 - `src/protocol/replay.rs`: the replay window inside one issue.
 - `src/base/ids.rs`: the catalog of refusal ids. A `Refusal` names its rule with a `RuleId` of this catalog, so a misspelt id does not compile. The [refusal ids](../reference/refusals.md) page is generated from it.
-- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`), and `base/ignore.rs` with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
+- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`, and `TicketRef`: one ticket as repo and number, printed `owner/repo#n`, compared with the repo in lower case), and `base/ignore.rs` with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
 - `src/secrets.rs`: secret scan for every signed post and `ticket new`. It reports the kind and the line, never the secret.
 - `src/clock.rs`: UTC time as `YYYY-MM-DDTHH:MM:SSZ`, without a time crate.
 

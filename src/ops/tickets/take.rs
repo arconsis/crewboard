@@ -6,7 +6,7 @@ use super::{
     Me, check_status_unchanged, facts, load_world_cached, me_of, post, remember, set_select_status,
     sync_needs_owner, unread_guard,
 };
-use crate::base::ids;
+use crate::base::{TicketRef, ids};
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
@@ -68,7 +68,7 @@ fn plan_take(
     ac: &AgentCtx,
     world: &World,
     me: &Me,
-    (repo, n): (String, u64),
+    tref: TicketRef,
     interrupt: Option<&str>,
     park: Option<&str>,
     adopt_pr: Option<&str>,
@@ -76,7 +76,7 @@ fn plan_take(
     // A paused agent finishes its current step and takes nothing new (spec/board#lifecycle).
     // Resuming a blocked ticket after an answer is the current step, so only a new ticket is
     // refused.
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     if t.status()? == Status::Ready {
         crate::rules::lifecycle::check_not_paused(me.state)?;
@@ -211,9 +211,9 @@ fn plan_park(
     let named = named
         .map(|p| parse_issue_arg(p, ac.ctx.main_repo()))
         .transpose()?;
-    let cur = choose_park(rows, named.as_ref().map(|(r, n)| (r.as_str(), *n)))?;
+    let cur = choose_park(rows, named.as_ref())?;
     check_interrupt_rule(t, cur)?;
-    let ct = load_ticket(&ac.ctx.reader(), &world.trust, &cur.repo, cur.issue)?;
+    let ct = load_ticket(&ac.ctx.reader(), &world.trust, &cur.tref())?;
     ct.check_agent_signed()?;
     // The park posts a signed message on the old ticket, so the same guard as `block` runs
     // here, before any write. The new ticket needs no guard: `take` prints its unread
@@ -275,7 +275,7 @@ pub fn take(
     park: Option<&str>,
     adopt_pr: Option<&str>,
 ) -> CbResult<String> {
-    let issue = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if interrupt.is_some_and(|r| r.trim().is_empty()) {
         return Err(CbError::refused(
             ids::INTERRUPT_NEEDS_REASON,
@@ -287,7 +287,7 @@ pub fn take(
     crate::ops::say::refresh_heartbeat(ac, &world);
     // The coordinator never takes (spec/board#coordinator-role), whatever the ticket looks like.
     check_take(Some(me.role))?;
-    let plan = plan_take(ac, &world, &me, issue, interrupt, park, adopt_pr)?;
+    let plan = plan_take(ac, &world, &me, tref, interrupt, park, adopt_pr)?;
     act_take(ac, &world, &me, plan)
 }
 
@@ -307,8 +307,7 @@ fn act_take(ac: &AgentCtx, world: &World, me: &Me, plan: TakePlan) -> CbResult<S
             ac,
             world,
             &t.comments,
-            &t.repo,
-            t.issue,
+            &t.tref(),
             t.agent() == Some(ac.name.as_str()),
             true,
         )

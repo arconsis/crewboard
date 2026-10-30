@@ -28,10 +28,11 @@ use super::own_notes::{NotChecked, ReadResult};
 use super::registry_post::{liveness_event, post_registry};
 use super::{AgentCtx, World};
 use crate::audit::reported_events;
+use crate::base::TicketRef;
 use crate::events::{Event, SecurityEvent};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, To};
-use crate::state::{StateCache, TOO_LARGE_RECHECK_SECS, TicketSnap, note_key};
+use crate::state::{StateCache, TOO_LARGE_RECHECK_SECS, TicketSnap};
 use crate::ticket::log::{fold_ticket, status_contradicts, status_mismatch_text};
 use crate::ticket::{TicketRow, VMsg, verified_messages};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -115,8 +116,8 @@ pub fn judge(contradicts: bool, was_pending: bool, quiet: bool) -> Verdict {
 /// named by the id of the latest verified comment of the ticket (`0`: none). A board that flips
 /// between statuses gives one report; the owner hears again only after a new signed message,
 /// which no crew token can write.
-pub fn event_key(repo: &str, issue: u64, last_signed: u64) -> String {
-    format!("{}/status@c-{last_signed}", note_key(repo, issue))
+pub fn event_key(t: &TicketRef, last_signed: u64) -> String {
+    format!("{}/status@c-{last_signed}", t.key())
 }
 
 /// The signed `info` to the owner.
@@ -157,7 +158,7 @@ pub(super) fn status_log_duty(
     let large = cache.notes.notes_too_large.clone();
     let waiting = |r: &TicketRow| {
         large
-            .get(&note_key(&r.repo, r.issue))
+            .get(&r.tref().key())
             .is_some_and(|at| now - at < TOO_LARGE_RECHECK_SECS)
     };
     let todo = candidates(
@@ -204,8 +205,7 @@ pub(super) fn status_log_duty(
             let (_, note) = super::own_notes::judge_read(
                 &mut cache.notes,
                 ac.name.as_str(),
-                &row.repo,
-                row.issue,
+                &row.tref(),
                 ReadResult::TooLarge,
                 Some(row.status_str()),
                 |_, _| false,
@@ -226,8 +226,7 @@ pub(super) fn status_log_duty(
                     ac,
                     world,
                     &mut cache.notes,
-                    &row.repo,
-                    row.issue,
+                    &row.tref(),
                     row.status_str(),
                     None,
                     now,
@@ -239,8 +238,7 @@ pub(super) fn status_log_duty(
             ac,
             world,
             &mut cache.notes,
-            &row.repo,
-            row.issue,
+            &row.tref(),
             row.status_str(),
             Some(&comments),
             now,
@@ -258,7 +256,7 @@ pub(super) fn status_log_duty(
             }
             Verdict::Report => {
                 cache.liveness.status_pending.remove(&row.item_id);
-                let ekey = event_key(&row.repo, row.issue, last_signed);
+                let ekey = event_key(&row.tref(), last_signed);
                 if reported.contains(&ekey) {
                     continue;
                 }
@@ -428,9 +426,18 @@ mod tests {
     #[test]
     fn the_key_names_the_ticket_and_the_state_of_its_signed_log() {
         // one key per ticket and signed log, whatever the board shows; the repo in lower case
-        assert_eq!(event_key("O/R", 7, 1234), "o/r#7/status@c-1234");
-        assert_eq!(event_key("o/r", 7, 1234), event_key("O/R", 7, 1234));
-        assert_ne!(event_key("o/r", 7, 1234), event_key("o/r", 7, 1300));
+        assert_eq!(
+            event_key(&TicketRef::new("O/R", 7), 1234),
+            "o/r#7/status@c-1234"
+        );
+        assert_eq!(
+            event_key(&TicketRef::new("o/r", 7), 1234),
+            event_key(&TicketRef::new("O/R", 7), 1234)
+        );
+        assert_ne!(
+            event_key(&TicketRef::new("o/r", 7), 1234),
+            event_key(&TicketRef::new("o/r", 7), 1300)
+        );
         let body = report_body(
             "o/r#7",
             "o/r#7/status@c-1234",
