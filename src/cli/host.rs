@@ -99,7 +99,10 @@ fn wake_cmd(cli: &Cli, w: &crate::wake::cmd::WakeArgs) -> Outcome {
     #[cfg(not(unix))]
     {
         let _ = (cli, w);
-        refused(Refusal::new(ids::UNIX_ONLY, crate::wake::cmd::UNIX_ONLY))
+        refused(Refusal::new(
+            crate::base::ids::UNIX_ONLY,
+            crate::wake::cmd::UNIX_ONLY,
+        ))
     }
     #[cfg(unix)]
     {
