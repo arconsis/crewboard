@@ -1,10 +1,10 @@
-//! The parts of `crewboard wake`, the headless wake gate: the rules (`policy`), the files of the
+//! The parts of `crewboard wake`, the headless wake: the rules (`policy`), the files of the
 //! state dir (`state`), the events file of a wake (`events`), the result files of detached jobs
 //! (`results`), the event receipts (`receipts`), the wake lock (`lockdir`) and the calls to the
 //! board (`steps`), the wake command of a dev agent for each runtime (`adapters`, `words`), and
 //! the events hook of a Claude wake (`hook`). `settings` reads the options once into plain data;
 //! `cmd` makes the calls and the log and runs the flow; `flow` is the run as a sequence of
-//! phases (`preflight`, `gate`, the lock, `tick` or `wake_events` and `finish`, with `runtime`
+//! phases (`preflight`, `precheck`, the lock, `tick` or `wake_events` and `finish`, with `runtime`
 //! and `procs` for the wake command); `hook_cmd` runs the hook; `job` builds the job of a
 //! scheduler.
 //!
@@ -17,7 +17,6 @@ pub mod describe_head;
 pub mod events;
 pub mod finish;
 pub mod flow;
-pub mod gate;
 pub mod heartbeat;
 pub mod hook;
 pub mod hook_cmd;
@@ -25,6 +24,7 @@ pub mod install;
 pub mod job;
 pub mod lockdir;
 pub mod policy;
+pub mod precheck;
 pub mod preflight;
 pub mod procs;
 pub mod receipts;

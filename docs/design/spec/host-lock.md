@@ -119,7 +119,7 @@ A relative `--lock <dir>` is relative to the current directory of the caller, no
    the signal, the lock is released, the evidence so far is printed, the exit code is 143. The
    same holds while it waits for the lock or for CI.
 8. **Exit codes.** They are in the [exit codes reference](../../reference/exit-codes.md#by-command).
-9. Proof: `tests/gate_cli.rs` and `src/gate/verdict.rs`; cases G1 to G10e of
+9. Proof: `tests/repeat_cli.rs` and `src/repeat/verdict.rs`; cases G1 to G10e of
    `skill/loops/tests/test-locks.sh` run through a test driver.
 
 ## CI first, empty lock grace, named reasons

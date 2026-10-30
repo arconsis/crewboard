@@ -41,7 +41,7 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         // `update` replaces the binary and the skill of this host: a headless model must not
         // rewrite its own tooling
         Command::Host(HostCmd::Update { .. }) => Deny(headless::DENY_OWNER),
-        // the wake gate polls the board and starts the wake command of the agent's own scheduler
+        // the wake polls the board and starts the wake command of the agent's own scheduler
         Command::Host(HostCmd::Wake { action: None, .. }) => Allow,
         // `wake install` and `wake uninstall` change the scheduler of this host: a model must not
         // change its own wake; `status` only reads
@@ -236,7 +236,7 @@ mod tests {
         (&["skill", "install"], false),
         (&["skill", "path"], true),
         (&["update", "--check"], false),
-        // the wake gate polls the board and runs the wake command of the agent's scheduler
+        // the wake polls the board and runs the wake command of the agent's scheduler
         (&["wake", "--wake-cmd", "true"], true),
         (&["wake", "--tick"], true),
         // the events hook of a wake reads the board and appends to the events file of the wake

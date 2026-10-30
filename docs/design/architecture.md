@@ -18,7 +18,7 @@ they are not a supported API. The others are `pub(crate)`, so rustc reports dead
      |
   ops/*.rs (one file or family per command; reads, decides, writes)
      |      \
-     |    lock/ (host lock; ops and wake import it), gate/ (repeat gate; pure, ops imports it)
+     |    lock/ (host lock; ops and wake import it), repeat/ (`repeat` verdicts; pure, ops imports it)
      |
   ctx/ (Global, Ctx, AgentCtx, World, token checks; ops, wake and unread import it)
      |
@@ -103,16 +103,16 @@ modules on the `ops` list of `tests/layering.rs`.
 - Board config refresh: `board_refresh.rs` (`start` re-reads `.crewboard.toml` from the default branch).
 - Agent and crew admin: `lifecycle.rs` (`pause`, `resume`, `stop`), `force_stop.rs` (`stop --force`), `profile.rs`, `prune.rs`, `report_status.rs`.
 - Local checks: `doctor.rs` (`doctor`: the headless scope and the branch protection), `repo_migration.rs` (`doctor --repo-move`, a read-only dry run).
-- Host tools: `lock_cmd.rs` (`crewboard lock`: the environment and the board probe for `src/lock/`), `gate_cmd.rs` (`crewboard repeat`: runs a command N times, `src/gate/` judges), `skill_cmd.rs` (`skill install`, `skill path`), `update_cmd.rs` (`crewboard update`: replace the binary, then `skill install`).
+- Host tools: `lock_cmd.rs` (`crewboard lock`: the environment and the board probe for `src/lock/`), `repeat_cmd.rs` (`crewboard repeat`: runs a command N times, `src/repeat/` judges), `skill_cmd.rs` (`skill install`, `skill path`), `update_cmd.rs` (`crewboard update`: replace the binary, then `skill install`).
 
-### Host lock and gate
+### Host lock and repeat
 
 - `src/lock/`: the host lock, a directory with an owner file that a dead agent cannot hold. It imports only `base`, `clock`, `fsutil` and `spawn`.
   - `mod.rs` (the lock), `run.rs` (the dispatch, `--pid runner`, `run`), `args.rs` (the command line, exit 64), `help.rs`, `log.rs` (log and answer lines).
   - `owner.rs` (the owner file, a public contract), `snapshot.rs` (all disk reads), `fsmeta.rs` (change time), `judge.rs` (is the lock stale; pure), `takeover.rs` (one atomic winner).
   - `procs.rs` (process facts behind a trait), `board.rs` (the board probe trait: owner dead or gone), `ci.rs` (CI first), `sys.rs` (signals, new session).
   - `detach.rs` (`run --detach`) and `result.rs` (the result file that `wake` reads).
-- `src/gate/` (`mod.rs`, `verdict.rs`, `evidence.rs`): the verdict of one run and the evidence block of `crewboard repeat`. Pure. It imports no crate module.
+- `src/repeat/` (`mod.rs`, `verdict.rs`, `evidence.rs`): the verdict of one run and the evidence block of `crewboard repeat`. Pure. It imports no crate module.
 
 ### Services (`src/services/`)
 
@@ -177,9 +177,9 @@ modules on the `ops` list of `tests/layering.rs`.
 
 ### Wake (`src/wake/`)
 
-The unattended wake gate for a scheduler. It imports `agent_env`, `base`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
+The unattended wake for a scheduler. It imports `agent_env`, `base`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
 
-- One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file, net back-off), `gate.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model).
+- One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file, net back-off), `precheck.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model).
 - The wake command: `job.rs` (options and argument vector), `adapters.rs` (one row per runtime), `runtime.rs` (process group, time budget, signals), `heartbeat.rs`, `procs.rs` (`stop_group`), `words.rs` (shell words), `describe_head.rs` (where the work is after a time-out).
 - Events: `events.rs` (the text of the events file), `wake_events.rs` (the file, the receipts, the `.unhandled` copy), `receipts.rs`, `results.rs` (result files of detached jobs), `hook.rs` and `hook_cmd.rs` (`crewboard hook post-tool-use`).
 - State and rules: `settings.rs` (flags and `Settings`), `policy.rs` (pure rules, time as an argument), `state.rs` (the state dir), `lockdir.rs` (the wake lock), `steps.rs` (the board calls behind a trait: in process or as a subprocess).

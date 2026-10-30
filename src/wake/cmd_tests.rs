@@ -361,7 +361,7 @@ fn rep(n: usize, l: &str) -> Vec<&str> {
     vec![l; n]
 }
 
-// --- gate and quiet ---
+// --- precheck and quiet ---
 
 #[test]
 fn p1_twenty_quiet_polls_start_no_wake_and_say_nothing() {
@@ -1078,7 +1078,7 @@ fn x2_exit_2_is_no_stop_and_the_next_run_polls_again() {
 }
 
 #[test]
-fn x1_exit_4_of_mine_in_the_gate_stops_too() {
+fn x1_exit_4_of_mine_in_the_precheck_stops_too() {
     let rig = Rig::new();
     let mut st = Scripted::new(&["1||"]).with_mine(&[(4, "")]);
     assert_eq!(rig.run(&mut st, &[]), 4);
@@ -1094,7 +1094,7 @@ fn x1_exit_4_of_mine_in_the_gate_stops_too() {
 }
 
 #[test]
-fn exit_3_of_mine_in_the_gate_counts_as_a_failed_run() {
+fn exit_3_of_mine_in_the_precheck_counts_as_a_failed_run() {
     let rig = Rig::new();
     let mut st = Scripted::new(&["1||"]).with_mine(&[(3, ""), (3, "")]);
     assert_eq!(rig.run(&mut st, &["--retry-delays", "0"]), 3);
@@ -1106,7 +1106,7 @@ fn exit_3_of_mine_in_the_gate_counts_as_a_failed_run() {
     assert_eq!(rig.wakes(), 0);
 }
 
-// --- gate details ---
+// --- precheck details ---
 
 // --- tick ---
 
@@ -1375,7 +1375,7 @@ fn a_good_poll_followed_by_exit_3_of_mine_does_not_reset_the_back_off() {
     assert_eq!(rig.run(&mut st, &args), 3);
     let b = NetBackoff::parse(&rig.state_text("net-backoff").unwrap());
     assert_eq!((b.fails, b.until), (2, NOW + 300));
-    // twin: a gate that succeeds as a whole clears it
+    // twin: a precheck that succeeds as a whole clears it
     rig.write_state("net-backoff", &format!("2 {}\n", NOW - 1));
     let mut st = Scripted::new(&["1||"]).with_mine(&[(1, "")]);
     assert_eq!(rig.run(&mut st, &args), 0);

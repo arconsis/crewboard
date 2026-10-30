@@ -1,4 +1,4 @@
-//! `crewboard wake` against a fake GitHub: the calls of the gate run in process (`poll --quiet`,
+//! `crewboard wake` against a fake GitHub: the calls of the precheck run in process (`poll --quiet`,
 //! `mine --quiet`, `say`, `tick`). The flow itself is unit-tested in `src/wake/cmd.rs`.
 
 #![cfg(unix)]
@@ -100,7 +100,7 @@ fn owned_work_wakes_once_per_back_off() {
     assert_eq!((o.code, o.stderr.as_str()), (0, ""), "{}", o.all());
     assert_eq!(reasons(s).len(), 1);
     let after = fake.requests().len();
-    assert!(after > before, "the gate still polls");
+    assert!(after > before, "the precheck still polls");
     // twin: with the back-off off the agent is never woken for work
     std::fs::remove_file(s.join("last-wake")).unwrap();
     let o = wake(&fake, &b, s, &["--work-backoff", "off"]);

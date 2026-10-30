@@ -1513,7 +1513,7 @@ impl Command {
             ) => Family::Watch,
             Command::Host(HostCmd::Lock { .. }) => Family::Lock,
             Command::Host(HostCmd::Wake { .. }) => Family::Wake,
-            Command::Host(HostCmd::Repeat(_)) => Family::Gate,
+            Command::Host(HostCmd::Repeat(_)) => Family::Repeat,
             _ => Family::Other,
         }
     }

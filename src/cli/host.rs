@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 /// `repeat`, and its old name `gate run`: the same options, the same exit codes.
 fn repeat_cmd(cli: &Cli, a: &RepeatArgs) -> Outcome {
-    let opts = ops::gate_cmd::Options {
+    let opts = ops::repeat_cmd::Options {
         runs: a.times.clone(),
         lock: a.lock.clone(),
         owner: a.holder.clone(),
@@ -29,7 +29,7 @@ fn repeat_cmd(cli: &Cli, a: &RepeatArgs) -> Outcome {
         ci_max_wait: a.ci_max_wait.clone(),
         cmd: a.cmd.clone(),
     };
-    let code = ops::gate_cmd::run(cli.config_dir.as_deref(), &opts);
+    let code = ops::repeat_cmd::run(cli.config_dir.as_deref(), &opts);
     Outcome {
         exit: if code == 0 { Exit::Ok } else { Exit::Refused },
         code: Some(u8::try_from(code).unwrap_or(1)),

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// How the run goes on after the checks.
 pub enum Preflight {
-    /// Go on to the gate.
+    /// Go on to the precheck.
     Go,
     /// The run ends with this code.
     Done(u8),

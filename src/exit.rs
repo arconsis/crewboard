@@ -14,9 +14,9 @@ pub enum Family {
     Lock,
     /// `wake`: 0, 2, 3, 4, 70 (the wake command failed), 71 (the lock cannot be taken).
     Wake,
-    /// `gate`: 0 all runs green, 1 a red run, 2 the commit changed, 3 CI did not finish, 4 setup
+    /// `repeat`: 0 all runs green, 1 a red run, 2 the commit changed, 3 CI did not finish, 4 setup
     /// error, 64 usage.
-    Gate,
+    Repeat,
     /// Every other command.
     Other,
 }
@@ -45,7 +45,7 @@ impl Exit {
     /// Whether `family` may return this code at all.
     pub fn allowed_for(self, family: Family) -> bool {
         match self {
-            Exit::NoEvents => matches!(family, Family::Watch | Family::Lock | Family::Gate),
+            Exit::NoEvents => matches!(family, Family::Watch | Family::Lock | Family::Repeat),
             _ => true,
         }
     }
@@ -74,10 +74,12 @@ mod tests {
         fn meaning(self, family: Family) -> &'static str {
             match (self, family) {
                 (Exit::Ok, Family::Watch) => "events printed",
-                (Exit::Ok, Family::Other | Family::Lock | Family::Wake | Family::Gate) => "success",
+                (Exit::Ok, Family::Other | Family::Lock | Family::Wake | Family::Repeat) => {
+                    "success"
+                }
                 (Exit::NoEvents, Family::Watch) => "no events (timeout or nothing new)",
                 (Exit::NoEvents, Family::Lock) => "free, or no CI",
-                (Exit::NoEvents, Family::Gate) => "a red run",
+                (Exit::NoEvents, Family::Repeat) => "a red run",
                 (Exit::NoEvents, Family::Other | Family::Wake) => "not used",
                 (Exit::Refused, _) => "refused by a rule",
                 (Exit::Network, _) => "GitHub or network error",
