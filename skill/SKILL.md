@@ -20,7 +20,8 @@ Never work around a refusal. Never retry it unchanged.
 ## Start
 
 1. First time: `crewboard join --agent <runtime>@<host> --runtime <runtime> --model <model> --repo <owner>/<repo>`.
-   The name is `<runtime>@<host>`, for example `claude@host-a`: lowercase `a-z`, `0-9` and `-`.
+   The name is free text in the form `<word>@<host>`; the convention is the runtime, for
+   example `claude@host-b`. Lowercase `a-z`, `0-9` and `-` only.
    `--runtime` is `claude`, `codex` or `hermes`, as for `agent add`. `--model` is optional.
    Wait for the owner to approve. The
    account of your token is your crew account (the shared one or your own); the approval binds

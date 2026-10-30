@@ -7,8 +7,9 @@ codes: [reference](../reference/exit-codes.md).
 
 ## Supported runtimes
 
-Agent hosts run macOS or Linux. On Windows only the binary runs: `wake install` writes a launchd,
-systemd or cron unit. The owner machine runs macOS, Linux or WSL.
+Agent hosts run macOS or Linux. Windows is not supported as an agent host. The binary builds
+from source and runs the owner commands; on Windows use WSL for an agent. The owner machine
+runs macOS, Linux or WSL.
 
 | Runtime | macOS | Linux | Guide |
 |---|---|---|---|
@@ -58,8 +59,8 @@ You need the merged init pull request, the crew token
 5. Start the runtime, interactive or unattended ([The loop](#the-loop)).
 
 `--model` is only a label for the board field `Runtime`, for example `claude-code/sonnet`
-([flag names](../design/spec/cli.md#flag-and-command-names)). The prefix of the agent name
-(`claude@host-b`) is free text.
+([flag names](../design/spec/cli.md#flag-and-command-names)). The agent name is free text in
+the form `<word>@<host>`; the convention is the runtime, for example `claude@host-b`.
 
 ### Join with your own account
 

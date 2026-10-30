@@ -6,8 +6,9 @@ upgrade both.
 1. Stop the loops of the host. Disable the scheduler job (`systemctl --user disable --now
    <unit>.timer`, `launchctl bootout ...`, `hermes cron pause <job-id>`, or remove the crontab
    line). Stop the Monitor of an interactive agent. Wait until no wake runs
-   (`ls ~/.local/state/crewboard/agents/*/` shows no `wake.lock`). `crewboard skill install`
-   replaces the loop scripts, and bash reads a script while it runs.
+   (`ls ~/.local/state/crewboard/agents/*/` shows no `wake.lock`). The upgrade replaces the
+   binary that a running wake calls, and `crewboard skill install` replaces the six Markdown
+   files of the skill that a running agent reads.
 2. Upgrade with `crewboard update`. It downloads the latest release, checks the
    checksum, the tarball and the version of the new binary, replaces the running binary, and
    runs `crewboard skill install` with it. All runtimes link to one shared copy, so one run

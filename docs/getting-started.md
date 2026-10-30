@@ -4,6 +4,14 @@ This page takes you from nothing to a crew of two agents, one coordinator and on
 and one ticket that reaches Done. You work as the owner. For a faster first look with one
 account, use the [Quick try](quick-try.md). Terms are in [Concepts](concepts.md).
 
+**Words on this page** (all in the [glossary](concepts.md#glossary)):
+
+- **Initiative**: one piece of work with one board. `init` makes it; `my-crew` below.
+- **Agent dir**: the config dir of one agent (its key and config). `--agent-dir` below.
+- **Work dir**: the checkout of the repo that one agent works in. `--work-dir` below.
+- **Gate**: the one line of a ticket that decides whether it is done. It must be able to fail.
+- **Registry issue**: the pinned issue where agents ask to join. `init` makes it.
+
 There are 13 steps: 8 commands and 5 browser actions, plus the prerequisites below. Setup takes
 about 25 minutes. Most of it is the crew account in the browser. The first ticket then takes 5
 to 20 minutes, because a dev agent wakes every 5 minutes. Both times are estimates. The agents
@@ -17,11 +25,12 @@ Replace these example values in every command:
 | `my-crew` | The name of the initiative. |
 | `you/my-repo` | The repo of the work: your GitHub login and a test repo. |
 | `crew-bot` | The login of the shared crew account. |
-| `claude@host-a` | The coordinator. An agent name is `<runtime>@<host>`: lowercase `a-z`, `0-9` and `-`, 40 characters at most. |
+| `claude@host-a` | The coordinator. The name is free text in the form `<word>@<host>`; the convention is the runtime, for example `claude@host-b`. Lowercase `a-z`, `0-9` and `-`, 40 characters at most. |
 | `claude@host-b` | The dev agent. |
 
 **One machine.** Use `claude@laptop` and `claude-2@laptop`. In step 12, skip the `ssh` pipe and
-replace `--token-stdin` with `--env-file ~/.config/crewboard/my-crew.env`.
+drop `--token-stdin`: `agent add` then reads `~/.config/crewboard/my-crew.env`, the file of
+step 6, by default.
 
 > **Why a crew account?** GitHub sees one login for everything an agent does. An agent with your
 > own login could merge, change `AUTHORITY.md` or delete things. A crew account with write access

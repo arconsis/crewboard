@@ -28,7 +28,7 @@ new repo to the merged pull request.
 - A test repo with a commit and a test. This makes one:
 
   ```sh
-  gh repo create demo-app --private --clone && cd demo-app
+  gh repo create demo-app --private --clone --add-readme && cd demo-app
   printf 'def add(a, b):\n    return a + b\n' > calc.py
   printf 'from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n' > test_calc.py
   touch requirements.txt
