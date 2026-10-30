@@ -8,12 +8,14 @@
 
 //!
 //! Split by concern: `board` (the board TOML), `agent` (the agent TOML and its atomic
-//! write), `dir` (the directory layout) and `keys` (the key store and file modes). Every
-//! public item is re-exported here, so callers use `crate::config::<Item>`.
+//! write), `dir` (the directory layout), `init_merge` (an `init` rerun on an existing file) and
+//! `keys` (the key store and file modes). Every public item is re-exported here, so callers use
+//! `crate::config::<Item>`.
 
 mod agent;
 mod board;
 mod dir;
+mod init_merge;
 mod keys;
 
 pub use agent::{AgentConfig, HEADLESS_KEY, LOOP_KEYS, LoopConfig, WakeConfig};
@@ -22,6 +24,7 @@ pub use board::{
     split_repo, valid_initiative_name,
 };
 pub use dir::ConfigDir;
+pub use init_merge::{INIT_KEYS, merge_init_keys};
 pub use keys::{load_key, load_or_create_key, public_line};
 
 use crate::error::CbError;

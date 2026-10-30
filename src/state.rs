@@ -29,9 +29,9 @@
 //! the file again, merges `selftest_used` (union) and `deferred` (the events this copy added are
 //! added, the ones it consumed are removed, the ones a concurrent writer added stay), and writes
 //! the result atomically. `posted_notes` is merged too (`NoteState::merge_disk`): a note that
-//! a concurrent writer recorded stays, a note that it forgot stays forgotten. So is
-//! `notes_recheck` (a union; a mark that this copy cleared stays cleared). Every other key is
-//! cache: the copy that saves last wins, and a lost value costs one read.
+//! a concurrent writer recorded stays, a note that it forgot stays forgotten. So are
+//! `notes_recheck` and `notes_too_large` (a union; a mark that this copy cleared stays cleared).
+//! Every other key is cache: the copy that saves last wins, and a lost value costs one read.
 
 pub use crate::events::TicketSnap;
 use serde::{Deserialize, Serialize};
@@ -142,6 +142,11 @@ pub struct LivenessState {
     /// the next cycle looks again before it tells the owner (`ops::log_check`).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub status_pending: BTreeSet<String>,
+    /// Tickets (item ids) that another writer moved out of Done or Dropped and that the Status
+    /// check has not read yet, with the time (Unix seconds) of the move that a cycle saw. A cycle
+    /// reads at most `ops::log_check::SETBACKS_PER_CYCLE` of them, the oldest first.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub setback_queue: BTreeMap<String, i64>,
 }
 
 /// The memory of the late-work duty. The keys `stale_seen`, `stale_checked`,
@@ -217,8 +222,7 @@ pub fn note_key(repo: &str, issue: u64) -> String {
 
 /// What a remembered note is (`ops::own_notes::note_kind`). The state file holds the kebab-case
 /// name (`close`, `verify-pass`, `verify-fail`, `assignment`, `reassign`, `creation`).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoteKind {
     /// A close note of every kind (Done or Dropped).
     Close,
@@ -227,15 +231,14 @@ pub enum NoteKind {
     Assignment,
     Reassign,
     Creation,
-    /// A name that this build does not know (a file of a later build): kept, so that the file
-    /// still loads.
-    #[serde(other)]
-    Other,
+    /// A name that this build does not know (a file of a later build): kept with its name, so
+    /// that the file still loads and a save writes the name back as it was.
+    Other(String),
 }
 
 impl NoteKind {
     /// The name in the state file and in the event text.
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             NoteKind::Close => "close",
             NoteKind::VerifyPass => "verify-pass",
@@ -243,8 +246,33 @@ impl NoteKind {
             NoteKind::Assignment => "assignment",
             NoteKind::Reassign => "reassign",
             NoteKind::Creation => "creation",
-            NoteKind::Other => "other",
+            NoteKind::Other(name) => name,
         }
+    }
+
+    /// The kind of a name in the state file.
+    fn of_name(name: &str) -> Self {
+        match name {
+            "close" => NoteKind::Close,
+            "verify-pass" => NoteKind::VerifyPass,
+            "verify-fail" => NoteKind::VerifyFail,
+            "assignment" => NoteKind::Assignment,
+            "reassign" => NoteKind::Reassign,
+            "creation" => NoteKind::Creation,
+            other => NoteKind::Other(other.to_string()),
+        }
+    }
+}
+
+impl Serialize for NoteKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for NoteKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(NoteKind::of_name(&String::deserialize(d)?))
     }
 }
 
@@ -288,6 +316,41 @@ pub struct NoteState {
     /// of the file.
     #[serde(skip)]
     pub(crate) recheck_loaded: BTreeMap<String, i64>,
+    /// Tickets (`owner/repo#n`) whose comment list had more pages than crewboard reads at the
+    /// last read, and whose `notes-not-checked` event was shown and reported, with the time
+    /// (Unix seconds) of that read. Their notes stay. Such a ticket is read again when its board
+    /// row changes, or [`TOO_LARGE_RECHECK_SECS`] after the last read, and not in every cycle
+    /// (a read costs `MAX_PAGES` pages); a read that is complete again removes the entry
+    /// (`ops::own_notes`). The Status check of the cycle (`ops::log_check`) uses it too, also for
+    /// a ticket without notes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub notes_too_large: BTreeMap<String, i64>,
+    /// The `notes_too_large` entries of the file when this copy last read it (see
+    /// `notes_loaded`). Not part of the file.
+    #[serde(skip)]
+    pub(crate) too_large_loaded: BTreeMap<String, i64>,
+}
+
+/// A ticket of [`NoteState::notes_too_large`] is read again this long (6 hours, in seconds) after
+/// its last read, also when its board row did not change.
+pub const TOO_LARGE_RECHECK_SECS: i64 = 6 * 3600;
+
+/// Merge one map of marks of this copy (`mine`) with the map of the file (`disk`). `loaded`: the
+/// map of the file when this copy last read it. A mark of the file that this copy did not see
+/// was set by a concurrent writer: it is added. A mark that this copy set or moved stays. A mark
+/// that this copy cleared stays cleared, and a mark that a concurrent writer cleared goes when
+/// this copy did not touch it.
+fn merge_marks(
+    mine: &mut BTreeMap<String, i64>,
+    loaded: &BTreeMap<String, i64>,
+    disk: &BTreeMap<String, i64>,
+) {
+    mine.retain(|k, at| disk.contains_key(k) || loaded.get(k) != Some(at));
+    for (k, at) in disk {
+        if !mine.contains_key(k) && loaded.get(k) != Some(at) {
+            mine.insert(k.clone(), *at);
+        }
+    }
 }
 
 /// `notes_recheck` as a map, or as the list that an earlier build wrote (each mark then counts as
@@ -350,6 +413,7 @@ impl NoteState {
         };
         self.posted_notes.retain(|k, _| ours(k));
         self.notes_recheck.retain(|k, _| ours(k));
+        self.notes_too_large.retain(|k, _| ours(k));
     }
 
     /// Put the keys of a file that an older build wrote ([`note_key`]: the repo in lower case)
@@ -372,6 +436,10 @@ impl NoteState {
             }
         }
         self.notes_recheck = std::mem::take(&mut self.notes_recheck)
+            .into_iter()
+            .map(|(k, at)| (k.to_ascii_lowercase(), at))
+            .collect();
+        self.notes_too_large = std::mem::take(&mut self.notes_too_large)
             .into_iter()
             .map(|(k, at)| (k.to_ascii_lowercase(), at))
             .collect();
@@ -404,6 +472,23 @@ impl NoteState {
         }
         let kept: BTreeSet<String> = self.posted_notes.keys().cloned().collect();
         self.notes_recheck.retain(|k, _| kept.contains(k));
+        // A too-large ticket may have no notes (the Status check): its entry has its own bound.
+        self.notes_too_large
+            .retain(|_, at| *at > now - NOTE_KEEP_SECS);
+        if self.notes_too_large.len() > MAX_NOTE_TICKETS {
+            let mut by_age: Vec<(i64, String)> = self
+                .notes_too_large
+                .iter()
+                .map(|(k, at)| (*at, k.clone()))
+                .collect();
+            by_age.sort();
+            for (_, k) in by_age
+                .iter()
+                .take(self.notes_too_large.len() - MAX_NOTE_TICKETS)
+            {
+                self.notes_too_large.remove(k);
+            }
+        }
     }
 
     /// What this copy read from the file: the keys in one spelling, and the ids and marks of the
@@ -412,6 +497,7 @@ impl NoteState {
         self.normalize_keys();
         self.notes_loaded = self.ids();
         self.recheck_loaded = self.notes_recheck.clone();
+        self.too_large_loaded = self.notes_too_large.clone();
     }
 
     /// Merge the notes of the file (`disk`) into this copy. A note that the file has and this
@@ -443,16 +529,13 @@ impl NoteState {
             }
         }
         let marked = std::mem::take(&mut self.recheck_loaded);
-        self.notes_recheck
-            .retain(|k, at| disk.notes_recheck.contains_key(k) || marked.get(k) != Some(at));
-        for (k, at) in &disk.notes_recheck {
-            if !self.notes_recheck.contains_key(k) && marked.get(k) != Some(at) {
-                self.notes_recheck.insert(k.clone(), *at);
-            }
-        }
+        merge_marks(&mut self.notes_recheck, &marked, &disk.notes_recheck);
+        let large = std::mem::take(&mut self.too_large_loaded);
+        merge_marks(&mut self.notes_too_large, &large, &disk.notes_too_large);
         self.bound(now);
         self.notes_loaded = on_disk;
         self.recheck_loaded = disk.notes_recheck.clone();
+        self.too_large_loaded = disk.notes_too_large.clone();
     }
 }
 
@@ -597,8 +680,11 @@ impl StateCache {
 
     /// Write the state atomically (temp file, sync, rename), under the lock of the file and merged
     /// with what a concurrent writer saved since this copy was loaded. A lock file that cannot be
-    /// opened is a warning: the save goes on without it.
-    pub fn save(&self, path: &Path) -> crate::error::CbResult<()> {
+    /// opened is a warning: the save goes on without it. Afterwards the notes of this copy are
+    /// the notes of the file, and the file counts as read: a later save of the same copy (a long
+    /// `watch`) merges against what it wrote, so a mark that it moved does not undo a clear of a
+    /// concurrent writer.
+    pub fn save(&mut self, path: &Path) -> crate::error::CbResult<()> {
         let mut lock_name = path.as_os_str().to_os_string();
         lock_name.push(".lock");
         let _lock = crate::fsutil::lock_exclusive(Path::new(&lock_name))
@@ -614,7 +700,10 @@ impl StateCache {
             .map_err(|e| crate::error::CbError::config(format!("state {}: {e}", path.display())))?;
         crate::fsutil::write_atomic_private(path, text.as_bytes()).map_err(|e| {
             crate::error::CbError::config(format!("cannot save state {}: {e}", path.display()))
-        })
+        })?;
+        self.notes = merged.notes;
+        self.notes.loaded();
+        Ok(())
     }
 }
 
@@ -692,7 +781,7 @@ mod tests {
     #[test]
     fn save_and_load_round_trip_keeps_the_same_keys_and_values() {
         let (d, p) = fixture_file();
-        let c = StateCache::load(&p);
+        let mut c = StateCache::load(&p);
         let out = d.path().join("out").join("again.json");
         c.save(&out).unwrap();
         let saved = std::fs::read_to_string(&out).unwrap();
@@ -927,7 +1016,7 @@ mod tests {
             assert!(raw.get(old).is_some(), "{old}");
         }
         assert!(raw.get("late_seen").is_none() && raw.get("late_checked").is_none());
-        let c = StateCache::load(&p);
+        let mut c = StateCache::load(&p);
         assert_eq!(c.late.late_seen["PVTI_item7|no-branch"], "-");
         assert_eq!(c.late.late_checked, Some(1790850100));
         assert_eq!(c.late.late_tick_checked, Some(1790850200));
@@ -1107,11 +1196,11 @@ mod tests {
             assert_eq!(text, format!("\"{}\"", k.as_str()));
             assert_eq!(serde_json::from_str::<NoteKind>(&text).unwrap(), k);
         }
-        // a name of a later build loads as Other, so the file is not lost
-        assert_eq!(
-            serde_json::from_str::<NoteKind>("\"pin\"").unwrap(),
-            NoteKind::Other
-        );
+        // a name of a later build loads as Other with its name, so the file is not lost and a
+        // save writes the name back as it was
+        let pin = serde_json::from_str::<NoteKind>("\"pin\"").unwrap();
+        assert_eq!(pin, NoteKind::Other("pin".into()));
+        assert_eq!(serde_json::to_string(&pin).unwrap(), "\"pin\"");
     }
 
     #[test]
@@ -1198,6 +1287,48 @@ mod tests {
         w.save(&p).unwrap();
         mem.refresh_notes(&p);
         assert_eq!(mem.notes.notes_recheck.get("o/r#1"), Some(&400));
+    }
+
+    #[test]
+    fn a_mark_that_a_long_watch_moved_and_saved_does_not_undo_a_later_clear_of_another_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let now = crate::clock::now_epoch();
+        let mut first = StateCache::default();
+        first.notes.record("o/r#1", posted(10, now), now);
+        first.notes.mark("o/r#1", 100);
+        first.save(&p).unwrap();
+        // a long `watch` moves the mark (a read that keeps it) and saves
+        let mut watch = StateCache::load(&p);
+        watch.notes.mark("o/r#1", 200);
+        watch.save(&p).unwrap();
+        // a ticket command clears the mark afterwards
+        let mut cmd = StateCache::load(&p);
+        cmd.notes.notes_recheck.remove("o/r#1");
+        cmd.save(&p).unwrap();
+        // the watch saves again without a change to the mark: the clear stays
+        watch.save(&p).unwrap();
+        assert!(
+            StateCache::load(&p).notes.notes_recheck.is_empty(),
+            "the moved mark came back"
+        );
+        // the same for the too-large memory
+        let mut watch = StateCache::load(&p);
+        watch.notes.notes_too_large.insert("o/r#1".into(), now);
+        watch.save(&p).unwrap();
+        let mut cmd = StateCache::load(&p);
+        assert_eq!(cmd.notes.notes_too_large.get("o/r#1"), Some(&now));
+        cmd.notes.notes_too_large.remove("o/r#1");
+        cmd.save(&p).unwrap();
+        watch.save(&p).unwrap();
+        assert!(StateCache::load(&p).notes.notes_too_large.is_empty());
+        // control: a mark that the watch moves after its save stays
+        watch.notes.mark("o/r#1", 400);
+        watch.save(&p).unwrap();
+        assert_eq!(
+            StateCache::load(&p).notes.notes_recheck.get("o/r#1"),
+            Some(&400)
+        );
     }
 
     #[test]

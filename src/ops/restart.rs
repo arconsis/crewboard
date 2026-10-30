@@ -334,7 +334,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     // tickets and their index are kept; ETags and snapshots of the scratch copy are dropped
     cache.index.tickets = scratch.index.tickets;
     cache.index.tickets_scanned = true;
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     let rows = collected.rows;
     let events = collected.events.len() + collected.security.len();
     // 4. the re-arm command

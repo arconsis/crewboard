@@ -26,7 +26,7 @@ use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
     IssueInfo, check_repo, check_work_issue, fetch_issue, load_ticket, parse_issue, read_messages,
 };
-use crate::ticket::log::{Expected, fold_ticket};
+use crate::ticket::log::{Expected, fold_ticket, unsigned_end, unsigned_end_remedy};
 use crate::ticket::{WORK_LABEL, body_field, find_item_id};
 
 /// Arguments of `ticket new`.
@@ -136,12 +136,26 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
         // The PR of a ticket that went back to the board: its reassign notice names the PR, so
         // the work is left by an earlier agent and the PR may move to a new ticket.
         Ok(p) if returned_with_pr(&p, &pr) => Ok(()),
-        Ok(p) => Err(format!(
-            "{parent}, the ticket that branch '{}' names, is {} by its signed log (board: {}): a ticket adopts the PR of a DONE or DROPPED ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names; the board Status alone does not count (end the ticket first: `crewboard close {parent_n} --why \"<text>\"`)",
-            pr.head_ref,
-            fold_ticket(&p.msgs).status.describe(),
-            p.item.field("Status").unwrap_or("no Status")
-        )),
+        Ok(p) => {
+            let log = fold_ticket(&p.msgs).status;
+            let board = p.item.field("Status");
+            // A board Done or Dropped without a signed end: `close --why` refuses an ended
+            // board Status, so the way out starts with the owner's move.
+            let way = if board
+                .and_then(Status::parse)
+                .is_some_and(|b| unsigned_end(b, &log))
+            {
+                unsigned_end_remedy(parent_n)
+            } else {
+                format!("end the ticket first: `crewboard close {parent_n} --why \"<text>\"`")
+            };
+            Err(format!(
+                "{parent}, the ticket that branch '{}' names, is {} by its signed log (board: {}): a ticket adopts the PR of a DONE or DROPPED ticket, or the open PR that the reassign notice of a ticket in Backlog or Ready names; the board Status alone does not count ({way})",
+                pr.head_ref,
+                log.describe(),
+                board.unwrap_or("no Status")
+            ))
+        }
         Err(CbError::Refused(r)) => Err(format!(
             "{parent}, the ticket that branch '{}' names, is not a ticket on the board ({r}): a ticket adopts the PR of a DONE or DROPPED ticket only",
             pr.head_ref
@@ -296,7 +310,7 @@ pub(super) fn adopt_info(
         .index
         .tickets
         .insert(format!("{repo}#{n}"), item_id.clone());
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     Ok((item_id, out))
 }
 

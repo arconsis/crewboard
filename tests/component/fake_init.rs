@@ -180,6 +180,64 @@ fn init_twice_creates_only_what_is_missing_and_never_touches_an_option_id() {
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }
 
+/// The keys and the comment that the owner adds to a board config by hand.
+const OWNER_KEYS: &str = "# the owner's note: a slow host\nheartbeat_interval = \"30m\"\nrequired_tools = [\"git --version\", { cmd = \"cargo --version\", tags = [\"rust\"] }]\n";
+
+fn has_owner_keys(text: &str) -> bool {
+    text.contains("# the owner's note: a slow host")
+        && text.contains("heartbeat_interval = \"30m\"")
+        && text.contains("cmd = \"cargo --version\"")
+}
+
+#[test]
+fn an_init_rerun_keeps_the_keys_and_comments_that_the_owner_added_to_both_board_configs() {
+    let fake = FakeBoard::new();
+    let owner = tempfile::tempdir().unwrap();
+    let o = init(&fake, owner.path(), "fake", &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    // the owner adds keys by hand: to the local file, and to the file of the merged init PR on
+    // the default branch (which also lacks the second repo, so the rerun must change it)
+    let local = owner.path().join("fake.board.toml");
+    let first = std::fs::read_to_string(&local).unwrap();
+    std::fs::write(&local, format!("{first}{OWNER_KEYS}")).unwrap();
+    let merged = fake
+        .branch_file("crewboard/init-fake", ".crewboard.toml")
+        .unwrap()
+        .replace(&format!(", \"{REPO2}\""), "");
+    assert!(!merged.contains(REPO2), "{merged}");
+    fake.set_file(REPO, ".crewboard.toml", &format!("{merged}{OWNER_KEYS}"));
+
+    let o = init(&fake, owner.path(), "fake", &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains(
+            "board config: kept the keys that init does not set: heartbeat_interval, required_tools"
+        ),
+        "{}",
+        o.stdout
+    );
+    let now = std::fs::read_to_string(&local).unwrap();
+    assert!(has_owner_keys(&now), "the local file lost a key: {now}");
+    assert_eq!(now, format!("{first}{OWNER_KEYS}"), "nothing else changed");
+    let pr_file = fake
+        .branch_file("crewboard/init-fake", ".crewboard.toml")
+        .unwrap();
+    assert!(pr_file.contains(REPO2), "init set its key: {pr_file}");
+    assert!(has_owner_keys(&pr_file), "the PR drops a key: {pr_file}");
+    // control: the check can fail; the file of the first run has no owner key
+    assert!(!has_owner_keys(&first));
+
+    // a local file that is not valid TOML stops init before any write
+    std::fs::write(&local, "initiative = ").unwrap();
+    let w = writes(&fake).len();
+    let o = init(&fake, owner.path(), "fake", &[]);
+    assert_eq!(o.code, 4, "a configuration error: {}", o.all());
+    assert!(o.stderr.contains("not valid TOML"), "{}", o.all());
+    assert_eq!(writes(&fake).len(), w, "nothing was written");
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), "initiative = ");
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
 #[test]
 fn init_reports_the_three_pin_limit_and_unpins_nothing() {
     let fake = FakeBoard::new();

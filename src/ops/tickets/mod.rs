@@ -93,7 +93,7 @@ pub(crate) fn me_of(ac: &AgentCtx, world: &World) -> CbResult<Me> {
 pub(crate) fn load_world_cached(ac: &AgentCtx) -> CbResult<World> {
     let mut cache = ac.load_cache();
     let world = load_world(&ac.ctx, std::slice::from_ref(&ac.agent.item_id), &mut cache)?;
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     Ok(world)
 }
 
@@ -109,7 +109,7 @@ fn remember(ac: &AgentCtx, t: &Ticket, status: Status, agent: Option<&str>) {
             agent: agent.map(str::to_string),
         },
     );
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
 }
 
 /// Write the Status of a ticket on the board. The table check is the caller's. The Status that

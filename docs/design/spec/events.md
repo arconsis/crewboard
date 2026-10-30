@@ -55,16 +55,22 @@ in its snapshot already), and the tickets that an earlier cycle could not settle
 
 1. One read of the comment list of that one ticket (up to 50 pages), then the judgement of
    `audit` and `status` (`ticket::log::status_contradicts`). No call in a cycle without such a
-   move. A ticket that the cycle changed itself is skipped. A list with more than 50 pages cannot
-   be judged: one `notes-not-checked` event, and no read again for that move. A Done that the owner wrote by hand has no
-   signed message, so it is reported too; the note to the owner says so.
+   move. A ticket that the cycle changed itself is skipped. A move out of Done or Dropped waits
+   in a queue (state key `setback_queue`): a cycle reads at most 5 of them, the oldest first. A
+   list with more than 50 pages cannot be judged: one `notes-not-checked` event (one owner
+   report), and the ticket stays under check (a false Done too). It is read again when its board
+   row changes and 6 hours after the last read, not in every cycle. A Done that the owner wrote by
+   hand has no signed message, so it is reported too; the note to the owner says so.
 2. A legitimate command changes the field a moment before it posts its message, so a mismatch
    seen once is kept (state key `status_pending`) and judged again at the next cycle. It is
    reported when it is still there and the item has been quiet for 60 s.
 3. The report is ONE signed `info` to `owner` in the registry issue, with the line
-   `event=<repo>#<n>/status:<board status>`, and ONE `status-mismatch` event for the
-   coordinator. The key is read back from the registry issue, as for the security events, so a
-   restart or a lost cache repeats nothing. The cycle writes nothing to the board.
+   `event=<repo>#<n>/status@c-<id>` (the repo in lower case; `<id>` is the comment id of the
+   latest signed message of the ticket), and ONE `status-mismatch` event for the coordinator.
+   The key is read back from the registry issue, as for the security events, so a restart or a
+   lost cache repeats nothing. A board that flips between statuses gives one report; the owner
+   hears again only after a new signed message on the ticket. The cycle writes nothing to the
+   board.
 
 ## Polling and rate limits
 

@@ -125,8 +125,9 @@ Events, Leaving, Extensions.
 - `status-mismatch`: a ticket Status that no signed message supports (for example a Done
   without proof, or a ticket set back behind its close). The owner has the signed note.
   Do not merge or close that ticket. Do not fix the field: the owner decides.
-- `notes-not-checked`: the deleted-note check stops for one ticket (its board item is gone, or
-  it has more than 5000 comments). Nothing to do; a deletion there is not seen any more.
+- `notes-not-checked`: the deleted-note check stops or slows down for one ticket (its board
+  item is gone, or it has more than 5000 comments: a comment flood can hide a deletion). The
+  cycle told the owner once. Name the ticket to the owner in your next report too.
 - An owner comment `/crew move <status>` on a ticket: the owner moved it by hand with
   `crewboard move`. It is in the log, so it is no mismatch. Work from the new Status.
 

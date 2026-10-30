@@ -2,6 +2,43 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Fixed:
+
+- An `init` rerun on an existing board kept only its own keys: it rewrote the local
+  `<initiative>.board.toml` and the `.crewboard.toml` of the init PR, and dropped
+  `heartbeat_interval`, `required_tools` and every other key that `init` does not set. Now `init`
+  sets only its own keys and keeps every other key and the comments of both files. A local file
+  that is not valid TOML stops `init` before the first write.
+- A comment flood (more than 5000 comments) on a ticket made the coordinator forget its notes on
+  that ticket for good, so "flood, delete the close note, delete the flood, set the board back"
+  was never seen. Now the notes stay. The ticket is read again when its board row changes and 6
+  hours after the last read, not in every cycle. A Status that cannot be judged (a false Done
+  too) stays under the Status check. The owner gets one signed note for each such ticket
+  (`event=<repo>#<n>/notes-not-checked:too-large`, and `...:no-board-item` for a ticket whose
+  board item is gone). The coordinator skill now names the ticket to the owner.
+- `notes-not-checked` was lost when `watch` repeated a failed cycle. It now changes the memory
+  only after it was shown and reported, as `deleted-message`. A `poll --quiet` no longer makes
+  the next cycle show it twice, and the Status check no longer raises it at each status flip.
+- A ticket that the owner set to Done by hand while its PR was open had no way out:
+  `ticket new --continue-pr` named `close --why`, which refused the board Done. Both refusals
+  now name the way that works: the owner's `crewboard move <n> Backlog`, then `close <n> --why`.
+- The Status check reads at most 5 moves out of Done or Dropped per cycle, the oldest first (the
+  others wait in the state key `setback_queue`). Its owner note comes once per ticket and state
+  of the signed log (`event=<repo>#<n>/status@c-<id>`), not once per board status, so a board
+  that flips between statuses gives one note.
+- A brand-new ticket was taken for a deleted board item when a long `watch` did not know it yet;
+  its notes were then forgotten. A ticket without a row is now judged only when its newest note is
+  older than 10 minutes.
+- A recheck mark that a long `watch` moved and saved could undo a later clear by a ticket command.
+  A save now counts the written file as read.
+- The `event=` keys of security events are in lower case for the repo, and a key of another
+  spelling in the registry issue matches. Before, `Org/Repo` and `org/repo` gave two owner notes.
+- `tick` forgot its reported deleted notes before its output was printed. Now it forgets them
+  after the print.
+- A note kind of a later build was saved back as `other`. It now keeps its name.
+
 ## v0.7.0 (2026-10-30)
 
 Upgrade: run `crewboard init` once on an existing board; it adds the Status option `Dropped`

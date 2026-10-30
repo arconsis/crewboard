@@ -58,6 +58,7 @@ use crate::rules::status::{
 use crate::rules::text::closes_ticket;
 use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::ticket::latest_done;
+use crate::ticket::log::{fold_ticket, unsigned_end, unsigned_end_remedy};
 use serde_json::{Value, json};
 
 /// Cap on the PRs that one close reads.
@@ -393,6 +394,19 @@ pub(super) fn close_loaded(
     require_writer(me)?;
     let key = t.key();
     let from = t.status()?;
+    // A board end that no signed message supports (set by hand): name the way out.
+    if unsigned_end(from, &fold_ticket(&t.msgs).status) {
+        judge_status(&key, from, reason.is_some()).map_err(|r| {
+            Refusal::new(
+                r.rule,
+                format!(
+                    "{key} is {} on the board, but {}. Nothing was written",
+                    from.name(),
+                    unsigned_end_remedy(t.issue)
+                ),
+            )
+        })?;
+    }
     judge_status(&key, from, reason.is_some())?;
     let route = owner_route_done(t);
     let owner = if !t.info.open || route.is_some() {

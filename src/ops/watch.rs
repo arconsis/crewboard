@@ -46,6 +46,9 @@ pub struct Collected {
     pub next_snaps: BTreeMap<String, TicketSnap>,
     /// The tickets that this cycle read, by id (the duties need them).
     pub rows: Vec<crate::ticket::TicketRow>,
+    /// The `notes-not-checked` events of the duties, reported to the owner: settled once they
+    /// are printed (`own_notes::settle_not_checked`).
+    pub not_checked: Vec<super::own_notes::NotChecked>,
 }
 
 impl Collected {
@@ -569,6 +572,7 @@ fn run_duties(
         duty.events.extend(d.events);
         duty.snaps.extend(d.snaps);
         collected.security.extend(d.security);
+        collected.not_checked.extend(d.not_checked);
     } else {
         duty.events.extend(duties::orphan_security_duty(
             ac,
@@ -594,14 +598,20 @@ fn merge_duty_events(
     quiet: bool,
 ) {
     if quiet {
-        for e in &duty_events {
-            if !cache.liveness.deferred.contains(e) {
-                cache.liveness.deferred.push(e.clone());
+        // A `notes-not-checked` event is not kept: the peek leaves the note memory as it was, so
+        // the next real cycle raises it again, and a kept copy would show it twice.
+        let (again, keep): (Vec<Event>, Vec<Event>) = duty_events
+            .into_iter()
+            .partition(|e| e.kind == super::own_notes::NOT_CHECKED);
+        for e in keep {
+            if !cache.liveness.deferred.contains(&e) {
+                cache.liveness.deferred.push(e);
             }
         }
         collected
             .events
             .extend(cache.liveness.deferred.iter().cloned());
+        collected.events.extend(again);
     } else {
         collected
             .events
@@ -741,8 +751,10 @@ pub fn cycle(
     }
     if !opts.quiet {
         // Printed, and reported by the duties (a failed report failed the cycle before the
-        // print): a deleted note of this coordinator is forgotten only now.
+        // print): a deleted note of this coordinator is forgotten only now, and a ticket that is
+        // not checked as before changes the note memory only now.
         super::own_notes::settle(&mut cache.notes, &collected.security);
+        super::own_notes::settle_not_checked(&mut cache.notes, &collected.not_checked, now);
     }
     if !opts.quiet {
         store_cursor(ac, cache, &read, &next, &next_text)?;

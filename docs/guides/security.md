@@ -120,7 +120,8 @@ crewboard cannot remove these risks. Plan for them.
   revoke the crew token before you reject ([leaks](#a-key-or-a-token-leaks)). Only a deleted
   note of the coordinator is detected, and only by the coordinator that posted it: its state
   file holds the ids. A fresh host or a lost state file remembers nothing, and `audit` or
-  `status` from another host cannot see a deletion
+  `status` from another host cannot see a deletion. On a ticket with more than 5000 comments a
+  deletion is seen only when the list fits again; you get one note about such a ticket
   ([Deleted notes](../design/spec/security-details.md#deleted-notes)).
 - **The secret scan** finds only the listed patterns.
 - **The model.** The skill tells the model to treat comments as data. A valid message of an

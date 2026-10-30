@@ -127,6 +127,9 @@ struct State {
     next_sha: u64,
     /// `(method, path part, body part)`: the next matching request gets a 500, once.
     fail_once: Vec<(String, String, String)>,
+    /// `(repo, issue)` of a comment flood: the comment list of the issue never ends (each page
+    /// names a next page), so a read hits the page limit.
+    flooded: Vec<(String, u64)>,
     /// Counter for the ids of options that `updateProjectV2Field` creates.
     next_option: u64,
     /// The answer of `GET repos/{r}/branches/{b}` (protection of the base branch), if set.
@@ -265,6 +268,7 @@ fn new_state(base: &str) -> State {
         labels: BTreeMap::new(),
         next_sha: 1,
         fail_once: Vec::new(),
+        flooded: Vec::new(),
         next_option: 1,
         branch_answer: None,
         branch_error: None,
@@ -413,6 +417,21 @@ impl FakeBoard {
 
     /// Delete a comment, as any account with Write on the repo can (the crew token can). Panics
     /// when there is no such comment.
+    /// A comment flood on `issue` of the main repo: from now on the comment list of the issue
+    /// has more pages than crewboard reads (`MAX_PAGES`). The pages after the first are empty.
+    pub fn flood_comments(&self, issue: u64) {
+        self.st
+            .lock()
+            .unwrap()
+            .flooded
+            .push((REPO.to_string(), issue));
+    }
+
+    /// The flood on `issue` is deleted again: its comment list fits on one page.
+    pub fn end_flood(&self, issue: u64) {
+        self.st.lock().unwrap().flooded.retain(|(_, n)| *n != issue);
+    }
+
     pub fn delete_comment(&self, id: u64) {
         let mut st = self.st.lock().unwrap();
         let before = st.comments.len();
@@ -1178,7 +1197,7 @@ fn route(st: &mut State, r: &Req) -> Resp {
             get_comment_feed(st, &format!("{o}/{n}"), query)
         }
         ("GET", ["", "repos", o, n, "issues", num, "comments"]) => {
-            get_issue_comments(st, &format!("{o}/{n}"), num)
+            get_issue_comments(st, &format!("{o}/{n}"), num, query)
         }
         ("GET", ["", "repos", _, _, "issues", num, "timeline"]) => {
             let n: u64 = num.parse().unwrap_or(0);
@@ -1334,16 +1353,34 @@ fn comment_json(st: &State, c: &Comment) -> Value {
     })
 }
 
-/// `GET /repos/{repo}/issues/{n}/comments`: oldest first.
-fn get_issue_comments(st: &State, repo: &str, num: &str) -> Resp {
+/// `GET /repos/{repo}/issues/{n}/comments`: oldest first. A flooded issue
+/// ([`FakeBoard::flood_comments`]) names a next page on every page: the comments on the first,
+/// none after it.
+fn get_issue_comments(st: &State, repo: &str, num: &str, query: &str) -> Resp {
     let n: u64 = num.parse().unwrap_or(0);
+    let page: u64 = query
+        .split('&')
+        .find_map(|p| p.strip_prefix("page="))
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(1);
     let list: Vec<Value> = st
         .comments
         .iter()
-        .filter(|c| c.repo == repo && c.issue == n)
+        .filter(|c| c.repo == repo && c.issue == n && page == 1)
         .map(|c| comment_json(st, c))
         .collect();
-    ok(Value::Array(list))
+    let mut resp = ok(Value::Array(list));
+    if st.flooded.iter().any(|(r, i)| r == repo && *i == n) {
+        resp.headers.push((
+            "link".into(),
+            format!(
+                "<{}/repos/{repo}/issues/{n}/comments?per_page=100&page={}>; rel=\"next\"",
+                st.base,
+                page + 1
+            ),
+        ));
+    }
+    resp
 }
 
 /// `POST /repos/{repo}/issues/{n}/comments`: the comment is by the token user.

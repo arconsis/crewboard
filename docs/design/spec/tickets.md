@@ -394,7 +394,10 @@ PR URL (`evidence-pr-url`) of a repo of the initiative (`repo-not-in-initiative`
 `<n>` is Done or Dropped, or in Backlog or Ready with a reassign notice that names this PR
 (`adopt-pr-parent-not-done`). The status of ticket `<n>` is the one of its signed log, as
 `status` and `audit` judge it. A board Status alone does not count: the crew token can write it.
-To end the old ticket first, run `close <n> --why "<text>"`. The signed creation `info` of the new ticket gets
+To end the old ticket first, run `close <n> --why "<text>"`. A board that shows Done or Dropped
+without a signed end (set by hand) makes `close --why` refuse too (`status-no-change`): the
+owner first moves the ticket back in the signed log (`crewboard move <n> Backlog`), then
+`close <n> --why` drops it. Both refusals name this way. The signed creation `info` of the new ticket gets
 `adopts-pr: <url> branch: <branch>`. Only that coordinator line lets `done` and `merge` accept
 the branch. The PR body must close the new ticket.
 

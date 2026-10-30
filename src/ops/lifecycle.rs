@@ -316,7 +316,7 @@ pub(crate) fn rows_of(ac: &AgentCtx, world: &World, agent: &str) -> CbResult<Vec
         }
     }
     let rows = read_ticket_rows(&ac.ctx.reader(), &mut cache.index.tickets)?;
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
     Ok(rows.into_iter().filter(|r| r.is_agent(agent)).collect())
 }
 

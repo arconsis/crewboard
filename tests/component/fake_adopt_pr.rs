@@ -9,7 +9,7 @@
 //! (and `merge`) accept it for that ticket. A forged `adopts-pr:` line does not count.
 
 use crate::support::authority::AUTHORITY_RELEASE_ONLY as AUTHORITY;
-use crate::support::board::{Agent, FakeBoard, Out, Pull, REPO};
+use crate::support::board::{Agent, FakeBoard, INITIATIVE, Out, Pull, REPO};
 use crate::support::cli::{GATE, item_in, run_ok, writes};
 use crewboard::rules::Role;
 
@@ -426,5 +426,55 @@ fn a_board_status_that_the_signed_log_does_not_end_does_not_open_the_pr_of_a_run
             &format!("is In Progress by its signed log (board: {board})"),
         );
     }
+    assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
+}
+
+#[test]
+fn a_done_that_the_owner_set_by_hand_names_a_way_out_and_the_way_works() {
+    // the old ticket is in Review with an open PR; the owner sets Done in the web UI
+    let k = case_open();
+    let ps = k.parent.to_string();
+    k.fake.set_item(&k.parent_item, "Status", "Done");
+    k.fake.touch_item(&k.parent_item);
+    let way = format!("crewboard move {} Backlog", k.parent);
+    // the adoption is refused, and the refusal names the owner's move
+    refused_new(
+        &k,
+        &k.c,
+        &["--continue-pr", &k.pr.url],
+        "adopt-pr-parent-not-done",
+        &way,
+    );
+    // `close --why` refuses the ended board Status, and names the same way
+    let before = writes(&k.fake);
+    let o = k
+        .fake
+        .run(&k.c.dir, &["close", &ps, "--why", "split into a follow-up"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("status-no-change"), "{}", o.all());
+    assert!(o.stderr.contains(&way), "{}", o.all());
+    assert_eq!(writes(&k.fake), before, "the refusal wrote: {}", o.all());
+    // the way: the owner moves the ticket back in the signed log ...
+    let owner = k.fake.owner_dir();
+    let o = k.fake.run(
+        owner.path(),
+        &["move", &ps, "Backlog", "--initiative", INITIATIVE],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    // ... the coordinator drops it ...
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    run_ok(
+        &k.fake,
+        &k.c,
+        &["close", &ps, "--why", "split into a follow-up"],
+    );
+    assert_eq!(
+        k.fake.item_field(&k.parent_item, "Status").as_deref(),
+        Some("Dropped")
+    );
+    // ... and the follow-up ticket adopts the open PR
+    let o = ticket_new(&k, &k.c, &["--continue-pr", &k.pr.url]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains(&adopts_line(&k)), "{}", o.all());
     assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
 }

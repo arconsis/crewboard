@@ -28,14 +28,24 @@
 //!   `event=` key), by [`settle`]. Until then the note stays in the memory and its ticket stays
 //!   marked for a recheck, so a failed report raises the event again at the next cycle. The owner
 //!   hears of it once (the `event=` key).
-//! - **No board row, or too large.** A ticket with remembered notes and no board row any more
-//!   (its item was deleted) is read once by its issue number and compared ([`Target::Gone`]);
-//!   then its notes are forgotten, with one `notes-not-checked` event. A list with more than
-//!   `MAX_PAGES` pages can never be read complete: the notes of that ticket are forgotten, with
-//!   one `notes-not-checked` event, and it is not read again ([`judge_read`]).
+//! - **No board row.** A ticket with remembered notes and no board row any more (its item was
+//!   deleted) is read once by its issue number and compared ([`Target::Gone`]); then its notes
+//!   are forgotten, with one `notes-not-checked` event. A ticket whose newest note is younger
+//!   than [`GONE_GRACE_SECS`] is not judged yet: the ticket index of a long `watch` learns a new
+//!   ticket from the comment feed, which can lag behind the note that `ticket new` recorded.
+//! - **Too large.** A list with more than `MAX_PAGES` pages cannot be read complete. The notes of
+//!   that ticket stay, with one `notes-not-checked` event ([`judge_read`]). The ticket is not read
+//!   in every cycle (a read costs `MAX_PAGES` pages), but again when its board row changes, or
+//!   `TOO_LARGE_RECHECK_SECS` after the last read (`NoteState::notes_too_large`). So a flood that
+//!   is deleted again after the close note is seen at the next row change (the set-back).
+//! - **Once, also here.** A `notes-not-checked` event changes the memory only after it was shown
+//!   and its owner report was posted (or was there already: the `event=` key), by
+//!   [`settle_not_checked`]. Until then the ticket stays marked, so a cycle that fails later
+//!   raises the event again.
 //! - **Limits.** Only this agent's own notes. A fresh cache (another host, a lost state file)
 //!   remembers nothing. `audit` and `status` from another host cannot see a deletion. A later
-//!   deletion on a ticket without a board row or with a too-large list is not seen.
+//!   deletion on a ticket without a board row is not seen; on a too-large ticket it is seen only
+//!   when its list fits again.
 
 use super::{AgentCtx, World};
 use crate::clock::{format_ts, now_epoch};
@@ -48,7 +58,7 @@ use crate::github::paging::MAX_PAGES;
 use crate::protocol::acts::{Act, parse};
 use crate::protocol::names::Kind;
 use crate::services::ticket_loader::Ticket;
-use crate::state::{NoteKind, NoteState, PostedNote, TicketSnap, note_key};
+use crate::state::{NoteKind, NoteState, PostedNote, TOO_LARGE_RECHECK_SECS, TicketSnap, note_key};
 use crate::ticket::TicketRow;
 use crate::ticket::log::{fold_ticket, status_contradicts};
 use crate::ticket::verified_messages;
@@ -57,6 +67,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 /// At most this many tickets that are marked for a recheck are read in one cycle (a ticket whose
 /// board row changed is read in any case).
 pub const RECHECKS_PER_CYCLE: usize = 5;
+
+/// A ticket with notes and no board row is judged as gone from the board only when its newest
+/// note is older than this (10 minutes, in seconds): a long `watch` learns a new ticket from the
+/// comment feed, which can lag behind the note that `ticket new` recorded.
+pub const GONE_GRACE_SECS: i64 = 600;
 
 /// What a signed note is, for the notes that are remembered: the close notes of every kind
 /// (`dropped:` too), the verify reports, the assignments, the reassign notices and the creation
@@ -93,7 +108,7 @@ pub(super) fn record(ac: &AgentCtx, repo: &str, issue: u64, kind: Kind, body: &s
         },
         now,
     );
-    ac.save_cache(&cache);
+    ac.save_cache(&mut cache);
 }
 
 /// The remembered notes that a read of the comments of their ticket does not show. `read` is the
@@ -235,15 +250,19 @@ impl Target<'_> {
 
 /// The tickets that the cycle reads for the check: a ticket with remembered notes whose board row
 /// changed since the last cycle (`prev`) and not by this cycle (`own`); and at most
-/// [`RECHECKS_PER_CYCLE`] of the tickets that are marked for a recheck or that have notes and no
-/// board row, the oldest mark first (a ticket without a row and without a mark first of all;
-/// ties by key). `done`: the tickets that the cycle read already (`log_check`). Pure.
+/// [`RECHECKS_PER_CYCLE`] of the tickets that are marked for a recheck, that have notes and no
+/// board row, or whose too-large list is due for its slow read again
+/// ([`TOO_LARGE_RECHECK_SECS`]), the oldest mark first (a ticket without a row and without a mark
+/// first of all; ties by key). A too-large ticket that is not due is read only when its row
+/// changed. A ticket without a row whose newest note is younger than [`GONE_GRACE_SECS`] waits.
+/// `done`: the tickets that the cycle read already (`log_check`). Pure.
 pub fn to_read<'a>(
     rows: &'a [TicketRow],
     prev: &BTreeMap<String, TicketSnap>,
     own: &HashSet<&str>,
     done: &HashSet<String>,
     notes: &'a NoteState,
+    now: i64,
 ) -> Vec<Target<'a>> {
     let open: Vec<(&TicketRow, String)> = rows
         .iter()
@@ -253,6 +272,9 @@ pub fn to_read<'a>(
     let changed = |r: &TicketRow| {
         !own.contains(r.item_id.as_str()) && prev.get(&r.item_id).is_some_and(|p| *p != r.snap())
     };
+    // `Some(at)`: a too-large ticket, read last at `at`; `due` once the slow interval is over
+    let large = |k: &str| notes.notes_too_large.get(k).copied();
+    let due = |at: i64| now - at >= TOO_LARGE_RECHECK_SECS;
     let mut out: Vec<Target<'a>> = open
         .iter()
         .filter(|(r, _)| changed(r))
@@ -262,20 +284,33 @@ pub fn to_read<'a>(
         .iter()
         .filter(|(r, _)| !changed(r))
         .filter_map(|(r, key)| {
-            notes
+            let (k, mark) = notes
                 .notes_recheck
                 .get_key_value(key)
-                .map(|(k, at)| (*at, k.as_str(), Target::Row(r)))
+                .map_or_else(|| (key.as_str(), None), |(k, at)| (k.as_str(), Some(*at)));
+            match (mark, large(key)) {
+                (_, Some(at)) if !due(at) => None,
+                (Some(at), _) | (None, Some(at)) => Some((at, k, Target::Row(r))),
+                (None, None) => None,
+            }
         })
         .collect();
     let on_board: BTreeSet<String> = rows.iter().map(|r| note_key(&r.repo, r.issue)).collect();
+    let newest = |k: &str| notes.of(k).iter().map(|n| n.at).max().unwrap_or(i64::MIN);
     marked.extend(
         notes
             .posted_notes
             .keys()
             .filter(|k| !on_board.contains(*k))
+            .filter(|k| large(k).is_none_or(due))
+            .filter(|k| now - newest(k) >= GONE_GRACE_SECS)
             .map(|k| {
-                let at = notes.notes_recheck.get(k).copied().unwrap_or(i64::MIN);
+                let at = notes
+                    .notes_recheck
+                    .get(k)
+                    .copied()
+                    .or_else(|| large(k))
+                    .unwrap_or(i64::MIN);
                 (at, k.as_str(), Target::Gone(k.as_str()))
             }),
     );
@@ -310,15 +345,81 @@ impl<'a> ReadResult<'a> {
     }
 }
 
+/// Why the check of one ticket stops or slows down: the event `notes-not-checked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotCheckedWhy {
+    /// The comment list has more than `MAX_PAGES` pages.
+    TooLarge,
+    /// The ticket has no board row any more.
+    NoItem,
+}
+
+impl NotCheckedWhy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotCheckedWhy::TooLarge => "too-large",
+            NotCheckedWhy::NoItem => "no-board-item",
+        }
+    }
+}
+
+/// One `notes-not-checked` event: the ticket (its note key), why, and the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotChecked {
+    /// The note key (`owner/repo#n`, the repo in lower case).
+    pub key: String,
+    pub why: NotCheckedWhy,
+    pub text: String,
+}
+
+impl NotChecked {
+    /// The `event=` key of the owner report: one per ticket and reason.
+    pub fn event_key(&self) -> String {
+        format!("{}/{NOT_CHECKED}:{}", self.key, self.why.as_str())
+    }
+
+    fn too_large(repo: &str, issue: u64, has_notes: bool) -> Self {
+        let what = if has_notes {
+            "the signed notes of this coordinator on it and its board Status"
+        } else {
+            "its board Status"
+        };
+        NotChecked {
+            key: note_key(repo, issue),
+            why: NotCheckedWhy::TooLarge,
+            text: format!(
+                "{repo}#{issue}: the comment list has more than {MAX_PAGES} pages ({} comments), too large to read complete; {what} are checked again when its board row changes, or {} hours after the last read, and a deletion is seen only when the list fits again",
+                MAX_PAGES * 100,
+                TOO_LARGE_RECHECK_SECS / 3600
+            ),
+        }
+    }
+
+    fn no_item(repo: &str, issue: u64) -> Self {
+        NotChecked {
+            key: note_key(repo, issue),
+            why: NotCheckedWhy::NoItem,
+            text: format!(
+                "{repo}#{issue}: the ticket has no board item any more (deleted from the board?); its comments were compared once with the signed notes of this coordinator, which are not checked any more"
+            ),
+        }
+    }
+}
+
 /// Judge one read of a ticket for the check. `board`: `Some(status)` for a ticket with a board
 /// row (its board Status), `None` for a ticket without one ([`Target::Gone`]). Returns the
-/// `deleted-message` events and, for a ticket that is not checked any more, one note for the
-/// coordinator:
+/// `deleted-message` events and, for a ticket that is not checked as before, one
+/// `notes-not-checked` event. Neither changes the memory for good: the caller does that with
+/// [`settle`] and [`settle_not_checked`] after the events were shown and reported, and until
+/// then the ticket stays marked, so the next cycle raises them again.
 ///
-/// - a list that is too large ([`ReadResult::TooLarge`]): the memory of the ticket is
-///   forgotten, so no cycle reads it again (a repeat gives the same error);
-/// - a ticket without a board row: its list is compared once, and the notes that are still
-///   there are forgotten. A gone note stays until its event is settled ([`settle`]).
+/// - a list that is too large ([`ReadResult::TooLarge`]): the notes stay. The first time, the
+///   event, and the ticket stays marked until it is settled. After that (the ticket is in
+///   `notes_too_large`) no event and no mark: the ticket is read again only when its board row
+///   changes or the slow interval is over ([`to_read`]).
+/// - a complete list removes the ticket from `notes_too_large`.
+/// - a ticket without a board row: its list is compared once, with the event; its notes are
+///   forgotten when the event is settled. A gone note stays until its own event is settled.
 ///
 /// `contradicts` is asked only for a complete list of a ticket with a row. Pure.
 #[allow(
@@ -334,27 +435,28 @@ pub fn judge_read(
     board: Option<Option<&str>>,
     contradicts: impl FnOnce(&[Comment], Option<&str>) -> bool,
     now: i64,
-) -> (Vec<SecurityEvent>, Option<String>) {
+) -> (Vec<SecurityEvent>, Option<NotChecked>) {
     let key = note_key(repo, issue);
     match (read, board) {
         (ReadResult::TooLarge, _) => {
-            if notes.of(&key).is_empty() {
+            if let Some(at) = notes.notes_too_large.get_mut(&key) {
+                // told already: the next read comes with a row change or the slow interval
+                *at = now;
+                notes.notes_recheck.remove(&key);
                 return (Vec::new(), None);
             }
-            for id in notes.of(&key).iter().map(|n| n.id).collect::<Vec<_>>() {
-                notes.forget(&key, id);
+            let has_notes = !notes.of(&key).is_empty();
+            if has_notes {
+                notes.mark(&key, now);
             }
-            notes.notes_recheck.remove(&key);
             (
                 Vec::new(),
-                Some(format!(
-                    "{repo}#{issue}: the comment list has more than {MAX_PAGES} pages ({} comments), too large to check; the signed notes of this coordinator on it are not checked any more",
-                    MAX_PAGES * 100
-                )),
+                Some(NotChecked::too_large(repo, issue, has_notes)),
             )
         }
         (ReadResult::Failed, _) => (check_ticket(notes, me, repo, issue, None, false, now), None),
         (ReadResult::Complete(c), Some(status)) => {
+            notes.notes_too_large.remove(&key);
             let contra = contradicts(c, status);
             (
                 check_ticket(notes, me, repo, issue, Some(c), contra, now),
@@ -362,26 +464,34 @@ pub fn judge_read(
             )
         }
         (ReadResult::Complete(c), None) => {
+            notes.notes_too_large.remove(&key);
             if notes.of(&key).is_empty() {
                 return (Vec::new(), None);
             }
             let gone = check_ticket(notes, me, repo, issue, Some(c), false, now);
-            let kept: Vec<u64> = notes
-                .of(&key)
-                .iter()
-                .map(|n| n.id)
-                .filter(|id| !gone.iter().any(|g| g.comment_id == *id))
-                .collect();
-            for id in kept {
-                notes.forget(&key, id);
-            }
-            (
-                gone,
-                Some(format!(
-                    "{repo}#{issue}: the ticket has no board item any more (deleted from the board?); its comments were compared once with the signed notes of this coordinator, which are not checked any more"
-                )),
-            )
+            notes.mark(&key, now);
+            (gone, Some(NotChecked::no_item(repo, issue)))
         }
+    }
+}
+
+/// Apply the `notes-not-checked` events in `shown`. The caller calls it only after the events
+/// were shown (printed) AND reported to the owner, as [`settle`]. A too-large ticket goes into
+/// `notes_too_large` (its notes stay; no read per cycle any more); a ticket without a board row
+/// forgets its notes. The mark of the ticket ends. Pure.
+pub fn settle_not_checked(notes: &mut NoteState, shown: &[NotChecked], now: i64) {
+    for n in shown {
+        match n.why {
+            NotCheckedWhy::TooLarge => {
+                notes.notes_too_large.insert(n.key.clone(), now);
+            }
+            NotCheckedWhy::NoItem => {
+                for id in notes.of(&n.key).iter().map(|x| x.id).collect::<Vec<_>>() {
+                    notes.forget(&n.key, id);
+                }
+            }
+        }
+        notes.notes_recheck.remove(&n.key);
     }
 }
 
@@ -389,14 +499,14 @@ pub fn judge_read(
 #[derive(Debug, Default)]
 pub(super) struct NoteCycle {
     pub(super) security: Vec<SecurityEvent>,
-    /// One note text per ticket whose notes are not checked any more: the caller shows each as
-    /// a [`NOT_CHECKED`] event (`duties`; this file does not post, so it does not import
-    /// `registry_post`).
-    pub(super) not_checked: Vec<String>,
+    /// The tickets that are not checked as before: the caller reports each to the owner and
+    /// shows it as a [`NOT_CHECKED`] event (`duties`; this file does not post, so it does not
+    /// import `registry_post`), then settles it ([`settle_not_checked`]).
+    pub(super) not_checked: Vec<NotChecked>,
 }
 
-/// The event kind of a ticket whose notes are not checked any more.
-pub(super) const NOT_CHECKED: &str = "notes-not-checked";
+/// The event kind of a ticket whose notes are not checked as before.
+pub const NOT_CHECKED: &str = "notes-not-checked";
 
 /// The check of one coordinator cycle ([`to_read`]): one comment-list read per such ticket. A
 /// read error is a line on stderr and a recheck; it never fails the cycle.
@@ -415,17 +525,18 @@ pub(super) fn cycle_duty(
     now: i64,
 ) -> NoteCycle {
     let mut out = NoteCycle::default();
-    let todo: Vec<(String, u64, Option<Option<String>>)> = to_read(rows, prev, own, done, notes)
-        .into_iter()
-        .filter_map(|t| {
-            let (repo, issue) = t.ticket()?;
-            let board = match t {
-                Target::Row(r) => Some(r.status_str().map(str::to_string)),
-                Target::Gone(_) => None,
-            };
-            Some((repo, issue, board))
-        })
-        .collect();
+    let todo: Vec<(String, u64, Option<Option<String>>)> =
+        to_read(rows, prev, own, done, notes, now)
+            .into_iter()
+            .filter_map(|t| {
+                let (repo, issue) = t.ticket()?;
+                let board = match t {
+                    Target::Row(r) => Some(r.status_str().map(str::to_string)),
+                    Target::Gone(_) => None,
+                };
+                Some((repo, issue, board))
+            })
+            .collect();
     for (repo, issue, board) in todo {
         let read =
             feed::issue_comments(&ac.ctx.client, &repo, issue, None, &ac.ctx.cfg.owner_login);
@@ -433,7 +544,7 @@ pub(super) fn cycle_duty(
             eprintln!(
                 "crewboard: cannot read {repo}#{issue} to check the notes of this coordinator ({e}); {}",
                 if matches!(ReadResult::of(&read), ReadResult::TooLarge) {
-                    "not checked again"
+                    "read again when its board row changes"
                 } else {
                     "next cycle"
                 }
@@ -470,7 +581,7 @@ pub(super) fn tick_check(ac: &AgentCtx, world: &World, t: &Ticket) -> CbResult<V
         Some(&t.comments),
         now_epoch(),
     );
-    ac.save_cache_required(&cache)?;
+    ac.save_cache_required(&mut cache)?;
     Ok(gone)
 }
 
@@ -482,7 +593,7 @@ pub(super) fn tick_settle(ac: &AgentCtx, shown: &[SecurityEvent]) -> CbResult<()
     }
     let mut cache = ac.load_cache();
     settle(&mut cache.notes, shown);
-    ac.save_cache_required(&cache)
+    ac.save_cache_required(&mut cache)
 }
 
 #[cfg(test)]
@@ -513,6 +624,9 @@ mod tests {
             editors: None,
         }
     }
+
+    /// Later than every note of the tests by more than [`GONE_GRACE_SECS`].
+    const NOW: i64 = 1_790_100_000;
 
     fn notes(list: &[PostedNote]) -> NoteState {
         let mut n = NoteState::default();
@@ -748,7 +862,7 @@ mod tests {
             ..row("moved", 7, "Review")
         }];
         let prev: BTreeMap<_, _> = [("moved".to_string(), snap("Done"))].into();
-        let got = to_read(&rows, &prev, &HashSet::new(), &HashSet::new(), &m);
+        let got = to_read(&rows, &prev, &HashSet::new(), &HashSet::new(), &m, NOW);
         assert_eq!(got.len(), 1);
         // control: another issue number is another ticket
         assert!(
@@ -792,7 +906,7 @@ mod tests {
         let (own, done) = (HashSet::new(), HashSet::new());
         let mut seen = BTreeSet::new();
         for cycle in 0..3i64 {
-            let got: Vec<u64> = to_read(&rows, &prev, &own, &done, &n)
+            let got: Vec<u64> = to_read(&rows, &prev, &own, &done, &n, NOW)
                 .iter()
                 .map(issue_of)
                 .collect();
@@ -818,7 +932,7 @@ mod tests {
         // a ticket whose row changed is read on top of the cap
         let mut moved = prev.clone();
         moved.insert("it12".into(), snap("Done"));
-        let got = to_read(&rows, &moved, &own, &done, &n);
+        let got = to_read(&rows, &moved, &own, &done, &n, NOW);
         assert_eq!(got.len(), RECHECKS_PER_CYCLE + 1);
         assert_eq!(issue_of(&got[0]), 12);
     }
@@ -853,7 +967,7 @@ mod tests {
         .into();
         let own: HashSet<&str> = ["mine"].into();
         let done: HashSet<String> = ["o/r#5".to_string()].into();
-        let got: Vec<&str> = to_read(&rows, &prev, &own, &done, &n)
+        let got: Vec<&str> = to_read(&rows, &prev, &own, &done, &n, NOW)
             .iter()
             .map(|t| match t {
                 Target::Row(r) => r.item_id.as_str(),
@@ -874,13 +988,13 @@ mod tests {
         let rows = [row("eight", 8, "Done")];
         let prev: BTreeMap<_, _> = [("eight".to_string(), snap("Done"))].into();
         let none = HashSet::new();
-        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n);
+        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n, NOW);
         // the row-less ticket has no mark: it goes first
         assert_eq!(got, vec![Target::Gone("o/r#7"), Target::Row(&rows[0])]);
         assert_eq!(got[0].ticket(), Some(("o/r".to_string(), 7)));
-        // its read compares once: the deleted close note is raised, the rest is forgotten
+        // its read compares once: the deleted close note is raised, and one note
         let read = [comment(10)];
-        let (ev, note_text) = judge_read(
+        let (ev, nc) = judge_read(
             &mut n,
             "c@x",
             "o/r",
@@ -888,26 +1002,30 @@ mod tests {
             ReadResult::Complete(&read),
             None,
             |_, _| unreachable!("a ticket without a row has no board Status"),
-            9,
+            NOW,
         );
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].comment_id, 12);
-        assert!(note_text.unwrap().contains("no board item any more"));
-        assert_eq!(n.of("o/r#7"), &[note(12, "close")], "the gone note waits");
-        // not settled (the report failed): read again next cycle
-        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n);
+        let nc = nc.unwrap();
+        assert!(nc.text.contains("no board item any more"), "{}", nc.text);
+        assert_eq!(nc.event_key(), "o/r#7/notes-not-checked:no-board-item");
+        // nothing is forgotten before both are settled (a cycle that fails later reads again)
+        assert_eq!(n.of("o/r#7").len(), 2);
+        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n, NOW);
         assert!(got.contains(&Target::Gone("o/r#7")));
         settle(&mut n, &ev);
+        settle_not_checked(&mut n, std::slice::from_ref(&nc), NOW);
         assert!(n.of("o/r#7").is_empty() && !n.notes_recheck.contains_key("o/r#7"));
-        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n);
+        let got = to_read(&rows, &prev, &none, &HashSet::new(), &n, NOW);
         assert_eq!(
             got,
             vec![Target::Row(&rows[0])],
             "read once, then never again"
         );
-        // control: without a deletion the read gives only the note and ends the memory
+        // control: without a deletion the read gives only the note, and the settle ends the
+        // memory
         let mut m = notes(&[note(10, "assignment")]);
-        let (ev, note_text) = judge_read(
+        let (ev, nc) = judge_read(
             &mut m,
             "c@x",
             "o/r",
@@ -915,48 +1033,115 @@ mod tests {
             ReadResult::Complete(&read),
             None,
             |_, _| false,
-            9,
+            NOW,
         );
-        assert!(ev.is_empty() && note_text.is_some());
+        assert!(ev.is_empty() && nc.is_some());
+        settle_not_checked(&mut m, &[nc.unwrap()], NOW);
         assert!(m.posted_notes.is_empty());
     }
 
     #[test]
-    fn a_list_that_is_too_large_ends_the_check_of_its_ticket_with_one_note() {
+    fn a_new_ticket_without_a_row_yet_is_not_taken_for_a_deleted_item() {
+        // `ticket new` recorded the creation note a moment ago; the index of a long `watch` has
+        // not learned the ticket yet, so it has no row
+        let mut n = NoteState::default();
+        n.record(
+            "o/r#9",
+            PostedNote {
+                id: 90,
+                kind: NoteKind::Creation,
+                at: NOW - 30,
+            },
+            NOW,
+        );
+        assert!(
+            to_read(
+                &[],
+                &BTreeMap::new(),
+                &HashSet::new(),
+                &HashSet::new(),
+                &n,
+                NOW
+            )
+            .is_empty()
+        );
+        // after the grace time it is judged as gone
+        let later = NOW + GONE_GRACE_SECS;
+        assert_eq!(
+            to_read(
+                &[],
+                &BTreeMap::new(),
+                &HashSet::new(),
+                &HashSet::new(),
+                &n,
+                later
+            ),
+            vec![Target::Gone("o/r#9")]
+        );
+    }
+
+    #[test]
+    fn a_list_that_is_too_large_keeps_the_notes_and_is_read_again_when_the_row_changes() {
         let mut n = notes(&[note(10, "assignment"), note(12, "close")]);
-        n.mark("o/r#7", 5);
-        let (ev, note_text) = judge_read(
-            &mut n,
-            "c@x",
-            "o/r",
-            7,
-            ReadResult::TooLarge,
-            Some(Some("In Progress")),
-            |_, _| unreachable!(),
-            9,
-        );
+        let rows = [row("seven", 7, "Dropped")];
+        let same: BTreeMap<_, _> = [("seven".to_string(), snap("Dropped"))].into();
+        let none = HashSet::new();
+        let too_large = |n: &mut NoteState, now: i64| {
+            judge_read(
+                n,
+                "c@x",
+                "o/r",
+                7,
+                ReadResult::TooLarge,
+                Some(Some("Dropped")),
+                |_, _| unreachable!(),
+                now,
+            )
+        };
+        // the flood: one event, the notes stay, and the ticket stays marked until it is settled
+        let (ev, nc) = too_large(&mut n, NOW);
         assert!(ev.is_empty());
-        let text = note_text.unwrap();
-        assert!(text.contains("more than 50 pages"), "{text}");
-        assert!(n.of("o/r#7").is_empty() && !n.notes_recheck.contains_key("o/r#7"));
-        // nothing is marked, so no cycle reads it again; a second error gives no second note
-        let rows = [row("seven", 7, "In Progress")];
-        let prev: BTreeMap<_, _> = [("seven".to_string(), snap("In Progress"))].into();
-        assert!(to_read(&rows, &prev, &HashSet::new(), &HashSet::new(), &n).is_empty());
-        let again = judge_read(
+        let nc = nc.unwrap();
+        assert!(nc.text.contains("more than 50 pages"), "{}", nc.text);
+        assert_eq!(nc.event_key(), "o/r#7/notes-not-checked:too-large");
+        assert_eq!(n.of("o/r#7").len(), 2);
+        // a cycle that failed after it (not settled): the retry reads again and raises it again
+        assert_eq!(to_read(&rows, &same, &none, &none_s(), &n, NOW).len(), 1);
+        assert!(too_large(&mut n, NOW).1.is_some());
+        // shown and reported: no read per cycle any more, and no second event
+        settle_not_checked(&mut n, &[nc], NOW);
+        assert_eq!(n.of("o/r#7").len(), 2, "the notes stay");
+        assert!(to_read(&rows, &same, &none, &none_s(), &n, NOW + 60).is_empty());
+        assert_eq!(too_large(&mut n, NOW + 60), (Vec::new(), None));
+        // the slow interval: read again once it is over
+        let due = NOW + 60 + TOO_LARGE_RECHECK_SECS;
+        assert_eq!(to_read(&rows, &same, &none, &none_s(), &n, due).len(), 1);
+        // the attacker deletes the close note and the flood, and sets the board back: the row
+        // changed, so the ticket is read, the list is complete, and the deletion is seen
+        let back = [row("seven", 7, "In Progress")];
+        let got = to_read(&back, &same, &none, &none_s(), &n, NOW + 120);
+        assert_eq!(got, vec![Target::Row(&back[0])]);
+        let read = [comment(10)];
+        let (ev, nc) = judge_read(
             &mut n,
             "c@x",
             "o/r",
             7,
-            ReadResult::TooLarge,
-            Some(None),
+            ReadResult::Complete(&read),
+            Some(Some("In Progress")),
             |_, _| false,
-            10,
+            NOW + 120,
         );
-        assert_eq!(again, (Vec::new(), None));
+        assert!(nc.is_none());
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].comment_id, 12);
+        assert!(
+            !n.notes_too_large.contains_key("o/r#7"),
+            "the list fits again"
+        );
         // control: another error keeps the memory and marks a recheck
         let mut m = notes(&[note(12, "close")]);
-        let (ev, note_text) = judge_read(
+        let (ev, nc) = judge_read(
             &mut m,
             "c@x",
             "o/r",
@@ -966,7 +1151,7 @@ mod tests {
             |_, _| false,
             11,
         );
-        assert!(ev.is_empty() && note_text.is_none());
+        assert!(ev.is_empty() && nc.is_none());
         assert_eq!(m.of("o/r#7").len(), 1);
         assert_eq!(m.notes_recheck.get("o/r#7"), Some(&11));
         // the error kind decides: a page-limit error is TooLarge, any other is Failed
@@ -976,5 +1161,22 @@ mod tests {
         let other: CbResult<(Vec<Comment>, Option<String>)> =
             Err(GhError::Shape("x".into()).into());
         assert!(matches!(ReadResult::of(&other), ReadResult::Failed));
+    }
+
+    fn none_s() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    #[test]
+    fn an_unknown_note_kind_keeps_its_name_in_the_state_file() {
+        let n: PostedNote =
+            serde_json::from_str(r#"{"id":5,"kind":"merge-intent","at":1}"#).unwrap();
+        assert_eq!(n.kind, NoteKind::Other("merge-intent".into()));
+        let back = serde_json::to_string(&n).unwrap();
+        assert!(back.contains(r#""kind":"merge-intent""#), "{back}");
+        // control: a known name reads as its kind
+        let k: PostedNote =
+            serde_json::from_str(r#"{"id":5,"kind":"verify-pass","at":1}"#).unwrap();
+        assert_eq!(k.kind, NoteKind::VerifyPass);
     }
 }

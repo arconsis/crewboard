@@ -87,8 +87,8 @@ struct Scan<'a> {
     lim: crate::late::Expect,
     now: i64,
     /// The `deleted-message` events that the tick reported to the owner. Their notes are
-    /// forgotten when the tick returns its output (`own_notes::tick_settle`), not before: a tick
-    /// that fails later raises them again.
+    /// forgotten after the caller printed the output ([`TickOut::settle`]), not before: a tick
+    /// that fails later, or whose output is not printed, raises them again.
     shown: std::cell::RefCell<Vec<crate::events::SecurityEvent>>,
 }
 
@@ -302,8 +302,24 @@ fn handle_review(
     Ok(())
 }
 
-/// `tick`: see the module text. Returns one line per Review ticket.
-pub fn tick(ac: &mut AgentCtx) -> CbResult<String> {
+/// What `tick` gives its caller: the output, and the deleted notes that it showed in it and
+/// reported to the owner.
+pub struct TickOut {
+    pub text: String,
+    shown: Vec<crate::events::SecurityEvent>,
+}
+
+impl TickOut {
+    /// Forget the reported deleted notes (`own_notes::tick_settle`). The caller calls it after
+    /// the output is printed: if the print does not happen, the next tick raises them again.
+    pub fn settle(&self, ac: &AgentCtx) -> CbResult<()> {
+        crate::ops::own_notes::tick_settle(ac, &self.shown)
+    }
+}
+
+/// `tick`: see the module text. Returns one line per Review ticket; the caller prints it, then
+/// calls [`TickOut::settle`].
+pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
     if !ac.ctx.cd.is_headless()? {
         return Err(CbError::refused(
             "tick-headless-only",
@@ -346,10 +362,13 @@ pub fn tick(ac: &mut AgentCtx) -> CbResult<String> {
         let review = review_tickets(&buckets.review, &cache, &mut out);
         handle_review(ac, &scan, review, &cache, &mut out)?;
     }
-    // The output is complete and goes to the caller: the reported deleted notes are forgotten
-    // now. A failure before this point keeps them, and the next tick raises them again.
-    crate::ops::own_notes::tick_settle(ac, &scan.shown.take())?;
-    Ok(out)
+    // The output is complete and goes to the caller, which forgets the reported deleted notes
+    // after its print (`TickOut::settle`). A failure before keeps them, and the next tick raises
+    // them again.
+    Ok(TickOut {
+        text: out,
+        shown: scan.shown.take(),
+    })
 }
 
 /// A Review ticket that waits for a verify while the coordinator is late. The tick
@@ -575,7 +594,7 @@ fn one_ci_only(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
                     .tick
                     .tick_requested
                     .insert(key.to_string(), done.comment_id);
-                ac.save_cache_required(&cache)?;
+                ac.save_cache_required(&mut cache)?;
             }
             out.push_str(&left(key, &format!("merge refused: {r}")));
         }
