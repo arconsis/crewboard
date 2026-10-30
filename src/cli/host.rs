@@ -217,6 +217,8 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
             Err(e) => fail(e),
         },
         HostCmd::Doctor { board, sel, .. } => {
+            let (host, host_verdict) = ops::doctor::host_report(&ops::doctor::Host::probe());
+            print!("{host}");
             let (text, verdict) = ops::doctor::run(cli.config_dir.as_deref());
             print!("{text}");
             if *board {
@@ -228,7 +230,7 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
                 println!("{}", ops::doctor::BOARD_NOT_READ);
             }
             println!("{}", ops::doctor::SETUP_HINT);
-            match verdict {
+            match verdict.and(host_verdict) {
                 Ok(()) => Outcome {
                     exit: Exit::Ok,
                     code: None,

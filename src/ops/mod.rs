@@ -88,7 +88,7 @@ pub fn resolve_board_config(g: &Global) -> CbResult<BoardConfig> {
         return BoardConfig::parse(&t);
     }
     Err(CbError::config(format!(
-        "no board config: pass --initiative-file, or --initiative with a config in {}, or run in a checkout that has {INITIATIVE_FILE}",
+        "no board config: run in a checkout that has {INITIATIVE_FILE}, or pass --initiative <name> with a config in {}; on a fresh host the owner runs `crewboard init` first (--initiative-file <path> also works)",
         cd.0.display()
     )))
 }

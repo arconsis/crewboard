@@ -111,7 +111,7 @@ pub fn render(cmd: &Command, long: bool) -> String {
     }
     out.push_str(&format!(
         "New crew (owner): `{name} agent token`, `{name} init`,\n\
-         `{name} approve`, then `{name} agent add` for each agent.\n\
+         then for each agent `{name} agent add` on its host and `{name} approve`.\n\
          First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md\n\
          New agent: `{name} agent add`, then `{name} doctor --setup`.\n\
          Run `{name} <command> --help` for details, `{name} --help` for options.\n"
@@ -348,7 +348,7 @@ More
   crewboard help extensions   audit, move, report-status, prune, lock, repeat
   crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)
 New crew (owner): `crewboard agent token`, `crewboard init`,
-`crewboard approve`, then `crewboard agent add` for each agent.
+then for each agent `crewboard agent add` on its host and `crewboard approve`.
 First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md
 New agent: `crewboard agent add`, then `crewboard doctor --setup`.
 Run `crewboard <command> --help` for details, `crewboard --help` for options.

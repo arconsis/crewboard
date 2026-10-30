@@ -26,15 +26,25 @@ fn text(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn no_arguments_print_the_overview_to_stderr_and_exit_64_as_a_usage_error() {
+fn no_arguments_print_the_overview_to_stdout_and_exit_0_like_help() {
     let o = run(&[]);
-    assert_eq!(o.status.code(), Some(64));
-    assert!(o.stdout.is_empty());
-    let err = text(&o.stderr);
+    assert_eq!(o.status.code(), Some(0));
+    assert!(o.stderr.is_empty(), "{}", text(&o.stderr));
+    let out = text(&o.stdout);
     assert!(
-        err.contains("\nSet up (owner)\n") && err.contains("doctor --setup"),
-        "{err}"
+        out.contains("\nSet up (owner)\n") && out.contains("doctor --setup"),
+        "{out}"
     );
+}
+
+#[test]
+fn an_option_without_a_command_and_a_missing_subcommand_are_still_usage_errors() {
+    for args in [&["--config-dir", "/nonexistent"][..], &["agent"][..]] {
+        let o = run(args);
+        assert_eq!(o.status.code(), Some(64), "{args:?}");
+        assert!(o.stdout.is_empty(), "{args:?}");
+        assert!(!text(&o.stderr).contains("\nSet up (owner)\n"), "{args:?}");
+    }
 }
 
 #[test]
@@ -167,7 +177,10 @@ fn the_overview_follows_the_newcomer_path_and_has_an_owner_line() {
     let out = text(&run(&["help"]).stdout);
     let at = |s: &str| out.find(s).unwrap_or_else(|| panic!("{s}: {out}"));
     assert!(
-        out.contains("New crew (owner): `crewboard agent token`, `crewboard init`"),
+        out.contains(
+            "New crew (owner): `crewboard agent token`, `crewboard init`,\n\
+             then for each agent `crewboard agent add` on its host and `crewboard approve`.\n"
+        ),
         "{out}"
     );
     assert!(out.contains("docs/quick-try.md"), "{out}");

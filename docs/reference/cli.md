@@ -53,7 +53,7 @@ More
   crewboard help extensions   audit, move, report-status, prune, lock, repeat
   crewboard help scheduler    wake, poll, tick, heartbeat (called by schedulers)
 New crew (owner): `crewboard agent token`, `crewboard init`,
-`crewboard approve`, then `crewboard agent add` for each agent.
+then for each agent `crewboard agent add` on its host and `crewboard approve`.
 First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md
 New agent: `crewboard agent add`, then `crewboard doctor --setup`.
 Run `crewboard <command> --help` for details, `crewboard --help` for options.

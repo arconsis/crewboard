@@ -62,7 +62,8 @@ fn real_main() -> ExitCode {
         Ok(c) => c,
         Err(e) => {
             // clap exits with 2 on a usage error, but 2 means "refused by a rule" here. A bad
-            // command line is a usage error (64) for every command; help and version are 0.
+            // command line is a usage error (64) for every command; help, version and the
+            // overview of a bare `crewboard` are 0.
             let code = if e.use_stderr() {
                 Exit::Usage
             } else {
@@ -80,13 +81,10 @@ fn real_main() -> ExitCode {
                 return code.into();
             }
             if let Some(text) = overview_for(&e, &args) {
-                // the grouped overview replaces clap's list of every command
-                if e.use_stderr() {
-                    write!(std::io::stderr(), "{text}").ok(); // output is best effort; a closed stream has nobody to tell
-                } else {
-                    write!(std::io::stdout(), "{text}").ok(); // output is best effort; a closed stream has nobody to tell
-                }
-                return code.into();
+                // the grouped overview replaces clap's list of every command; a bare `crewboard`
+                // asks for it like `--help` does, so it is no usage error
+                write!(std::io::stdout(), "{text}").ok(); // output is best effort; a closed stream has nobody to tell
+                return Exit::Ok.into();
             }
             e.print().ok(); // output is best effort; a closed stream has nobody to tell
             return code.into();
@@ -100,7 +98,8 @@ fn real_main() -> ExitCode {
 }
 
 /// The grouped overview, when the command line asks for the help of `crewboard` itself:
-/// no arguments, `-h`, `--help` or `help`. Any other help is clap's own.
+/// no arguments (clap reports a missing subcommand), `-h`, `--help` or `help`. Any other help
+/// is clap's own.
 fn overview_for(e: &clap::Error, args: &[String]) -> Option<String> {
     use clap::CommandFactory;
     use clap::error::ErrorKind;

@@ -46,7 +46,7 @@ pub struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Env file with the GitHub token (mode 600)",
+        help = "Env file with the crew token (mode 600)",
         long_help = "Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or GITHUB_TOKEN and \
                      have mode 600). Its token wins over the token variables of the caller. Without \
                      it, the `agent.env` of the config dir is loaded when there is one. An owner \
