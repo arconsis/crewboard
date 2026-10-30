@@ -1,6 +1,6 @@
 //! The In Progress bookkeeping shared by `take`, `done`, `block` and `ask`: which ticket of an agent is busy, when the agent goes idle, which ticket `take --interrupt` parks.
 
-use crate::base::ids;
+use crate::base::{TicketRef, ids};
 use crate::board::FieldValue;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World};
@@ -51,7 +51,7 @@ pub(super) fn write_idle_when_free(ac: &AgentCtx, world: &World, t: &Ticket) -> 
 /// `named` is the `--park` ticket as `(repo, issue)`. Pure.
 pub(crate) fn choose_park<'a>(
     rows: &'a [crate::ticket::TicketRow],
-    named: Option<(&str, u64)>,
+    named: Option<&TicketRef>,
 ) -> Result<&'a crate::ticket::TicketRow, Refusal> {
     let cur: Vec<&crate::ticket::TicketRow> = rows
         .iter()
@@ -65,14 +65,14 @@ pub(crate) fn choose_park<'a>(
         ));
     }
     match (named, cur.as_slice()) {
-        (Some((repo, n)), _) => cur
+        (Some(named), _) => cur
             .iter()
-            .find(|r| r.repo == repo && r.issue == n)
+            .find(|r| r.repo == named.repo && r.issue == named.issue)
             .copied()
             .ok_or_else(|| {
                 Refusal::new(
                     ids::INTERRUPT_PARK_NOT_IN_PROGRESS,
-                    format!("--park {repo}#{n} is not a ticket of yours that is In Progress; your In Progress tickets: {keys}"),
+                    format!("--park {named} is not a ticket of yours that is In Progress; your In Progress tickets: {keys}"),
                 )
             }),
         (None, [only]) => Ok(only),
@@ -159,17 +159,25 @@ mod tests {
                 && e.message.contains("--park")
         );
         // pass: a name picks the ticket
-        assert_eq!(choose_park(&rows, Some(("a/b", 2))).unwrap().issue, 2);
+        assert_eq!(
+            choose_park(&rows, Some(&TicketRef::new("a/b", 2)))
+                .unwrap()
+                .issue,
+            2
+        );
         // refusal: a Ready ticket is no candidate
         assert_eq!(
-            choose_park(&rows, Some(("a/b", 3))).unwrap_err().rule,
+            choose_park(&rows, Some(&TicketRef::new("a/b", 3)))
+                .unwrap_err()
+                .rule,
             "interrupt-park-not-in-progress"
         );
         // one candidate: no name needed
         assert_eq!(choose_park(&rows[..1], None).unwrap().issue, 1);
         // none: its own refusal, with or without a name
         let none = vec![row(3, "Ready", Some("me@x"), None)];
-        for named in [None, Some(("a/b", 3))] {
+        let three = TicketRef::new("a/b", 3);
+        for named in [None, Some(&three)] {
             assert_eq!(
                 choose_park(&none, named).unwrap_err().rule,
                 "interrupt-nothing-to-park"

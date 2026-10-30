@@ -12,6 +12,7 @@
 //!   (spec/messages#untrusted-input);
 //! - `Skip`: valid, but not for this agent (or its own message).
 
+use crate::base::TicketRef;
 use crate::comments::Comment;
 use crate::config::BoardConfig;
 use crate::owner_cmd::{self, OwnerCommand};
@@ -175,7 +176,7 @@ pub struct FilterEnv<'a> {
     /// Tickets (`owner/repo`, issue) whose `Agent` field is this agent. An owner comment in
     /// one of them reaches this agent although it names no addressee (spec/messages#owner-messages,
     /// spec/events#watch-semantics).
-    pub my_tickets: &'a std::collections::HashSet<(String, u64)>,
+    pub my_tickets: &'a std::collections::HashSet<TicketRef>,
     /// Comments that copy an earlier valid message: comment id -> id of the earlier comment
     /// ([`copy_map`]). The caller builds it from every comment it can see of the issue, also
     /// the ones it read before.
@@ -670,7 +671,9 @@ fn classify_owner(c: &Comment, env: &FilterEnv<'_>, in_registry: bool) -> Classi
         OwnerTarget::Unaddressed => {
             i_am_coordinator
                 || !env.trust.coordinator_exists()
-                || env.my_tickets.contains(&(c.repo.clone(), c.issue))
+                || env
+                    .my_tickets
+                    .contains(&TicketRef::new(c.repo.clone(), c.issue))
         }
     };
     if !for_me {

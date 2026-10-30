@@ -392,15 +392,15 @@ struct MergeLoad {
 
 /// The reads of `merge` that come before any decision about the PR.
 fn load_merge(ac: &AgentCtx, issue_arg: &str) -> CbResult<MergeLoad> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let from = t.status()?;
     Ok(MergeLoad {
-        repo,
-        n,
+        repo: tref.repo.clone(),
+        n: tref.issue,
         me,
         t,
         from,

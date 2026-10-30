@@ -17,7 +17,7 @@ use crate::ticket::{Sender, VMsg, answer_after_block, blocked_by_owner_question}
 
 /// `block <issue> --why ...` (dev).
 pub fn block(ac: &AgentCtx, issue_arg: &str, reason: &str, anyway: bool) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if reason.trim().is_empty() {
         return Err(CbError::refused(
             ids::BLOCK_NEEDS_REASON,
@@ -27,7 +27,7 @@ pub fn block(ac: &AgentCtx, issue_arg: &str, reason: &str, anyway: bool) -> CbRe
     crate::ops::say::check_free_text(Kind::Blocked, reason.trim())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let unread_line = unread_guard(ac, &world, &t, anyway)?;
     let unread_note = crate::unread::note(unread_line.as_deref());
@@ -114,10 +114,10 @@ pub fn unblock(
     body: Option<String>,
     anyway: bool,
 ) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let from = t.status()?;
     let assignee = t.agent().map(str::to_string);
@@ -127,7 +127,7 @@ pub fn unblock(
     let unread_note = crate::unread::note(unread_line.as_deref());
     let text = body
         .filter(|b| !b.trim().is_empty())
-        .unwrap_or_else(|| format!("resume allowed: run take {n}"));
+        .unwrap_or_else(|| format!("resume allowed: run take {}", tref.issue));
     let plan = plan_unblock(&t.msgs, &assignee, &text, unread_line.as_deref());
     if !plan_unblocks(&t.msgs, &me.name, me.role, &assignee, &plan.body) {
         return Err(CbError::refused(
@@ -167,7 +167,7 @@ pub fn unblock(
 /// `needs-owner`. The assignee's ticket that is In Progress also moves to Blocked, so the agent
 /// is free for its next ticket; any other status stays.
 pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if question.trim().is_empty() {
         return Err(CbError::refused(
             ids::ASK_NEEDS_TEXT,
@@ -176,7 +176,7 @@ pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbRe
     }
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let from = t.status()?;
     let is_assignee = t.agent() == Some(me.name.as_str());

@@ -214,13 +214,6 @@ pub const MAX_NOTE_TICKETS: usize = 300;
 /// ticket gets no new note, so its memory ends 90 days after the close.
 pub const NOTE_KEEP_SECS: i64 = 90 * 24 * 3600;
 
-/// The key of a ticket in the note memory ([`NoteState`]): `owner/repo#n` with the repo in lower
-/// case. GitHub owner and repo names are case-insensitive, so `Org/Repo#7` and `org/repo#7` are
-/// one ticket. Every record and every lookup of the memory builds its key here.
-pub fn note_key(repo: &str, issue: u64) -> String {
-    format!("{}#{issue}", repo.to_ascii_lowercase())
-}
-
 /// What a remembered note is (`ops::own_notes::note_kind`). The state file holds the kebab-case
 /// name (`close`, `verify-pass`, `verify-fail`, `assignment`, `reassign`, `creation`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,7 +410,7 @@ impl NoteState {
         self.notes_too_large.retain(|k, _| ours(k));
     }
 
-    /// Put the keys of a file that an older build wrote ([`note_key`]: the repo in lower case)
+    /// Put the keys of a file that an older build wrote (`TicketRef::key`: the repo in lower case)
     /// together. The notes of `Org/Repo#7` and `org/repo#7` are one list.
     pub(crate) fn normalize_keys(&mut self) {
         let odd: Vec<String> = self

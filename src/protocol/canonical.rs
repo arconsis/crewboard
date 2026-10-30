@@ -6,6 +6,7 @@
 use super::CANONICAL_TAG;
 use super::ProtocolError;
 use super::header::Header;
+use crate::base::TicketRef;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -38,6 +39,15 @@ impl IssueRef {
             return Err(err());
         }
         Ok(IssueRef::new(owner, repo, number))
+    }
+}
+
+/// The signed issue of a ticket. A repo without `/` gives an empty name, which no signature
+/// matches.
+impl From<&TicketRef> for IssueRef {
+    fn from(t: &TicketRef) -> Self {
+        let (owner, repo) = t.owner_and_name().unwrap_or((&t.repo, ""));
+        IssueRef::new(owner, repo, t.issue)
     }
 }
 

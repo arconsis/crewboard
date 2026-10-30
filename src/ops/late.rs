@@ -33,6 +33,7 @@
 
 use super::say::{Posted, send_signed};
 use super::{AgentCtx, CbResult, Ctx, World};
+use crate::base::TicketRef;
 use crate::comments::Comment;
 use crate::ctx::is_coordinator;
 use crate::domain::ci::evaluate::not_green_is_pending;
@@ -64,7 +65,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const DEFAULT_PREFIX: &str = "crew/";
 
 /// The verified messages by ticket (`None`: could not be read).
-type TicketMsgs = BTreeMap<(String, u64), Option<Vec<VMsg>>>;
+type TicketMsgs = BTreeMap<TicketRef, Option<Vec<VMsg>>>;
 
 pub struct GhProbe<'a> {
     ctx: &'a Ctx,
@@ -213,8 +214,8 @@ impl Probe for GhProbe<'_> {
         st
     }
 
-    fn has_done(&self, repo: &str, issue: u64, agent: &str, sha: &str) -> Option<bool> {
-        let msgs = self.ticket_msgs(repo, issue)?;
+    fn has_done(&self, t: &TicketRef, agent: &str, sha: &str) -> Option<bool> {
+        let msgs = self.ticket_msgs(t)?;
         let named = latest_done(&msgs, agent).is_some_and(|(_, ev)| {
             let (a, b) = (ev.sha.to_ascii_lowercase(), sha.to_ascii_lowercase());
             !a.is_empty() && (a.starts_with(&b) || b.starts_with(&a))
@@ -222,15 +223,15 @@ impl Probe for GhProbe<'_> {
         Some(named)
     }
 
-    fn verify_state(&self, repo: &str, issue: u64, assignee: Option<&str>) -> Option<VerifyState> {
-        let msgs = self.ticket_msgs(repo, issue)?;
+    fn verify_state(&self, t: &TicketRef, assignee: Option<&str>) -> Option<VerifyState> {
+        let msgs = self.ticket_msgs(t)?;
         // the done of the assignee, as the tick takes it (a stray `done` of another sender or
         // with incomplete evidence does not count)
         let (done, _) = latest_done(&msgs, assignee?)?;
         if is_owner_route_done(done) {
             return Some(VerifyState::OwnerMerge);
         }
-        Some(match verify_report(&msgs, done, issue) {
+        Some(match verify_report(&msgs, done, t.issue) {
             Some((m, true)) => kv(&m.body, "head_now").map_or(VerifyState::Unverified, |head| {
                 VerifyState::Verified {
                     head,
@@ -241,8 +242,8 @@ impl Probe for GhProbe<'_> {
         })
     }
 
-    fn question_open(&self, repo: &str, issue: u64, assignee: Option<&str>) -> Option<OpenWait> {
-        open_wait(&self.ticket_msgs(repo, issue)?, assignee)
+    fn question_open(&self, t: &TicketRef, assignee: Option<&str>) -> Option<OpenWait> {
+        open_wait(&self.ticket_msgs(t)?, assignee)
     }
 }
 
@@ -273,17 +274,16 @@ fn open_wait(msgs: &[VMsg], assignee: Option<&str>) -> Option<OpenWait> {
 
 impl GhProbe<'_> {
     /// The verified messages of one ticket: from the comments the caller read, else one read.
-    fn ticket_msgs(&self, repo: &str, issue: u64) -> Option<Vec<VMsg>> {
-        let id = (repo.to_string(), issue);
-        if let Some(m) = self.msgs.borrow().get(&id) {
+    fn ticket_msgs(&self, t: &TicketRef) -> Option<Vec<VMsg>> {
+        if let Some(m) = self.msgs.borrow().get(t) {
             return m.clone();
         }
-        let got = self.read_ticket_msgs(repo, issue);
-        self.msgs.borrow_mut().insert(id, got.clone());
+        let got = self.read_ticket_msgs(t);
+        self.msgs.borrow_mut().insert(t.clone(), got.clone());
         got
     }
 
-    fn read_ticket_msgs(&self, repo: &str, issue: u64) -> Option<Vec<VMsg>> {
+    fn read_ticket_msgs(&self, t: &TicketRef) -> Option<Vec<VMsg>> {
         let owned: Vec<Comment>;
         let all: &[Comment] = match self.comments {
             Some(c) => c,
@@ -291,8 +291,8 @@ impl GhProbe<'_> {
                 self.calls.set(self.calls.get() + 1);
                 owned = crate::feed::issue_comments(
                     &self.ctx.client,
-                    repo,
-                    issue,
+                    &t.repo,
+                    t.issue,
                     None,
                     &self.ctx.cfg.owner_login,
                 )
@@ -303,7 +303,7 @@ impl GhProbe<'_> {
         };
         let mine: Vec<Comment> = all
             .iter()
-            .filter(|c| c.repo == repo && c.issue == issue)
+            .filter(|c| c.repo == t.repo && c.issue == t.issue)
             .cloned()
             .collect();
         Some(verified_messages(&mine, &self.ctx.cfg, self.trust))
@@ -606,7 +606,7 @@ fn tell_owner_of_tickets(ac: &AgentCtx, probe: &GhProbe<'_>, found: &[Late], e: 
         if !tells(l, e, false, now).contains(&Who::Owner) {
             continue;
         }
-        let Some(msgs) = probe.ticket_msgs(repo, issue) else {
+        let Some(msgs) = probe.ticket_msgs(&TicketRef::new(repo, issue)) else {
             continue;
         };
         match late_owner_duty(ac, l, &note, &msgs) {

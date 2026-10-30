@@ -95,16 +95,16 @@ fn check_verified_head(key: &str, pr: &PrFacts, verified: Option<&str>) -> Resul
 /// `close <issue> --verified` (coordinator): Review -> Done after a passed verify, for a PR that
 /// is merged at the verified head.
 fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     let from = t.status()?;
     let assignee = t.agent().map(str::to_string);
     let verify = assignee
         .as_deref()
         .and_then(|a| latest_done(&t.msgs, a))
-        .and_then(|(m, _)| verify_result(&t.msgs, m, n));
+        .and_then(|(m, _)| verify_result(&t.msgs, m, tref.issue));
     let close = Transition::Close {
         reason: Some(DoneReason::VerifiedClose),
         verify,
@@ -121,7 +121,7 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
         // Rules `close-verified-not-merged` and `close-verified-head-moved`: Done after
         // `close --verified` means "merged at the head that the passing verify saw". Read the PR
         // before any write.
-        if let Some((report, true)) = verify_report(&t.msgs, done, n) {
+        if let Some((report, true)) = verify_report(&t.msgs, done, tref.issue) {
             let (pr, _) = fetch_pr(ac, &pu.repo, pu.number)?;
             check_verified_head(&t.key(), &pr, kv(&report.body, "head_now").as_deref())?;
             merged_at_head = true;

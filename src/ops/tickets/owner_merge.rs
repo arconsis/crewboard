@@ -359,12 +359,12 @@ fn find_owner_route_merge(
 
 /// `close <issue> [--why <text>]` (coordinator).
 pub fn close_ticket(ac: &AgentCtx, issue_arg: &str, reason: Option<&str>) -> CbResult<String> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     require_writer(&me)?;
     let reason = reason_of(reason)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     close_loaded(ac, &me, &t, reason.as_deref())
 }
 

@@ -56,14 +56,14 @@ struct VerifyLoad {
 
 /// The reads of `verify` that come before any decision about the evidence.
 fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
-    let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
     t.check_agent_signed()?;
     let from = t.status()?;
     Ok(VerifyLoad {
-        n,
+        n: tref.issue,
         world,
         me,
         t,

@@ -88,15 +88,15 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
     require_owner(&client, &cfg, "moves a ticket by hand")?;
     let ctx = Ctx::load(client, cfg, g.dir()?)?;
     let world = load_world(&ctx, &[], &mut StateCache::default())?;
-    let (repo, n) = parse_issue_arg(issue, ctx.main_repo())?;
-    let t = load_ticket(&ctx.reader(), &world.trust, &repo, n)?;
+    let tref = parse_issue_arg(issue, ctx.main_repo())?;
+    let t = load_ticket(&ctx.reader(), &world.trust, &tref)?;
     let key = t.key();
     let raw = t.item.get(Field::Status);
     let from = raw.and_then(Status::parse);
     let log = fold_ticket(&t.msgs);
     let p = plan(&key, from, to, &log.status, log.agent.as_deref(), t.agent())?;
     let text = move_text(to, why);
-    let (id, url) = feed::post_comment(&ctx.client, &repo, n, &text)?;
+    let (id, url) = feed::post_comment(&ctx.client, &tref.repo, tref.issue, &text)?;
     let mut out = format!(
         "owner command posted: /crew move {} (comment {id}, {url})\n",
         to.name()
@@ -104,7 +104,7 @@ pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult
     if !t.info.open {
         ctx.client.send(
             "PATCH",
-            &format!("repos/{repo}/issues/{n}"),
+            &format!("repos/{}/issues/{}", tref.repo, tref.issue),
             Some(&json!({"state": "open"})),
         )?;
         out.push_str(&format!("{key}: issue reopened\n"));

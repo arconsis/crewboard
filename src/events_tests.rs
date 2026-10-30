@@ -65,7 +65,7 @@ fn world_as(cfg: BoardConfig, a: &str, b: &str) -> World {
     World { ka, kb, trust, cfg }
 }
 
-static NO_TICKETS: std::sync::LazyLock<std::collections::HashSet<(String, u64)>> =
+static NO_TICKETS: std::sync::LazyLock<std::collections::HashSet<TicketRef>> =
     std::sync::LazyLock::new(Default::default);
 
 static NO_COPIES: std::sync::LazyLock<std::collections::HashMap<u64, u64>> =
@@ -87,8 +87,9 @@ fn an_unaddressed_owner_comment_in_my_ticket_reaches_me_and_only_there() {
     let w = world();
     let b = AgentName::parse("hermes@b").unwrap();
     let c = comment(40, "owner-login", "please use the other crate");
-    let mine: std::collections::HashSet<(String, u64)> =
-        [(c.repo.clone(), c.issue)].into_iter().collect();
+    let mine: std::collections::HashSet<TicketRef> = [TicketRef::new(c.repo.clone(), c.issue)]
+        .into_iter()
+        .collect();
     let mut e = env(&w, &b, Some(Role::Dev));
     // not my ticket: skipped (control: the filter can say no)
     assert_eq!(classify(&c, &e), Classified::Skip(SkipReason::NotForMe));
