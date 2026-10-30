@@ -813,12 +813,8 @@ mod tests {
     fn row(item: &str, issue: u64, status: &str) -> TicketRow {
         TicketRow {
             repo: "o/r".into(),
-            issue,
             item_id: item.into(),
-            status: Some(crate::rules::status::BoardStatus::parse(status)),
-            agent: None,
-            order: None,
-            updated: None,
+            ..crate::testkit::row(issue, status, None, None)
         }
     }
 

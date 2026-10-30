@@ -625,10 +625,9 @@ mod tests {
 
     // ---- plan tests: the decisions of `verify` without a fake GitHub ----
 
-    use crate::protocol::names::Re as ReName;
     use crate::rules::Role;
     use crate::rules::evidence::CiSources;
-    use crate::ticket::{Sender, VMsg};
+    use crate::ticket::VMsg;
 
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
     const OTHER: &str = "fedcba9876543210fedcba9876543210fedcba98";
@@ -717,19 +716,8 @@ mod tests {
     }
 
     fn msg(kind: Kind, to: &str, body: &str) -> VMsg {
-        VMsg {
-            ts: String::new(),
-            comment_id: 9,
-            created: 0,
-            sender: Sender::Agent {
-                name: "hermes@b".into(),
-                role: Role::Dev,
-            },
-            to: to.into(),
-            kind: Some(kind),
-            re: ReName::None,
-            body: body.into(),
-        }
+        let dev = crate::testkit::agent("hermes@b", Role::Dev);
+        crate::testkit::msg(9, dev, to, Some(kind), body)
     }
 
     #[test]

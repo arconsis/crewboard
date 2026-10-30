@@ -344,12 +344,7 @@ mod tests {
     fn row(agent: &str, status: &str, issue: u64) -> crate::ticket::TicketRow {
         crate::ticket::TicketRow {
             repo: "o/r".into(),
-            issue,
-            item_id: format!("PVTI_{issue}"),
-            status: Some(status.into()),
-            agent: Some(agent.into()),
-            order: None,
-            updated: None,
+            ..crate::testkit::row(issue, status, Some(agent), None)
         }
     }
 

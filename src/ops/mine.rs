@@ -573,36 +573,25 @@ pub fn run(ac: &AgentCtx) -> CbResult<MineView> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testkit::row;
     use std::collections::HashMap;
 
     fn none() -> HashMap<String, u64> {
         HashMap::new()
     }
 
-    fn row(n: u64, status: &str, agent: &str, _unused: Option<&str>) -> TicketRow {
-        TicketRow {
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: Some(agent.into()),
-            order: None,
-            updated: None,
-        }
-    }
-
     #[test]
     fn only_in_progress_and_ready_tickets_of_the_agent_count() {
         let rows = vec![
-            row(1, "In Progress", "me@x", None),
-            row(2, "Ready", "me@x", None),
-            row(3, "Review", "me@x", None),
-            row(4, "Blocked", "me@x", None),
-            row(5, "Blocked", "me@x", None),
-            row(9, "Needs Human", "me@x", None),
-            row(6, "Done", "me@x", None),
-            row(7, "Backlog", "me@x", None),
-            row(8, "In Progress", "other@x", None),
+            row(1, "In Progress", Some("me@x"), None),
+            row(2, "Ready", Some("me@x"), None),
+            row(3, "Review", Some("me@x"), None),
+            row(4, "Blocked", Some("me@x"), None),
+            row(5, "Blocked", Some("me@x"), None),
+            row(9, "Needs Human", Some("me@x"), None),
+            row(6, "Done", Some("me@x"), None),
+            row(7, "Backlog", Some("me@x"), None),
+            row(8, "In Progress", Some("other@x"), None),
         ];
         let got: Vec<u64> = select_mine_parked(&rows, "me@x", &none())
             .iter()
@@ -614,11 +603,8 @@ mod tests {
         assert!(select_mine_parked(&rows[2..7], "me@x", &none()).is_empty());
     }
 
-    fn ordered(n: u64, order: Option<i64>, prio: Option<&str>) -> TicketRow {
-        TicketRow {
-            order,
-            ..row(n, "Ready", "me@x", prio)
-        }
+    fn ordered(n: u64, order: Option<i64>) -> TicketRow {
+        row(n, "Ready", Some("me@x"), order)
     }
 
     fn issues(rows: &[TicketRow]) -> Vec<u64> {
@@ -629,10 +615,10 @@ mod tests {
     fn the_lowest_order_is_the_next_ticket_whatever_the_number() {
         // #38 then #40 then #32 then #20, as the coordinator said in free text
         let rows = vec![
-            ordered(20, Some(4), Some("P0")),
-            ordered(32, Some(3), None),
-            ordered(40, Some(2), Some("P3")),
-            ordered(38, Some(1), None),
+            ordered(20, Some(4)),
+            ordered(32, Some(3)),
+            ordered(40, Some(2)),
+            ordered(38, Some(1)),
         ];
         assert_eq!(issues(&rows), [38, 40, 32, 20]);
         // control: without Order the same tickets go by issue number
@@ -649,11 +635,11 @@ mod tests {
     #[test]
     fn equal_orders_go_by_issue_number_and_unordered_tickets_go_last() {
         let rows = vec![
-            ordered(9, None, Some("P0")),
-            ordered(7, Some(5), None),
-            ordered(6, Some(5), Some("P2")),
-            ordered(5, Some(5), Some("P2")),
-            ordered(8, Some(5), Some("P0")),
+            ordered(9, None),
+            ordered(7, Some(5)),
+            ordered(6, Some(5)),
+            ordered(5, Some(5)),
+            ordered(8, Some(5)),
         ];
         // order 5 ties go by number (5, 6, 7, 8); 9 has no order
         assert_eq!(issues(&rows), [5, 6, 7, 8, 9]);
@@ -661,7 +647,7 @@ mod tests {
         let mut with_ip = rows.clone();
         with_ip.push(TicketRow {
             order: Some(99),
-            ..row(1, "In Progress", "me@x", None)
+            ..row(1, "In Progress", Some("me@x"), None)
         });
         assert_eq!(issues(&with_ip)[0], 1);
     }
@@ -669,11 +655,11 @@ mod tests {
     #[test]
     fn in_progress_first_then_ready_by_number() {
         let rows = vec![
-            row(10, "Ready", "me@x", Some("P3")),
-            row(11, "Ready", "me@x", Some("P0")),
-            row(12, "Ready", "me@x", None),
-            row(13, "In Progress", "me@x", Some("P3")),
-            row(14, "Ready", "me@x", Some("P1")),
+            row(10, "Ready", Some("me@x"), None),
+            row(11, "Ready", Some("me@x"), None),
+            row(12, "Ready", Some("me@x"), None),
+            row(13, "In Progress", Some("me@x"), None),
+            row(14, "Ready", Some("me@x"), None),
         ];
         let got: Vec<u64> = select_mine_parked(&rows, "me@x", &none())
             .iter()
@@ -686,11 +672,11 @@ mod tests {
     #[test]
     fn a_parked_ticket_is_listed_above_the_ready_queue() {
         let rows = vec![
-            row(20, "Ready", "me@x", Some("P0")),
-            row(21, "Blocked", "me@x", Some("P2")),
-            row(22, "Blocked", "me@x", Some("P0")),
-            row(23, "In Progress", "me@x", Some("P3")),
-            row(24, "Blocked", "other@x", None),
+            row(20, "Ready", Some("me@x"), None),
+            row(21, "Blocked", Some("me@x"), None),
+            row(22, "Blocked", Some("me@x"), None),
+            row(23, "In Progress", Some("me@x"), None),
+            row(24, "Blocked", Some("other@x"), None),
         ];
         // only #21 is parked (by me); #22 is a normal block, #24 belongs to another agent
         let parked = HashMap::from([("a/b#21".to_string(), 23u64), ("a/b#24".to_string(), 1)]);
@@ -705,7 +691,7 @@ mod tests {
     }
 
     fn owned(n: u64, status: &str) -> Owned {
-        Owned::new(row(n, status, "me@x", None))
+        Owned::new(row(n, status, Some("me@x"), None))
     }
 
     fn with_ci(n: u64, ci: PrCi) -> Owned {
@@ -868,7 +854,7 @@ mod tests {
     fn the_json_form_has_stable_keys_and_the_first_ticket_prefers_in_progress() {
         // a Ready row stands before the In Progress row in this list, as if the order differed
         let mine_row = |n, status: &str, parked: Option<u64>| MineRow {
-            row: row(n, status, "me@x", Some("P1")),
+            row: row(n, status, Some("me@x"), None),
             parked_for: parked,
         };
         let mut view = MineView {

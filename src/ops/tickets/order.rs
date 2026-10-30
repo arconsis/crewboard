@@ -234,18 +234,7 @@ pub(super) fn write_order(ac: &mut AgentCtx, item_id: &str, order: i64) -> CbRes
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn row(n: u64, status: &str, agent: &str, order: Option<i64>) -> TicketRow {
-        TicketRow {
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: Some(agent.into()),
-            order,
-            updated: None,
-        }
-    }
+    use crate::testkit::row;
 
     #[test]
     fn an_order_is_a_whole_number_from_0_to_the_limit() {
@@ -261,11 +250,11 @@ mod tests {
     #[test]
     fn the_next_order_follows_the_last_ready_ticket_of_that_agent_only() {
         let rows = vec![
-            row(1, "Ready", "a@x", Some(3)),
-            row(2, "Ready", "a@x", Some(7)),
-            row(3, "In Progress", "a@x", Some(50)),
-            row(4, "Ready", "b@x", Some(99)),
-            row(5, "Ready", "a@x", None),
+            row(1, "Ready", Some("a@x"), Some(3)),
+            row(2, "Ready", Some("a@x"), Some(7)),
+            row(3, "In Progress", Some("a@x"), Some(50)),
+            row(4, "Ready", Some("b@x"), Some(99)),
+            row(5, "Ready", Some("a@x"), None),
         ];
         assert_eq!(next_order(&rows, "a@x"), 8);
         assert_eq!(next_order(&rows, "b@x"), 100);
@@ -277,26 +266,29 @@ mod tests {
     fn the_front_of_the_queue_is_below_the_lowest_ready_order_of_that_agent() {
         // empty queue (also: other agents and other states do not count)
         let others = vec![
-            row(3, "In Progress", "a@x", Some(2)),
-            row(4, "Ready", "b@x", Some(9)),
+            row(3, "In Progress", Some("a@x"), Some(2)),
+            row(4, "Ready", Some("b@x"), Some(9)),
         ];
         assert_eq!(queue_front_order(&[], "a@x"), 0);
         assert_eq!(queue_front_order(&others, "a@x"), 0);
         // lowest 5 -> 4
         let q = vec![
-            row(1, "Ready", "a@x", Some(7)),
-            row(2, "Ready", "a@x", Some(5)),
-            row(5, "Ready", "a@x", None),
+            row(1, "Ready", Some("a@x"), Some(7)),
+            row(2, "Ready", Some("a@x"), Some(5)),
+            row(5, "Ready", Some("a@x"), None),
         ];
         assert_eq!(queue_front_order(&q, "a@x"), 4);
         // lowest 0 -> -1: only a value below 0 is strictly first
         let z = vec![
-            row(1, "Ready", "a@x", Some(0)),
-            row(2, "Ready", "a@x", Some(3)),
+            row(1, "Ready", Some("a@x"), Some(0)),
+            row(2, "Ready", Some("a@x"), Some(3)),
         ];
         assert_eq!(queue_front_order(&z, "a@x"), -1);
         // a queue of unordered tickets is also front at 0
-        assert_eq!(queue_front_order(&[row(6, "Ready", "a@x", None)], "a@x"), 0);
+        assert_eq!(
+            queue_front_order(&[row(6, "Ready", Some("a@x"), None)], "a@x"),
+            0
+        );
     }
 
     /// The queue as `mine`, `resume` and `status --queue` list it (`select_mine`): issue numbers.
@@ -310,7 +302,7 @@ mod tests {
     /// Ticket 9 is not listed while it is Blocked; a requeue makes it Ready with the front `Order`.
     fn after_requeue(mut rows: Vec<TicketRow>, agent: &str) -> Vec<TicketRow> {
         let front = queue_front_order(&rows, agent);
-        let mut t = row(9, "Blocked", agent, Some(50));
+        let mut t = row(9, "Blocked", Some(agent), Some(50));
         assert!(!listed(&[t.clone()], agent).contains(&9));
         t.status = Some("Ready".into());
         t.order = Some(front);
@@ -321,39 +313,43 @@ mod tests {
     #[test]
     fn mine_lists_the_requeued_ticket_first() {
         let q = vec![
-            row(1, "Ready", "a@x", Some(5)),
-            row(2, "Ready", "a@x", Some(1)),
+            row(1, "Ready", Some("a@x"), Some(5)),
+            row(2, "Ready", Some("a@x"), Some(1)),
         ];
         let got = listed(&after_requeue(q.clone(), "a@x"), "a@x");
         assert_eq!(got, [9, 2, 1]);
         // control: without the front value (the old Order 50) it comes last
         let mut late = q;
-        late.push(row(9, "Ready", "a@x", Some(50)));
+        late.push(row(9, "Ready", Some("a@x"), Some(50)));
         assert_eq!(listed(&late, "a@x"), [2, 1, 9]);
     }
 
     #[test]
     fn mine_lists_the_requeued_ticket_first_also_when_the_lowest_order_is_zero() {
-        let p0 = row(2, "Ready", "a@x", Some(0));
+        let p0 = row(2, "Ready", Some("a@x"), Some(0));
         // an equal Order 0 would lose to the lower issue number; the front value is -1
         let got = listed(&after_requeue(vec![p0.clone()], "a@x"), "a@x");
         assert_eq!(got, [9, 2]);
-        let tie = row(9, "Ready", "a@x", Some(0));
+        let tie = row(9, "Ready", Some("a@x"), Some(0));
         assert_eq!(listed(&[p0, tie], "a@x"), [2, 9]);
     }
 
     #[test]
     fn mine_lists_the_requeued_ticket_first_in_an_unordered_or_empty_queue() {
-        let unordered = vec![row(1, "Ready", "a@x", None)];
+        let unordered = vec![row(1, "Ready", Some("a@x"), None)];
         assert_eq!(listed(&after_requeue(unordered, "a@x"), "a@x"), [9, 1]);
         assert_eq!(listed(&after_requeue(vec![], "a@x"), "a@x"), [9]);
     }
 
     #[test]
     fn the_requeue_leaves_the_in_progress_ticket_of_the_agent_alone() {
-        let ip = row(3, "In Progress", "a@x", Some(0));
-        let other = row(4, "Ready", "b@x", Some(0));
-        let before = vec![ip.clone(), other.clone(), row(1, "Ready", "a@x", Some(4))];
+        let ip = row(3, "In Progress", Some("a@x"), Some(0));
+        let other = row(4, "Ready", Some("b@x"), Some(0));
+        let before = vec![
+            ip.clone(),
+            other.clone(),
+            row(1, "Ready", Some("a@x"), Some(4)),
+        ];
         // the In Progress Order (0) and the other agent's Order do not move the front
         assert_eq!(queue_front_order(&before, "a@x"), 3);
         let after = after_requeue(before.clone(), "a@x");

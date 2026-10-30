@@ -1,19 +1,10 @@
 use super::*;
 use crate::protocol::acts::ci_line;
-use crate::protocol::names::{Kind, Re};
+use crate::protocol::names::Kind;
 use crate::rules::Role;
 
 fn msg(id: u64, sender: Sender, kind: Kind, body: &str) -> VMsg {
-    VMsg {
-        ts: String::new(),
-        comment_id: id,
-        created: 0,
-        sender,
-        to: "dev@host".into(),
-        kind: Some(kind),
-        re: Re::None,
-        body: body.into(),
-    }
+    crate::testkit::msg(id, sender, "dev@host", Some(kind), body)
 }
 
 fn coordinator() -> Sender {

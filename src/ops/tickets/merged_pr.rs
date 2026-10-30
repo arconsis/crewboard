@@ -171,7 +171,6 @@ pub(super) fn tick_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::names::Re;
     use crate::rules::Role;
     use crate::ticket::Sender;
 
@@ -189,16 +188,7 @@ mod tests {
     }
 
     fn msg(sender: Sender, body: &str) -> VMsg {
-        VMsg {
-            ts: String::new(),
-            comment_id: 1,
-            created: 0,
-            sender,
-            to: "d@h".into(),
-            kind: Some(Kind::Info),
-            re: Re::None,
-            body: body.into(),
-        }
+        crate::testkit::msg(1, sender, "d@h", Some(Kind::Info), body)
     }
 
     fn coord() -> Sender {

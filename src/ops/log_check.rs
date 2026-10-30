@@ -294,12 +294,8 @@ mod tests {
     fn row(item: &str, status: &str) -> TicketRow {
         TicketRow {
             repo: "o/r".into(),
-            issue: 1,
             item_id: item.into(),
-            status: Some(status.into()),
-            agent: None,
-            order: None,
-            updated: None,
+            ..crate::testkit::row(1, status, None, None)
         }
     }
 

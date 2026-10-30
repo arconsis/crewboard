@@ -221,20 +221,12 @@ mod tests {
     use crate::protocol::signature::generate_key;
     use crate::registry::resolve;
     use crate::registry::tests::{cfg, join_comment, left_marker, owner};
+    use crate::testkit::agent;
 
     fn msg(id: u64, from: &str, role: Role, to: &str, kind: Kind, body: &str) -> VMsg {
         VMsg {
-            ts: String::new(),
-            comment_id: id,
             created: id as i64,
-            sender: Sender::Agent {
-                name: from.into(),
-                role,
-            },
-            to: to.into(),
-            kind: Some(kind),
-            re: Re::None,
-            body: body.into(),
+            ..crate::testkit::msg(id, agent(from, role), to, Some(kind), body)
         }
     }
 

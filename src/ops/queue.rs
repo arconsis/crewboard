@@ -190,6 +190,7 @@ pub fn to_json(queues: &[AgentQueue], unassigned: &[&TicketRow], note: Option<&s
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testkit::row;
 
     fn agent(name: &str, state: &str, live: &str, caps: &str) -> AgentRow {
         AgentRow {
@@ -208,18 +209,6 @@ mod tests {
             capabilities: Some(caps.into()),
             liveness: live.into(),
             busy: Vec::new(),
-        }
-    }
-
-    fn row(n: u64, status: &str, agent: Option<&str>, order: Option<i64>) -> TicketRow {
-        TicketRow {
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: agent.map(str::to_string),
-            order,
-            updated: None,
         }
     }
 

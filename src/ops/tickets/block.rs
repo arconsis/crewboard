@@ -211,21 +211,9 @@ pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testkit::msg;
 
     const DEV: &str = "hermes@b";
-
-    fn msg(id: u64, sender: Sender, to: &str, kind: Option<Kind>, body: &str) -> VMsg {
-        VMsg {
-            comment_id: id,
-            created: 0,
-            ts: String::new(),
-            sender,
-            to: to.to_string(),
-            kind,
-            re: Re::None,
-            body: body.to_string(),
-        }
-    }
 
     fn agent(name: &str, role: Role) -> Sender {
         Sender::Agent {

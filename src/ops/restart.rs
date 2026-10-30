@@ -386,27 +386,16 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn row(n: u64, status: &str, agent: &str) -> TicketRow {
-        TicketRow {
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: Some(agent.into()),
-            updated: None,
-            order: None,
-        }
-    }
+    use crate::testkit::row;
 
     const REARM: &str = "bash loop.sh --initiative t";
 
     #[test]
     fn the_dev_block_lists_the_ready_queue_in_the_order_of_the_board() {
         // the lowest `Order` is the next ticket, not the lowest issue number
-        let mut a = row(1, "Ready", "me@x");
+        let mut a = row(1, "Ready", Some("me@x"), None);
         a.order = Some(20);
-        let mut b = row(2, "Ready", "me@x");
+        let mut b = row(2, "Ready", Some("me@x"), None);
         b.order = Some(10);
         let s = dev_block(&[a, b], "me@x", 0, REARM);
         let first = s.find("a/b#2").expect(&s);
@@ -416,7 +405,10 @@ mod tests {
 
     #[test]
     fn the_coordinator_block_lists_a_done_without_verify_and_not_a_verified_one() {
-        let rows = vec![row(12, "Review", "h@x"), row(13, "Review", "h@x")];
+        let rows = vec![
+            row(12, "Review", Some("h@x"), None),
+            row(13, "Review", Some("h@x"), None),
+        ];
         let b = coordinator_block(&rows, &["a/b#12".to_string()], &[], 0, REARM);
         let done_part = b.split("tickets in Review").next().unwrap();
         assert!(done_part.contains("a/b#12"), "{b}");
@@ -436,12 +428,12 @@ mod tests {
     #[test]
     fn the_coordinator_block_lists_blocked_and_review_but_not_done() {
         let rows = vec![
-            row(1, "Blocked", "h@x"),
-            row(2, "Needs Human", "h@x"),
-            row(3, "Review", "h@x"),
-            row(4, "Done", "h@x"),
-            row(5, "In Progress", "h@x"),
-            row(6, "Ready", "h@x"),
+            row(1, "Blocked", Some("h@x"), None),
+            row(2, "Needs Human", Some("h@x"), None),
+            row(3, "Review", Some("h@x"), None),
+            row(4, "Done", Some("h@x"), None),
+            row(5, "In Progress", Some("h@x"), None),
+            row(6, "Ready", Some("h@x"), None),
         ];
         let b = coordinator_block(&rows, &[], &[], 3, REARM);
         for k in ["a/b#1 ", "a/b#2 ", "a/b#3 "] {
@@ -476,12 +468,12 @@ mod tests {
     #[test]
     fn the_dev_block_shows_own_tickets_only_and_waiting_asks() {
         let rows = vec![
-            row(1, "In Progress", "me@x"),
-            row(2, "Ready", "me@x"),
-            row(3, "Blocked", "me@x"),
-            row(4, "Needs Human", "me@x"),
-            row(5, "Ready", "other@x"),
-            row(6, "Done", "me@x"),
+            row(1, "In Progress", Some("me@x"), None),
+            row(2, "Ready", Some("me@x"), None),
+            row(3, "Blocked", Some("me@x"), None),
+            row(4, "Needs Human", Some("me@x"), None),
+            row(5, "Ready", Some("other@x"), None),
+            row(6, "Done", Some("me@x"), None),
         ];
         let b = dev_block(&rows, "me@x", 0, REARM);
         assert!(b.contains("your In Progress ticket: a/b#1"), "{b}");
