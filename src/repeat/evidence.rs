@@ -1,4 +1,4 @@
-//! The evidence block of the gate: text that a person pastes into a PR. Each line of it is built
+//! The evidence block of `repeat`: text that a person pastes into a PR. Each line of it is built
 //! here, so that the wording stays in one place.
 
 /// The block, built run by run.

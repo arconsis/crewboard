@@ -1,13 +1,13 @@
-//! `crewboard wake` (hidden): the headless wake gate for cron, launchd, systemd timers and
+//! `crewboard wake` (hidden): the headless wake for cron, launchd, systemd timers and
 //! Hermes cron. One run does this:
 //!
 //! 1. A stop file (an earlier exit 4) ends the run at once, silently, until the env file or the
 //!    agent config is newer than it.
 //! 2. A net back-off file (earlier exits 3) ends the run as a quiet poll while its pause lasts.
-//! 3. The gate: `poll --quiet`. Exit 1 means no events; the run goes on only for events that an
+//! 3. The precheck: `poll --quiet`. Exit 1 means no events; the run goes on only for events that an
 //!    earlier wake kept in `<events file>.unhandled`, a finished detached job that nobody reported,
 //!    or owned work whose back-off is over (`mine --quiet`). Exit 0 goes on. Any other code ends
-//!    the run (see `Flow::fail`). The back-off file is cleared only when the whole gate succeeded.
+//!    the run (see `Flow::fail`). The back-off file is cleared only when the whole precheck succeeded.
 //! 4. The wake lock (`crate::wake::lockdir`).
 //! 5. `--tick`: `tick` instead of a model. Otherwise, with `--events-file`, the events file is
 //!    written (`poll`, which moves the cursor, and `mine`; `crate::wake::events`), the finished
@@ -28,7 +28,7 @@
 //! 3600) is a test seam for the grace between TERM and KILL.
 //!
 //! The parts: `settings` (the options and the settings of a run), `flow` (the run as a sequence of
-//! phases: `preflight`, `gate`, the lock, `tick` or `wake_events` and `finish`, with `runtime` and
+//! phases: `preflight`, `precheck`, the lock, `tick` or `wake_events` and `finish`, with `runtime` and
 //! `procs` for the wake command). This module is the entry: it makes the settings, the calls and
 //! the log, and runs the flow.
 

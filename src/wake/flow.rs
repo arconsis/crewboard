@@ -4,12 +4,12 @@
 //! are in their own modules; each returns an enum that says how the run goes on:
 //!
 //! 1. `preflight`: an older version, the stop file, the net back-off. `Done(code)` or go on.
-//! 2. `gate`: the cheap poll. `Wake(reason)`, `Quiet` or `End(code)`.
+//! 2. `precheck`: the cheap poll. `Wake(reason)`, `Quiet` or `End(code)`.
 //! 3. the lock (here): `Held` or `End(code)`.
 //! 4. under the lock: `tick`, or `wake_events` (the events file and the receipts) and
 //!    `finish` (the wake command through `runtime`, then its results and the back-off).
 
-use super::{gate, preflight, wake_events};
+use super::{precheck, preflight, wake_events};
 use crate::clock::{Clock, format_ts};
 use crate::fsutil::{self, Mode};
 use crate::lock::procs::Procs;
@@ -72,10 +72,10 @@ impl Flow<'_, '_> {
         }
         let mut reason = Reason::Events;
         if !self.s.tick {
-            match self.gate() {
-                gate::Gate::Wake(r) => reason = r,
-                gate::Gate::Quiet => return 0,
-                gate::Gate::End(code) => return code,
+            match self.precheck() {
+                precheck::Precheck::Wake(r) => reason = r,
+                precheck::Precheck::Quiet => return 0,
+                precheck::Precheck::End(code) => return code,
             }
         }
         if let Some(code) = self.signalled() {

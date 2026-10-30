@@ -1,4 +1,4 @@
-//! The gate: the cheap check before the lock, with no model. One `poll --quiet`; on a quiet
+//! The precheck: the cheap check before the lock, with no model. One `poll --quiet`; on a quiet
 //! board the run goes on only for events that an earlier wake kept, a finished detached job that
 //! nobody reported, or owned work whose back-off is over.
 
@@ -8,8 +8,8 @@ use crate::wake::policy;
 use crate::wake::results;
 use crate::wake::state;
 
-/// How the run goes on after the gate.
-pub enum Gate {
+/// How the run goes on after the precheck.
+pub enum Precheck {
     /// Go on to the lock and the wake.
     Wake(Reason),
     /// A quiet poll: nothing to do, exit 0.
@@ -26,12 +26,12 @@ enum Work {
 }
 
 impl Flow<'_, '_> {
-    /// The cheap check: no model, no lock. The back-off file is cleared when the whole gate
+    /// The cheap check: no model, no lock. The back-off file is cleared when the whole precheck
     /// succeeded, not after the poll alone.
-    pub(super) fn gate(&mut self) -> Gate {
+    pub(super) fn precheck(&mut self) -> Precheck {
         let (rc, _) = self.call("poll", &mut |s, o| s.poll(true, o));
         if let Some(code) = self.signalled() {
-            return Gate::End(code);
+            return Precheck::End(code);
         }
         let mut reason = Reason::Events;
         match rc.code {
@@ -44,17 +44,17 @@ impl Flow<'_, '_> {
                         Work::NotDue => {
                             self.net_ok();
                             self.note_quiet();
-                            return Gate::Quiet;
+                            return Precheck::Quiet;
                         }
-                        Work::End(code) => return Gate::End(code),
+                        Work::End(code) => return Precheck::End(code),
                     }
                 }
             }
             0 => {}
-            _ => return Gate::End(self.fail("poll", &rc)),
+            _ => return Precheck::End(self.fail("poll", &rc)),
         }
         self.net_ok();
-        Gate::Wake(reason)
+        Precheck::Wake(reason)
     }
 
     /// A reason to wake although the board is quiet, as a log line: events that an earlier wake

@@ -11,7 +11,7 @@
 //! - the loop stops at the first red run (no "best N of M");
 //! - at the end it prints the raw result lines of every run, ready to paste into a PR.
 //!
-//! The pure parts (the verdict, the evidence text) are in `crate::gate`. Exit codes: 0 all runs
+//! The pure parts (the verdict, the evidence text) are in `crate::repeat`. Exit codes: 0 all runs
 //! green on one commit; 1 a red run; 2 the commit changed (or `--lock` on a build without Unix
 //! process control); 3 CI did not finish within `--ci-max-wait`; 4 setup error; 64 usage; 143 a
 //! TERM, INT or HUP stopped the gate (the command got it too, the lock is released, the evidence
@@ -19,8 +19,8 @@
 
 use crate::base::ignore::{best_effort_cleanup, best_effort_output};
 use crate::clock::parse_secs;
-use crate::gate::evidence::{Block, display_cmd, render};
-use crate::gate::verdict::{Patterns, Run, Verdict, judge, result_lines};
+use crate::repeat::evidence::{Block, display_cmd, render};
+use crate::repeat::verdict::{Patterns, Run, Verdict, judge, result_lines};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

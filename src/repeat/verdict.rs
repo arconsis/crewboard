@@ -1,4 +1,4 @@
-//! The verdict of one run of the gate. It depends on the exit code of the command, the text of
+//! The verdict of one run of `repeat`. It depends on the exit code of the command, the text of
 //! the log of THIS run, and two patterns. A missing result line is never green.
 
 use regex::Regex;
@@ -6,7 +6,7 @@ use regex::Regex;
 /// A result line that reports a failure: the word `FAILED`, or a failed count that is not 0.
 pub const DEFAULT_FAIL_RE: &str = r"FAILED|(^|[^0-9])[1-9][0-9]* failed";
 
-/// The two patterns of the gate, compiled. Each applies to one line.
+/// The two patterns of `repeat`, compiled. Each applies to one line.
 #[derive(Debug)]
 pub struct Patterns {
     /// `--result-re`: which lines of the log are result lines. `None`: the exit code decides.

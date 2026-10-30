@@ -311,7 +311,7 @@ fn watch_poll_and_mine_are_the_watch_family() {
             "watch" | "monitor" | "poll" | "mine" => Family::Watch,
             "lock" => Family::Lock,
             "wake" => Family::Wake,
-            "repeat" => Family::Gate,
+            "repeat" => Family::Repeat,
             _ => Family::Other,
         };
         assert_eq!(fam, expect, "{name}");

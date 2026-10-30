@@ -47,7 +47,6 @@ pub mod exit;
 #[doc(hidden)]
 pub mod feed;
 pub(crate) mod fsutil;
-pub(crate) mod gate;
 #[doc(hidden)]
 pub mod github;
 pub(crate) mod headless;
@@ -66,6 +65,7 @@ pub(crate) mod profile;
 pub mod protocol;
 #[doc(hidden)]
 pub mod registry;
+pub(crate) mod repeat;
 #[doc(hidden)]
 pub mod rules;
 pub(crate) mod secrets;
