@@ -3,14 +3,15 @@
 use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
 use super::{
     Me, agent_label_lines, load_world_cached, me_of, post, remember, sync_needs_owner, to_agent,
-    work_write_ctx,
+    work_write_ctx, work_write_ctx_of, write_work,
 };
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::error::{CbError, CbResult};
 use crate::ops::say::send_signed;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::{AgentName, Kind, Re, To};
-use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
+use crate::rules::fields::{Field, Item, check_field_write};
 use crate::rules::reassign::{Reason, target_status};
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::rules::{Actor, Refusal, Role};
@@ -78,7 +79,8 @@ pub fn reassign(
     } else {
         check_status_transition(Some(from), target, me.actor, &reassign)?;
     }
-    check_field_write(Item::Work, Field::Agent, &work_write_ctx(&me, false))?;
+    let agent_writer = work_write_ctx(&me, false);
+    check_field_write(Item::Work, Field::Agent, &agent_writer)?;
     // The guard runs before the first write (the withdraw, the option, the Agent field).
     super::check_status_unchanged(ac, &t.item_id, &t.key(), from, Some(target))?;
     // A reassign takes an open question back: the answer withdraws it (the new agent asks again
@@ -101,15 +103,11 @@ pub fn reassign(
     if from != target {
         super::set_select_status(ac, &t.item_id, target)?;
     }
-    if let Some(a) = &new_agent {
-        ac.ctx
-            .board
-            .set_select(&ac.ctx.client, &t.item_id, "Agent", a.as_str())?;
-    } else {
-        ac.ctx
-            .board
-            .clear_field(&ac.ctx.client, &t.item_id, "Agent")?;
-    }
+    let agent_value = match &new_agent {
+        Some(a) => FieldValue::Option(a.as_str()),
+        None => FieldValue::Clear,
+    };
+    write_work(ac, &t.item_id, Field::Agent, agent_value, &agent_writer)?;
     let mut out = format!(
         "{} back to {}; Agent {}\nreason: {reason}\n{withdraw_lines}{cap_out}{option_lines}",
         t.key(),
@@ -307,11 +305,11 @@ pub fn reassign_derived(
     // The row comes from a listing that lags by minutes: the transition is judged on the Status
     // that the item has now, read by id. A ticket that another agent holds now is not touched.
     let item = ac.ctx.board.read_item(&ac.ctx.client, &row.item_id)?;
-    if item.field("Agent") != row.agent.as_deref() {
+    if item.get(Field::Agent) != row.agent.as_deref() {
         return Ok(None);
     }
     let from = item
-        .field("Status")
+        .get(Field::Status)
         .and_then(Status::parse_board)
         .ok_or_else(|| {
             CbError::refused(
@@ -330,17 +328,8 @@ pub fn reassign_derived(
     if !finish_only {
         check_status_transition(Some(from), target, coordinator, &reassign)?;
     }
-    check_field_write(
-        Item::Work,
-        Field::Agent,
-        &WriteCtx {
-            actor: coordinator,
-            is_subject: false,
-            is_assigned: false,
-            owner_approval: false,
-            approved: true,
-        },
-    )?;
+    let agent_writer = work_write_ctx_of(coordinator, false);
+    check_field_write(Item::Work, Field::Agent, &agent_writer)?;
     // The order of the writes: the signed notice, then Status, then Agent. A failure after any
     // step leaves a state that the next cycle repeats or finishes: the ticket still with its old
     // agent (the notice may repeat), or in Backlog with the old agent (only the clear is left).
@@ -362,9 +351,13 @@ pub fn reassign_derived(
     if !finish_only {
         super::set_select_status(ac, &row.item_id, target)?;
     }
-    ac.ctx
-        .board
-        .clear_field(&ac.ctx.client, &row.item_id, "Agent")?;
+    write_work(
+        ac,
+        &row.item_id,
+        Field::Agent,
+        FieldValue::Clear,
+        &agent_writer,
+    )?;
     // The ticket has no agent now: its agent label goes too (a help, so only a warning).
     match fetch_issue(&ac.ctx.client, &row.repo, row.issue) {
         Ok(info) => {

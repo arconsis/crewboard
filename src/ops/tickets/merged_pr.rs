@@ -21,6 +21,7 @@ use crate::ops::{AgentCtx, World};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Refusal;
 use crate::rules::evidence::{PrFacts, parse_pr_url};
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ticket_loader::load_ticket;
 use crate::state::StateCache;
@@ -105,7 +106,7 @@ pub(super) fn tick_lines(
         let Some(item) = items.iter().find(|i| i.id == row.item_id) else {
             continue;
         };
-        let Some(url) = item.field("Evidence").and_then(pr_of_evidence) else {
+        let Some(url) = item.get(Field::Evidence).and_then(pr_of_evidence) else {
             continue;
         };
         if cache.tick.merged_told.get(&row.item_id).map(String::as_str) == Some(url) {

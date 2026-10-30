@@ -1,8 +1,10 @@
 //! The In Progress bookkeeping shared by `take`, `done`, `block` and `ask`: which ticket of an agent is busy, when the agent goes idle, which ticket `take --interrupt` parks.
 
+use crate::board::FieldValue;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World};
 use crate::rules::Refusal;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ticket_loader::Ticket;
 
@@ -38,9 +40,7 @@ pub(super) fn write_idle_when_free(ac: &AgentCtx, world: &World, t: &Ticket) -> 
     }
     let rows = crate::ops::lifecycle::my_rows(ac, world)?;
     if goes_idle(ac.name.as_str(), t.agent(), &t.item_id, &rows) {
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, &ac.agent.item_id, "Doing", "idle")?;
+        ac.write_own(Field::Doing, FieldValue::Text("idle"))?;
     }
     Ok(())
 }

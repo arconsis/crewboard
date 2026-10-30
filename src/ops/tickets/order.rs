@@ -8,13 +8,14 @@
 use super::assign_checks::{
     CapOverride, check_assignable, check_assignable_state, check_capabilities, post_assignment,
 };
-use super::{Me, agent_label_lines, load_world_cached, me_of, remember, work_write_ctx};
+use super::{agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work};
+use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
 use crate::rules::Refusal;
 use crate::rules::Role;
-use crate::rules::fields::{Field, Item, check_field_write};
+use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::status::Status;
 use crate::services::ticket_index::read_ticket_rows;
 use crate::services::ticket_loader::{Ticket, load_ticket};
@@ -92,14 +93,9 @@ pub fn check_rebalance(
     check_assignable_state(to, to_role, to_state)
 }
 
-fn require_order_writer(me: &Me) -> CbResult<()> {
-    check_field_write(Item::Work, Field::Order, &work_write_ctx(me, false))?;
-    Ok(())
-}
-
 /// The position of a queued ticket: only a Ready ticket that has an agent has one.
 fn check_queued(t: &Ticket) -> CbResult<()> {
-    let status = t.item.field("Status");
+    let status = t.item.get(Field::Status);
     if !Status::Ready.is(status) || t.agent().is_none() {
         return Err(CbError::refused(
             "reorder-not-queued",
@@ -114,14 +110,15 @@ fn check_queued(t: &Ticket) -> CbResult<()> {
     Ok(())
 }
 
-/// Sets the queue position of a queued ticket (`assign <n> --order N`). The
-/// caller has checked the writer. No message is posted.
-pub(super) fn set_position(ac: &mut AgentCtx, t: &Ticket, order: i64) -> CbResult<String> {
+/// Sets the queue position of a queued ticket (`assign <n> --order N`). No message is posted.
+pub(super) fn set_position(
+    ac: &mut AgentCtx,
+    t: &Ticket,
+    order: i64,
+    who: &WriteCtx,
+) -> CbResult<String> {
     check_queued(t)?;
-    ac.ctx.board.ensure_number_field(&ac.ctx.client, "Order")?;
-    ac.ctx
-        .board
-        .set_number(&ac.ctx.client, &t.item_id, "Order", order)?;
+    write_order(ac, &t.item_id, order, who)?;
     Ok(format!(
         "{} queue position of {}: Order {order}\n",
         t.key(),
@@ -135,9 +132,10 @@ pub(super) fn reorder(ac: &mut AgentCtx, issue_arg: &str, order: &str) -> CbResu
     let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
-    require_order_writer(&me)?;
+    let who = work_write_ctx(&me, false);
+    check_field_write(Item::Work, Field::Order, &who)?;
     let t = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
-    set_position(ac, &t, order)
+    set_position(ac, &t, order, &who)
 }
 
 /// What a move of a queued ticket to another agent asks for.
@@ -150,24 +148,25 @@ pub(super) struct Move<'a> {
 
 /// Moves a Ready ticket to the queue of another agent: Agent field, agent label, Order and ONE
 /// signed message to the new agent. The target may be `working` (it takes the ticket after its
-/// current one). The caller has checked the writer.
+/// current one).
 pub(super) fn move_queued(
     ac: &mut AgentCtx,
     world: &World,
     t: &Ticket,
     mv: &Move<'_>,
+    who: &WriteCtx,
 ) -> CbResult<String> {
     let to_name = mv.to;
     let target = world.trust.get(to_name.as_str());
     check_rebalance(
         &t.key(),
-        t.item.field("Status"),
+        t.item.get(Field::Status),
         t.agent(),
         to_name.as_str(),
         target.map(|x| x.role),
         target
             .and_then(|x| world.items.get(&x.item_id))
-            .and_then(|i| i.field("State"))
+            .and_then(|i| i.get(Field::State))
             .unwrap_or("?"),
     )?;
     // approved, alive, dev, active or working
@@ -185,13 +184,14 @@ pub(super) fn move_queued(
     };
     let option_lines =
         crate::ops::approve::ensure_agent_option(&mut ac.ctx, world, to_name.as_str())?.text();
-    ac.ctx.board.ensure_number_field(&ac.ctx.client, "Order")?;
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, &t.item_id, "Agent", to_name.as_str())?;
-    ac.ctx
-        .board
-        .set_number(&ac.ctx.client, &t.item_id, "Order", order)?;
+    write_work(
+        ac,
+        &t.item_id,
+        Field::Agent,
+        FieldValue::Option(to_name.as_str()),
+        who,
+    )?;
+    write_order(ac, &t.item_id, order, who)?;
     // The signed log takes the assignee only from an assignment message: post that one.
     let posted = post_assignment(
         ac,
@@ -223,12 +223,17 @@ pub(super) fn move_queued(
     Ok(out)
 }
 
-/// Write `Order` for `assign --order`. The caller has checked the writer.
-pub(super) fn write_order(ac: &mut AgentCtx, item_id: &str, order: i64) -> CbResult<()> {
-    ac.ctx.board.ensure_number_field(&ac.ctx.client, "Order")?;
+/// Write `Order`. The field is created on first use, on a board that `init` did not make.
+pub(super) fn write_order(
+    ac: &mut AgentCtx,
+    item_id: &str,
+    order: i64,
+    who: &WriteCtx,
+) -> CbResult<()> {
     ac.ctx
         .board
-        .set_number(&ac.ctx.client, item_id, "Order", order)
+        .ensure_number_field(&ac.ctx.client, Field::Order)?;
+    write_work(ac, item_id, Field::Order, FieldValue::Number(order), who)
 }
 
 #[cfg(test)]
@@ -426,14 +431,11 @@ mod tests {
 
     #[test]
     fn only_the_coordinator_or_the_owner_may_write_the_order() {
-        use crate::rules::fields::WriteCtx;
         use crate::rules::{Actor, Role};
         let ctx = |actor| WriteCtx {
-            actor,
-            is_subject: false,
             is_assigned: true,
-            owner_approval: false,
             approved: true,
+            ..WriteCtx::by(actor)
         };
         assert!(
             check_field_write(

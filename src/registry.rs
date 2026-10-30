@@ -25,6 +25,7 @@ use crate::protocol::header::Message;
 use crate::protocol::names::{AgentName, Kind, To};
 use crate::protocol::replay::{Replay, Seen};
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use ssh_key::{HashAlg, PublicKey};
 use std::collections::{BTreeMap, HashMap};
 
@@ -713,7 +714,7 @@ pub fn build_trust(
             continue;
         };
         let item_key = item
-            .field("Key")
+            .get(Field::Key)
             .and_then(|k| PublicKey::from_openssh(k).ok());
         if item_key.as_ref().map(|k| k.key_data()) != Some(join_key.key_data()) {
             // The key of the signed join decides who signs; the item `Key` is a mirror. A hand
@@ -726,7 +727,7 @@ pub fn build_trust(
         // The State is the agent's own mirror. A forced stop that the log records (the owner's
         // `/crew stop`, the agent's notice) fits `left`. Anything else that does not fit an open
         // span is reported; the agent stays trusted, so one field write cannot mute it.
-        let state = item.field("State").unwrap_or("");
+        let state = item.get(Field::State).unwrap_or("");
         let logged_stop = state == "left" && e.departure.is_some();
         if !state_may_speak(state) && !logged_stop {
             t.problems.push(problem(&format!(

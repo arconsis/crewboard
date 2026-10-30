@@ -13,6 +13,7 @@ use crate::events::{is_foreign, security_scan};
 use crate::feed;
 use crate::owner_cmd::role_name;
 use crate::registry::{CREW_PREFIX, Trust};
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::StateCache;
@@ -223,22 +224,24 @@ fn build_rows(ctx: &Ctx, world: &super::World, now: i64) -> Vec<AgentRow> {
     for e in world.reg.agents.values() {
         let item = e.join.as_ref().and_then(|j| world.items.get(&j.item_id));
         let (_, _, live) = crate::ctx::agent_liveness(world, &e.name, now, interval);
-        let hb = item.and_then(|i| i.field("Heartbeat")).map(str::to_string);
+        let hb = item
+            .and_then(|i| i.get(Field::Heartbeat))
+            .map(str::to_string);
         rows.push(AgentRow {
             name: e.name.clone(),
             approved: e.approved(),
             rejected: e.rejected,
             trusted: world.trust.get(&e.name).is_some(),
             role: e.approval.as_ref().map(|a| role_name(a.role).to_string()),
-            state: item.and_then(|i| i.field("State")).map(str::to_string),
+            state: item.and_then(|i| i.get(Field::State)).map(str::to_string),
             heartbeat_age: heartbeat_age(hb.as_deref(), now),
             heartbeat: hb,
-            runtime: item.and_then(|i| i.field("Runtime")).map(str::to_string),
-            host: item.and_then(|i| i.field("Host")).map(str::to_string),
+            runtime: item.and_then(|i| i.get(Field::Runtime)).map(str::to_string),
+            host: item.and_then(|i| i.get(Field::Host)).map(str::to_string),
             item_id: e.join.as_ref().map(|j| j.item_id.clone()),
             login: e.login().map(str::to_string),
             capabilities: item
-                .and_then(|i| i.field(super::profile::FIELD))
+                .and_then(|i| i.get(super::profile::FIELD))
                 .map(str::to_string),
             liveness: if e.approved() {
                 live.word().to_string()
@@ -510,7 +513,10 @@ fn read_extras(snap: &Snapshot) -> CbResult<Extras> {
     }
     let many = multiple_in_progress(&snap.tickets);
     // spec/board#option-limit: the options came with the board load, no extra read
-    let agent_options = ctx.board.fields.get("Agent").map_or(0, |f| f.options.len());
+    let agent_options = ctx
+        .board
+        .has_field(Field::Agent)
+        .map_or(0, |f| f.options.len());
     let option_warning = crate::rules::options::agent_options_warning(agent_options);
     let core = ctx.client.rate_limit_of("core")?;
     let gql = ctx.client.rate_limit_of("graphql")?;
@@ -556,7 +562,7 @@ fn queue_text(snap: &Snapshot) -> String {
             &queues,
             &unassigned,
             imbalance.as_deref(),
-            snap.ctx.board.fields.contains_key("Order")
+            snap.ctx.board.has_field(Field::Order).is_some()
         )
     )
 }
@@ -616,7 +622,7 @@ fn render_json(snap: &Snapshot, ex: &Extras, queue: bool) -> String {
         let unassigned = super::queue::unassigned_ready(&snap.trows);
         let imbalance = super::queue::imbalance_note(&queues);
         let mut q = super::queue::to_json(&queues, &unassigned, imbalance.as_deref());
-        q["board_has_order_field"] = json!(ctx.board.fields.contains_key("Order"));
+        q["board_has_order_field"] = json!(ctx.board.has_field(Field::Order).is_some());
         q
     });
     let verify_limit = late.expect.verify;

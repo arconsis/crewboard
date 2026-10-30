@@ -67,7 +67,7 @@ I/O. `tests/layering.rs` freezes the import graph.
 ### Rules
 
 - `src/rules/mod.rs`: the rules as data and pure functions. An answer is `Ok(())` or a refusal that names the rule.
-- `src/rules/fields.rs`: which role may write which board field (one writer per field).
+- `src/rules/fields.rs`: the board fields as a type (`Field`, with the name on the board) and which role may write which field (one writer per field). `Board::write` in `src/board.rs` asks this table before every field write.
 - `src/rules/status.rs`: ticket status transitions and their writers. `status/table.rs` is the test table of every move.
 - `src/rules/reassign.rs`: the reasons of `reassign` and the status they lead to.
 - `src/rules/protected.rs`: a PR that changes an authority file is merged by the owner only.

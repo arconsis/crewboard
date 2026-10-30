@@ -5,11 +5,13 @@ use super::say::require_approved;
 use super::selftest;
 use super::{AgentCtx, Ctx, load_world};
 use crate::authority::Authority;
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::ctx::authority_text;
 use crate::error::{CbError, CbResult};
 use crate::owner_cmd::role_name;
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::{CrewMember, State, Who, check_lifecycle, check_single_coordinator};
 
 pub fn brief(role: Role, name: &str, initiative: &str) -> String {
@@ -192,7 +194,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             ac.agent.item_id
         ))
     })?;
-    let state = item.field("State").and_then(State::parse);
+    let state = item.get(Field::State).and_then(State::parse);
     // The registry log approved the agent, but `approve` writes the State `approved` a moment
     // after its signed comment. Starting now would race that write, so `start` waits for it.
     if state == Some(State::Requested) {
@@ -215,7 +217,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             state: world
                 .items
                 .get(&t.item_id)
-                .and_then(|i| i.field("State"))
+                .and_then(|i| i.get(Field::State))
                 .and_then(State::parse)
                 .unwrap_or(State::Approved),
         })
@@ -274,19 +276,13 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
         Some(State::Active) => {
             // A restarted agent shows that it is alive again (spec/board#fields: stale = no
             // heartbeat).
-            ac.ctx
-                .board
-                .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now_ts())?;
+            ac.write_own(Field::Heartbeat, FieldValue::Text(&now_ts()))?;
             out.push_str("state is already active; heartbeat written\n");
         }
         s => {
             check_lifecycle(s, State::Active, Who::SelfAgent)?;
-            ac.ctx
-                .board
-                .set_select(&ac.ctx.client, &ac.agent.item_id, "State", "active")?;
-            ac.ctx
-                .board
-                .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now_ts())?;
+            ac.write_own_state(State::Active)?;
+            ac.write_own(Field::Heartbeat, FieldValue::Text(&now_ts()))?;
             out.push_str("state: active\n");
         }
     }

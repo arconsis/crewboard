@@ -18,6 +18,7 @@
 use super::say::send_signed;
 use super::tickets::{load_world_cached, me_of};
 use super::{AgentCtx, Global, World, resolve_board_config};
+use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::comments::Comment;
 use crate::ctx::registry_msgs;
@@ -27,6 +28,7 @@ use crate::late::liveness::reassignable_parsed;
 use crate::owner_cmd::{self, OwnerCommand, Verb};
 use crate::protocol::names::{Kind, Re, To};
 use crate::registry::CREW_PREFIX;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::{State, Who, check_lifecycle, check_resume};
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::ticket::{Sender, TicketRow, VMsg};
@@ -81,15 +83,11 @@ pub fn pending_commands(
 }
 
 fn set_state(ac: &AgentCtx, s: State) -> CbResult<()> {
-    ac.ctx
-        .board
-        .set_select(&ac.ctx.client, &ac.agent.item_id, "State", s.name())
+    ac.write_own_state(s)
 }
 
 fn set_doing(ac: &AgentCtx, text: &str) -> CbResult<()> {
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &ac.agent.item_id, "Doing", text)
+    ac.write_own(Field::Doing, FieldValue::Text(text))
 }
 
 /// A signed notice in the registry issue (the audit trail of departures,
@@ -155,9 +153,7 @@ pub fn resume(
     check_resume(who, owner_paused)?;
     check_lifecycle(state, State::Active, who)?;
     set_state(ac, State::Active)?;
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now_ts())?;
+    ac.write_own(Field::Heartbeat, FieldValue::Text(&now_ts()))?;
     notice(ac, world, &format!("{} resumed.", ac.name))?;
     Ok((
         State::Active,
@@ -296,7 +292,7 @@ pub(crate) fn rows_of(ac: &AgentCtx, world: &World, agent: &str) -> CbResult<Vec
     let since = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"))
+        .and_then(|i| i.get(Field::Cursor))
         .and_then(|c| crate::cursor::Cursor::decode(c).ok())
         .map(|c| c.since());
     if let Some(since) = since {
@@ -350,7 +346,7 @@ pub fn heartbeat(ac: &AgentCtx) -> CbResult<String> {
     let state = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("State"))
+        .and_then(|i| i.get(Field::State))
         .unwrap_or("?");
     if !crate::late::liveness::heartbeat_state(state) {
         return Err(CbError::refused(
@@ -362,9 +358,7 @@ pub fn heartbeat(ac: &AgentCtx) -> CbResult<String> {
         ));
     }
     let now = now_ts();
-    ac.ctx
-        .board
-        .set_text(&ac.ctx.client, &ac.agent.item_id, "Heartbeat", &now)?;
+    ac.write_own(Field::Heartbeat, FieldValue::Text(&now))?;
     Ok(format!(
         "heartbeat {now} (interval {} s: late after {} s)\n",
         ac.ctx.hb_interval,

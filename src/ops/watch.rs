@@ -6,6 +6,7 @@
 
 use super::{AgentCtx, World, duties, load_world};
 use crate::base::ignore::best_effort_output;
+use crate::board::FieldValue;
 use crate::clock::{format_ts, now_epoch, now_ts, parse_ts};
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
@@ -19,6 +20,7 @@ use crate::github::GhError;
 use crate::late::liveness::{heartbeat_due, heartbeat_state};
 use crate::protocol::replay::COPY_LOOKBACK_SECS;
 use crate::registry::CREW_PREFIX;
+use crate::rules::fields::Field;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
 use crate::state::{StateCache, TicketSnap};
 use crate::ticket::{find_item_id, ticket_events, verified_messages};
@@ -111,7 +113,7 @@ pub fn unread_for_done(
     let board_cursor = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"));
+        .and_then(|i| i.get(Field::Cursor));
     let stored = if ac.ctx.cd.is_headless()? {
         cache.poll.local_cursor.as_deref().or(board_cursor)
     } else {
@@ -447,11 +449,10 @@ fn check_state_and_heartbeat(
     ac: &AgentCtx,
     world: &World,
     me: &str,
-    item_id: &str,
     my_item: &crate::items::ItemSnapshot,
     now: i64,
 ) -> CbResult<()> {
-    let state = my_item.field("State");
+    let state = my_item.get(Field::State);
     let departure = world.reg.agents.get(me).and_then(|e| e.departure);
     match departure {
         Some(d) if d.ended() => {
@@ -479,14 +480,12 @@ fn check_state_and_heartbeat(
     }
     if state.is_some_and(heartbeat_state)
         && heartbeat_due(
-            my_item.field("Heartbeat").and_then(parse_ts),
+            my_item.get(Field::Heartbeat).and_then(parse_ts),
             now,
             ac.ctx.hb_interval,
         )
     {
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, item_id, "Heartbeat", &format_ts(now))?;
+        ac.write_own(Field::Heartbeat, FieldValue::Text(&format_ts(now)))?;
     }
     Ok(())
 }
@@ -514,7 +513,7 @@ fn read_cursor(
     now: i64,
 ) -> CbResult<CursorRead> {
     let headless = ac.ctx.cd.is_headless()?;
-    let board_cursor = my_item.field("Cursor");
+    let board_cursor = my_item.get(Field::Cursor);
     let local = if headless {
         cache.poll.local_cursor.clone()
     } else {
@@ -669,9 +668,7 @@ fn store_cursor(
             cache.poll.local_cursor = Some(next_text.to_string());
         }
     } else if *next != read.cursor || read.unset {
-        ac.ctx
-            .board
-            .set_text(&ac.ctx.client, &ac.agent.item_id, "Cursor", next_text)?;
+        ac.write_own(Field::Cursor, FieldValue::Text(next_text))?;
     }
     Ok(())
 }
@@ -721,7 +718,7 @@ pub fn cycle(
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
-    check_state_and_heartbeat(ac, &world, &me, &item_id, my_item, now)?;
+    check_state_and_heartbeat(ac, &world, &me, my_item, now)?;
     let read = read_cursor(ac, cache, my_item, opts, now)?;
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();

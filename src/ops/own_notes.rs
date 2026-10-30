@@ -57,6 +57,7 @@ use crate::github::GhError;
 use crate::github::paging::MAX_PAGES;
 use crate::protocol::acts::{Act, parse};
 use crate::protocol::names::Kind;
+use crate::rules::fields::Field;
 use crate::services::ticket_loader::Ticket;
 use crate::state::{NoteKind, NoteState, PostedNote, TOO_LARGE_RECHECK_SECS, TicketSnap, note_key};
 use crate::ticket::TicketRow;
@@ -577,7 +578,7 @@ pub(super) fn tick_check(ac: &AgentCtx, world: &World, t: &Ticket) -> CbResult<V
         &mut cache.notes,
         &t.repo,
         t.issue,
-        t.item.field("Status"),
+        t.item.get(Field::Status),
         Some(&t.comments),
         now_epoch(),
     );

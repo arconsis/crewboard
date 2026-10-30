@@ -41,6 +41,7 @@ use crate::error::{CbError, CbResult};
 use crate::headless::Gate;
 use crate::ops::{AgentCtx, World, load_world};
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::rules::ids;
 use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_closed_tickets, discover_tickets};
@@ -60,7 +61,7 @@ fn rows_of(
     items
         .iter()
         .filter(|it| {
-            it.project_number.is_none_or(|n| n == project) && status.is(it.field("Status"))
+            it.project_number.is_none_or(|n| n == project) && status.is(it.get(Field::Status))
         })
         .filter_map(|it| {
             let (key, _) = cache.index.tickets.iter().find(|(_, v)| **v == it.id)?;
@@ -115,10 +116,10 @@ impl Buckets {
                 .collect()
         };
         let in_progress_with_agent = |it: &crate::items::ItemSnapshot| {
-            Status::InProgress.is(it.field("Status")) && it.field("Agent").is_some()
+            Status::InProgress.is(it.get(Field::Status)) && it.get(Field::Agent).is_some()
         };
         Buckets {
-            review: ids(&|it| Status::Review.is(it.field("Status"))),
+            review: ids(&|it| Status::Review.is(it.get(Field::Status))),
             old: ids(&|it| {
                 in_progress_with_agent(it)
                     && crate::clock::parse_ts(&it.updated_at)
@@ -127,11 +128,11 @@ impl Buckets {
             pr: ids(&|it| {
                 in_progress_with_agent(it)
                     && it
-                        .field("Evidence")
+                        .get(Field::Evidence)
                         .and_then(merged_pr::pr_of_evidence)
                         .is_some()
             }),
-            closed: ids(&|it| is_in_work(it.field("Status")) && it.issue_closed()),
+            closed: ids(&|it| is_in_work(it.get(Field::Status)) && it.issue_closed()),
         }
     }
 }

@@ -23,7 +23,7 @@
     reason = "a test fails by panic and waits for real processes"
 )]
 
-use crewboard::board::OptionInfo;
+use crewboard::board::{FieldName, FieldValue, ItemRef, OptionInfo};
 use crewboard::config::{BoardConfig, ConfigDir};
 use crewboard::feed;
 use crewboard::github::Client;
@@ -32,6 +32,8 @@ use crewboard::ops::status::missing_from_listing;
 use crewboard::ops::{AgentCtx, Ctx, Global, new_client};
 use crewboard::protocol::names::{AgentName, Kind, Re, Timestamp, To};
 use crewboard::protocol::signature::{Outgoing, sign_message};
+use crewboard::rules::fields::{Field, WriteCtx};
+use crewboard::rules::lifecycle::State;
 use crewboard::rules::options::{OptionChange, merge_options};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -697,7 +699,7 @@ fn retire_leftovers(owner: &Path) -> Result<(), String> {
             feed::post_comment(&ctx.client, &REPO, 2, &format!("/crew reject {name}"))
                 .map_err(|e| e.to_string())?;
             if let Some(item) = a["item_id"].as_str() {
-                let _ = ctx.board.set_select(&ctx.client, item, "State", "left");
+                let _ = ctx.board.write_state(&ctx.client, item, State::Left);
             }
         }
     }
@@ -781,7 +783,7 @@ fn retire_names(names: &[String], still_ours: &dyn Fn() -> bool) -> Result<(), S
             feed::post_comment(&ctx.client, &REPO, 2, &format!("/crew reject {name}"))
                 .map_err(|e| e.to_string())?;
             if let Some(item) = a["item_id"].as_str() {
-                let _ = ctx.board.set_select(&ctx.client, item, "State", "left");
+                let _ = ctx.board.write_state(&ctx.client, item, State::Left);
             }
         }
     }
@@ -1268,11 +1270,17 @@ fn it_new_item_is_readable_by_id_whether_or_not_the_listing_shows_it() {
         .unwrap();
     c.items.push((ctx.board.project_id.clone(), id.clone()));
     ctx.board
-        .set_text(&ctx.client, &id, "Doing", "read me by id")
+        .write(
+            &ctx.client,
+            ItemRef::agent(&id),
+            Field::Doing,
+            FieldValue::Text("read me by id"),
+            &WriteCtx::own_item(),
+        )
         .unwrap();
     // by id: immediately and always
     let it = ctx.board.read_item(&ctx.client, &id).unwrap();
-    assert_eq!(it.field("Doing"), Some("read me by id"));
+    assert_eq!(it.get(Field::Doing), Some("read me by id"));
     assert_eq!(it.project_number, Some(sandbox().project));
     // the listing may or may not have it; crewboard must not depend on it
     let listed = ctx.board.list_item_ids(&ctx.client).unwrap();
@@ -1316,21 +1324,23 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
         .unwrap();
     c.items.push((ctx.board.project_id.clone(), item.clone()));
     ctx.board.reload(&ctx.client).unwrap();
-    ctx.board
-        .set_select(&ctx.client, &item, &name, "two")
+    // the value of a scratch field: a raw write (the crew writer takes crew fields only)
+    let two = ctx.board.fields[&name]
+        .option_id("two")
+        .unwrap()
+        .to_string();
+    ctx.client
+        .graphql(
+            "mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){projectV2Item{id}}}",
+            json!({"p": ctx.board.project_id, "i": item, "f": field_id, "o": two}),
+        )
         .unwrap();
-    assert_eq!(
-        ctx.board
-            .read_item(&ctx.client, &item)
-            .unwrap()
-            .field(&name),
-        Some("two")
-    );
-    let before: Vec<OptionInfo> = ctx.board.field(&name).unwrap().options.clone();
+    assert_eq!(scratch_value(&ctx, &item, &name).as_deref(), Some("two"));
+    let before: Vec<OptionInfo> = ctx.board.field(Scratch(&name)).unwrap().options.clone();
 
     // 1. add an option through the one writer: ids kept, value kept
     let merged = merge_options(
-        &ctx.board.field(&name).unwrap().entries(),
+        &ctx.board.field(Scratch(&name)).unwrap().entries(),
         &OptionChange::Add {
             name: "three".into(),
         },
@@ -1338,7 +1348,7 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
     .unwrap();
     let after = ctx
         .board
-        .write_options(&ctx.client, &name, &merged)
+        .write_options(&ctx.client, Scratch(&name), &merged)
         .unwrap();
     assert_eq!(after.len(), 3);
     for b in &before {
@@ -1349,10 +1359,7 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
         );
     }
     assert_eq!(
-        ctx.board
-            .read_item(&ctx.client, &item)
-            .unwrap()
-            .field(&name),
+        scratch_value(&ctx, &item, &name).as_deref(),
         Some("two"),
         "item value must survive"
     );
@@ -1361,10 +1368,10 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
     let lossy: Vec<_> = merged.iter().filter(|d| d.name != "one").cloned().collect();
     let e = ctx
         .board
-        .write_options(&ctx.client, &name, &lossy)
+        .write_options(&ctx.client, Scratch(&name), &lossy)
         .unwrap_err();
     assert!(e.to_string().contains("option-id-lost"), "{e}");
-    let still = ctx.board.read_options(&ctx.client, &name).unwrap();
+    let still = ctx.board.read_options(&ctx.client, Scratch(&name)).unwrap();
     assert_eq!(
         still.len(),
         3,
@@ -1373,7 +1380,7 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
 
     // 3. control: the raw write without ids DOES clear the value, so the
     //    check above guards against something real
-    let f = ctx.board.field(&name).unwrap().clone();
+    let f = ctx.board.field(Scratch(&name)).unwrap().clone();
     ctx.client
         .graphql(
             "mutation($f:ID!){updateProjectV2Field(input:{fieldId:$f,singleSelectOptions:[{name:\"one\",color:BLUE,description:\"\"},{name:\"two\",color:GREEN,description:\"\"},{name:\"three\",color:GRAY,description:\"\"},{name:\"four\",color:GRAY,description:\"\"}]}){projectV2Field{... on ProjectV2SingleSelectField{id}}}}",
@@ -1381,10 +1388,7 @@ fn it_adding_an_option_keeps_item_values_and_a_list_without_ids_is_refused() {
         )
         .unwrap();
     assert_eq!(
-        ctx.board
-            .read_item(&ctx.client, &item)
-            .unwrap()
-            .field(&name),
+        scratch_value(&ctx, &item, &name),
         None,
         "without ids the item value is cleared (M0 2c)"
     );
@@ -1424,7 +1428,7 @@ fn setup_coordinator() {
                 feed::post_comment(&ctx.client, &REPO, 2, &format!("/crew reject {name}"))
                     .map_err(|e| e.to_string())?;
                 if let Some(item) = a["item_id"].as_str() {
-                    let _ = ctx.board.set_select(&ctx.client, item, "State", "left");
+                    let _ = ctx.board.write_state(&ctx.client, item, State::Left);
                 }
             }
         }
@@ -1506,13 +1510,32 @@ fn item_of(c: &mut Cleanup, o: &Out) -> String {
     id
 }
 
-fn field_of(item: &str, field: &str) -> Option<String> {
+fn field_of(item: &str, field: Field) -> Option<String> {
     let ctx = owner_ctx();
     ctx.board
         .read_item(&ctx.client, item)
         .unwrap()
-        .field(field)
+        .get(field)
         .map(str::to_string)
+}
+
+/// A scratch field of a test, by its board name: not a crew field.
+struct Scratch<'a>(&'a str);
+
+impl FieldName for Scratch<'_> {
+    fn board_name(&self) -> &str {
+        self.0
+    }
+}
+
+/// The value of a scratch field on an item.
+fn scratch_value(ctx: &Ctx, item: &str, name: &str) -> Option<String> {
+    ctx.board
+        .read_item(&ctx.client, item)
+        .unwrap()
+        .fields
+        .get(name)
+        .cloned()
 }
 
 /// Branch + one commit + PR "Closes #n" through the REST API. Returns (pr url, number, head sha).
@@ -1719,7 +1742,7 @@ fn events_naming<'a>(v: &'a Value, name: &str) -> Vec<&'a Value> {
         .unwrap_or_default()
 }
 
-fn epoch_of(item: &str, field: &str) -> i64 {
+fn epoch_of(item: &str, field: Field) -> i64 {
     crewboard::clock::parse_ts(&field_of(item, field).unwrap_or_default()).unwrap_or(0)
 }
 
@@ -1738,12 +1761,12 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
     let o = run(&x_dir, &["heartbeat"]);
     expect_ok(&o, "heartbeat");
     assert!(o.stdout.contains("heartbeat 20"), "{}", o.stdout);
-    let age = crewboard::clock::now_epoch() - epoch_of(&xi, "Heartbeat");
+    let age = crewboard::clock::now_epoch() - epoch_of(&xi, Field::Heartbeat);
     assert!((0..120).contains(&age), "heartbeat age {age}");
 
     // pause: assign refuses, the agent stays alive (control: resume lets assign pass)
     expect_ok(&run(&x_dir, &["pause"]), "pause");
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("paused"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("paused"));
     let t = new_ticket(&mut c, "IT pause", true, true);
     let ts = t.to_string();
     let o = run(&c_dir, &["assign", &ts, "--to", &x]);
@@ -1754,7 +1777,7 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
         o.stderr
     );
     expect_ok(&run(&x_dir, &["resume"]), "resume");
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("active"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("active"));
     let o = run(&c_dir, &["assign", &ts, "--to", &x]);
     expect_ok(&o, "assign after the resume");
     let item = item_of(&mut c, &o);
@@ -1765,7 +1788,7 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
     assert!(o.stderr.contains("agent-paused"), "{}", o.stderr);
     expect_ok(&run(&x_dir, &["resume"]), "resume again");
     expect_ok(&run(&x_dir, &["take", &ts]), "take");
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("active"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("active"));
 
     // owner command: pause. Applied once (one ack), and the agent cannot undo it itself.
     let o = run(&owner, &["pause", "--agent", &x, "--initiative", "sandbox"]);
@@ -1786,7 +1809,7 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
             .any(|e| e["body"].as_str().unwrap().contains("/crew pause applied")),
         "{v}"
     );
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("paused"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("paused"));
     let acks = |c: &Cleanup, id: u64| {
         count_registry(c, |b| {
             b.contains(&format!("kind=ack re=#2/c-{id} ")) && b.contains(&format!("from={x} "))
@@ -1798,7 +1821,7 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
     let o = run(&x_dir, &["resume"]);
     assert_eq!(o.code, 2, "{}", o.stderr);
     assert!(o.stderr.contains("resume-owner-paused"), "{}", o.stderr);
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("paused"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("paused"));
     let o = run(
         &owner,
         &["resume", "--agent", &x, "--initiative", "sandbox"],
@@ -1806,15 +1829,22 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
     expect_ok(&o, "owner resume");
     let (v, _) = poll_in(&x_dir, &[]);
     assert!(!liveness_events(&v, "owner-command").is_empty(), "{v}");
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("active"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("active"));
 
     // owner command: stop, with a ticket In Progress. draining -> coordinator returns it -> left
     let o = run(&owner, &["stop", "--agent", &x, "--initiative", "sandbox"]);
     expect_ok(&o, "owner stop");
     let (v, _) = poll_in(&x_dir, &[]);
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("draining"), "{v}");
-    assert_eq!(field_of(&item, "Status").as_deref(), Some("In Progress"));
-    assert_eq!(field_of(&item, "Agent").as_deref(), Some(x.as_str()));
+    assert_eq!(
+        field_of(&xi, Field::State).as_deref(),
+        Some("draining"),
+        "{v}"
+    );
+    assert_eq!(
+        field_of(&item, Field::Status).as_deref(),
+        Some("In Progress")
+    );
+    assert_eq!(field_of(&item, Field::Agent).as_deref(), Some(x.as_str()));
     let (vc, code) = poll_json("c");
     assert_eq!(code, 0, "{vc}");
     assert!(
@@ -1823,11 +1853,15 @@ fn it_heartbeat_pause_resume_stop_and_the_owner_commands() {
             .any(|e| e["body"].as_str().unwrap().contains(&format!("#{t}"))),
         "{vc}"
     );
-    assert_eq!(field_of(&item, "Status").as_deref(), Some("Ready"));
-    assert_eq!(field_of(&item, "Agent"), None, "the Agent field is cleared");
+    assert_eq!(field_of(&item, Field::Status).as_deref(), Some("Ready"));
+    assert_eq!(
+        field_of(&item, Field::Agent),
+        None,
+        "the Agent field is cleared"
+    );
     let (v, _) = poll_in(&x_dir, &[]);
     assert!(!liveness_events(&v, "left").is_empty(), "{v}");
-    assert_eq!(field_of(&xi, "State").as_deref(), Some("left"));
+    assert_eq!(field_of(&xi, Field::State).as_deref(), Some("left"));
     let o = run(&x_dir, &["poll"]);
     assert_eq!(o.code, 2, "a left agent's loop must stop: {}", o.stderr);
     assert!(o.stderr.contains("agent-left"), "{}", o.stderr);
@@ -1866,7 +1900,7 @@ fn it_a_dead_agent_loses_its_ticket_and_the_owner_is_told_once() {
     expect_ok(&o, "assign to the live agent");
     let item = item_of(&mut c, &o);
     expect_ok(&run_env(&y_dir, &["take", &ts], env), "take");
-    let hb = epoch_of(&yi, "Heartbeat");
+    let hb = epoch_of(&yi, Field::Heartbeat);
     assert!(hb > 0);
     // y is silent from here on; z (the control) keeps polling; c polls and looks
     let (mut dead_events, mut dead_at, mut z_events, mut late_events) = (0, None, 0, 0);
@@ -1909,8 +1943,8 @@ fn it_a_dead_agent_loses_its_ticket_and_the_owner_is_told_once() {
         "no ping or pong on the way to dead"
     );
     // the ticket is back in Ready without an Agent, with a signed notice and its derived reason
-    assert_eq!(field_of(&item, "Status").as_deref(), Some("Ready"));
-    assert_eq!(field_of(&item, "Agent"), None);
+    assert_eq!(field_of(&item, Field::Status).as_deref(), Some("Ready"));
+    assert_eq!(field_of(&item, Field::Agent), None);
     let (tc, _) = feed::issue_comments(&c.client, &REPO, t, None, owner_login()).unwrap();
     let notes = tc
         .iter()
@@ -2122,7 +2156,7 @@ fn it_done_judges_commit_statuses_both_ways() {
         o.stderr
     );
     assert_eq!(
-        field_of(&item, "Status").as_deref(),
+        field_of(&item, Field::Status).as_deref(),
         Some("In Progress"),
         "a refusal changes nothing"
     );
@@ -2135,8 +2169,12 @@ fn it_done_judges_commit_statuses_both_ways() {
         "{}",
         o.stdout
     );
-    assert_eq!(field_of(&item, "Status").as_deref(), Some("Review"));
-    assert!(field_of(&item, "Evidence").unwrap().contains("ci-sources="));
+    assert_eq!(field_of(&item, Field::Status).as_deref(), Some("Review"));
+    assert!(
+        field_of(&item, Field::Evidence)
+            .unwrap()
+            .contains("ci-sources=")
+    );
     // verify judges it again, by the same statuses
     let o = run(&c_dir, &["verify", &ts]);
     expect_ok(&o, "verify");
@@ -2185,12 +2223,12 @@ fn it_mine_lists_owned_work_and_take_say_refresh_a_due_heartbeat_only() {
     // heartbeat: with a 2 s interval, a heartbeat that is 3 s old is due, and `take` writes one
     let b_item = item_id_of(&b_dir);
     expect_ok(&run(&b_dir, &argv(&["heartbeat"])), "heartbeat");
-    let hb0 = epoch_of(&b_item, "Heartbeat");
+    let hb0 = epoch_of(&b_item, Field::Heartbeat);
     // real wait: the heartbeat age is judged by the board's own timestamps (an ignored sandbox test)
     std::thread::sleep(std::time::Duration::from_secs(3));
     let env: &[(&str, &str)] = &[("CREWBOARD_TEST_HEARTBEAT_INTERVAL", "2s")];
     expect_ok(&run_env(&b_dir, &argv(&["take", &ts]), env), "take");
-    let hb1 = epoch_of(&b_item, "Heartbeat");
+    let hb1 = epoch_of(&b_item, Field::Heartbeat);
     assert!(
         hb1 > hb0,
         "take refreshed the due heartbeat: {hb0} -> {hb1}"
@@ -2213,7 +2251,7 @@ fn it_mine_lists_owned_work_and_take_say_refresh_a_due_heartbeat_only() {
         "say",
     );
     assert_eq!(
-        epoch_of(&b_item, "Heartbeat"),
+        epoch_of(&b_item, Field::Heartbeat),
         hb1,
         "a fresh heartbeat is not rewritten"
     );
@@ -2237,7 +2275,7 @@ fn it_mine_lists_owned_work_and_take_say_refresh_a_due_heartbeat_only() {
         ),
         "say when due",
     );
-    assert!(epoch_of(&b_item, "Heartbeat") > hb1);
+    assert!(epoch_of(&b_item, Field::Heartbeat) > hb1);
     // B is In Progress: mine lists it first
     let o = run(&b_dir, &argv(&["mine"]));
     assert!(o.stdout.contains("In Progress"), "{}", o.stdout);

@@ -18,6 +18,7 @@ use crate::builtin_workflows;
 use crate::config::ConfigDir;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::find_on_path;
+use crate::rules::fields::Field;
 use std::path::Path;
 
 /// The headless scope line for each state.
@@ -653,7 +654,7 @@ pub fn judge_registry(
             let state = world
                 .items
                 .get(item_id)
-                .and_then(|i| i.field("State"))
+                .and_then(|i| i.get(Field::State))
                 .unwrap_or("unknown");
             let next = if state == "approved" {
                 "; the next step is `crewboard start`"

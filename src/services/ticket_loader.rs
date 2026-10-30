@@ -11,6 +11,7 @@ use crate::feed;
 use crate::github::{Client, GhError};
 use crate::items::ItemSnapshot;
 use crate::registry::Trust;
+use crate::rules::fields::Field;
 use crate::rules::status::Status;
 use crate::ticket::{VMsg, WORK_LABEL, find_item_id, verified_messages};
 use serde_json::Value;
@@ -122,7 +123,7 @@ pub(crate) struct Ticket {
 
 impl Ticket {
     pub(crate) fn status(&self) -> CbResult<Status> {
-        let s = self.item.field("Status").ok_or_else(|| {
+        let s = self.item.get(Field::Status).ok_or_else(|| {
             CbError::refused(
                 "ticket-status-unset",
                 format!("{}#{} has no Status on the board", self.repo, self.issue),
@@ -137,7 +138,7 @@ impl Ticket {
     }
 
     pub(crate) fn agent(&self) -> Option<&str> {
-        self.item.field("Agent")
+        self.item.get(Field::Agent)
     }
 
     /// The one check that an agent-facing command runs before it trusts [`Ticket::agent`]:

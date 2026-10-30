@@ -40,6 +40,7 @@ use crate::late::{AgentLate, agent_late};
 use crate::protocol::names::{Kind, Re, To};
 use crate::registry::Departure;
 use crate::rules::Role;
+use crate::rules::fields::Field;
 use crate::rules::lifecycle::State;
 use crate::rules::status::Status;
 use crate::state::{StateCache, TicketSnap};
@@ -71,14 +72,14 @@ pub fn agent_duties(ac: &AgentCtx, world: &World, rows: &[TicketRow], now: i64) 
         state: world
             .items
             .get(&ac.agent.item_id)
-            .and_then(|i| i.field("State"))
+            .and_then(|i| i.get(Field::State))
             .and_then(State::parse),
         ..Duty::default()
     };
     let running = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("State"))
+        .and_then(|i| i.get(Field::State))
         .is_some_and(heartbeat_state);
     let msgs = registry_msgs(ac, world);
     // 1. owner commands that name this agent

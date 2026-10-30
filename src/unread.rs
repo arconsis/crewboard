@@ -8,6 +8,7 @@
 //! The check is read-only. It never writes the cursor: only `watch` and `poll` move it.
 //! The core is a pure function over the comments of the ticket and the cursor.
 
+use crate::base::fields::Field;
 use crate::comments::Comment;
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
@@ -225,7 +226,7 @@ pub fn unread_events(
     let cursor = world
         .items
         .get(&ac.agent.item_id)
-        .and_then(|i| i.field("Cursor"))
+        .and_then(|i| i.get(Field::Cursor))
         .and_then(|t| Cursor::decode(t).ok())?;
     let my_tickets: std::collections::HashSet<(String, u64)> = if mine {
         [(repo.to_string(), issue)].into_iter().collect()
