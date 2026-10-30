@@ -633,20 +633,8 @@ mod tests {
     }
 
     fn msg(kind: Option<crate::protocol::names::Kind>, body: &str) -> VMsg {
-        use crate::protocol::names::Re;
-        VMsg {
-            ts: String::new(),
-            comment_id: 1,
-            created: 0,
-            sender: crate::ticket::Sender::Agent {
-                name: "dev@x".into(),
-                role: crate::rules::Role::Dev,
-            },
-            to: "owner".into(),
-            kind,
-            re: Re::None,
-            body: body.into(),
-        }
+        let dev = crate::testkit::agent("dev@x", crate::rules::Role::Dev);
+        crate::testkit::msg(1, dev, "owner", kind, body)
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Layering freeze: builds the import graph of the top-level modules from `crate::<module>`
-//! references in production code (the first inline `#[cfg(test)] mod x {` to the end of a file
-//! and every `*_tests.rs` file are skipped; `ops/tickets/tick.rs` counts as `ops`). An edge that is not in `ALLOWED` fails
-//! the test. `base` may be imported by every module and imports nothing itself. Remove an edge
+//! references in production code (the first inline `#[cfg(test)] mod x {` to the end of a file,
+//! every `*_tests.rs` file and `testkit.rs`, the builders of the unit tests, are skipped;
+//! `ops/tickets/tick.rs` counts as `ops`). An edge that is not in `ALLOWED` fails the test. `base` may be imported by every module and imports nothing itself. Remove an edge
 //! from the list when a refactor removes it, never add one silently.
 //!
 //! `domain` is the pure layer: it imports `base`, and `rules` and `authority` (pure modules that
@@ -262,6 +262,14 @@ fn rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
+/// A file that only test builds compile: `*_tests.rs` and `testkit.rs`.
+fn test_only(file: &Path) -> bool {
+    file.file_name().is_some_and(|n| {
+        let n = n.to_string_lossy();
+        n.ends_with("_tests.rs") || n == "testkit.rs"
+    })
+}
+
 /// The production part of a source file: cut at the first inline test module.
 fn production(src: &str) -> String {
     let lines: Vec<&str> = src.lines().collect();
@@ -317,10 +325,7 @@ fn edges() -> BTreeSet<(String, String)> {
             .unwrap()
             .as_os_str()
             .to_string_lossy();
-        if file
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().ends_with("_tests.rs"))
-        {
+        if test_only(&file) {
             continue;
         }
         let from = first.trim_end_matches(".rs").to_string();
@@ -539,10 +544,7 @@ fn scoped_files() -> BTreeMap<String, String> {
     rs_files(&root, &mut files);
     let mut out = BTreeMap::new();
     for file in files {
-        if file
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().ends_with("_tests.rs"))
-        {
+        if test_only(&file) {
             continue;
         }
         let rel = file.strip_prefix(&root).unwrap().with_extension("");

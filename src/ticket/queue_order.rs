@@ -37,18 +37,7 @@ pub fn append_order(rows: &[TicketRow], agent: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn row(n: u64, status: &str, agent: Option<&str>, order: Option<i64>) -> TicketRow {
-        TicketRow {
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: agent.map(str::to_string),
-            order,
-            updated: None,
-        }
-    }
+    use crate::testkit::row;
 
     #[test]
     fn a_new_ticket_goes_after_the_highest_order_of_the_open_tickets_of_that_agent() {

@@ -202,20 +202,10 @@ pub fn status_marked(ctx: &Ctx, status: Option<&str>, agent: Option<&str>, msgs:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::names::Re;
     use crate::rules::Role;
 
     fn msg(id: u64, sender: Sender, kind: Kind, body: &str) -> VMsg {
-        VMsg {
-            ts: String::new(),
-            comment_id: id,
-            created: 0,
-            sender,
-            to: "coordinator".into(),
-            kind: Some(kind),
-            re: Re::None,
-            body: body.into(),
-        }
+        crate::testkit::msg(id, sender, "coordinator", Some(kind), body)
     }
 
     fn coord() -> Sender {

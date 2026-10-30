@@ -1,21 +1,10 @@
 use super::*;
-use crate::protocol::names::{Kind, Re};
+use crate::protocol::names::Kind;
 use crate::rules::Role;
+use crate::testkit::agent;
 
 fn msg(role: Role, kind: Kind, to: &str, body: String) -> VMsg {
-    VMsg {
-        ts: String::new(),
-        comment_id: 1,
-        created: 0,
-        sender: Sender::Agent {
-            name: "x@host".into(),
-            role,
-        },
-        to: to.into(),
-        kind: Some(kind),
-        re: Re::None,
-        body,
-    }
+    crate::testkit::msg(1, agent("x@host", role), to, Some(kind), &body)
 }
 
 const OLD: &str = "o/r#5";

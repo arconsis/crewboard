@@ -9,12 +9,8 @@ const SHA2: &str = "2222222222222222222222222222222222222222";
 fn row(n: u64, status: &str, agent: &str, entered_ago: i64) -> TicketRow {
     TicketRow {
         repo: "o/r".into(),
-        issue: n,
-        item_id: format!("PVTI_{n}"),
-        status: Some(status.into()),
-        agent: Some(agent.into()),
-        order: None,
         updated: Some(T0 - entered_ago),
+        ..crate::testkit::row(n, status, Some(agent), None)
     }
 }
 

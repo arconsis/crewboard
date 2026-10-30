@@ -89,34 +89,29 @@ pub(crate) fn choose_park<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn row(n: u64, status: &str, agent: &str) -> crate::ticket::TicketRow {
-        crate::ticket::TicketRow {
-            updated: None,
-            repo: "a/b".into(),
-            issue: n,
-            item_id: format!("PVTI_{n}"),
-            status: Some(status.into()),
-            agent: Some(agent.into()),
-            order: None,
-        }
-    }
+    use crate::testkit::row;
 
     #[test]
     fn block_ask_or_done_of_the_only_in_progress_ticket_writes_idle() {
         // the ticket row still reads In Progress when the decision is made
-        let rows = vec![row(1, "In Progress", "me@x"), row(2, "Ready", "me@x")];
+        let rows = vec![
+            row(1, "In Progress", Some("me@x"), None),
+            row(2, "Ready", Some("me@x"), None),
+        ];
         assert!(goes_idle("me@x", Some("me@x"), "PVTI_1", &rows));
     }
 
     #[test]
     fn another_in_progress_ticket_or_another_assignee_keeps_doing() {
-        let rows = vec![row(1, "In Progress", "me@x"), row(3, "In Progress", "me@x")];
+        let rows = vec![
+            row(1, "In Progress", Some("me@x"), None),
+            row(3, "In Progress", Some("me@x"), None),
+        ];
         assert!(!goes_idle("me@x", Some("me@x"), "PVTI_1", &rows));
         // an In Progress ticket of another agent does not count
         let others = vec![
-            row(1, "In Progress", "me@x"),
-            row(4, "In Progress", "you@x"),
+            row(1, "In Progress", Some("me@x"), None),
+            row(4, "In Progress", Some("you@x"), None),
         ];
         assert!(goes_idle("me@x", Some("me@x"), "PVTI_1", &others));
         // not the assignee (coordinator `ask`): nothing to write
@@ -127,27 +122,33 @@ mod tests {
     #[test]
     fn busy_is_judged_by_the_board_and_not_by_the_state() {
         // the only ticket is Blocked -> no busy ticket, take may go on
-        let stale = vec![row(1, "Blocked", "me@x"), row(2, "Ready", "me@x")];
+        let stale = vec![
+            row(1, "Blocked", Some("me@x"), None),
+            row(2, "Ready", Some("me@x"), None),
+        ];
         assert_eq!(in_progress_key(&stale, "me@x", "PVTI_2"), None);
         // real: an In Progress ticket exists -> refused, the key is named
-        let busy = vec![row(1, "In Progress", "me@x"), row(2, "Ready", "me@x")];
+        let busy = vec![
+            row(1, "In Progress", Some("me@x"), None),
+            row(2, "Ready", Some("me@x"), None),
+        ];
         assert_eq!(
             in_progress_key(&busy, "me@x", "PVTI_2"),
             Some("a/b#1".to_string())
         );
         // another agent's In Progress ticket does not count
-        let other = vec![row(1, "In Progress", "you@x")];
+        let other = vec![row(1, "In Progress", Some("you@x"), None)];
         assert_eq!(in_progress_key(&other, "me@x", "PVTI_2"), None);
     }
 
     #[test]
     fn choose_park_needs_a_name_only_for_more_than_one_in_progress() {
         let ip = |n: u64| {
-            let mut r = row(n, "In Progress", "me@x");
+            let mut r = row(n, "In Progress", Some("me@x"), None);
             r.issue = n;
             r
         };
-        let rows = vec![ip(1), ip(2), row(3, "Ready", "me@x")];
+        let rows = vec![ip(1), ip(2), row(3, "Ready", Some("me@x"), None)];
         // refusal: two candidates, no name -> ambiguous, lists both
         let e = choose_park(&rows, None).unwrap_err();
         assert_eq!(e.rule, "interrupt-park-ambiguous");
@@ -166,7 +167,7 @@ mod tests {
         // one candidate: no name needed
         assert_eq!(choose_park(&rows[..1], None).unwrap().issue, 1);
         // none: its own refusal, with or without a name
-        let none = vec![row(3, "Ready", "me@x")];
+        let none = vec![row(3, "Ready", Some("me@x"), None)];
         for named in [None, Some(("a/b", 3))] {
             assert_eq!(
                 choose_park(&none, named).unwrap_err().rule,

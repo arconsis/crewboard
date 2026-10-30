@@ -4,8 +4,9 @@
 //! the integration tests in `tests/` can reach them. Only `cli` and `exit` (used by `main.rs`)
 //! and the modules that `tests/` import are `pub`. The test-only ones carry `#[doc(hidden)]`:
 //! they are not a supported API. A module that neither `main.rs` nor `tests/` needs is
-//! `pub(crate)`, so rustc reports dead code in it. `tests/layering.rs` freezes the import
-//! graph between the modules.
+//! `pub(crate)`, so rustc reports dead code in it. `testkit` holds the builders of the unit tests
+//! and exists only in test builds. `tests/layering.rs` freezes the import graph between the
+//! modules.
 
 // The test code of the crate: a test fails by panic and may wait for real processes.
 #![cfg_attr(
@@ -75,6 +76,8 @@ pub mod skill_embed;
 pub(crate) mod spawn;
 #[doc(hidden)]
 pub mod state;
+#[cfg(test)]
+pub(crate) mod testkit;
 pub(crate) mod ticket;
 pub(crate) mod toolchain;
 pub(crate) mod unread;

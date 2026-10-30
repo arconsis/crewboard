@@ -12,6 +12,7 @@ use crate::registry::{build_trust, resolve};
 use crate::rules::Role;
 use crate::rules::status::{BlockReason, Status};
 use crate::state::TicketSnap;
+use crate::testkit::row;
 use ssh_key::PrivateKey;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -956,21 +957,9 @@ fn gate_and_ci_lines_are_read_from_the_body_in_the_usual_spellings() {
     assert_eq!(body_field("äöüäöü", "Gate"), None);
 }
 
-fn row(n: u64, status: &str, agent: Option<&str>) -> TicketRow {
-    TicketRow {
-        updated: None,
-        repo: "a/b".into(),
-        issue: n,
-        item_id: format!("PVTI_{n}"),
-        status: Some(status.into()),
-        agent: agent.map(str::to_string),
-        order: None,
-    }
-}
-
 #[test]
 fn an_assignment_event_names_the_status() {
-    let r = row(1, "Ready", Some("me@x"));
+    let r = row(1, "Ready", Some("me@x"), None);
     let (ev, _) = ticket_events(
         "me@x",
         false,
@@ -991,13 +980,13 @@ fn kinds(e: &[Event]) -> Vec<&str> {
 
 #[test]
 fn assignment_status_and_unassignment_events_for_a_dev() {
-    let before = [row(1, "Backlog", None)];
+    let before = [row(1, "Backlog", None, None)];
     let prev = snaps(&before);
     // assigned to me
     let (e, next) = ticket_events(
         "hermes@b",
         false,
-        &[row(1, "Ready", Some("hermes@b"))],
+        &[row(1, "Ready", Some("hermes@b"), None)],
         &prev,
         "t",
     );
@@ -1007,7 +996,7 @@ fn assignment_status_and_unassignment_events_for_a_dev() {
     let (e2, _) = ticket_events(
         "hermes@b",
         false,
-        &[row(1, "Ready", Some("hermes@b"))],
+        &[row(1, "Ready", Some("hermes@b"), None)],
         &next,
         "t",
     );
@@ -1016,7 +1005,7 @@ fn assignment_status_and_unassignment_events_for_a_dev() {
     let (e3, next3) = ticket_events(
         "hermes@b",
         false,
-        &[row(1, "Blocked", Some("hermes@b"))],
+        &[row(1, "Blocked", Some("hermes@b"), None)],
         &next,
         "t",
     );
@@ -1026,17 +1015,17 @@ fn assignment_status_and_unassignment_events_for_a_dev() {
     let (e4, _) = ticket_events(
         "hermes@b",
         false,
-        &[row(1, "Ready", Some("codex@c"))],
+        &[row(1, "Ready", Some("codex@c"), None)],
         &next3,
         "t",
     );
     assert_eq!(kinds(&e4), vec!["unassigned"]);
     // status change of someone else's ticket: not for a dev (control for the filter)
-    let other = [row(2, "Ready", Some("codex@c"))];
+    let other = [row(2, "Ready", Some("codex@c"), None)];
     let (e5, _) = ticket_events(
         "hermes@b",
         false,
-        &[row(2, "In Progress", Some("codex@c"))],
+        &[row(2, "In Progress", Some("codex@c"), None)],
         &snaps(&other),
         "t",
     );
@@ -1045,11 +1034,11 @@ fn assignment_status_and_unassignment_events_for_a_dev() {
 
 #[test]
 fn event_text_is_plain_text_without_html_entities() {
-    let prev = snaps(&[row(2, "Ready -&gt; x", Some("codex@c"))]);
+    let prev = snaps(&[row(2, "Ready -&gt; x", Some("codex@c"), None)]);
     let (e, _) = ticket_events(
         "claude@a",
         true,
-        &[row(2, "In &amp;lt; Progress", Some("codex@c"))],
+        &[row(2, "In &amp;lt; Progress", Some("codex@c"), None)],
         &prev,
         "t",
     );
@@ -1057,11 +1046,11 @@ fn event_text_is_plain_text_without_html_entities() {
     // decoded once: `&amp;lt;` becomes `&lt;`, `-&gt;` becomes `->`
     assert_eq!(e[0].body, "status Ready -> x -> In &lt; Progress");
     // pass: a plain status is unchanged
-    let prev = snaps(&[row(3, "Ready", Some("codex@c"))]);
+    let prev = snaps(&[row(3, "Ready", Some("codex@c"), None)]);
     let (e, _) = ticket_events(
         "claude@a",
         true,
-        &[row(3, "Review", Some("codex@c"))],
+        &[row(3, "Review", Some("codex@c"), None)],
         &prev,
         "t",
     );
@@ -1070,11 +1059,11 @@ fn event_text_is_plain_text_without_html_entities() {
 
 #[test]
 fn the_coordinator_sees_every_status_change_and_a_fresh_cache_does_not_replay_history() {
-    let prev = snaps(&[row(2, "Ready", Some("codex@c"))]);
+    let prev = snaps(&[row(2, "Ready", Some("codex@c"), None)]);
     let (e, _) = ticket_events(
         "claude@a",
         true,
-        &[row(2, "Review", Some("codex@c"))],
+        &[row(2, "Review", Some("codex@c"), None)],
         &prev,
         "t",
     );
@@ -1083,10 +1072,10 @@ fn the_coordinator_sees_every_status_change_and_a_fresh_cache_does_not_replay_hi
     // one for an open ticket of mine
     let empty = BTreeMap::new();
     let rows = [
-        row(3, "Review", Some("codex@c")),
-        row(4, "Done", Some("hermes@b")),
-        row(5, "In Progress", Some("hermes@b")),
-        row(6, "Dropped", Some("hermes@b")),
+        row(3, "Review", Some("codex@c"), None),
+        row(4, "Done", Some("hermes@b"), None),
+        row(5, "In Progress", Some("hermes@b"), None),
+        row(6, "Dropped", Some("hermes@b"), None),
     ];
     let (c, _) = ticket_events("claude@a", true, &rows, &empty, "t");
     assert!(c.is_empty());

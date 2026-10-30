@@ -2,6 +2,12 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+- Internal: no behaviour change. Comments say what the code does, three named reasons for a
+  dropped result, test-only code in the test modules, one set of test builders, and the module
+  names `repeat` and `wake::precheck` instead of two more meanings of "gate".
+
 ## v0.7.1 (2026-10-30)
 
 Upgrade: if you ran `crewboard init` again with v0.7.0, check your local
