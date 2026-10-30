@@ -1045,13 +1045,16 @@ class S09Skill(Narrated):
         self.play(loop.animate.scale(0.55).move_to([-4.6, -0.6, 0]), FadeOut(quiet), run_time=0.6)
         codes = [("2", "refused: the rule and the fix. Correct the command.", REFUSAL, "code two"),
                  ("3", "GitHub did not answer. Retry later.", MUTED, "Code three"),
-                 ("4", "config or key. Stop and tell the owner.", OWNER, "Code four")]
+                 ("4", "config or key. Stop and tell the owner.", OWNER, "Code four"),
+                 ("64", "usage error. Fix the command and run it again.", BOARD, "Code sixty-four")]
         rows = VGroup()
         ex = None
         for k, (code, txt, col, cue) in enumerate(codes):
             self.cue(cue)
-            r = VGroup(pill(f"exit {code}", col, 20), fit(T(txt, 20, FG), 6.0)).arrange(RIGHT, buff=0.3)
-            r.move_to([-1.2, 1.0 - 1.1 * k, 0], aligned_edge=LEFT)
+            r = VGroup(pill(f"exit {code}", col, 20), fit(T(txt, 20, FG), 6.0))
+            y = 1.0 - 1.1 * k
+            r[0].move_to([-1.2, y, 0], aligned_edge=LEFT)
+            r[1].move_to([0.4, y, 0], aligned_edge=LEFT)   # one text column for every code
             self.play(FadeIn(r, shift=LEFT * 0.15), run_time=0.5)
             rows.add(r)
             if k == 0:
