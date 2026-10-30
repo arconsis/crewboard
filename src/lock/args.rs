@@ -519,7 +519,7 @@ mod tests {
             err("ci-done /x --holder a --gate"),
             "--gate does not apply to ci-done (see --help)"
         );
-        // the other direction: they apply where the script allowed them
+        // the other direction: they apply where the help names them
         ok("ci-wait /x --holder a --pid 5 --wait 3 --ci-max-age 1h");
         ok("take /x --holder a --ci --gate");
         ok("status /x --max-age 1h --no-board");

@@ -83,7 +83,7 @@ pub enum Reason {
     /// signature.
     ForeignAuthor,
     /// A signed note that this coordinator posted on a ticket (a close, verify, assignment,
-    /// reassign or creation note) is no longer among the comments of the issue: somebody
+    /// reassign or creation note) is gone from the comments of the issue: somebody
     /// deleted it (spec/security-details#deleted-notes). The coordinator remembers the ids of
     /// its own notes in its state cache (`ops::own_notes`); nobody else can see this event.
     DeletedMessage,

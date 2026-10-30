@@ -1,8 +1,8 @@
 //! The text of the scheduler units: the systemd service and timer, the launchd plist, the cron
 //! line and the wrapper script that the unit runs. The templates are constants with `@KEY@`
 //! placeholders; [`fill`] replaces them in one pass, so a value never gets replaced again.
-//! The unit texts are byte for byte the ones that `agent-wake.sh --install` wrote; the golden
-//! tests in `tests.rs` keep them so.
+//! The unit texts are stable across releases, so an earlier install is found and replaced; the
+//! golden tests in `tests.rs` keep them so.
 
 /// The systemd service of one agent.
 pub const SERVICE: &str = "[Unit]

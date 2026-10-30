@@ -360,7 +360,7 @@ impl Steps for Subprocess {
         self.run_within(&["heartbeat"], &[], &mut Vec::new(), Some(HEARTBEAT_LIMIT))
     }
 
-    // The test seam asks `gh`, as the shell did: the other binary has no PR calls.
+    // The test seam asks `gh`: the other binary has no PR calls.
     fn pr_head(&mut self, repo: &str, number: &str) -> Result<Option<(String, String)>, StepRc> {
         let mut out = Vec::new();
         let rc = gh(

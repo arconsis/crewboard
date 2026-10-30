@@ -1,6 +1,6 @@
 //! The result file of a detached job (`run --detach --result FILE`). The writer (`detach`) and
-//! the readers (`crewboard wake`) use this one type. The format is the one that `host-lock.sh` wrote and
-//! `wake` still reads, so a file of an older release reads the same:
+//! the readers (`crewboard wake`) use this one type. The format is stable across releases, so a
+//! file of an older release reads the same:
 //!
 //! ```text
 //! rc=<digits> end=<utc> log=<path>
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn a_file_of_the_shell_script_reads_the_same() {
-        // what host-lock.sh wrote: the rc line, then ticket= and sha=
+        // the format of an older release: the rc line, then ticket= and sha=
         let old =
             "rc=0 end=2026-10-21T10:00:00Z log=/x/results/7.result.log\nticket=7\nsha=0123abc\n";
         let r = ResultFile::parse(old).unwrap();

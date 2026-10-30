@@ -475,8 +475,8 @@ fn symlink_ancestor(canon: &Path, rel: &str) -> Option<PathBuf> {
 /// With a manifest of an earlier install: a file it lists that this binary does not have is
 /// removed when its sha256 still equals the manifest (else it is kept: the user changed it). The
 /// manifest file itself and a path that is not a plain relative path never count (the manifest
-/// is a file of the user). Without a manifest but with a `SKILL.md` (a copy of the old shell
-/// installer): the regular files under `loops/` and `references/` that this binary does not have.
+/// is a file of the user). Without a manifest but with a `SKILL.md` (a copy made without
+/// `skill install`): the regular files under `loops/` and `references/` that this binary does not have.
 fn stale_plan(canon: &Path) -> (Vec<(String, String)>, Vec<String>) {
     let ours = |p: &str| FILES.iter().any(|(q, _, _)| *q == p);
     let text = match std::fs::read_to_string(canon.join(MANIFEST)) {

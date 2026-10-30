@@ -367,7 +367,7 @@ mod tests {
         assert!(!declared(
             "Scope: docs only; out of scope: .github/workflows/\nGate: x\n"
         ));
-        // the wording of the bug: assign must stay on the normal route
+        // a scope that names the workflows only as out of scope: assign stays on the normal route
         assert_eq!(
             assign_lines("Scope: docs. Out of scope: .github/workflows/\n", 4),
             (String::new(), String::new())

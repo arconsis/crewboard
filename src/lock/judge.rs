@@ -1,6 +1,6 @@
 //! Is the lock stale? A pure function of a [`Snapshot`], the time and a process table. There is
 //! no other way to take a lock over than one of these named reasons. The order of the rules and
-//! every text are those of `host-lock.sh` (spec/host-lock).
+//! every text follow spec/host-lock.
 
 use super::board::BoardSays;
 use super::owner;

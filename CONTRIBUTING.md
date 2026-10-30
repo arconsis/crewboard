@@ -80,7 +80,9 @@ Use the lowest tier that can prove your change.
    - the guard `tests/neutral_names.rs`: no tracked file may name a project, agent,
      host or account (the list is a private maintainer file, see "Project-neutral rule");
    - the guard `tests/history_refs.rs`: no `issue #N`, `PR #N` or `(#N)` in `src/`, `tests/`,
-     `skill/` or `docs/`. A comment says the rule and the failure it prevents, not a tracker number;
+     `skill/` or `docs/`. A comment says the rule and the failure it prevents, not a tracker number.
+     A Rust comment says what the code does now, not its history, and a script `<name>.sh` that a
+     comment or a doc names must exist in the repository;
    - the guard `tests/skill_eval.rs`: each situation of the agent skill must name its action in the
      same rule. A change to `skill/SKILL.md` or `skill/references/` must keep it passing. To add a
      case, append a `[[case]]` to `tests/fixtures/skill-eval/cases.toml` with a `role`, a

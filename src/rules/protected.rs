@@ -482,7 +482,7 @@ mod tests {
         );
     }
 
-    /// The recursive matcher of earlier versions: the reference for the semantics.
+    /// A plain recursive matcher: the reference for the semantics.
     fn reference(pat: &[u8], s: &[u8]) -> bool {
         match pat.split_first() {
             None => s.is_empty(),

@@ -419,8 +419,8 @@ fn a_comment_flood_keeps_the_notes_and_the_set_back_after_it_shows_the_deleted_c
     assert_eq!(list_reads(&fake, t), reads, "no read in every cycle");
     assert_eq!(not_checked_reports(&fake), 1);
     // the attacker deletes the close note, deletes the flood and sets the board back: the row
-    // changed, the list is complete again, and the deletion is seen (it was never found before
-    // the fix: the flood made the coordinator forget the notes)
+    // changed, the list is complete again, and the deletion is seen (the flood did not make the
+    // coordinator forget the notes)
     let note = comment_with(&fake, t, "dropped: no PR needed");
     fake.delete_comment(note);
     fake.end_flood(t);

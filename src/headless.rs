@@ -1,7 +1,7 @@
 //! The headless scope (spec/agents#headless-coordinator).
 //!
 //! A headless coordinator is a coordinator that a scheduler wakes without a person at the
-//! keyboard (`skill/loops/poll-and-wake.sh`). It may do two things alone: `verify`, and
+//! keyboard (`crewboard wake`). It may do two things alone: `verify`, and
 //! `merge` of a ticket whose Gate is CI only. Every other command that changes the board or
 //! a ticket is refused with the rule `headless-scope` (exit 2) before any config is loaded
 //! and before any request is sent.

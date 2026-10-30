@@ -16,7 +16,7 @@ use std::path::Path;
 #[cfg(not(unix))]
 const UNIX_ONLY: &str = "refused [rule=unix-only]: crewboard lock needs a Unix host (macOS or Linux); this build has no loop on Windows";
 
-/// The first line of an error text, 200 characters at most (the shell cut the first stderr line).
+/// The first line of an error text, 200 characters at most.
 fn first_line(text: &str) -> String {
     text.lines()
         .next()

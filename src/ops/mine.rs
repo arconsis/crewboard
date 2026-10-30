@@ -1,8 +1,7 @@
-//! `mine`: the open work of this agent, for people and for
-//! `poll-and-wake.sh`.
+//! `mine`: the open work of this agent, for people and for `crewboard wake`.
 //!
 //! A headless dev agent handles its events and stops. A ticket that is In Progress then stands
-//! still, because `poll --quiet` finds no events. The wake script asks `crewboard mine --quiet`
+//! still, because `poll --quiet` finds no events. The wake asks `crewboard mine --quiet`
 //! instead. Exit 0 only when an owned ticket needs the agent NOW; exit 1 when every
 //! owned ticket only waits (CI of the PR head still runs, a block or a question has no answer
 //! yet, or the ticket is in Review). In a trial run, 83 percent of the owned-work wakes did nothing,

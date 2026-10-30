@@ -19,7 +19,7 @@ use super::signature::verify_message;
 use ssh_key::PublicKey;
 
 /// One entry of `former_repos`: the name that the repo had, and the first moment at which a
-/// message can no longer be valid under it.
+/// message under it is not valid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormerRepo {
     /// `owner/repo`, as the canonical form wrote it.

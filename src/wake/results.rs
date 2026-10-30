@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn files_of_the_older_release_in_the_fixtures_read() {
-        // written by the shell script host-lock.sh: kept as bytes in tests/fixtures
+        // result files of an older release, kept as bytes in tests/fixtures
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wake/results");
         let p = pending(&dir, true);
         assert_eq!(

@@ -1045,7 +1045,7 @@ fn the_old_override_variable_is_ignored() {
     s.board
         .set_item(&s.dev.item_id, "Heartbeat", &format_ts(now_epoch() - 2_400));
     // the coordinator has a test value of 20 s in its env file: with it the dev would be long
-    // dead and its ticket would return to Backlog (F14). Now the board value judges.
+    // dead and its ticket would return to Backlog. The board value judges.
     let (v, o) = s.poll_env(&s.coord, &[(OVERRIDE_ENV, "20s")]);
     assert_eq!(events_of(&v, "agent-dead"), 0, "{v} {}", o.all());
     assert_eq!(status(&s).as_deref(), Some("In Progress"), "{}", o.all());

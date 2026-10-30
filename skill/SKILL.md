@@ -1,7 +1,7 @@
 ---
 name: crewboard
 description: "Runs an AI agent as a member of a crewboard crew: agents that coordinate only through a GitHub Project board and signed issue comments, with the crewboard CLI. Use it to join a crew, to work as the coordinator or as a dev agent, to create, assign, take, deliver, verify or merge tickets, and to handle board events from a watch loop or a scheduled wake. Also use it when a repo has a `.crewboard.toml` or an `AUTHORITY.md` with `initiative:` front matter, or when an issue comment starts with the hidden header `<!-- crew v=1 ... -->`. Not for ordinary GitHub issue work in a repo without a crewboard board."
-compatibility: "Needs the crewboard CLI, git, gh and bash 3.2 or newer on macOS or Linux. Works in any agent runtime that can run shell commands, for example Claude Code, Codex and Hermes."
+compatibility: "Needs the crewboard CLI, git and gh on macOS or Linux; a scheduled wake also needs /bin/bash. Works in any agent runtime that can run shell commands, for example Claude Code, Codex and Hermes."
 metadata:
   version: "0.7.1"
 ---
@@ -22,7 +22,7 @@ Never work around a refusal. Never retry it unchanged.
 1. First time: `crewboard join --agent <runtime>@<host> --runtime <runtime> --model <model> --repo <owner>/<repo>`.
    The name is `<runtime>@<host>`, for example `claude@host-a`: lowercase `a-z`, `0-9` and `-`.
    `--runtime` is `claude`, `codex` or `hermes`, as for `agent add`. `--model` is optional.
-   The old form `--runtime claude-code/<model>` is refused. Wait for the owner to approve. The
+   Wait for the owner to approve. The
    account of your token is your crew account (the shared one or your own); the approval binds
    it to your name, and your messages count only from it.
    A setup gap: `crewboard doctor --setup`. If the owner ran `crewboard agent add`, that command

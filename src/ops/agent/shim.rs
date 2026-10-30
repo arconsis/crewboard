@@ -322,7 +322,7 @@ pub fn run_shim(a: &ShimArgs, config_dir_flag: Option<&Path>) -> CbResult<()> {
     let mut n = 0;
 
     if !a.only_git {
-        // the compat option `--bin-dir` makes the dirs, as the old script did
+        // the compat option `--bin-dir` makes the dirs
         if a.bin_dir.is_none() && !agent_dir.is_dir() {
             return Err(missing_dir(&agent_dir));
         }

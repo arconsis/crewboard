@@ -1,7 +1,6 @@
 //! The plan of `wake install` and `wake uninstall`: which files to write or remove and which
-//! commands to run. Nothing here writes; `apply` does. The names and the paths are
-//! those of `agent-wake.sh`, so an install made by that script is found and replaced, never
-//! doubled.
+//! commands to run. Nothing here writes; `apply` does. The names and the paths are stable
+//! across releases, so an earlier install is found and replaced, never doubled.
 
 use super::sys::Sys;
 use super::units::{self, UnitVars, cron_marker, sq};

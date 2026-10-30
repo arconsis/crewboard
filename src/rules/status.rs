@@ -824,7 +824,7 @@ mod tests {
                 assert!(!s.is(Some(other.name())));
             }
         }
-        // the legacy option and an unknown value are no match, as `== Some("Blocked")` was
+        // the legacy option and an unknown value are no match, as for `== Some("Blocked")`
         assert!(!Blocked.is(Some("Needs Human")));
         assert!(!Ready.is(Some("ready")));
     }

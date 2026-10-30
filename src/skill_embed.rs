@@ -26,7 +26,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 /// The `version:` of the `metadata:` map in the front matter of a `SKILL.md`. It equals the
 /// version of the binary of the same commit (`tests/skill_version.rs`). A top-level `version:`
-/// (the old form) and a `version:` in the body do not count. One pair of quotes around the value
+/// and a `version:` in the body do not count. One pair of quotes around the value
 /// is removed. `None` when there is no such line or its value is empty.
 pub fn skill_version(text: &str) -> Option<String> {
     let mut lines = text.lines();
@@ -59,7 +59,7 @@ pub fn skill_version(text: &str) -> Option<String> {
 }
 
 /// The value after `version:`: leading blanks and one leading quote go, and a trailing quote with
-/// the blanks behind it. (The same rule as the shell installer in `skill/`.)
+/// the blanks behind it.
 fn clean_value(v: &str) -> Option<String> {
     let v = v.trim_start_matches([' ', '\t']);
     let v = v.strip_prefix(['"', '\'']).unwrap_or(v);

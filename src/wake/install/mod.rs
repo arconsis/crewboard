@@ -1,6 +1,6 @@
 //! `crewboard wake install`, `uninstall` and `status`: the scheduler unit of an agent. The
-//! unit names, the file names and the unit texts are those of `agent-wake.sh --install`, so an
-//! install made by that script is found and replaced, not doubled.
+//! unit names, the file names and the unit texts are stable across releases, so an earlier
+//! install is found and replaced, not doubled.
 //!
 //! An install writes a wrapper script (it stores the PATH of the installing shell and the
 //! absolute path of crewboard and runs `crewboard wake` with the options of the agent) and the

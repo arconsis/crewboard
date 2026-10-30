@@ -693,7 +693,7 @@ fn late_of(wait: Wait, sha: Option<&str>) -> Late {
 fn the_event_text_tells_each_role_what_to_do() {
     let e = defaults();
     let dev = Who::Dev("dev@host".into());
-    // the full bodies, byte for byte: the shell loops and prompts match them
+    // the full bodies, byte for byte: the prompts match them
     assert_eq!(
         late_of(Wait::Push, None).event_body(&dev, &e, "crew/"),
         "stale-work: no-push\nticket: o/r#7\nIt is In Progress for 3h (limit 30m) and no branch `crew/dev@host/7-...` is on GitHub.\nPush your work now, then run `done`. If you cannot finish, run `block` and say why.\n"
