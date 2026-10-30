@@ -100,7 +100,8 @@ pub enum CrewCmd {
     /// Owner: create the board, fields, labels, registry issue, AUTHORITY.md and .crewboard.toml.
     /// It also deletes the four built-in project workflows that write Status (one way). A rerun
     /// keeps every key and comment of an existing board config that init does not set (for
-    /// example heartbeat_interval and required_tools).
+    /// example heartbeat_interval and required_tools), and its identity mode when no identity
+    /// flag is given; a flag of another mode is refused.
     #[command(display_order = 0)]
     Init {
         /// Name of the initiative, for example `my-crew`. It names the config file and the env file.

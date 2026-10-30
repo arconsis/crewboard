@@ -18,6 +18,7 @@ pub(crate) mod force_stop;
 pub mod gate_cmd;
 pub mod init;
 pub(crate) mod init_ci;
+pub(crate) mod init_identity;
 pub(crate) mod init_rule;
 pub(crate) mod join;
 pub(crate) mod late;

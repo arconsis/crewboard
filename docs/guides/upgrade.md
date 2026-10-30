@@ -73,7 +73,9 @@ and set `heartbeat_interval` in `.crewboard.toml`. A runner user without `crewbo
 `PATH` sets `CREWBOARD_BIN=<path of crewboard>`.
 
 A board of 0.6.x needs one `crewboard init` rerun after the upgrade: it adds the Status option
-`Dropped` and keeps every other option id. Until then `close --why` is refused with
+`Dropped` and keeps every other option id. Run it without an identity flag: the rerun keeps the
+identity mode and every key of the board config (see
+[Crew accounts](owner.md#crew-accounts)). Until then `close --why` is refused with
 `dropped-option-missing`.
 
 ## See the versions

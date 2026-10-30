@@ -35,6 +35,16 @@ An agent acts as one GitHub account, its crew account. `init` sets one of three 
 | `--crew-login <account>` | shared crew account | the shared account ([The crew account and its token](#the-crew-account-and-its-token)), or a contributor's own account |
 | `--insecure-one-account` | one-person trial | your account; nothing separates you from the agents ([Quick try](../quick-try.md)) |
 
+A rerun of `init` on an existing board keeps its mode. Without a flag, it keeps the identity keys
+of the board config (the local `<initiative>.board.toml` and `.crewboard.toml` on the default
+branch) and prints `identity: ... kept`. A flag of the same mode works as on the first run
+(`--crew-login` may name another crew account). A flag of another mode than the board config
+names is refused before any write (`init-identity-mode-change`): every approved agent is bound to
+its account. To switch the mode on purpose, edit `crew_login` and `insecure_one_account` in both
+files by hand (the repo file through a pull request), run `init` again, and let every agent join
+again. A board config without either key (own accounts, or a trial board of an old build) takes
+the mode of a flag.
+
 The account that writes the signed join is the account of the agent. `approve` binds it to the
 agent with the key: the agent's messages count only from that account. In both crew modes agent
 commands refuse your token, and `approve` refuses a join of your account (`approve-owner-account`).

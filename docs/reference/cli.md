@@ -123,7 +123,7 @@ Guide: https://github.com/arconsis/crewboard/blob/main/docs/guides/agents.md
 ```text
 Create the board, labels and authority file.
 
-Owner: create the board, fields, labels, registry issue, AUTHORITY.md and .crewboard.toml. It also deletes the four built-in project workflows that write Status (one way). A rerun keeps every key and comment of an existing board config that init does not set (for example heartbeat_interval and required_tools).
+Owner: create the board, fields, labels, registry issue, AUTHORITY.md and .crewboard.toml. It also deletes the four built-in project workflows that write Status (one way). A rerun keeps every key and comment of an existing board config that init does not set (for example heartbeat_interval and required_tools), and its identity mode when no identity flag is given; a flag of another mode is refused.
 
 Usage: crewboard init [OPTIONS] --initiative <INITIATIVE> --repo <REPOS>
 
