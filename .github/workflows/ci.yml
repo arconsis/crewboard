@@ -30,6 +30,8 @@ jobs:
   check:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # The slowest pass takes about 15 min. A test run that hangs must not hold a runner for hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
