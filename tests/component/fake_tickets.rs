@@ -644,7 +644,7 @@ fn ticket_new_and_adopt_put_gated_tickets_on_the_board_and_status_lists_them() {
     );
     assert!(fake.labels_of(t).contains(&"crew:work".to_string()));
     assert_eq!(fake.open_titles("crew:work"), vec!["IT new parked"]);
-    // `status` lists it (this was the bug: no info comment, so the coordinator's view missed it)
+    // `status` lists it (the info comment puts it into the coordinator's view)
     assert!(listed(t, "Backlog"), "status lists the parked ticket");
     // the parked ticket can be assigned afterwards
     run_ok(&fake, &c, &["assign", &t.to_string(), "--to", &b.name]);

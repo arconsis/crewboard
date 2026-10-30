@@ -157,7 +157,7 @@ fn dry_run_prints_plan() {
         r.out
     );
     assert!(!r.out.contains("do:   "), "{}", r.out);
-    // `--apply` (the old default of the script) is the same as no flag; both together are a usage error
+    // `--apply` is the same as no flag; both together are a usage error
     let r = skill(&h, &["install", "--apply", "--dry-run"]);
     assert_eq!(r.code, 4, "{}", r.err);
 }

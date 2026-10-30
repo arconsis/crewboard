@@ -5,7 +5,7 @@
 //! branch. The dev runs the gate on a host and delivers with `done --local-run`; the coordinator
 //! checks it and verifies with `verify --local-run`; `merge` relies on both lines. The CI of the
 //! head is not judged. A `ci_mode` on the PR branch is never read. In `ci_mode: ci` the flag is
-//! refused, and a local-gate verify no longer lets a merge pass.
+//! refused, and a local-gate verify does not let a merge pass.
 
 use crate::support::authority::{NEEDS_OWNER_ALL, authority_with};
 use crate::support::board::{Agent, FakeBoard, Out, Pull};

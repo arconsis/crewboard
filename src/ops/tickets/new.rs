@@ -1,9 +1,8 @@
 //! `ticket new` and `ticket adopt` (coordinator): put a ticket on the board
 //! without assigning it, or with `--assign`.
 //!
-//! Before this, the coordinator added parked tickets with raw GraphQL, and `status` did not
-//! list them (no signed info comment with the item id). Now the info comment, `Kind`,
-//! `Status` and `Gate` are written the same way as `assign` writes them.
+//! The signed info comment with the item id, `Kind`, `Status` and `Gate` are written the same
+//! way as `assign` writes them, so `status` lists a parked ticket like an assigned one.
 //!
 //! Order: pure checks (title, body, Gate, secrets), the writer, the authority, the
 //! assignment checks (so that a refused `--assign` creates nothing), then the writes.

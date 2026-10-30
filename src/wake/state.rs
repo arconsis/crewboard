@@ -1,5 +1,5 @@
-//! The state dir of one agent and the files in it. The formats are the ones that the shell
-//! script `poll-and-wake.sh` wrote, so that an old and a new wake can run on one host.
+//! The state dir of one agent and the files in it. The formats are stable across releases, so
+//! that a wake of an older release and one of this release can run on one host.
 //!
 //! ```text
 //! <state dir>/wake.lock/{owner,pid,started}   the wake lock
@@ -11,8 +11,6 @@
 //! wake.log       the log; wake.log.quiet counts the silent polls
 //! last-tick      the output of the last `tick`
 //! ```
-//!
-//! Files that the shell wrote in place are written through a temp file and a rename here.
 
 use crate::clock::{Clock, format_ts};
 use std::cell::RefCell;
@@ -436,7 +434,7 @@ mod tests {
         assert_eq!(read_last_wake(&f), None);
         std::fs::write(&f, "1700000000\n").unwrap();
         assert_eq!(read_last_wake(&f), Some(1_700_000_000));
-        // as the shell read it: digits only
+        // digits only
         for junk in ["soon\n", "+5\n", "5x\n", " 5\n", "-5\n", "\n"] {
             std::fs::write(&f, junk).unwrap();
             assert_eq!(read_last_wake(&f), None, "{junk:?}");

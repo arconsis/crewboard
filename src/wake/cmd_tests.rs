@@ -32,8 +32,8 @@ fn parse(argv: &[&str]) -> WakeArgs {
     P::try_parse_from(v).unwrap().w
 }
 
-/// The calls of a run, scripted: one result per call, in order (the in-memory twin of the plan
-/// file of the shell suite). `mine` has a plan of its own, as there. An empty plan gives exit 1.
+/// The calls of a run, scripted: one result per call, in order. `mine` has a plan of its own.
+/// An empty plan gives exit 1.
 #[derive(Default)]
 struct Scripted {
     plan: VecDeque<(u8, String, String)>,
@@ -42,8 +42,7 @@ struct Scripted {
     /// Runs at the start of each call that pops the plan (a test sets a signal here).
     hook: Option<Box<dyn Fn()>>,
     /// The answer of `acted --list`, and the receipts that `acted --since` gives (one per
-    /// line); `acted_rc` is the exit code of both. The twin of the fake `acted` of the shell
-    /// suite.
+    /// line); `acted_rc` is the exit code of both.
     acted_list: String,
     acted_check: Vec<String>,
     acted_rc: u8,

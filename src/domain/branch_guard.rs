@@ -175,14 +175,6 @@ mod tests {
         }
     }
 
-    /// The logic before this fix: every failed or odd rules read left the guard open.
-    fn old_rules_verdict(prior: Guard, rules: Result<&Value, &ReadError>) -> Guard {
-        match rules {
-            Ok(v) if prior == Guard::Open && rules_protect(v) => Guard::Protected,
-            _ => prior,
-        }
-    }
-
     #[test]
     fn a_failed_rules_read_is_unknown_and_the_plan_limit_is_open() {
         let plan = (
@@ -210,8 +202,6 @@ mod tests {
                 )),
                 "{why}"
             );
-            // the old logic said open (a false warning)
-            assert_eq!(old_rules_verdict(Guard::Open, Err(e)), Guard::Open);
         }
         let none = json!([]);
         let some = json!([{"type": "pull_request"}]);
@@ -225,7 +215,6 @@ mod tests {
             judge_rules(Guard::Open, "main", Ok(&odd)),
             Guard::Unknown(_)
         ));
-        assert_eq!(old_rules_verdict(Guard::Open, Ok(&odd)), Guard::Open);
         // another prior stands, whatever the rules read says
         let e = (500, "boom".to_string());
         assert_eq!(

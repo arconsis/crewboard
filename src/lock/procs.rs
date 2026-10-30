@@ -47,7 +47,7 @@ pub trait Procs {
 }
 
 /// Does `line` hold `Runner.Worker` as a command: at the start or after a `/`, and at the end
-/// or before a blank? (The pattern `(^|/)Runner\.Worker( |$)` of the shell.)
+/// or before a blank? (The pattern `(^|/)Runner\.Worker( |$)`.)
 pub fn is_runner_line(line: &str) -> bool {
     const NAME: &str = "Runner.Worker";
     line.match_indices(NAME).any(|(i, _)| {

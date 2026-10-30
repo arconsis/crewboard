@@ -261,7 +261,7 @@ fn every_spec_command_exists_and_is_named_as_typed() {
 
 #[test]
 fn every_command_of_the_spec_is_built_none_is_left_as_a_stub() {
-    // The dispatch has no catch-all arm any more, so a new Command variant without a
+    // The dispatch has no catch-all arm, so a new Command variant without a
     // handler does not compile. Here: every argv that needs an agent config reaches its
     // own handler and fails for its own reason (no config), never as `not-implemented`.
     let dir = tempfile::tempdir().unwrap();

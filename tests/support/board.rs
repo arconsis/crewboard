@@ -771,7 +771,7 @@ impl FakeBoard {
     }
 
     /// A file on the default branch of `repo` (after [`FakeBoard::rename_repo`] the file
-    /// helpers of the old name no longer apply).
+    /// helpers of the old name do not apply).
     pub fn file_in(&self, repo: &str, path: &str, text: &str) {
         self.st
             .lock()

@@ -18,7 +18,7 @@
 use std::path::Path;
 
 /// The `version:` value of the `metadata:` map of the front matter (the block between the first
-/// two `---` lines). A top-level `version:` (the old form) and a `version:` in the body do not
+/// two `---` lines). A top-level `version:` and a `version:` in the body do not
 /// count. Quotes around the value are removed.
 fn front_matter_version(text: &str) -> Option<String> {
     let mut lines = text.lines();

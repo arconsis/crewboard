@@ -1,7 +1,6 @@
-//! The plan of `wake install` against a fake host. The expected unit texts are the texts that
-//! `agent-wake.sh --install` wrote for the same inputs, written down from the script (the script
-//! is now a shim for `wake install`): the names, the paths and every line of a unit must not
-//! change, or an old install would not be found again.
+//! The plan of `wake install` against a fake host. The expected unit texts are golden: the
+//! names, the paths and every line of a unit must not change, or an earlier install would not be
+//! found again.
 
 use super::foreign::{find_foreign, replace_plan};
 use super::plan::*;

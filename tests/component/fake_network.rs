@@ -2,7 +2,6 @@
 //!
 //! These tests run in plain `cargo test`. They need no token, no sandbox and no real
 //! GitHub. `CREWBOARD_API_BASE` points the CLI at a loopback server (see `tests/support`).
-//! They replace the old `it_a_network_error_is_exit_3_with_the_status_line_and_never_exit_1`.
 //! Each test waits about 7 s, because the CLI waits 2 s and 5 s between its 3 attempts.
 
 use crate::support::{FakeGithub, Resp, closed_port_base};

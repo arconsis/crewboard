@@ -728,7 +728,7 @@ mod tests {
         assert!(p.kept[2].1.contains("not Left"), "{:?}", p.kept);
         // the placeholder and the hand-made option are not agents: neither removed nor listed
         assert!(!removed.contains(&"unassigned") && !removed.contains(&"hand-made"));
-        // control: when the used option is no longer used, it is removed too
+        // control: when no item uses the used option, it is removed too
         let none_used = BTreeMap::new();
         let p2 = plan_prune(&options, &states, &none_used);
         let removed2: Vec<&str> = p2.remove.iter().map(|r| r.name.as_str()).collect();

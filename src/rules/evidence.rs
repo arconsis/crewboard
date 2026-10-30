@@ -1090,7 +1090,7 @@ mod tests {
             Some("crew/a@b/6-x")
         ));
         assert!(!adopted_branch_ok("crew/", "crew/a@b/5-x", None));
-        // a signed branch outside the prefix does not count any more
+        // a signed branch outside the prefix does not count
         assert!(!adopted_branch_ok("crew/", "main", Some("main")));
     }
 

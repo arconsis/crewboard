@@ -155,7 +155,7 @@ fn the_check_fires_on_a_stale_file_and_passes_a_matching_one() {
     let file = "## Crates and license texts\n\n- a 1.0.0 (https://x)\n\n```text\n- zzz 9.9.9\n```\n\n\
                 ## Not part of a release build\n\n- b 2.0.0 (not shipped)\n";
     assert_eq!(problems(lock, file), Vec::<String>::new());
-    // A crate that is missing, a version that changed, a crate that Cargo.lock no longer has.
+    // A crate that is missing, a version that changed, a crate that Cargo.lock does not have.
     let missing = file.replace("- a 1.0.0 (https://x)\n", "");
     assert_eq!(
         problems(lock, &missing),

@@ -354,7 +354,7 @@ mod tests {
     impl Cycle for Script {
         fn run(&mut self) -> CycleResult {
             self.runs += 1;
-            // a plan that ends keeps giving "no events", like the fake of the shell suite
+            // a plan that ends keeps giving "no events"
             self.plan.pop_front().unwrap_or_else(silent)
         }
     }

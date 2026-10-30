@@ -734,7 +734,7 @@ mod tests {
             rest_base(&OwnerKind::Org, "example-org"),
             "orgs/example-org"
         );
-        // the user form takes the login, not the numeric id (live finding, see rest_base)
+        // the user form takes the login, not the numeric id (see rest_base)
         assert_eq!(
             rest_base(&OwnerKind::User, "owner-login"),
             "users/owner-login"

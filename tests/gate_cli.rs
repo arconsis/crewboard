@@ -1,6 +1,5 @@
 //! `crewboard repeat` (old name `gate run`) as the real binary: the repeated-run gate. The cases carry the
-//! ids of the shell suite (`skill/loops/tests/test-locks.sh`, G1 to G10e) that this file replaces
-//! as the proof of the logic. `HOST_LOCK_PS_CMD` plays the process list of the CI check, so a test
+//! ids of the shell suite (`skill/loops/tests/test-locks.sh`, G1 to G10e). `HOST_LOCK_PS_CMD` plays the process list of the CI check, so a test
 //! never sees the real CI of the machine it runs on.
 
 #![allow(

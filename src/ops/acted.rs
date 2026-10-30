@@ -1,9 +1,9 @@
-//! `acted` (hidden, internal): the event receipts of `poll-and-wake.sh`.
+//! `acted` (hidden, internal): the event receipts of a wake.
 //!
-//! The wake script writes the events of a wake to the events file F (the output of
-//! `poll`, and later sections that a hook appends). After a wake with exit 0 it asks this
-//! command: which events that need an action did the agent not act on? The script then
-//! hands each of them to the next wake once (spec/events#event-receipts).
+//! A wake writes its events to the events file F (the output of `poll`, and later sections
+//! that a hook appends). After a wake with exit 0 it asks this command: which events that need
+//! an action did the agent not act on? The wake then hands each of them to the next wake once
+//! (spec/events#event-receipts).
 //!
 //! The parsing and the judgement are pure functions. Only [`run`] reads the board.
 use super::AgentCtx;
