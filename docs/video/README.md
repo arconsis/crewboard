@@ -103,6 +103,26 @@ delivered was built from the text now in `script.json`. Update the claim table i
 
 ## Build log
 
+### v1.1 (2026-10-30)
+
+Matches crewboard 0.8.0 (`main` at `ca3fb47`), where a usage error exits 64 for every command.
+Segment s9-4 gains one sentence: "Code sixty-four: the command line was wrong; fix it and run it
+again." Scene 9 shows a fourth exit row, and the exit rows now share one text column. The claim
+table cites `skill/SKILL.md` line 82 and `docs/reference/exit-codes.md` lines 16 and 23 to 24 at
+`ca3fb47`. Nothing else changed.
+
+Only the group that holds scene 9 was spoken again: one TTS call for group 3 (scenes 7, 8 and 9)
+and one aligner call. Groups 1, 2 and 4 came from the cache. Scenes 7 and 8 therefore have new
+audio with the same text.
+
+| Item | Value |
+|---|---|
+| Narration | 52 segments, 7,615 characters, 517.8 s of speech; group 3: 168.5 s, largest distance from the aligner to a pause 0.31 s |
+| Speech rate | scenes 7 to 9: 13.6 to 16.3 characters per second |
+| Scenes | 14 chapters, 1080p30; audio and video differ by 0.033 s or less in every scene |
+| `out/crewboard-explainer.mp4` | 563.2 s, 27,511,165 bytes, 1920x1080, 30 fps, H.264, AAC mono 48 kHz |
+| `out/crewboard-explainer-480p.mp4` | 563.5 s, the same narration and scenes at 480p15 |
+
 ### v1 (2026-10-30)
 
 A title card and thirteen scenes, 52 segments, 7,545 characters of narration.
@@ -126,5 +146,4 @@ Build of 2026-10-30 (`./build.sh h`, under `nice -n 10`):
 | `out/crewboard-explainer.mp4` | 553.2 s, 27,098,298 bytes, 1920x1080, 30 fps, H.264, AAC mono 48 kHz |
 
 The render is not in the repository. It stays in the `out/` folder of the build machine's working
-copy of this directory. `out/crewboard-explainer-480p.mp4` is the `say` draft and is older than
-the last three layout fixes.
+copy of this directory. The v1 files there were replaced by the v1.1 build.

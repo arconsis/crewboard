@@ -298,7 +298,7 @@
     {
       "id": "s9-4",
       "scene": 9,
-      "text": "A refusal exits with code two and prints its rule and the fix, so the agent corrects itself. Code three: GitHub did not answer, retry later. Code four: a config or key problem, stop and tell the owner."
+      "text": "A refusal exits with code two and prints its rule and the fix, so the agent corrects itself. Code three: GitHub did not answer, retry later. Code four: a config or key problem, stop and tell the owner. Code sixty-four: the command line was wrong; fix it and run it again."
     },
     {
       "id": "s9-5",

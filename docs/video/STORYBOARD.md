@@ -1,7 +1,10 @@
 # crewboard explainer video: storyboard
 
-Status: v1, drafted 2026-10-30 against the docs of commit `8788f9b` (branch `main`). Line numbers
-below are the line numbers of the files at that commit.
+Status: v1.1, 2026-10-30. Drafted against the docs of commit `8788f9b` (branch `main`); line numbers
+below are the line numbers of the files at that commit. v1.1 adds exit 64 to s9-4 from
+`origin/main` at `ca3fb47` (crewboard 0.8.0); that one row cites `ca3fb47`. Between the two commits
+only the exit-code docs changed among the cited files (`git diff --stat 8788f9b ca3fb47`), and
+SK 17-18 and 79-81 keep their lines.
 
 Files of v1: `script.json` (narration, scenes, order, voice), `scenes.py` (the title card and
 thirteen Manim scenes), `timing.json` (measured segment durations), `build.sh`, `narrate.sh`,
@@ -42,9 +45,8 @@ the development process, the purpose and the strengths, honest about the limits.
 owner during the work: how crewboard is set up and used in an agentic way, through the skill.
 That addition is scene 9, played between the dev agent's view and "Proof before Done".
 
-A title card and thirteen scenes, 52 segments, 7,545 characters of narration (counted with `jq`
-on 2026-10-30). The Gemini narration of 2026-10-30 measured 507.7 s of speech (14.9 characters
-per second); with the lead-in, gaps and tails of `pacing` the video is about 9 minutes. The
+A title card and thirteen scenes, 52 segments, 7,615 characters of narration (counted with `jq`
+on 2026-10-30, v1.1). With the lead-in, gaps and tails of `pacing` the video is about 9 minutes. The
 measured values are in the README, section "Build log".
 
 Voice rules: calm documentary narrator, English, short sentences, one idea per sentence, no
@@ -53,7 +55,7 @@ message", "the owner"). The three perspectives are told by the narrator ("the ow
 "the coordinator runs verify"), never role-played. Names are example names of the docs only.
 
 Numbers spoken: the seven statuses (CO 25), "Nine steps, three terminals" (RM 63), "thirteen
-steps" (RM 65, GS 7), exit codes 2, 3 and 4 (SK 79-81), "newest first" (CLI 806). No other
+steps" (RM 65, GS 7), exit codes 2, 3 and 4 (SK 79-81) and 64 (SK 82 at `ca3fb47`), "newest first" (CLI 806). No other
 number is spoken. "Every five minutes" was in a draft and is cut: it is in the docs (GS 137, UC 3)
 but the segment went.
 
@@ -331,7 +333,7 @@ already: no new question"); `PR you/my-repo#5`, the event `ci-finished: green`, 
 | s9-1 | How does an agent know all this? Through the skill, which is inside the binary. Skill install links it into each runtime that is present: claude, codex, copilot or hermes. |
 | s9-2 | The skill names the commands, the rules and the exit codes, and a role file: coordinator or dev. The owner tells an agent: use the crewboard skill, you are claude at host-b, a dev agent. The agent runs the CLI itself. |
 | s9-3 | The loop is the same for every agent. A scheduled wake or the watch command delivers events; a quiet board starts no model. The agent runs mine, then mine with the ticket number, acts, and reports through signed commands. |
-| s9-4 | A refusal exits with code two and prints its rule and the fix, so the agent corrects itself. Code three: GitHub did not answer, retry later. Code four: a config or key problem, stop and tell the owner. |
+| s9-4 | A refusal exits with code two and prints its rule and the fix, so the agent corrects itself. Code three: GitHub did not answer, retry later. Code four: a config or key problem, stop and tell the owner. Code sixty-four: the command line was wrong; fix it and run it again. |
 | s9-5 | The owner can run the setup from an agent session too, with the owner's own GitHub login. Approval and merge stay the decisions of a person. |
 
 Screen: the binary with `SKILL.md` inside, `crewboard skill install`,
@@ -340,7 +342,7 @@ Screen: the binary with `SKILL.md` inside, `crewboard skill install`,
 `dev.md`; the owner's prompt "Use the crewboard skill. You are claude@host-b, a dev agent."; the
 agent's own commands `crewboard start`, `crewboard mine`, `crewboard take 4`; the loop ring
 "wake or watch, mine, mine <n>, act, signed command"; "a quiet board starts no model"; the exit
-rows 2, 3, 4 and the example `refused: unread-events. Fix: run watch --timeout 1m first`; the
+rows 2, 3, 4, 64 and the example `refused: unread-events. Fix: run watch --timeout 1m first`; the
 owner's session with `init`, `agent add`, `approve`, "the owner's own gh login", "approve,
 merge: a person decides".
 
@@ -361,7 +363,7 @@ merge: a person decides".
 | exit 2: a rule refused; the message names the rule and the fix; follow the fix; never retry unchanged | SK 17-18, 79; EX 13 | doc |
 | exit 3: GitHub or network, retry in minutes; exit 4: config or key, stop and tell the owner | SK 80-81; EX 14-15 | doc |
 | the example refusal `unread-events` and its fix `watch --timeout 1m` | SKD 45-46; GS 203-204 | doc |
-| exit 64 is a usage error of `lock`, `repeat` and `wake` only, so the video speaks of exit 2 for "fix the command" | EX 22-23, 54; SK 82 | doc (the brief's "64: fix the command" is narrowed to what the docs say) |
+| exit 64: a usage error (a bad option, argument or issue number); fix the command and run it again; 64 for every command | `origin/main` (`ca3fb47`, crewboard 0.8.0): SK 82; EX 16, 23-24 | doc (added in v1.1; at `8788f9b` exit 64 was for `lock`, `repeat` and `wake` only) |
 | owner commands use the owner's own `gh` login, never `GH_TOKEN`; they refuse any account but the board owner | OG 23-26 | doc |
 | the owner can run them from an agent session of their own | OG 23-26 (the login decides, not the terminal); OG 25-26 ("Run them in your own terminal, not in an agent's config dir") | derived: any session with the owner's `gh` login outside an agent's config dir qualifies |
 | approval and merge stay with a person: only the owner approves agents and merges protected changes; by default every PR | CO 9; OG 140-141, 180-181 | doc |
@@ -472,8 +474,8 @@ agent").
 
 ## 5. Checks run
 
-- The narration text: 52 segments, 7,545 characters (`jq`); the longest segments are s5-3 (246
-  characters), s12-2 (228), s9-3 (221) and s9-2 (217).
+- The narration text: 52 segments, 7,615 characters (`jq`); the longest segments are s9-4 (271
+  characters), s5-3 (246), s12-2 (228) and s9-3 (221).
 - No em-dash in `script.json`, `scenes.py`, `README.md` or this file (`grep` for the character).
 - `build.sh` checks that `ALL_SCENES` in `scenes.py` matches `order` in `script.json`, that
   every class exists, and that `tts.groups` covers every scene exactly once.
