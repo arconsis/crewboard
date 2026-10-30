@@ -204,7 +204,7 @@ pub fn prompt(
     extra: Option<&str>,
 ) -> String {
     let mut p = format!(
-        "Use the crewboard skill (SKILL.md and references/dev.md). You are {agent}, a dev agent of {initiative}. Your events are in {}; handle them. Then work as references/dev.md \"Headless wake: work until done\" says. {REFUSED_RULE}",
+        "Use the crewboard skill (SKILL.md and references/dev.md). You are {agent}, a dev agent of {initiative}. Your events are in {}; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. {REFUSED_RULE}",
         events_file.display()
     );
     if let Some(c) = config_dir {
@@ -517,7 +517,7 @@ mod tests {
         );
         assert_eq!(
             p,
-            "Use the crewboard skill (SKILL.md and references/dev.md). You are dev@host-a, a dev agent of demo. Your events are in /s/events.txt; handle them. Then work as references/dev.md \"Headless wake: work until done\" says. If a Bash command is refused, only that command form is refused: run one command per call, without $(...), redirection to files or cd. Write message text with the Write tool to a file in your state dir and pass it with --body-file (crewboard) or -F (git commit). Never stop because of one refused command."
+            "Use the crewboard skill (SKILL.md and references/dev.md). You are dev@host-a, a dev agent of demo. Your events are in /s/events.txt; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. If a Bash command is refused, only that command form is refused: run one command per call, without $(...), redirection to files or cd. Write message text with the Write tool to a file in your state dir and pass it with --body-file (crewboard) or -F (git commit). Never stop because of one refused command."
         );
         assert!(!p.to_lowercase().contains("budget") && !p.contains("poll --quiet"));
         let p = prompt(

@@ -75,7 +75,7 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
 
 ## Exit codes
 
-`0`: success, or events to handle. `1` from `watch`, `poll`, `mine`: nothing to do (`mine` also exits 1 when you own no ticket).
+`0`: success, or events to handle. `1` from `watch`, `poll`, `mine`: nothing to do (`mine` also exits 1 when you own no ticket; `mine <n>` exits 0).
 `2`: a rule refused the command. Read the rule and the fix.
 `3`: GitHub or network. Retry in minutes. After 3 tries, tell the owner and stop.
 `4`: config or key. Stop and tell the owner.

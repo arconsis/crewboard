@@ -393,7 +393,34 @@ pub(super) fn dispatch(cli: &Cli, c: &WatchCmd) -> Outcome {
                 Err((e, line)) => fail_with_line(e, line),
             }
         }
-        WatchCmd::Mine { quiet, json, sel } => {
+        WatchCmd::Mine {
+            issue: Some(issue),
+            json,
+            sel,
+            ..
+        } => match AgentCtx::load(&global(cli, sel, false))
+            .and_then(|ac| ops::mine_digest::run(&ac, issue))
+        {
+            Ok(d) => {
+                if *json {
+                    println!("{}", d.to_json());
+                } else {
+                    print!("{}", d.render());
+                }
+                Outcome {
+                    exit: Exit::Ok,
+                    code: None,
+                    message: None,
+                }
+            }
+            Err(e) => fail(e),
+        },
+        WatchCmd::Mine {
+            issue: None,
+            quiet,
+            json,
+            sel,
+        } => {
             match AgentCtx::load(&global(cli, sel, false)).and_then(|ac| ops::mine::run(&ac)) {
                 Ok(view) => {
                     if *json {

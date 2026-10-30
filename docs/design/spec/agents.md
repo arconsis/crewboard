@@ -53,6 +53,19 @@ not stand still, and a busy agent must keep its heartbeat during one long wake.
    `wait: ...`, see [Owned work that only waits](#owned-work-that-only-waits)). Exit 0 if a
    ticket needs the agent now, exit 1 if there is nothing to do now (the exit code 1 means
    "nothing", as for `poll`; see [Exit codes](cli.md#exit-codes)). `--quiet` prints nothing.
+   **`crewboard mine <n>`** prints the signed thread of one own ticket since the current
+   assignment of the agent (the latest signed assignment to it, or the reassign notice right
+   before it), newest first: the messages of the coordinator, the owner comments that count
+   ([verified messages](tickets.md#status-flow-and-writers)), and the agent's own messages but
+   the `ack`. Each message has one header line (time, sender, `to`, kind, act and the
+   `#<n>/c-<id>` form that `say --re` takes) and its body, cut at 800 characters with a note.
+   The newest 15 messages are shown; one note counts the older ones, and one line counts the
+   comments that do not count (not signed by the crew, a copy, or edited). The events of a wake
+   start at the cursor, so an answer or a verify note before it is only here. A ticket that the
+   signed log does not assign to the caller is refused (`mine-not-your-ticket`). It reads the
+   context and the trust check of every agent command and one comment list, writes nothing and
+   exits 0. `--json` gives `ticket`, `agent`, `since`, `messages`, `left_out` and
+   `not_counted`.
 3. **Wake for owned work.** `crewboard wake`: when `poll --quiet` finds no events, it asks
    `mine --quiet`. If `mine` exits 0 and the last wake ended at
    least `--work-backoff` seconds ago (default 900, `CREWBOARD_WORK_BACKOFF`, `off` disables), it
