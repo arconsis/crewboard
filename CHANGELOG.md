@@ -4,6 +4,11 @@ This file lists the changes of crewboard, one section for each release.
 
 ## v0.7.1 (2026-10-30)
 
+Upgrade: if you ran `crewboard init` again with v0.7.0, check your local
+`<initiative>.board.toml` and the `.crewboard.toml` of the init PR: that rerun dropped every key
+that `init` does not set, for example `heartbeat_interval` and `required_tools`. Add them back.
+The copies in the agent dirs were not changed by that rerun.
+
 Fixed:
 
 - An `init` rerun on an existing board kept only its own keys: it rewrote the local
