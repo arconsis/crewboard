@@ -1,0 +1,14 @@
+# Build outputs. The rendered MP4 is a release asset, never committed.
+audio/
+media/
+render/
+mux/
+out/
+review/
+log/
+text/
+*.aiff
+*.wav
+audio-lite/
+*.mp4
+*.png

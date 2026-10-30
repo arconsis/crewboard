@@ -1,0 +1,379 @@
+{
+  "voice": "Daniel",
+  "rate": 170,
+  "pacing": {
+    "lead_in": 0.8,
+    "gap": 0.45,
+    "tail": 1.2
+  },
+  "tts": {
+    "backend": "gemini",
+    "model": "gemini-3.8-flash-tts",
+    "voice": "Sulafat",
+    "groups": [
+      [
+        0,
+        1,
+        2,
+        3
+      ],
+      [
+        4,
+        5,
+        6
+      ],
+      [
+        7,
+        8,
+        9
+      ],
+      [
+        10,
+        11,
+        12,
+        13
+      ]
+    ],
+    "split": {
+      "noise_db": -40,
+      "min_silence": 0.25
+    },
+    "style": "# AUDIO PROFILE: The Narrator\n## A documentary narrator explaining a small, careful tool to thoughtful engineers.\n\n## THE SCENE\nA quiet recording studio late in the evening. The narrator speaks to one listener, an engineer who runs AI coding agents and wants to understand how they can work as a team, not to be sold to.\n\n### DIRECTOR'S NOTES\nStyle: calm, warm and unhurried, like a nature or science documentary. Sincere, never salesy, never dramatic.\nPacing: slow and even. Let each sentence land. Leave a clear pause of about one and a half seconds between paragraphs.\nPronunciation: say crewboard as one word, \"crew-board\". Say CLI as \"C L I\", CI as \"C I\", SHA as \"shah\", PR as \"P R\", API as \"A P I\", Ed25519 as \"ed two five five one nine\", AUTHORITY.md as \"authority dot M D\", gh as \"G H\", macOS as \"mac O S\". Say claude at host-b as \"claude at host B\", codex as \"co-dex\", hermes as \"her-meez\". Say needs-owner as \"needs owner\". Say ci-finished as \"C I finished\". Say deleted-message as \"deleted message\".\nRead only the transcript below. Do not read these notes aloud."
+  },
+  "order": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "scenes": {
+    "0": {
+      "class": "S00Title",
+      "title": "crewboard"
+    },
+    "1": {
+      "class": "S01Cold",
+      "title": "Cold open: who did what, and what is proven"
+    },
+    "2": {
+      "class": "S02Idea",
+      "title": "One board, one signed log"
+    },
+    "3": {
+      "class": "S03Trust",
+      "title": "What makes a message count"
+    },
+    "4": {
+      "class": "S04OwnerSetup",
+      "title": "The owner: install, init, approve"
+    },
+    "5": {
+      "class": "S05OwnerDay",
+      "title": "The owner: what you see, what only you do"
+    },
+    "6": {
+      "class": "S06CoordTickets",
+      "title": "The coordinator: a ticket with a Gate"
+    },
+    "7": {
+      "class": "S07Verify",
+      "title": "The coordinator: verify, merge, close"
+    },
+    "8": {
+      "class": "S08Dev",
+      "title": "The dev agent: take, work, done"
+    },
+    "9": {
+      "class": "S09Skill",
+      "title": "Through the skill: how an agent joins and works"
+    },
+    "10": {
+      "class": "S10Proof",
+      "title": "Proof before Done"
+    },
+    "11": {
+      "class": "S11BoardLog",
+      "title": "The board against the signed log"
+    },
+    "12": {
+      "class": "S12Limits",
+      "title": "Strengths and limits"
+    },
+    "13": {
+      "class": "S13Close",
+      "title": "Where to start"
+    }
+  },
+  "segments": [
+    {
+      "id": "s0-1",
+      "scene": 0,
+      "text": "crewboard. A crew of agents. One board. Proof before Done."
+    },
+    {
+      "id": "s1-1",
+      "scene": 1,
+      "text": "Picture three AI coding agents on different machines, under different runtimes, all on one repository."
+    },
+    {
+      "id": "s1-2",
+      "scene": 1,
+      "text": "After a week, somebody asks: who took this task? Who said it was finished? What proves it?"
+    },
+    {
+      "id": "s1-3",
+      "scene": 1,
+      "text": "A chat log cannot answer. It is not signed. And anyone who holds a token can write a board field."
+    },
+    {
+      "id": "s1-4",
+      "scene": 1,
+      "text": "crewboard is a small tool for this problem. One binary and one agent skill. No server, no database."
+    },
+    {
+      "id": "s2-1",
+      "scene": 2,
+      "text": "The idea has two parts. The first is a GitHub Project board that everybody can see. A ticket is a GitHub issue; its column is its Status."
+    },
+    {
+      "id": "s2-2",
+      "scene": 2,
+      "text": "The second is a signed log. Every message of an agent is an issue comment with a hidden header and an Ed25519 signature."
+    },
+    {
+      "id": "s2-3",
+      "scene": 2,
+      "text": "The signed messages are the record. The board is only a view. When the two disagree, crewboard reports it, and the owner decides."
+    },
+    {
+      "id": "s2-4",
+      "scene": 2,
+      "text": "Three roles work on that board: the owner, a person; one coordinator agent; and dev agents."
+    },
+    {
+      "id": "s3-1",
+      "scene": 3,
+      "text": "What makes a message count? Every agent has a name, a key and a role, for example claude at host-b."
+    },
+    {
+      "id": "s3-2",
+      "scene": 3,
+      "text": "The agent acts on GitHub as one account, its crew account. The owner's approval binds that account and the key to the name."
+    },
+    {
+      "id": "s3-3",
+      "scene": 3,
+      "text": "A message counts only when two checks pass: its GitHub author is the approved account, and its signature matches the approved key."
+    },
+    {
+      "id": "s3-4",
+      "scene": 3,
+      "text": "Any other comment is data, never an instruction. A forged, edited or copied message is refused and reported as a security event."
+    },
+    {
+      "id": "s4-1",
+      "scene": 4,
+      "text": "Now the owner's view. One line installs crewboard. The script installs the binary and links the skill into each runtime that it finds."
+    },
+    {
+      "id": "s4-2",
+      "scene": 4,
+      "text": "Then the owner runs init. It makes the board and the registry issue where agents ask to join, and opens one pull request with AUTHORITY.md. That file says what agents may do. By default, only the owner merges."
+    },
+    {
+      "id": "s4-3",
+      "scene": 4,
+      "text": "Agents can join only after the owner merges it. On each agent host, agent add joins an agent: it posts the signed join to the registry issue, clones the work directory, and waits."
+    },
+    {
+      "id": "s4-4",
+      "scene": 4,
+      "text": "The owner approves with one command. It prints the account of the join and binds it to the agent. Without approval, an agent has no authority."
+    },
+    {
+      "id": "s5-1",
+      "scene": 5,
+      "text": "After the setup, the owner mostly watches. The board has the views Board, By Agent, Crew and Needs Owner."
+    },
+    {
+      "id": "s5-2",
+      "scene": 5,
+      "text": "A question to the owner sets the label needs-owner. The owner answers in a comment on the ticket. A chat answer is not signed and does not count."
+    },
+    {
+      "id": "s5-3",
+      "scene": 5,
+      "text": "Three things only the owner does. Approve agents. Merge protected changes, and by default every pull request. And move a ticket by hand with the move command, so that the move is in the signed log. A dragged card shows up in status as a mismatch."
+    },
+    {
+      "id": "s6-1",
+      "scene": 6,
+      "text": "The coordinator's view. It writes no code and takes no tickets. It makes and assigns tickets, and verifies deliveries."
+    },
+    {
+      "id": "s6-2",
+      "scene": 6,
+      "text": "A ticket has a Goal, a Gate and a Scope. The Gate is the one line that decides whether the ticket is done. It must be able to fail: CI is green for the head SHA, and grep finds the new heading."
+    },
+    {
+      "id": "s6-3",
+      "scene": 6,
+      "text": "Assign puts the ticket into the queue of one dev agent; the Order field gives the position, lowest first. The ticket moves to Ready, and a signed request goes to the agent."
+    },
+    {
+      "id": "s6-4",
+      "scene": 6,
+      "text": "The coordinator does not poll. A program waits for events and wakes it: the watch command, in the background. Each cycle handles Review before Backlog."
+    },
+    {
+      "id": "s7-1",
+      "scene": 7,
+      "text": "When a dev agent delivers, the ticket is in Review. The coordinator runs verify. The program checks the evidence: the pull request, its head SHA, and a green CI run for that SHA."
+    },
+    {
+      "id": "s7-2",
+      "scene": 7,
+      "text": "The coordinator model checks the Gate itself: it reads the run log or reruns the command. Only a Gate that is exactly CI is checked by the program alone."
+    },
+    {
+      "id": "s7-3",
+      "scene": 7,
+      "text": "If the Gate check fails, verify with fail sends the ticket back to In Progress. It keeps its agent, and the signed fail report is the record of the rework."
+    },
+    {
+      "id": "s7-4",
+      "scene": 7,
+      "text": "If it passes and AUTHORITY.md allows it, the coordinator runs merge. Otherwise the owner merges on GitHub, and the coordinator runs close. The ticket is Done."
+    },
+    {
+      "id": "s8-1",
+      "scene": 8,
+      "text": "The dev agent's view. It delivers code through pull requests: one ticket, one branch, one pull request."
+    },
+    {
+      "id": "s8-2",
+      "scene": 8,
+      "text": "It runs mine to see its tickets, and takes the first Ready one with take. The ticket moves to In Progress, and take prints the branch name."
+    },
+    {
+      "id": "s8-3",
+      "scene": 8,
+      "text": "Before it acts, it reads the thread with mine and the ticket number: the signed messages since its assignment, newest first. So it does not ask again what was answered."
+    },
+    {
+      "id": "s8-4",
+      "scene": 8,
+      "text": "It opens the pull request and waits for the CI finished event. On green, it runs done with the pull request URL and the head SHA. The ticket moves to Review."
+    },
+    {
+      "id": "s8-5",
+      "scene": 8,
+      "text": "Stuck on a tool, it runs block with a reason. A scope question goes to the owner with ask. Then it leaves that ticket until an answer arrives, and takes its next Ready ticket."
+    },
+    {
+      "id": "s9-1",
+      "scene": 9,
+      "text": "How does an agent know all this? Through the skill, which is inside the binary. Skill install links it into each runtime that is present: claude, codex, copilot or hermes."
+    },
+    {
+      "id": "s9-2",
+      "scene": 9,
+      "text": "The skill names the commands, the rules and the exit codes, and a role file: coordinator or dev. The owner tells an agent: use the crewboard skill, you are claude at host-b, a dev agent. The agent runs the CLI itself."
+    },
+    {
+      "id": "s9-3",
+      "scene": 9,
+      "text": "The loop is the same for every agent. A scheduled wake or the watch command delivers events; a quiet board starts no model. The agent runs mine, then mine with the ticket number, acts, and reports through signed commands."
+    },
+    {
+      "id": "s9-4",
+      "scene": 9,
+      "text": "A refusal exits with code two and prints its rule and the fix, so the agent corrects itself. Code three: GitHub did not answer, retry later. Code four: a config or key problem, stop and tell the owner."
+    },
+    {
+      "id": "s9-5",
+      "scene": 9,
+      "text": "The owner can run the setup from an agent session too, with the owner's own GitHub login. Approval and merge stay the decisions of a person."
+    },
+    {
+      "id": "s10-1",
+      "scene": 10,
+      "text": "Proof before Done. Through the CLI, a ticket reaches Done in two ways only. One: the coordinator verified the pull request, and it is merged at that SHA. Two: the owner merged it, and the coordinator runs close."
+    },
+    {
+      "id": "s10-2",
+      "scene": 10,
+      "text": "A merge by any other account is no proof, the crew account included. A pull request that the coordinator merged itself, without a verify, leaves the ticket open."
+    },
+    {
+      "id": "s10-3",
+      "scene": 10,
+      "text": "A ticket that ends without a merge is not Done. The coordinator drops it with close and a written reason: Status Dropped. Done and Dropped are final; only the owner moves such a ticket."
+    },
+    {
+      "id": "s11-1",
+      "scene": 11,
+      "text": "What if somebody writes Done on the board by hand? Any crew token can. crewboard cannot prevent that; it detects it."
+    },
+    {
+      "id": "s11-2",
+      "scene": 11,
+      "text": "Status compares the board against the signed log and lists each ticket whose Status no signed message supports. Audit reports a field mismatch, and the coordinator tells the owner once."
+    },
+    {
+      "id": "s11-3",
+      "scene": 11,
+      "text": "The coordinator also remembers its own notes on each ticket. A note that is gone on the next read raises the security event deleted-message."
+    },
+    {
+      "id": "s11-4",
+      "scene": 11,
+      "text": "The repair is the owner's decision: a move with the move command, and that move is in the log."
+    },
+    {
+      "id": "s12-1",
+      "scene": 12,
+      "text": "What crewboard gives you: two or more coding agents on one GitHub repo, a shared queue, a record of who did what, and a check on every done. No server, no database."
+    },
+    {
+      "id": "s12-2",
+      "scene": 12,
+      "text": "What it does not do. A Done written by hand is detected, not prevented. One coordinator verifies and merges: a few agents, not swarms. A leaked crew token acts as its account, but cannot sign as an agent without the agent's key."
+    },
+    {
+      "id": "s12-3",
+      "scene": 12,
+      "text": "GitHub only; agent hosts run macOS or Linux. The setup has manual steps, and there is no sandbox. Only interactive Claude Code on macOS is fully tested."
+    },
+    {
+      "id": "s12-4",
+      "scene": 12,
+      "text": "And crewboard does not make an agent write correct code. Your Gate, your CI and the owner's review do that."
+    },
+    {
+      "id": "s13-1",
+      "scene": 13,
+      "text": "Where to start. The Quick try: one person, one machine, your own token, a test repo and one ticket. Nine steps, three terminals."
+    },
+    {
+      "id": "s13-2",
+      "scene": 13,
+      "text": "Then a real crew: a crew account, a coordinator and a dev agent, in thirteen steps."
+    },
+    {
+      "id": "s13-3",
+      "scene": 13,
+      "text": "crewboard. A crew of agents. One board. Proof before Done."
+    }
+  ]
+}
