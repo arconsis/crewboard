@@ -3,6 +3,8 @@
 
 use super::Session;
 use super::args::{Cmd, Parsed, PidArg, RunCtx};
+#[cfg(unix)]
+use crate::base::ignore::best_effort_output;
 
 /// The nearest `Runner.Worker` process among this process and its parents.
 pub fn runner_pid(s: &Session) -> Option<u32> {
@@ -107,7 +109,7 @@ fn run_job(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
                 .as_ref()
                 .is_some_and(|f| std::fs::write(f, format!("{line}\n")).is_ok());
             if !in_file {
-                writeln!(std::io::stderr(), "{line}").ok(); // output is best effort; a closed stream has nobody to tell
+                best_effort_output(writeln!(std::io::stderr(), "{line}"));
             }
             if e.kind() == std::io::ErrorKind::NotFound {
                 127

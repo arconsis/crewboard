@@ -8,6 +8,7 @@ use super::fsmeta::mtime_epoch;
 use super::judge::{self, Judgement};
 use super::owner::sibling;
 use super::snapshot::Snapshot;
+use crate::base::ignore::best_effort_cleanup;
 use crate::clock::Clock;
 use std::path::{Path, PathBuf};
 
@@ -53,7 +54,7 @@ fn sweep_stale(dir: &Path, now: i64) {
         let old = e.file_name().to_string_lossy().starts_with(&prefix)
             && mtime_epoch(&e.path()).is_some_and(|m| now - m > STALE_SWEEP_AGE);
         if old {
-            std::fs::remove_dir_all(e.path()).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_dir_all(e.path()));
         }
     }
 }
@@ -78,7 +79,7 @@ pub fn take_over_guarded(
         // guard and the second may remove a fresh one; the check under the guard and the atomic
         // rename keep that safe, the worst case is one more `Contended`.
         if mtime_epoch(&guard).is_some_and(|m| clock.now() - m > GUARD_MAX_AGE) {
-            std::fs::remove_dir(&guard).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_dir(&guard));
         }
         return Outcome::Contended;
     }
@@ -91,7 +92,7 @@ pub fn take_over_guarded(
         if std::fs::rename(dir, &moved).is_ok() {
             if recheck(&moved).is_some() {
                 say(&line);
-                std::fs::remove_dir_all(&moved).ok(); // cleanup; a leftover file is harmless
+                best_effort_cleanup(std::fs::remove_dir_all(&moved));
                 sweep_stale(dir, clock.now());
                 outcome = Outcome::Took;
             } else {
@@ -107,7 +108,7 @@ pub fn take_over_guarded(
             }
         }
     }
-    std::fs::remove_dir(&guard).ok(); // cleanup; a leftover file is harmless
+    best_effort_cleanup(std::fs::remove_dir(&guard));
     outcome
 }
 

@@ -17,6 +17,7 @@
 //! TERM, INT or HUP stopped the gate (the command got it too, the lock is released, the evidence
 //! so far is printed).
 
+use crate::base::ignore::{best_effort_cleanup, best_effort_output};
 use crate::clock::parse_secs;
 use crate::gate::evidence::{Block, display_cmd, render};
 use crate::gate::verdict::{Patterns, Run, Verdict, judge, result_lines};
@@ -63,7 +64,7 @@ struct Plan {
 }
 
 fn say(text: &str) {
-    writeln!(std::io::stderr(), "gate-loop: {text}").ok(); // output is best effort; a closed stream has nobody to tell
+    best_effort_output(writeln!(std::io::stderr(), "gate-loop: {text}"));
 }
 
 /// A seconds value: `10`, `0.5`, `90s`, `30m`, `2h`.
@@ -223,7 +224,7 @@ fn run_plain(cmd: &[String], repo: &Path, log: &Path) -> i32 {
                 std::io::ErrorKind::PermissionDenied => (126, "Permission denied".to_string()),
                 _ => (126, e.to_string()),
             };
-            std::fs::write(log, format!("{}: {why}\n", cmd[0])).ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(std::fs::write(log, format!("{}: {why}\n", cmd[0])));
             rc
         }
     }
@@ -276,8 +277,8 @@ impl Loop<'_> {
             &self.log_dir.display().to_string(),
         );
         let mut out = std::io::stdout().lock();
-        out.write_all(text.as_bytes()).ok(); // output is best effort; a closed stream has nobody to tell
-        out.flush().ok(); // output is best effort; a closed stream has nobody to tell
+        best_effort_output(out.write_all(text.as_bytes()));
+        best_effort_output(out.flush());
         code
     }
 
@@ -365,7 +366,7 @@ impl Loop<'_> {
             return Some(code);
         }
         let log = self.log_dir.join(format!("run-{n}.log"));
-        std::fs::remove_file(&log).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&log));
         let before = head_sha(&p.repo).unwrap_or_default();
         if before != self.first_sha {
             self.block.head_changed(n, &before, &self.first_sha);
@@ -387,7 +388,7 @@ impl Loop<'_> {
         };
         let after = head_sha(&p.repo).unwrap_or_default();
         if !log.is_file() {
-            std::fs::write(&log, "").ok(); // output is best effort; a closed stream has nobody to tell
+            best_effort_output(std::fs::write(&log, ""));
         }
         let results = match &p.patterns.result {
             Some(re) => result_lines(

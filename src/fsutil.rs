@@ -5,6 +5,7 @@
 //! the target path: the data goes to a temp file in the same directory, is synced, is renamed
 //! over the target, and the directory is synced (unix).
 
+use crate::base::ignore::best_effort_cleanup;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -118,10 +119,7 @@ fn write_core(
         drop(f);
         rename(&tmp, path)
     };
-    run().inspect_err(|_| {
-        // the write failed already; the temp file is only litter
-        std::fs::remove_file(&tmp).ok();
-    })?;
+    run().inspect_err(|_| best_effort_cleanup(std::fs::remove_file(&tmp)))?;
     sync_parent(path);
     sweep_stale_temps(path, STALE_TEMP);
     Ok(())
@@ -236,8 +234,8 @@ fn sweep_in(dir: &Path, prefix: &std::ffi::OsStr, max_age: Duration) {
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .is_some_and(|t| now_secs.saturating_sub(t.as_secs()) > max_age.as_secs());
         if old {
-            // best effort: a temp file that stays is swept by the next write
-            std::fs::remove_file(e.path()).ok();
+            // a temp file that stays is swept by the next write
+            best_effort_cleanup(std::fs::remove_file(e.path()));
         }
     }
 }

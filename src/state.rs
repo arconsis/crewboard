@@ -33,6 +33,7 @@
 //! `notes_recheck` and `notes_too_large` (a union; a mark that this copy cleared stays cleared).
 //! Every other key is cache: the copy that saves last wins, and a lost value costs one read.
 
+use crate::base::ignore::best_effort_output;
 pub use crate::events::TicketSnap;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -620,12 +621,11 @@ impl StateCache {
         } else {
             "the file is left in place".to_string()
         };
-        writeln!(
+        best_effort_output(writeln!(
             warn,
             "warning: state file {} {last}; {note}; starting with empty state",
             path.display()
-        )
-        .ok(); // output is best effort; a closed stream has nobody to tell
+        ));
         Self::default()
     }
 

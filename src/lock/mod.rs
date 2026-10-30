@@ -27,6 +27,7 @@ pub mod snapshot;
 pub mod sys;
 pub mod takeover;
 
+use crate::base::ignore::best_effort_cleanup;
 use crate::clock::{Clock, format_ts};
 use board::BoardCheck;
 use judge::{Judgement, Rules};
@@ -170,7 +171,7 @@ impl<'a> Session<'a> {
 
     fn owner_or_undo(&self, pid: &str) -> Result<(), String> {
         self.write_owner(pid).map_err(|e| {
-            std::fs::remove_dir_all(&self.dir).ok(); // cleanup; a leftover file is harmless
+            best_effort_cleanup(std::fs::remove_dir_all(&self.dir));
             format!(
                 "cannot write the owner file in {}: {e}; lock not taken",
                 self.dir_text()
@@ -420,7 +421,7 @@ impl<'a> Session<'a> {
             ));
             return 3;
         }
-        std::fs::remove_dir_all(&gone).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_dir_all(&gone));
         0
     }
 

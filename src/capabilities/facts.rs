@@ -5,6 +5,7 @@
 //! the result. The detection reads the host through a [`Probe`], so the parsing is tested
 //! with fake command output; [`RealProbe`] is the one implementation that runs commands.
 
+use crate::base::ignore::child_may_have_ended;
 pub use crate::base::{TOOL_NAME_RULE, valid_tool_name};
 use crate::error::{CbError, CbResult};
 use std::io::Read;
@@ -387,8 +388,8 @@ fn run_with_timeout(program: &str, args: &[&str], limit: Duration) -> Option<Cmd
             Ok(Some(s)) => break Some(s),
             Ok(None) if start.elapsed() < limit => crate::clock::pause(Duration::from_millis(10)),
             _ => {
-                child.kill().ok(); // the child may have ended already
-                child.wait().ok(); // the child may have ended already
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
                 break None;
             }
         }

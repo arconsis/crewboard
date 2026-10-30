@@ -6,6 +6,7 @@
 //! state clears in a few milliseconds, so a short retry is the right answer. Every other
 //! error returns at once. On other systems the helper starts the program once.
 
+use crate::base::ignore::child_may_have_ended;
 use std::io;
 use std::process::{Child, Command};
 use std::time::Duration;
@@ -115,8 +116,8 @@ pub fn output_within(
         }
         if Instant::now() >= end {
             // the readers end when the pipes close; do not wait for a grandchild that holds them
-            child.kill().ok(); // the child may have ended already
-            child.wait().ok(); // the child may have ended already
+            child_may_have_ended(child.kill());
+            child_may_have_ended(child.wait());
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 format!("no answer after {} s", limit.as_secs()),

@@ -11,6 +11,7 @@
 
 use super::flow::{Flow, Reason};
 use super::runtime::Ended;
+use crate::base::ignore::best_effort_cleanup;
 use crate::clock::format_ts;
 #[cfg(unix)]
 use crate::lock::procs::Alive;
@@ -72,7 +73,7 @@ impl Flow<'_, '_> {
             return 70;
         }
         // a wake that ends by itself ends the run of budget stops
-        std::fs::remove_file(&self.s.paths.budget_streak).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&self.s.paths.budget_streak));
         if let Err(code) = self.check_acted(start) {
             return code;
         }

@@ -17,6 +17,7 @@
 
 use super::AgentCtx;
 use super::watch::{PollOpts, watch};
+use crate::base::ignore::best_effort_output;
 use crate::clock::{Clock, format_ts};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -145,7 +146,7 @@ fn log_line(log: Option<&Path>, clock: &dyn Clock, line: &str) {
             .append(true)
             .open(p)
     {
-        writeln!(f, "{} {line}", format_ts(clock.now())).ok(); // output is best effort; a closed stream has nobody to tell
+        best_effort_output(writeln!(f, "{} {line}", format_ts(clock.now())));
     }
 }
 
@@ -213,8 +214,12 @@ pub(crate) fn run_loop(
                         message(&r.reason, &r.status)
                     ),
                 );
-                writeln!(out, "{}", exit_line(code, &r.reason, &r.status, opts.json)).ok(); // output is best effort; a closed stream has nobody to tell
-                out.flush().ok(); // output is best effort; a closed stream has nobody to tell
+                best_effort_output(writeln!(
+                    out,
+                    "{}",
+                    exit_line(code, &r.reason, &r.status, opts.json)
+                ));
+                best_effort_output(out.flush());
                 return code;
             }
         }

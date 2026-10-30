@@ -2,6 +2,7 @@
 //! `--log FILE`: `<UTC ts> host-lock: <text>`. The prefix `host-lock:` stays (the CI steps and the
 //! wake wrapper grep for it). An answer line goes to stdout. A test collects both in memory.
 
+use crate::base::ignore::best_effort_output;
 use crate::clock::{Clock, format_ts};
 use std::cell::RefCell;
 use std::io::Write;
@@ -49,14 +50,14 @@ impl<'a> Log<'a> {
         match &self.sink {
             Sink::Process => {
                 // a closed stderr (`... 2>&1 | grep -q held`) must not panic
-                writeln!(std::io::stderr(), "{line}").ok(); // output is best effort; a closed stream has nobody to tell
+                best_effort_output(writeln!(std::io::stderr(), "{line}"));
                 if let Some(f) = &self.file
                     && let Ok(mut h) = std::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
                         .open(f)
                 {
-                    writeln!(h, "{line}").ok(); // output is best effort; a closed stream has nobody to tell
+                    best_effort_output(writeln!(h, "{line}"));
                 }
             }
             Sink::Memory { err, .. } => err.borrow_mut().push(line),
@@ -68,8 +69,8 @@ impl<'a> Log<'a> {
         match &self.sink {
             Sink::Process => {
                 let mut o = std::io::stdout().lock();
-                writeln!(o, "{text}").ok(); // output is best effort; a closed stream has nobody to tell
-                o.flush().ok(); // output is best effort; a closed stream has nobody to tell
+                best_effort_output(writeln!(o, "{text}"));
+                best_effort_output(o.flush());
             }
             Sink::Memory { out, .. } => out.borrow_mut().push(text.to_string()),
         }

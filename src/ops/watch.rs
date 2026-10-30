@@ -5,6 +5,7 @@
 //! the cursor. A cycle never decides "nothing changed" from the item listing.
 
 use super::{AgentCtx, World, duties, load_world};
+use crate::base::ignore::best_effort_output;
 use crate::clock::{format_ts, now_epoch, now_ts, parse_ts};
 use crate::cursor::Cursor;
 use crate::error::{CbError, CbResult};
@@ -633,15 +634,14 @@ fn print_events(
     opts: PollOpts,
 ) -> CbResult<()> {
     if opts.quiet {
-        writeln!(
+        best_effort_output(writeln!(
             out,
             "events pending: {} event(s), {} security event(s); {}",
             collected.events.len(),
             collected.security.len(),
             status_line(next_text, polls, Some(last_ok))
-        )
-        .ok();
-        out.flush().ok();
+        ));
+        best_effort_output(out.flush());
         return Ok(());
     }
     let text = if opts.json {
@@ -829,8 +829,8 @@ pub fn poll(ac: &AgentCtx, opts: PollOpts, out: &mut dyn Write) -> Result<Exit, 
     match cycle(ac, &mut cache, opts, out) {
         Ok(c) => {
             if let Some(l) = &c.no_events_line {
-                writeln!(out, "{l}").ok();
-                out.flush().ok();
+                best_effort_output(writeln!(out, "{l}"));
+                best_effort_output(out.flush());
             }
             Ok(c.exit)
         }
@@ -864,7 +864,10 @@ pub fn watch(
                 if !matches!(e, GhError::Auth(_)) && consecutive_errors < 2 =>
             {
                 consecutive_errors += 1;
-                writeln!(notice, "crewboard: transient error ({e}); retrying").ok(); // output is best effort; a closed stream has nobody to tell
+                best_effort_output(writeln!(
+                    notice,
+                    "crewboard: transient error ({e}); retrying"
+                ));
             }
             Err(e) => return Err((e, error_line(&cache))),
         }

@@ -21,6 +21,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use super::settings::Settings;
+use crate::base::ignore::best_effort_cleanup;
 
 /// Why a run goes on to the wake.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,7 +200,7 @@ impl Flow<'_, '_> {
     }
 
     pub(super) fn net_ok(&self) {
-        std::fs::remove_file(&self.s.paths.net).ok(); // cleanup; a leftover file is harmless
+        best_effort_cleanup(std::fs::remove_file(&self.s.paths.net));
     }
 
     /// Exit 3 after the retries: count the run; from the second run in a row skip the next runs

@@ -60,7 +60,7 @@ I/O. `tests/layering.rs` freezes the import graph.
 - `src/protocol/interop_tests.rs`: proof that crewboard and `ssh-keygen` accept each other's signatures.
 - `src/protocol/former.rs`: former names of the main repo with a cutoff, so old signatures still verify after a move.
 - `src/protocol/replay.rs`: the replay window inside one issue.
-- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`). Every module may import it. It imports nothing.
+- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`), and `base/ignore.rs` with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
 - `src/secrets.rs`: secret scan for every signed post and `ticket new`. It reports the kind and the line, never the secret.
 - `src/clock.rs`: UTC time as `YYYY-MM-DDTHH:MM:SSZ`, without a time crate.
 
@@ -107,7 +107,7 @@ modules on the `ops` list of `tests/layering.rs`.
 
 ### Host lock and gate
 
-- `src/lock/`: the host lock, a directory with an owner file that a dead agent cannot hold. It imports only `clock`, `fsutil` and `spawn`.
+- `src/lock/`: the host lock, a directory with an owner file that a dead agent cannot hold. It imports only `base`, `clock`, `fsutil` and `spawn`.
   - `mod.rs` (the lock), `run.rs` (the dispatch, `--pid runner`, `run`), `args.rs` (the command line, exit 64), `help.rs`, `log.rs` (log and answer lines).
   - `owner.rs` (the owner file, a public contract), `snapshot.rs` (all disk reads), `fsmeta.rs` (change time), `judge.rs` (is the lock stale; pure), `takeover.rs` (one atomic winner).
   - `procs.rs` (process facts behind a trait), `board.rs` (the board probe trait: owner dead or gone), `ci.rs` (CI first), `sys.rs` (signals, new session).
@@ -167,8 +167,8 @@ modules on the `ops` list of `tests/layering.rs`.
 
 - `src/config/` (`board.rs`, `agent.rs`, `dir.rs`, `keys.rs`): `.crewboard.toml` (board config), `<config-dir>/<initiative>.toml` (agent config) and the key folder.
 - `src/agent_env.rs`: the env file of an agent (`agent.env`) and the crew token in it. It imports `base`, `error` and `fsutil`.
-- `src/state.rs`: the local state file `<config-dir>/state/<initiative>.<agent>.json`. It imports `clock`, `comments`, `error`, `events` and `fsutil`.
-- `src/fsutil.rs`: private-mode check, atomic writes, executable checks. It imports `clock`.
+- `src/state.rs`: the local state file `<config-dir>/state/<initiative>.<agent>.json`. It imports `base`, `clock`, `comments`, `error`, `events` and `fsutil`.
+- `src/fsutil.rs`: private-mode check, atomic writes, executable checks. It imports `base` and `clock`.
 - `src/skill_embed.rs`: the skill files that `build.rs` embeds, with their SHA-256 and version line. It imports no crate module.
 - `src/toolchain.rs`, `src/agent_gh.rs`: checks of `start` for build tools and for the identity of the agent's own `gh`.
 - `src/error.rs`, `src/exit.rs`: one error type, mapped to the exit codes.
@@ -177,7 +177,7 @@ modules on the `ops` list of `tests/layering.rs`.
 
 ### Wake (`src/wake/`)
 
-The unattended wake gate for a scheduler. It imports `agent_env`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
+The unattended wake gate for a scheduler. It imports `agent_env`, `base`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
 
 - One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file, net back-off), `gate.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model).
 - The wake command: `job.rs` (options and argument vector), `adapters.rs` (one row per runtime), `runtime.rs` (process group, time budget, signals), `heartbeat.rs`, `procs.rs` (`stop_group`), `words.rs` (shell words), `describe_head.rs` (where the work is after a time-out).

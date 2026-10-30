@@ -194,6 +194,7 @@ pub(super) fn stop_group_with(
 
 #[cfg(not(unix))]
 pub(super) fn stop_group(child: &mut std::process::Child, _note: &dyn Fn(&str)) {
-    child.kill().ok(); // the child may have ended already
-    child.wait().ok(); // the child may have ended already
+    use crate::base::ignore::child_may_have_ended;
+    child_may_have_ended(child.kill());
+    child_may_have_ended(child.wait());
 }

@@ -6,6 +6,7 @@ use super::refused;
 use super::{
     Cli, HookAction, HostCmd, Outcome, RepeatArgs, SkillAction, agent, done, fail, global,
 };
+use crate::base::ignore::best_effort_output;
 use crate::exit::Exit;
 use crate::ops;
 #[cfg(not(unix))]
@@ -136,7 +137,7 @@ fn hook_cmd(cli: &Cli, action: &HookAction) -> Outcome {
     if let Some(text) = crate::wake::hook_cmd::run(a, cli.config_dir.clone()) {
         // a closed standard output must not turn the hook into a panic or a non-zero exit
         use std::io::Write;
-        writeln!(std::io::stdout(), "{text}").ok(); // output is best effort; a closed stream has nobody to tell
+        best_effort_output(writeln!(std::io::stdout(), "{text}"));
     }
     Outcome {
         exit: Exit::Ok,

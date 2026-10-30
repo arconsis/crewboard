@@ -4,6 +4,7 @@
 use super::{
     Cli, Command, MonitorArgs, Outcome, Sel, WatchCmd, done, fail, fail_with_line, global,
 };
+use crate::base::ignore::best_effort_output;
 use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::{self, AgentCtx, Global};
@@ -49,13 +50,12 @@ pub(super) fn monitor_fail(code: u8, reason: &str, status: &str, json: bool) -> 
     use std::io::Write;
     // a closed pipe must not panic: the exit code still tells
     let mut out = std::io::stdout();
-    writeln!(
+    best_effort_output(writeln!(
         out,
         "{}",
         ops::monitor::exit_line(code, reason, status, json)
-    )
-    .ok(); // output is best effort; a closed stream has nobody to tell
-    out.flush().ok(); // output is best effort; a closed stream has nobody to tell
+    ));
+    best_effort_output(out.flush());
     monitor_outcome(code)
 }
 
