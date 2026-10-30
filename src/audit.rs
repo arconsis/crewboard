@@ -70,21 +70,6 @@ impl FindingKind {
             FindingKind::FieldMismatch => "field-mismatch",
         }
     }
-
-    /// The kinds that `watch` also reports as security events (routed to the owner once).
-    /// Only the tests of this file call it.
-    #[cfg(test)]
-    pub fn is_security_event(self) -> bool {
-        matches!(
-            self,
-            FindingKind::BadSignature
-                | FindingKind::Edited
-                | FindingKind::UnknownSender
-                | FindingKind::Malformed
-                | FindingKind::Replayed
-                | FindingKind::ForeignAuthor
-        )
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -295,7 +280,8 @@ fn judge(c: &Comment, cfg: &BoardConfig, reg: &Registry, seen: &mut Seen) -> Jud
     }
 }
 
-fn first_line(s: &str, n: usize) -> String {
+/// The first line of `s`, trimmed, cut to `n` characters with `...` when it is longer.
+fn excerpt(s: &str, n: usize) -> String {
     let l = s.lines().next().unwrap_or("").trim();
     if l.chars().count() > n {
         format!("{}...", l.chars().take(n).collect::<String>())
@@ -726,7 +712,7 @@ pub fn audit(
             created_epoch: c.created_epoch,
             detail: format!(
                 "{what} \"{}\" while {} ran",
-                first_line(&c.body, 50),
+                excerpt(&c.body, 50),
                 running.join(", ")
             ),
             reported_to_owner: None,

@@ -3,6 +3,28 @@ use serde_json::json;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
+/// [`evaluate_sources`] for workflow runs and check runs only (statuses not asked).
+fn evaluate_ci(
+    sha: &str,
+    runs_body: &Value,
+    checks_body: &Value,
+    required: Option<&[String]>,
+) -> Result<CiFacts, GhError> {
+    evaluate_sources(
+        "o/r",
+        sha,
+        &CiBodies {
+            runs: Some(runs_body),
+            checks: Some(checks_body),
+            statuses: None,
+            named: &[],
+            ignore: &[],
+        },
+        &[],
+        required,
+    )
+}
+
 fn fx(name: &str) -> Value {
     let path = format!("{}/tests/fixtures/ci/{name}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));

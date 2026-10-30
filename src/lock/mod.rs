@@ -138,7 +138,7 @@ impl<'a> Session<'a> {
             expect: self.opts.expect,
             detached: self.detached,
         };
-        owner::write_atomic(&self.dir, &o)
+        owner::write_owner(&self.dir, &o)
     }
 
     /// Make the lock dir, or take a stale one over, and write the owner file. `Ok(true)` = got it,

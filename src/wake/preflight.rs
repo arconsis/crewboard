@@ -4,6 +4,7 @@
 
 use super::flow::Flow;
 use crate::base::ignore::best_effort_cleanup;
+use crate::fsutil::{self, Mode};
 use crate::lock::procs::Alive;
 use crate::wake::policy::{self, NetBackoff};
 use crate::wake::state;
@@ -42,7 +43,7 @@ impl Flow<'_, '_> {
         let last = &self.s.paths.last_wake;
         if !last.exists()
             && let Ok(text) = std::fs::read(legacy.join("last-wake"))
-            && let Err(e) = state::write_atomic(last, &text)
+            && let Err(e) = fsutil::write_atomic(last, &text, Mode::Default)
         {
             self.log
                 .line(&format!("cannot copy the old last-wake: {e}"));

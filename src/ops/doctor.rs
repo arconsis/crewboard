@@ -212,13 +212,8 @@ impl SetupReport {
     }
 }
 
-/// The scopes of a classic token (`x-oauth-scopes`). A fine-grained token has none to show.
-#[cfg(test)]
-pub fn judge_scopes(header: Option<&str>) -> CheckVerdict {
-    judge_scopes_in(header, false)
-}
-
-/// [`judge_scopes`] for a token of a given mode. In trial mode (`trial`: one account for the
+/// The scopes of a classic token (`x-oauth-scopes`) for a token of a given mode. A fine-grained
+/// token has none to show. In trial mode (`trial`: one account for the
 /// owner and the agents, `--insecure-one-account`) the token is the owner's, so the `workflow`
 /// scope is expected and is a note, not a failure. Every other too-wide scope still fails.
 pub fn judge_scopes_in(header: Option<&str>, trial: bool) -> CheckVerdict {
@@ -1106,6 +1101,10 @@ pub fn setup(g: &Global, work_dir: &Path) -> (String, CbResult<()>) {
 mod tests {
     use super::*;
     use crate::agent_gh::GhLogin;
+
+    fn judge_scopes(header: Option<&str>) -> CheckVerdict {
+        judge_scopes_in(header, false)
+    }
 
     fn is_fail(v: &CheckVerdict) -> bool {
         matches!(v, CheckVerdict::Fail { .. })

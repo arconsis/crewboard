@@ -1282,7 +1282,6 @@ fn open_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::start::authority_owner;
 
     fn cfg() -> BoardConfig {
         BoardConfig::parse(
@@ -1294,7 +1293,8 @@ mod tests {
     #[test]
     fn authority_md_has_machine_readable_front_matter_that_start_can_read() {
         let t = authority_md("sandbox", "owner-login");
-        assert_eq!(authority_owner(&t).as_deref(), Some("owner-login"));
+        let owner = crate::authority::parse(&t).unwrap().and_then(|a| a.owner);
+        assert_eq!(owner.as_deref(), Some("owner-login"));
         assert!(t.contains("coordinator_may_merge: false"));
         assert!(t.contains("protected: [main]"));
         assert!(t.contains("# ENFORCED: crewboard reads these keys and refuses what they forbid"));

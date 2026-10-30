@@ -172,12 +172,6 @@ pub fn read_text(p: &Path) -> Option<String> {
     Some(t.trim_end_matches('\n').to_string())
 }
 
-/// Write `data` to a temp file next to `p` and rename it over `p`, so that a reader never sees
-/// half a file.
-pub fn write_atomic(p: &Path, data: &[u8]) -> std::io::Result<()> {
-    crate::fsutil::write_atomic(p, data, crate::fsutil::Mode::Default)
-}
-
 /// The wakes in a row that ended at the time budget on the same ticket. The file holds
 /// `<count> <ticket>`; a wake that ends normally removes it.
 pub fn read_budget_streak(p: &Path) -> Option<(u32, String)> {
@@ -397,22 +391,6 @@ mod tests {
             (q.lock, q.quiet),
             (PathBuf::from("/l/x.d"), PathBuf::from("/t/p.log.quiet"))
         );
-    }
-
-    #[test]
-    fn an_atomic_write_replaces_the_file_and_leaves_no_temp_file() {
-        let d = tempfile::tempdir().unwrap();
-        let f = d.path().join("net-backoff");
-        write_atomic(&f, b"1 2\n").unwrap();
-        write_atomic(&f, b"3 4\n").unwrap();
-        assert_eq!(std::fs::read_to_string(&f).unwrap(), "3 4\n");
-        let names: Vec<_> = std::fs::read_dir(d.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names.len(), 1, "{names:?}");
-        // the other direction: a write into a missing dir fails and leaves nothing
-        assert!(write_atomic(&d.path().join("no/such"), b"x").is_err());
     }
 
     #[test]

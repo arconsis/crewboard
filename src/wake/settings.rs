@@ -360,15 +360,11 @@ fn numbers(
         .or_else(|| env("CREWBOARD_MAX_WAKE"))
         .unwrap_or_else(|| "45m".to_string());
     let max_wake = MaxWake {
-        secs: if mw_raw == "off" {
-            0
-        } else {
-            crate::clock::parse_secs(&mw_raw).ok_or_else(|| {
-                bad_logged(format!(
-                    "--max-wake needs a duration (45m, 90s, 2h) or off, got '{mw_raw}'"
-                ))
-            })?
-        },
+        secs: super::policy::parse_max_wake(&mw_raw).ok_or_else(|| {
+            bad_logged(format!(
+                "--max-wake needs a duration (45m, 90s, 2h) or off, got '{mw_raw}'"
+            ))
+        })?,
         text: mw_raw,
     };
     let stale_after = a.stale_after.unwrap_or(policy::DEFAULT_STALE_AFTER);

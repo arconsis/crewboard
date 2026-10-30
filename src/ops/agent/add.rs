@@ -299,7 +299,8 @@ pub(super) fn short_host(raw: &str) -> String {
     if s.is_empty() { "host".into() } else { s }
 }
 
-fn host_name() -> String {
+/// The output of `hostname` (without the token variables), for the default agent name.
+fn hostname_output() -> String {
     let mut c = Command::new("hostname");
     scrub_tokens(&mut c);
     c.output()
@@ -930,7 +931,7 @@ fn plan(a: &AddArgs, coordinator: bool) -> Result<Plan, Early> {
             .filter(|h| !h.is_empty())
             .map(PathBuf::from),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        host: host_name(),
+        host: hostname_output(),
     };
     derive(a, coordinator, cfg.as_ref(), &facts, &|p: &Path| {
         p.is_file()

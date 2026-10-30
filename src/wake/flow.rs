@@ -11,6 +11,7 @@
 
 use super::{gate, preflight, wake_events};
 use crate::clock::{Clock, format_ts};
+use crate::fsutil::{self, Mode};
 use crate::lock::procs::Procs;
 use crate::wake::lockdir::{self, Acquired, Held, Rules};
 use crate::wake::policy::{self, NetBackoff, Quiet};
@@ -156,7 +157,7 @@ impl Flow<'_, '_> {
 
     /// Write a state file; a failure is one line in the log.
     pub(super) fn put(&self, path: &Path, data: &[u8]) {
-        if let Err(e) = state::write_atomic(path, data) {
+        if let Err(e) = fsutil::write_atomic(path, data, Mode::Default) {
             self.log
                 .line(&format!("cannot write {}: {e}", path.display()));
         }

@@ -86,11 +86,6 @@ pub(super) fn headless_text(source: &str) -> String {
     format!("headless = true\n{source}")
 }
 
-/// Write a file with mode 600, atomically. The dir must exist.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    fsutil::write_atomic(path, bytes, Mode::Exact(0o600))
-}
-
 fn usage(m: &str) -> u8 {
     eprintln!("{PREFIX} {m}");
     4
@@ -344,7 +339,11 @@ fn step_config(p: &Plan) -> Result<(), u8> {
         }
         say(2, "config", true, &format!("{initiative}.toml, headless"));
     } else {
-        if let Err(e) = write_private(dst, headless_text(&p.src_text).as_bytes()) {
+        if let Err(e) = fsutil::write_atomic(
+            dst,
+            headless_text(&p.src_text).as_bytes(),
+            Mode::Exact(0o600),
+        ) {
             return Err(bad(
                 2,
                 "config",
@@ -373,7 +372,7 @@ fn step_key(p: &Plan) -> Result<(), u8> {
             if same {
                 fsutil::set_mode(&dkey, 0o600)
             } else {
-                write_private(&dkey, &p.key_bytes)
+                fsutil::write_atomic(&dkey, &p.key_bytes, Mode::Exact(0o600))
             }
         });
     if let Err(e) = made {

@@ -39,16 +39,6 @@ impl StaleReason {
             StaleReason::EmptyAfterGrace => "empty-after-grace",
         }
     }
-
-    #[cfg(test)]
-    pub const ALL: [StaleReason; 6] = [
-        StaleReason::Overdue,
-        StaleReason::PidDead,
-        StaleReason::TooOld,
-        StaleReason::BoardDead,
-        StaleReason::BoardLeft,
-        StaleReason::EmptyAfterGrace,
-    ];
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -357,6 +347,17 @@ pub fn judge(
 mod tests {
     use super::*;
     use crate::lock::procs::FakeProcs;
+
+    impl StaleReason {
+        const ALL: [StaleReason; 6] = [
+            StaleReason::Overdue,
+            StaleReason::PidDead,
+            StaleReason::TooOld,
+            StaleReason::BoardDead,
+            StaleReason::BoardLeft,
+            StaleReason::EmptyAfterGrace,
+        ];
+    }
 
     const NOW: i64 = 1_792_836_000;
 
