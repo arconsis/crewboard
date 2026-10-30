@@ -192,9 +192,9 @@ main() {
   [ "$SKILL_RC" -eq 0 ] || echo "note: crewboard skill install finished with problems (see above)." >&2
   echo "upgrade: crewboard update"
   # The same next-step lines as the overview of `crewboard --help`, so that both say one thing.
-  echo "First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md"
   echo "New crew (owner): \`crewboard agent token\`, \`crewboard init\`,"
-  echo "\`crewboard approve\`, then \`crewboard agent add\` for each agent."
+  echo "then for each agent \`crewboard agent add\` on its host and \`crewboard approve\`."
+  echo "First try: https://github.com/arconsis/crewboard/blob/main/docs/quick-try.md"
   echo "New agent: \`crewboard agent add\`, then \`crewboard doctor --setup\`."
   exit "$SKILL_RC"
 }
