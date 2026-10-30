@@ -803,14 +803,20 @@ List your tickets and what each one needs.
 
 Dev: your In Progress and Ready tickets, best first, and what each owned ticket needs now. Exit 0: a ticket needs you now (In Progress without running CI, red or green CI, no PR yet, a failed verify, an answer after a block or a question, or a Ready or parked ticket while nothing is In Progress). Exit 1: nothing to do now, every owned ticket waits (CI of the PR head still runs, no answer yet, or Review), or you own none. An In Progress ticket whose PR head is behind its base shows a `hint:` line (`behind main by N commits; merge main before done`). The hint is advice and never changes the exit code.
 
-Usage: crewboard mine [OPTIONS]
+With a ticket (`mine <n>`): the signed thread of your ticket since your current assignment, newest first. It shows the messages of the coordinator (answers, infos, verify reports, unblock answers, reassign notices), the owner comments that count, and your own messages (not the `take`). A comment that does not count (not signed by the crew, a copy, or edited) is not shown; one line counts them. A long message is cut with a note. Only the newest 15 messages are shown; a note counts the older ones. Read it at the start of each wake and before you ask the coordinator. Exit 0. A ticket that the signed log does not assign to you is refused (`mine-not-your-ticket`). It writes nothing.
+
+Usage: crewboard mine [OPTIONS] [ISSUE]
+
+Arguments:
+  [ISSUE]
+          Your ticket: an issue number, or `<owner>/<repo>#<n>`. Without it: the list of your tickets
 
 Options:
       --quiet
-          Print nothing; only the exit code tells (0 work to do now, 1 nothing to do now), for `crewboard wake`
+          Print nothing; only the exit code tells (0 work to do now, 1 nothing to do now), for `crewboard wake`. Not with a ticket
 
       --json
-          Print one JSON object instead of the text: `agent`, `rows`, `now`, `needs_agent` and `first_ticket`. The exit code is the same
+          Print one JSON object instead of the text: `agent`, `rows`, `now`, `needs_agent` and `first_ticket`. The exit code is the same. With a ticket: `ticket`, `agent`, `since`, `messages` (newest first), `left_out` and `not_counted`
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)

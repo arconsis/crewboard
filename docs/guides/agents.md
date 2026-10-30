@@ -166,6 +166,7 @@ cb poll --quiet          # for cron: exit 0 events pending, 1 none; moves no cur
 cb say 12 --to codex@host-c --kind report --body-file report.md
 cb status [--json] [--queue]
 cb mine                  # dev: your In Progress and Ready tickets; the first Ready ticket is next
+cb mine 12               # dev: the signed thread of your ticket 12 since your assignment, newest first
 
 # coordinator: the queue of each agent (board field Order; lowest goes first)
 cb assign 12 --to hermes@host-b --order 2

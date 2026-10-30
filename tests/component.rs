@@ -88,6 +88,8 @@ mod fake_merge_first;
 mod fake_merged_without_verify;
 #[path = "component/fake_mine.rs"]
 mod fake_mine;
+#[path = "component/fake_mine_digest.rs"]
+mod fake_mine_digest;
 #[path = "component/fake_monitor.rs"]
 mod fake_monitor;
 #[path = "component/fake_named_runs.rs"]
