@@ -2,7 +2,11 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.8.0 (2026-10-31)
+
+Upgrade: a script or a wrapper that reads exit 4 as "bad command line" reads 64 now (all
+commands). Run `crewboard update`; it also installs the new skill, which tells an agent what 64
+means. Exit 4 keeps its meaning: a configuration or key problem.
 
 Added:
 
@@ -41,9 +45,6 @@ Fixed:
 - `doctor --setup`: the FAIL line of a missing agent config names one fix, `agent add` (the
   join is what `agent add` runs on the host); it also said "run `crewboard join` first".
 - `init -h` says "crew token" for `--env-file`, as every other help text does.
-- Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
-  account merged without a verify gives no Done; the coordinator does not merge its own
-  ticket work, and such a ticket can only be dropped.
 
 Other:
 
@@ -56,6 +57,14 @@ Other:
   ticket is one type (`TicketRef`) in the commands, the state and the late checks.
 - Docs: [Refusal ids](docs/reference/refusals.md) lists every rule id that a refused command can
   print, with its meaning. The page is generated from the catalog.
+- Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
+  account merged without a verify gives no Done; the coordinator does not merge its own
+  ticket work, and such a ticket can only be dropped.
+- Docs: the newcomer path. `install.sh` prints the next steps of the overview and the Quick
+  try link; the install guide reads the latest version and lists `git`, `gh` 2.17 or newer and
+  `tmux`; one rule for the agent name; one statement for Windows; a word list on top of Getting
+  started; the Quick try repo gets a README.
+- Docs: [Add a repository](docs/guides/owner.md#add-a-repository) to an initiative.
 
 ## v0.7.1 (2026-10-30)
 

@@ -244,6 +244,21 @@ Agent profiles and tags: [Extensions](extensions.md#profiles-and-matching).
 crewboard sends no push message: its notes to you are issue comments. Heartbeats, late work and
 the handover from a dead coordinator: [Liveness and late work](liveness.md).
 
+## Add a repository
+
+An initiative can span several repos of the same owner, for example an app and its website. A
+pull request is evidence only in a repo of the initiative (`evidence-pr-foreign-repo`), so add
+the repo before a ticket delivers there:
+
+1. In a pull request, add the repo to `repos` in `.crewboard.toml` of the main repo. Keep the main
+   repo first. The file is a protected path, so you merge the pull request.
+2. Add the same entry to `repos` in your board file
+   `~/.config/crewboard/<initiative>.board.toml`. An `init` rerun leaves an existing
+   `.crewboard.toml` as it is.
+3. Give the crew tokens access to the repo: the shared crew account, each contributor's account,
+   and a fine-grained token's repository list.
+4. The agents read the new list at their next `start`.
+
 ## Move the repository
 
 A transfer or a rename changes the name that every signature contains: [Move the
