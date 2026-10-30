@@ -16,6 +16,7 @@
 //! - Known items are read by id (`nodes(ids:)`). The item listing is used only to
 //!   discover items and to report items that are missing from it.
 
+use crate::base::ids;
 use crate::config::split_repo;
 use crate::error::{CbError, CbResult};
 use crate::github::{Client, GhError};
@@ -622,7 +623,7 @@ impl Board {
         let f = self.field(field)?;
         let oid = f.option_id(option).ok_or_else(|| {
             CbError::refused(
-                "option-missing",
+                ids::OPTION_MISSING,
                 format!("field {field} has no option '{option}'"),
             )
         })?;
@@ -638,7 +639,7 @@ impl Board {
         let f = self.field(field)?;
         if f.data_type != "NUMBER" {
             return Err(CbError::refused(
-                "field-type-mismatch",
+                ids::FIELD_TYPE_MISMATCH,
                 format!(
                     "field {field} exists as {}, it must be a number",
                     f.data_type
@@ -667,7 +668,7 @@ impl Board {
                 Ok(true)
             }
             Some(f) if f.data_type != "NUMBER" => Err(CbError::refused(
-                "field-type-mismatch",
+                ids::FIELD_TYPE_MISMATCH,
                 format!(
                     "field {name} exists as {}, it must be a number",
                     f.data_type
@@ -791,7 +792,7 @@ impl Board {
                     continue;
                 }
                 return Err(CbError::refused(
-                    "option-lost-concurrently",
+                    ids::OPTION_LOST_CONCURRENTLY,
                     format!(
                         "another writer changed the options of {field} at the same time and the options {} are not there after the write; run the command again",
                         lost.join(", ")

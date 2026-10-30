@@ -3,6 +3,7 @@
 
 use super::agent::AgentRuntime;
 use super::{Ctx, Global, World, load_world, new_client, say};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::board::ItemRef;
 use crate::clock::{now_epoch, now_ts};
@@ -94,7 +95,7 @@ fn board_config_of(
 fn check_one_agent_per_config(cd: &ConfigDir, cfg: &BoardConfig, name: &AgentName) -> CbResult<()> {
     match cd.agent_name_on_disk(&cfg.initiative) {
         Some(have) if have != name.as_str() => Err(CbError::refused(
-            "one-agent-per-config",
+            ids::ONE_AGENT_PER_CONFIG,
             format!(
                 "{} already holds agent {} for initiative {}; use another --config-dir for {name}",
                 cd.0.display(),
@@ -113,7 +114,7 @@ fn check_name_free(world: &World, name: &AgentName, key: &PrivateKey) -> CbResul
         && j.key().map(|k| fingerprint(&k)) != Some(fingerprint(key.public_key()))
     {
         return Err(CbError::refused(
-            "name-taken",
+            ids::NAME_TAKEN,
             format!("{name} is registered with another key; choose another name"),
         ));
     }

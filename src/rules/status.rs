@@ -141,7 +141,7 @@ pub fn check_verify(
 ) -> Verdict {
     require(
         actor.is_coordinator(),
-        "verify-coordinator-only",
+        ids::VERIFY_COORDINATOR_ONLY,
         "verify is a coordinator action",
     )?;
     let hint = if matches!(status, Status::InProgress | Status::Blocked) {
@@ -151,7 +151,7 @@ pub fn check_verify(
     };
     require(
         status == Status::Review,
-        "verify-needs-review",
+        ids::VERIFY_NEEDS_REVIEW,
         &format!(
             "verify needs a ticket in Review, this one is {}{hint}",
             status.name()
@@ -166,12 +166,12 @@ pub fn check_verify(
 pub fn check_unblock(status: Status, actor: Actor, has_assignee: bool) -> Verdict {
     require(
         actor.is_coordinator(),
-        "unblock-coordinator-only",
+        ids::UNBLOCK_COORDINATOR_ONLY,
         "unblock is a coordinator action",
     )?;
     require(
         status == Status::Blocked,
-        "unblock-needs-blocked",
+        ids::UNBLOCK_NEEDS_BLOCKED,
         &format!(
             "unblock needs a ticket in Blocked, this one is {}",
             status.name()
@@ -179,7 +179,7 @@ pub fn check_unblock(status: Status, actor: Actor, has_assignee: bool) -> Verdic
     )?;
     require(
         has_assignee,
-        "unblock-no-assignee",
+        ids::UNBLOCK_NO_ASSIGNEE,
         "unblock needs a ticket with an assignee; use `reassign` or `assign` instead",
     )
 }
@@ -352,7 +352,7 @@ pub fn check_interrupt_by_order(new: Option<i64>, current: Option<i64>) -> Verdi
     let show = |o: Option<i64>| o.map_or_else(|| "none".to_string(), |o| o.to_string());
     require(
         matches!((new, current), (Some(n), Some(c)) if n < c),
-        "interrupt-not-ahead",
+        ids::INTERRUPT_NOT_AHEAD,
         &format!(
             "--interrupt needs a ticket that is strictly ahead of the ticket in progress in your queue, that is a lower Order (new: {}, in progress: {}); ask the coordinator to put it first with `assign <n> --order <number>`",
             show(new),
@@ -364,7 +364,7 @@ pub fn check_interrupt_by_order(new: Option<i64>, current: Option<i64>) -> Verdi
 /// The refusal for any move out of Done.
 fn done_final() -> Refusal {
     Refusal::new(
-        "status-done-final",
+        ids::STATUS_DONE_FINAL,
         "ticket is Done; only the owner moves it (open a new ticket, or ask the owner)",
     )
 }
@@ -372,7 +372,7 @@ fn done_final() -> Refusal {
 /// The refusal for any move out of Dropped.
 pub fn dropped_final() -> Refusal {
     Refusal::new(
-        "status-dropped-final",
+        ids::STATUS_DROPPED_FINAL,
         "ticket is Dropped; only the owner moves it (`crewboard move`; or open a new ticket)",
     )
 }
@@ -396,7 +396,7 @@ pub fn check_ask(key: &str, actor: Actor, is_assignee: bool, status: Status) -> 
     }
     require(
         actor.is_coordinator() || (actor.is_dev() && is_assignee),
-        "ask-not-assignee",
+        ids::ASK_NOT_ASSIGNEE,
         &format!("only the assignee or the coordinator asks the owner about {key}"),
     )
 }
@@ -416,7 +416,7 @@ pub fn check_no_open_question(key: &str, open_since: Option<&str>) -> Verdict {
     };
     let n = key.rsplit('#').next().unwrap_or(key);
     Err(Refusal::new(
-        "verify-owner-question-open",
+        ids::VERIFY_OWNER_QUESTION_OPEN,
         format!(
             "{key} has a question to the owner since {since}: verify after the owner answers on the ticket, or take the question back with crewboard reassign {n} --to <agent> --reason \"...\"; an answer in a chat is not signed"
         ),
@@ -430,7 +430,7 @@ pub fn check_not_owner_route(key: &str, on_owner_route: bool) -> Verdict {
     let n = key.rsplit('#').next().unwrap_or(key);
     require(
         !on_owner_route,
-        "verify-owner-route",
+        ids::VERIFY_OWNER_ROUTE,
         &format!(
             "the latest done of {key} is on the owner route: the owner applies the patch and merges the PR by hand, then crewboard close {n}"
         ),
@@ -476,7 +476,7 @@ pub fn check_status_transition(
     {
         return require(
             evidence_complete,
-            "status-evidence-missing",
+            ids::STATUS_EVIDENCE_MISSING,
             "a re-delivery in Review needs complete evidence: pr, sha, ci",
         );
     }
@@ -487,7 +487,7 @@ pub fn check_status_transition(
         } else {
             format!("ticket is already {to:?}")
         };
-        return Err(Refusal::new("status-no-change", text));
+        return Err(Refusal::new(ids::STATUS_NO_CHANGE, text));
     }
     if actor.is_owner() {
         return Ok(());
@@ -521,12 +521,12 @@ pub fn check_status_transition(
     {
         require(
             actor.is_dev() && by_assignee,
-            "status-wrong-writer",
+            ids::STATUS_WRONG_WRITER,
             "Blocked -> Review (split ticket, kind=done) is an action of the assigned dev agent",
         )?;
         return require(
             evidence_complete,
-            "status-evidence-missing",
+            ids::STATUS_EVIDENCE_MISSING,
             "Review needs complete evidence: pr, sha, ci",
         );
     }
@@ -540,21 +540,21 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
     let coordinator = |what: &str| {
         require(
             actor.is_coordinator(),
-            "status-wrong-writer",
+            ids::STATUS_WRONG_WRITER,
             &format!("{what} is a coordinator action"),
         )
     };
     let assignee = |what: &str| {
         require(
             actor.is_dev() && by_assignee,
-            "status-wrong-writer",
+            ids::STATUS_WRONG_WRITER,
             &format!("{what} is an action of the assigned dev agent"),
         )
     };
     // The variant does not carry the facts of this move: the pair is not in the table.
     let not_in_table = || {
         Err(Refusal::new(
-            "status-unknown-transition",
+            ids::STATUS_UNKNOWN_TRANSITION,
             format!("{from:?} -> {to:?} is not in the status table"),
         ))
     };
@@ -576,7 +576,7 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
             )?;
             require(
                 assignee_active_dev,
-                "status-agent-not-active-dev",
+                ids::STATUS_AGENT_NOT_ACTIVE_DEV,
                 "Backlog -> Ready needs the Agent field set to an active dev agent",
             )
         }
@@ -593,7 +593,7 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
             assignee("In Progress -> Review (kind=done)")?;
             require(
                 evidence_complete,
-                "status-evidence-missing",
+                ids::STATUS_EVIDENCE_MISSING,
                 "Review needs complete evidence: pr, sha, ci",
             )
         }
@@ -642,7 +642,7 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
             coordinator(&format!("reassign (-> {})", to.name()))?;
             require(
                 justified,
-                "status-reassign-reason",
+                ids::STATUS_REASSIGN_REASON,
                 "reassign needs a reason: dead, stopping, late or blocked-too-long",
             )
         }
@@ -656,7 +656,7 @@ fn after_verify(to: Status, tr: &Transition) -> Verdict {
     match (to, *tr) {
         (Status::Done, Transition::Close { verify, .. }) => require(
             verify == Some(true),
-            "status-verify-required",
+            ids::STATUS_VERIFY_REQUIRED,
             "Review -> Done needs a passed verify",
         ),
         (
@@ -667,13 +667,13 @@ fn after_verify(to: Status, tr: &Transition) -> Verdict {
             },
         ) => require(
             verify == Some(false),
-            "status-verify-failed-required",
+            ids::STATUS_VERIFY_FAILED_REQUIRED,
             "Review -> In Progress needs a failed verify",
         )
         .and_then(|()| {
             require(
                 !assignee_busy,
-                "status-verify-failed-agent-busy",
+                ids::STATUS_VERIFY_FAILED_AGENT_BUSY,
                 "the agent has another ticket In Progress: a failed verify queues the ticket in Ready (Review -> Ready)",
             )
         }),
@@ -685,11 +685,11 @@ fn after_verify(to: Status, tr: &Transition) -> Verdict {
             },
         ) => require(
             assignee_busy,
-            "status-verify-requeue-agent-idle",
+            ids::STATUS_VERIFY_REQUEUE_AGENT_IDLE,
             "the agent has no other ticket In Progress: a failed verify moves the ticket to In Progress",
         ),
         _ => Err(Refusal::new(
-            "status-unknown-transition",
+            ids::STATUS_UNKNOWN_TRANSITION,
             format!("Review -> {to:?} is not a move after a verify"),
         )),
     }
@@ -768,6 +768,7 @@ mod tests {
         check_status_transition(from, to, actor, ctx)
             .expect_err("must be refused")
             .rule
+            .as_str()
     }
 
     #[test]
@@ -844,6 +845,7 @@ mod tests {
         check_verify(s, actor, KEY, None)
             .expect_err("must be refused")
             .rule
+            .as_str()
     }
 
     #[test]

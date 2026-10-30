@@ -7,6 +7,7 @@
 //! writes the board. It runs with the owner's token only (`owner-command-not-owner`).
 
 use super::{Ctx, Global, load_world, new_owner_client, parse_issue_arg, require_owner};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::board::ItemRef;
 use crate::error::CbResult;
@@ -20,9 +21,6 @@ use crate::services::ticket_loader::load_ticket;
 use crate::state::StateCache;
 use crate::ticket::log::{Expected, fold_ticket};
 use serde_json::json;
-
-/// The rule of a target that needs an assignee when the signed log has none.
-pub const MOVE_NEEDS_ASSIGNEE: &str = "move-needs-assignee";
 
 /// What the move writes after its comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +50,7 @@ pub fn plan(
 ) -> Result<Plan, Refusal> {
     if from == Some(to) && log.allows(to) == Some(true) {
         return Err(Refusal::new(
-            "status-no-change",
+            ids::STATUS_NO_CHANGE,
             format!(
                 "{key} is {} on the board and in the signed log already",
                 to.name()
@@ -64,7 +62,7 @@ pub fn plan(
     } else {
         let Some(a) = log_agent else {
             return Err(Refusal::new(
-                MOVE_NEEDS_ASSIGNEE,
+                ids::MOVE_NEEDS_ASSIGNEE,
                 format!(
                     "{key} has no signed assignment, and {} needs an agent: move it to Backlog, and the coordinator assigns it (`crewboard assign`)",
                     to.name()
@@ -178,7 +176,7 @@ mod tests {
             Status::Blocked,
         ] {
             let r = plan(KEY, Some(Status::Done), to, &is(Status::Done), None, None);
-            assert_eq!(r.unwrap_err().rule, MOVE_NEEDS_ASSIGNEE, "{to:?}");
+            assert_eq!(r.unwrap_err().rule, ids::MOVE_NEEDS_ASSIGNEE, "{to:?}");
             // the board Agent alone is no assignment
             let r = plan(
                 KEY,
@@ -188,7 +186,7 @@ mod tests {
                 None,
                 Some("a@x"),
             );
-            assert_eq!(r.unwrap_err().rule, MOVE_NEEDS_ASSIGNEE, "{to:?}");
+            assert_eq!(r.unwrap_err().rule, ids::MOVE_NEEDS_ASSIGNEE, "{to:?}");
             let same = plan(
                 KEY,
                 Some(Status::Done),

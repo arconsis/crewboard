@@ -17,9 +17,7 @@
 //! a PR that changes it is protected itself.
 
 use super::{Refusal, Verdict, require};
-
-/// The rule name.
-pub const RULE: &str = "protected-path-owner-merge";
+use crate::base::ids;
 
 /// More files than this are not judged: the list may be cut, so the rule cannot prove that no
 /// file is protected and fails closed.
@@ -239,7 +237,7 @@ pub fn check_hits(
 ) -> Verdict {
     if truncated {
         return Err(Refusal::new(
-            RULE,
+            ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
                 "PR {pr_url} has more than {MAX_FILES} files; crewboard cannot prove that none is protected: the owner merges it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\""
             ),
@@ -247,7 +245,7 @@ pub fn check_hits(
     }
     require(
         hits.is_empty(),
-        RULE,
+        ids::PROTECTED_PATH_OWNER_MERGE,
         &format!(
             "PR {pr_url} changes {}: only the owner merges a PR that changes {}; review it, merge it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\"",
             hits.join(", "),
@@ -354,7 +352,7 @@ mod tests {
         };
         let r = check_unprotected("https://github.com/o/r/pull/3", "o/r#7", &files, auth())
             .unwrap_err();
-        assert_eq!(r.rule, RULE);
+        assert_eq!(r.rule, ids::PROTECTED_PATH_OWNER_MERGE);
         assert!(r.message.contains("changes AUTHORITY.md"), "{}", r.message);
     }
 
@@ -390,7 +388,7 @@ mod tests {
             ..clean
         };
         let r = check_unprotected("https://github.com/o/r/pull/3", "7", &cut, auth()).unwrap_err();
-        assert_eq!(r.rule, RULE);
+        assert_eq!(r.rule, ids::PROTECTED_PATH_OWNER_MERGE);
         assert!(r.message.contains("more than 1000 files"), "{}", r.message);
         assert!(r.message.ends_with("crewboard close 7 --why \"<text>\""));
     }
@@ -472,7 +470,7 @@ mod tests {
             ..PrFileList::default()
         };
         let r = check_unprotected("u", "7", &files, with_extra(&extra)).unwrap_err();
-        assert_eq!(r.rule, RULE);
+        assert_eq!(r.rule, ids::PROTECTED_PATH_OWNER_MERGE);
         assert!(r.message.contains("changes tests/a.rs"), "{}", r.message);
         assert!(
             r.message

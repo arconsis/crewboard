@@ -16,6 +16,7 @@
 
 use super::pr_read::{MergedPr, read_pr};
 use super::{post, to_agent};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World};
 use crate::protocol::names::{Kind, Re};
@@ -31,7 +32,7 @@ use crate::ticket::VMsg;
 /// The refusal of `done` for a merged PR.
 pub fn refusal(pr: &MergedPr) -> Refusal {
     Refusal::new(
-        "pr-already-merged",
+        ids::PR_ALREADY_MERGED,
         format!(
             "PR {} was merged at {} by {}; push nothing more to its branch. For a remaining change open a new PR from the default branch and run done with it. If the owner merged it, the coordinator runs `crewboard close <n>` (the PR body must close the issue, for example `Closes #<n>`)",
             pr.url(),

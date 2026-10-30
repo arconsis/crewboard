@@ -1,5 +1,6 @@
 //! The PR and CI evidence that `done`, `verify` and `merge` read: PR head and files, named CI runs, the judgement of a missing CI run.
 
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use crate::ops::AgentCtx;
@@ -66,7 +67,7 @@ pub(super) fn check_pr_in_initiative(
         return Ok(());
     }
     Err(Refusal::new(
-        "evidence-pr-foreign-repo",
+        ids::EVIDENCE_PR_FOREIGN_REPO,
         format!(
             "PR {}#{} is not in a repo of the initiative ({})",
             pr.repo,
@@ -81,7 +82,7 @@ pub(super) fn fetch_pr(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<(PrFa
         Ok(r) => r,
         Err(GhError::Http { status: 404, .. }) => {
             return Err(CbError::refused(
-                "evidence-pr-missing",
+                ids::EVIDENCE_PR_MISSING,
                 format!("PR {repo}#{number} does not exist"),
             ));
         }
@@ -209,7 +210,7 @@ pub(crate) fn pr_files_for_protection(
     number: u64,
     ticket: &str,
 ) -> CbResult<crate::rules::protected::PrFileList> {
-    use crate::rules::protected::{PrFileList, RULE};
+    use crate::rules::protected::PrFileList;
     match fetch_pr_files_upto(ac, repo, number, MAX_FILES + 1) {
         Ok(f) => Ok(PrFileList {
             truncated: f.over(MAX_FILES),
@@ -217,7 +218,7 @@ pub(crate) fn pr_files_for_protection(
             previous: f.previous,
         }),
         Err(e) => Err(Refusal::new(
-            RULE,
+            ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
                 "the files of {repo}#{number} cannot be read ({e}); crewboard cannot prove that none is protected: try again, or the owner merges it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\""
             ),

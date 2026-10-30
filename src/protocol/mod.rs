@@ -14,6 +14,7 @@ pub mod signature;
 #[cfg(test)]
 mod interop_tests;
 
+use crate::base::ids::{self, RuleId};
 use std::fmt;
 
 /// Namespace of every `sshsig` signature made by crewboard (spec/identity#author-and-signature).
@@ -41,13 +42,13 @@ pub enum ProtocolError {
 }
 
 impl ProtocolError {
-    pub fn rule(&self) -> &'static str {
+    pub fn rule(&self) -> RuleId {
         match self {
-            ProtocolError::Malformed(_) => "malformed-message",
-            ProtocolError::VisibleLineMismatch => "visible-line-mismatch",
-            ProtocolError::BadSignature(_) => "bad-signature",
-            ProtocolError::BadKey(_) => "bad-key",
-            ProtocolError::BodyTooLong(_) => "body-too-long",
+            ProtocolError::Malformed(_) => ids::MALFORMED_MESSAGE,
+            ProtocolError::VisibleLineMismatch => ids::VISIBLE_LINE_MISMATCH,
+            ProtocolError::BadSignature(_) => ids::BAD_SIGNATURE,
+            ProtocolError::BadKey(_) => ids::BAD_KEY,
+            ProtocolError::BodyTooLong(_) => ids::BODY_TOO_LONG,
         }
     }
 }

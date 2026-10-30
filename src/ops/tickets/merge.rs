@@ -18,6 +18,7 @@ use super::{
     question_open_since, remember, to_agent,
 };
 use crate::authority::Authority;
+use crate::base::ids;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::{CbError, CbResult};
@@ -44,7 +45,7 @@ pub fn parse_method(m: &str) -> Result<&'static str, Refusal> {
         "merge" => Ok("merge"),
         "rebase" => Ok("rebase"),
         other => Err(Refusal::new(
-            "merge-method-unknown",
+            ids::MERGE_METHOD_UNKNOWN,
             format!("merge method '{other}' is not one of squash, merge, rebase"),
         )),
     }
@@ -105,7 +106,7 @@ pub fn judge_merge(i: &MergeInput<'_>) -> Result<Evidence, Refusal> {
     }
     if i.status != Status::Review {
         return Err(Refusal::new(
-            "merge-needs-review",
+            ids::MERGE_NEEDS_REVIEW,
             format!(
                 "merge needs a ticket in Review, this one is {}",
                 i.status.name()
@@ -118,13 +119,13 @@ pub fn judge_merge(i: &MergeInput<'_>) -> Result<Evidence, Refusal> {
     )?;
     if i.verify != Some(true) {
         return Err(Refusal::new(
-            "merge-verify-required",
+            ids::MERGE_VERIFY_REQUIRED,
             "run `crewboard verify` first: merge needs a passed verify for the latest done message",
         ));
     }
     if i.pr.merged || i.pr.state != "open" {
         return Err(Refusal::new(
-            "merge-pr-not-open",
+            ids::MERGE_PR_NOT_OPEN,
             format!(
                 "PR {}#{} is {}; there is nothing to merge ({})",
                 i.pr.repo,
@@ -150,13 +151,13 @@ pub fn judge_merge(i: &MergeInput<'_>) -> Result<Evidence, Refusal> {
         Some(dev) => {
             if dev.trim().is_empty() {
                 return Err(Refusal::new(
-                    "local-gate-missing",
+                    ids::LOCAL_GATE_MISSING,
                     "the evidence is 'ci: local-gate' but the done message has no local-gate line",
                 ));
             }
             if i.coordinator_local_gate.is_none_or(|t| t.trim().is_empty()) {
                 return Err(Refusal::new(
-                    "local-gate-missing",
+                    ids::LOCAL_GATE_MISSING,
                     format!(
                         "merge needs the coordinator's local gate: the passed verify of {} has no `coordinator-local-gate` line on this head. Run `crewboard verify {} --local-run \"<host, command, rc, log>\"` again",
                         i.evidence_sha, i.ticket_issue
@@ -254,7 +255,7 @@ pub fn resolve_mergeable<E>(
         }
     }
     Ok(Err(Refusal::new(
-        "pr-not-mergeable",
+        ids::PR_NOT_MERGEABLE,
         "the mergeable state of the PR is UNKNOWN (GitHub still computes it): state unknown, try again",
     )))
 }
@@ -270,14 +271,14 @@ pub fn redeliver_command(ticket: &str, pr: &str) -> String {
 pub fn not_mergeable(ticket: &str, pr: &str, state: &str) -> Refusal {
     if state == "DRAFT" {
         return Refusal::new(
-            "pr-not-mergeable",
+            ids::PR_NOT_MERGEABLE,
             format!(
                 "PR {pr} is not mergeable (mergeStateStatus DRAFT): the PR is a draft; mark it ready for review"
             ),
         );
     }
     Refusal::new(
-        "pr-not-mergeable",
+        ids::PR_NOT_MERGEABLE,
         format!(
             "PR {pr} is not mergeable: mergeStateStatus {state}. Nothing was merged; the dev agent rebases or merges the base branch, pushes and runs `{}` (the ticket stays in Review). Then run verify and merge again",
             redeliver_command(ticket, pr)
@@ -332,15 +333,15 @@ pub fn classify_merge_refusal(status: u16, message: &str, pr: &str, sha: &str) -
         || m.contains("base branch was modified");
     match status {
         405 | 409 if not_mergeable_msg => Some(Refusal::new(
-            "pr-not-mergeable",
+            ids::PR_NOT_MERGEABLE,
             format!("GitHub refused the merge of {pr}: the PR is not mergeable ({message})"),
         )),
         409 => Some(Refusal::new(
-            "merge-head-moved",
+            ids::MERGE_HEAD_MOVED,
             format!("GitHub refused the merge: the PR head is not {sha} any more ({message})"),
         )),
         405 | 422 => Some(Refusal::new(
-            "merge-not-allowed",
+            ids::MERGE_NOT_ALLOWED,
             format!("GitHub refused the merge of {pr}: {message}"),
         )),
         _ => None,
@@ -439,11 +440,14 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
         )?;
     }
     let assignee = t.agent().map(str::to_string).ok_or_else(|| {
-        CbError::refused("verify-no-evidence", format!("{} has no assignee", t.key()))
+        CbError::refused(
+            ids::VERIFY_NO_EVIDENCE,
+            format!("{} has no assignee", t.key()),
+        )
     })?;
     let (done_msg, ev) = latest_done(&t.msgs, &assignee).ok_or_else(|| {
         CbError::refused(
-            "verify-no-evidence",
+            ids::VERIFY_NO_EVIDENCE,
             format!(
                 "{} has no signed done message of {assignee} with pr, sha and ci",
                 t.key()
@@ -494,7 +498,7 @@ fn check_evidence_for_merge(
 ) -> Result<(), Refusal> {
     if headless && crate::domain::ci::triggers::evidence_has_no_run(&ev.ci) {
         return Err(Refusal::new(
-            crate::headless::RULE,
+            ids::HEADLESS_SCOPE,
             format!(
                 "this config is headless: the evidence is 'ci: {}', so no CI run proves the change and the Gate is not CI only. Leave the merge for the interactive coordinator and note it",
                 ev.ci
@@ -508,14 +512,14 @@ fn check_evidence_for_merge(
             .is_some_and(crate::domain::ci::evaluate::names_runs)
     {
         return Err(Refusal::new(
-            crate::headless::RULE,
+            ids::HEADLESS_SCOPE,
             "this config is headless: the evidence names a CI run by hand (`named` in its ci-runs line), so the Gate is not CI only. Leave the merge for the interactive coordinator and note it",
         ));
     }
     if ev_local {
         if headless {
             return Err(Refusal::new(
-                crate::headless::RULE,
+                ids::HEADLESS_SCOPE,
                 "this config is headless: the evidence is a local gate (`ci: local-gate`), so the Gate is not CI only. Leave the merge for the interactive coordinator and note it",
             ));
         }
@@ -530,7 +534,7 @@ fn check_evidence_for_merge(
 fn check_headless_ci(headless: bool, ci: &CiFacts) -> Result<(), Refusal> {
     if headless && !matches!(ci, CiFacts::Green { .. }) {
         return Err(Refusal::new(
-            crate::headless::RULE,
+            ids::HEADLESS_SCOPE,
             "this config is headless: merge needs a counted CI run that is green for the verified SHA. Leave the merge for the interactive coordinator and note it",
         ));
     }
@@ -946,7 +950,7 @@ fn act_merge_steps(
     // From here on the merge is done. A later failure says so, and how to finish.
     let finish = |e: CbError| {
         CbError::refused(
-            "merge-done-ticket-open",
+            ids::MERGE_DONE_TICKET_OPEN,
             format!(
                 "PR {} is merged (commit {merge_sha}), but a later step failed: {e}. Finish with `crewboard close {} --verified`",
                 s.pr_url, l.n

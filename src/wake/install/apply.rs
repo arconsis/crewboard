@@ -10,6 +10,7 @@ use super::plan::{
 use super::sys::{RealSys, Sys};
 use super::units;
 use super::{Flags, InstallArgs, Os, Scheduler, UnitArgs, WakeAction};
+use crate::base::ids;
 use crate::clock;
 use crate::config::ConfigDir;
 use crate::error::CbError;
@@ -228,7 +229,7 @@ fn refuse_foreign(found: &[Foreign], t: &Target) -> CbError {
         "fix: crewboard wake install --agent-dir {} ... --replace (removes those jobs; a copy of each file stays as <file>.bak-<date>)",
         t.config_dir.display()
     ));
-    CbError::refused("second-wake-job", m.join("\n"))
+    CbError::refused(ids::SECOND_WAKE_JOB, m.join("\n"))
 }
 
 /// `--dry-run` with `--replace`: what is unloaded, copied and removed.

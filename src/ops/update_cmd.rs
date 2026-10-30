@@ -13,6 +13,7 @@
 //!
 //! No backup of the old version is kept: the way back is `--release <old tag>`.
 
+use crate::base::ids;
 use crate::base::ignore::{best_effort_cleanup, best_effort_output, child_may_have_ended};
 use crate::error::{CbError, CbResult};
 use crate::github::{API_BASE_ENV, GhError, parse_api_base};
@@ -369,7 +370,7 @@ impl Api {
             .unwrap_or_else(|| text.chars().take(200).collect());
         match status {
             404 => Err(CbError::refused(
-                "update-release",
+                ids::UPDATE_RELEASE,
                 format!(
                     "{what} does not exist or is not readable. If the repo is a private fork or mirror, put a token with read access in GH_TOKEN (for example `GH_TOKEN=$(gh auth token) crewboard update`)"
                 ),
@@ -422,7 +423,7 @@ impl Api {
             .map(str::to_string)
             .ok_or_else(|| {
                 CbError::refused(
-                    "update-release",
+                    ids::UPDATE_RELEASE,
                     format!("the release has no asset {name} (it may not publish this target)"),
                 )
             })
@@ -442,7 +443,7 @@ impl Api {
             .map_err(|e| GhError::Network(format!("reading {name}: {e}")))?;
         if buf.len() as u64 > max {
             return Err(CbError::refused(
-                "update-release",
+                ids::UPDATE_RELEASE,
                 format!("the asset {name} is larger than {max} bytes"),
             ));
         }
@@ -510,7 +511,7 @@ impl Drop for TempDir {
 fn find_local_tarball(dir: &Path, target: &str) -> CbResult<(String, String)> {
     let rd = std::fs::read_dir(dir).map_err(|e| {
         CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!("cannot read {}: {e}", dir.display()),
         )
     })?;
@@ -527,14 +528,14 @@ fn find_local_tarball(dir: &Path, target: &str) -> CbResult<(String, String)> {
     match found.len() {
         1 => Ok(found.remove(0)),
         0 => Err(CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!(
                 "{} has no crewboard-<version>-{target}.tar.gz",
                 dir.display()
             ),
         )),
         _ => Err(CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!(
                 "{} has more than one tarball for {target} ({}); keep one",
                 dir.display(),
@@ -551,20 +552,20 @@ fn find_local_tarball(dir: &Path, target: &str) -> CbResult<(String, String)> {
 fn read_capped(path: &Path, max: u64) -> CbResult<Vec<u8>> {
     let f = std::fs::File::open(path).map_err(|e| {
         CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!("cannot read {}: {e}", path.display()),
         )
     })?;
     let mut buf = Vec::new();
     f.take(max + 1).read_to_end(&mut buf).map_err(|e| {
         CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!("cannot read {}: {e}", path.display()),
         )
     })?;
     if buf.len() as u64 > max {
         return Err(CbError::refused(
-            "update-source",
+            ids::UPDATE_SOURCE,
             format!("{} is larger than {max} bytes", path.display()),
         ));
     }
@@ -641,7 +642,7 @@ pub fn update(
 ) -> CbResult<u8> {
     let target = target_triple().ok_or_else(|| {
         CbError::refused(
-            "update-target",
+            ids::UPDATE_TARGET,
             format!(
                 "no release exists for this platform ({} {}); releases cover aarch64-apple-darwin, x86_64-apple-darwin, x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu",
                 std::env::consts::OS,
@@ -810,7 +811,7 @@ fn resolve_source(
         .to_string();
     if parse_tag(&tag).is_err() || a.release.as_ref().is_some_and(|r| *r != tag) {
         return Err(CbError::refused(
-            "update-release",
+            ids::UPDATE_RELEASE,
             format!(
                 "the release has the tag {tag:?}, expected {}",
                 a.release.as_deref().unwrap_or("a tag vX.Y.Z")
@@ -855,13 +856,13 @@ fn download(fetch: &Fetch, name: &str) -> CbResult<(String, Vec<u8>)> {
         Fetch::Dir(d) => (
             read_capped(&d.join("SHA256SUMS"), MAX_SUMS).and_then(|b| {
                 String::from_utf8(b)
-                    .map_err(|_| CbError::refused("update-source", "SHA256SUMS is not text"))
+                    .map_err(|_| CbError::refused(ids::UPDATE_SOURCE, "SHA256SUMS is not text"))
             })?,
             read_capped(&d.join(name), MAX_TARBALL)?,
         ),
         Fetch::Release(api, rel) => (
             String::from_utf8(api.asset(rel, "SHA256SUMS", MAX_SUMS)?)
-                .map_err(|_| CbError::refused("update-release", "SHA256SUMS is not text"))?,
+                .map_err(|_| CbError::refused(ids::UPDATE_RELEASE, "SHA256SUMS is not text"))?,
             api.asset(rel, name, MAX_TARBALL)?,
         ),
     })
@@ -869,11 +870,11 @@ fn download(fetch: &Fetch, name: &str) -> CbResult<(String, Vec<u8>)> {
 
 /// The sha256 of the tarball must match its line in `SHA256SUMS`.
 fn verify_download(sums: &str, bytes: &[u8], name: &str, s: &mut Say<'_>) -> CbResult<()> {
-    let want = sums_hash(sums, name).map_err(|m| CbError::refused("update-checksum", m))?;
+    let want = sums_hash(sums, name).map_err(|m| CbError::refused(ids::UPDATE_CHECKSUM, m))?;
     let got = sha256_hex(bytes);
     if got != want {
         return Err(CbError::refused(
-            "update-checksum",
+            ids::UPDATE_CHECKSUM,
             format!("the sha256 of {name} is {got}, SHA256SUMS says {want}; nothing was changed"),
         ));
     }
@@ -891,7 +892,7 @@ fn unpack_new(bytes: &[u8], name: &str, tmp: &TempDir, s: &mut Say<'_>) -> Step<
     let top = name.trim_end_matches(".tar.gz");
     match unpack_binary(bytes, top, &unpacked) {
         Ok(()) => Ok(unpacked),
-        Err(UnpackError::Bad(m)) => Err(CbError::refused("update-tarball", m).into()),
+        Err(UnpackError::Bad(m)) => Err(CbError::refused(ids::UPDATE_TARBALL, m).into()),
         Err(UnpackError::Io(e)) => Err(Stop::Exit(
             s.failed(&format!("unpack into {}", tmp.0.display()), &e),
         )),
@@ -901,10 +902,10 @@ fn unpack_new(bytes: &[u8], name: &str, tmp: &TempDir, s: &mut Say<'_>) -> Step<
 /// The unpacked binary must print the version of the release.
 fn check_version(unpacked: &Path, name: &str, version: &str, s: &mut Say<'_>) -> CbResult<()> {
     let said = version_line(unpacked)
-        .map_err(|m| CbError::refused("update-version", format!("the binary in {name}: {m}")))?;
+        .map_err(|m| CbError::refused(ids::UPDATE_VERSION, format!("the binary in {name}: {m}")))?;
     if said != format!("crewboard {version}") {
         return Err(CbError::refused(
-            "update-version",
+            ids::UPDATE_VERSION,
             format!(
                 "the binary in {name} prints {said:?}, expected \"crewboard {version}\"; nothing was changed"
             ),

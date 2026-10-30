@@ -12,6 +12,7 @@
 //!   only if the ticket body declares `CI: none` (an owner decision).
 
 use super::Refusal;
+use crate::base::ids;
 
 /// A PR URL `https://github.com/<owner>/<repo>/pull/<n>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +24,7 @@ pub struct PrUrl {
 pub fn parse_pr_url(s: &str) -> Result<PrUrl, Refusal> {
     let bad = || {
         Refusal::new(
-            "evidence-pr-url",
+            ids::EVIDENCE_PR_URL,
             format!("'{s}' is not a PR URL (https://github.com/<owner>/<repo>/pull/<n>)"),
         )
     };
@@ -295,14 +296,14 @@ pub fn judge_ci(i: &EvidenceInput<'_>) -> Result<CiProof, Refusal> {
             runs: sources.runs_text(),
         }),
         CiFacts::NotGreen(reasons) => Err(Refusal::new(
-            "evidence-ci-not-green",
+            ids::EVIDENCE_CI_NOT_GREEN,
             format!("CI of {head} is not green: {}", reasons.join("; ")),
         )),
         CiFacts::NoCi(_) | CiFacts::OnlyInformation { .. } if i.ci_none_declared => {
             Ok(CiProof::None)
         }
         CiFacts::OnlyInformation { info, unreadable } => Err(Refusal::new(
-            "evidence-ci-missing",
+            ids::EVIDENCE_CI_MISSING,
             format!(
                 "no counted CI run for {head}: only runs that are information (not push or pull_request): {}{}. Name a run that is part of the Gate with `--run <id>`. {}",
                 info.join(", "),
@@ -318,7 +319,7 @@ pub fn judge_ci(i: &EvidenceInput<'_>) -> Result<CiProof, Refusal> {
             Ok(CiProof::Skipped(paths_ignored.unwrap_or_default()))
         }
         CiFacts::NoCi(unread) => Err(Refusal::new(
-            "evidence-ci-missing",
+            ids::EVIDENCE_CI_MISSING,
             format!(
                 "no CI run for {head}, and the ticket body does not declare 'CI: none'{}.{} {}",
                 if unread.is_empty() {
@@ -335,7 +336,7 @@ pub fn judge_ci(i: &EvidenceInput<'_>) -> Result<CiProof, Refusal> {
         )),
         CiFacts::NotQueried(_) if i.ci_none_declared => Ok(CiProof::None),
         CiFacts::NotQueried(why) => Err(Refusal::new(
-            "evidence-ci-unreadable",
+            ids::EVIDENCE_CI_UNREADABLE,
             format!("CI cannot be read ({why}) and the ticket does not declare 'CI: none'"),
         )),
     }
@@ -349,7 +350,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         .any(|r| r.eq_ignore_ascii_case(&pr.repo))
     {
         return Err(Refusal::new(
-            "evidence-pr-foreign-repo",
+            ids::EVIDENCE_PR_FOREIGN_REPO,
             format!(
                 "PR {}#{} is not in a repo of the initiative ({})",
                 pr.repo,
@@ -360,7 +361,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
     }
     if pr.state == "closed" && !pr.merged {
         return Err(Refusal::new(
-            "evidence-pr-closed",
+            ids::EVIDENCE_PR_CLOSED,
             format!("PR {}#{} is closed without a merge", pr.repo, pr.number),
         ));
     }
@@ -370,7 +371,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         let text = format!("{}\n{}", pr.title, pr.body);
         if !super::text::mentions_ticket(&text, &pr.repo, i.ticket_repo, i.ticket_issue) {
             return Err(Refusal::new(
-                "evidence-pr-not-linked",
+                ids::EVIDENCE_PR_NOT_LINKED,
                 format!(
                     "the PR must link the ticket with 'Refs #{}' (or 'Refs {}#{}')",
                     i.ticket_issue, i.ticket_repo, i.ticket_issue
@@ -379,7 +380,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         }
     } else if !super::text::closes_ticket(&pr.body, &pr.repo, i.ticket_repo, i.ticket_issue) {
         return Err(Refusal::new(
-            "evidence-pr-not-linked",
+            ids::EVIDENCE_PR_NOT_LINKED,
             format!(
                 "the PR body must say 'Closes #{}' (or 'Closes {}#{}'){}",
                 i.ticket_issue,
@@ -397,7 +398,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         && !adopted_branch_ok(i.branch_prefix, &pr.head_ref, i.adopted_branch)
     {
         return Err(Refusal::new(
-            "evidence-branch-name",
+            ids::EVIDENCE_BRANCH_NAME,
             format!(
                 "branch '{}' is not {}{}/{}-<slug>",
                 pr.head_ref, i.branch_prefix, i.agent, i.ticket_issue
@@ -408,7 +409,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
         && !c.eq_ignore_ascii_case(&pr.head_sha)
     {
         return Err(Refusal::new(
-            "evidence-head-moved",
+            ids::EVIDENCE_HEAD_MOVED,
             format!(
                 "the PR head is {}, not {c}: it moved after the work that you name",
                 pr.head_sha
@@ -417,7 +418,7 @@ pub fn judge_evidence(i: &EvidenceInput<'_>) -> Result<Evidence, Refusal> {
     }
     if !i.head_after.eq_ignore_ascii_case(&pr.head_sha) {
         return Err(Refusal::new(
-            "evidence-head-moved",
+            ids::EVIDENCE_HEAD_MOVED,
             format!(
                 "the PR head moved from {} to {} while the evidence was collected",
                 pr.head_sha, i.head_after
@@ -549,7 +550,7 @@ mod tests {
     }
 
     fn rule(r: Result<Evidence, Refusal>) -> &'static str {
-        r.expect_err("must be refused").rule
+        r.expect_err("must be refused").rule.as_str()
     }
 
     #[test]

@@ -18,6 +18,7 @@
 use super::say::send_signed;
 use super::tickets::{load_world_cached, me_of};
 use super::{AgentCtx, Global, World, resolve_board_config};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::comments::Comment;
@@ -350,7 +351,7 @@ pub fn heartbeat(ac: &AgentCtx) -> CbResult<String> {
         .unwrap_or("?");
     if !crate::late::liveness::heartbeat_state(state) {
         return Err(CbError::refused(
-            "heartbeat-not-running",
+            ids::HEARTBEAT_NOT_RUNNING,
             format!(
                 "{} is in State '{state}': only a running agent writes heartbeats",
                 ac.name
@@ -438,13 +439,13 @@ pub fn run_owner(g: &Global, verb: Verb, agent: &str) -> CbResult<String> {
     let world = super::load_world(&ctx, &[], &mut crate::state::StateCache::default())?;
     let entry = world.reg.agents.get(name.as_str()).ok_or_else(|| {
         CbError::refused(
-            "no-join-request",
+            ids::NO_JOIN_REQUEST,
             format!("{name} has no valid join request in the registry issue"),
         )
     })?;
     if !entry.approved() {
         return Err(CbError::refused(
-            "agent-not-approved",
+            ids::AGENT_NOT_APPROVED,
             format!("{name} is not an approved agent"),
         ));
     }

@@ -8,7 +8,6 @@
 
 pub mod evidence;
 pub mod fields;
-pub mod ids;
 pub mod lifecycle;
 pub mod limits;
 pub mod options;
@@ -18,10 +17,11 @@ pub mod status;
 pub mod text;
 
 // re-export; new code imports from base
+pub use crate::base::ids;
 pub use crate::base::{Actor, Refusal, Role, Verdict};
 
 /// Turn a condition into a verdict.
-pub(crate) fn require(cond: bool, rule: &'static str, message: &str) -> Verdict {
+pub(crate) fn require(cond: bool, rule: ids::RuleId, message: &str) -> Verdict {
     if cond {
         Ok(())
     } else {

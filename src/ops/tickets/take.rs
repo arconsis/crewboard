@@ -6,13 +6,13 @@ use super::{
     Me, check_status_unchanged, facts, load_world_cached, me_of, post, remember, set_select_status,
     sync_needs_owner, unread_guard,
 };
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::park_body;
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::fields::Field;
-use crate::rules::ids;
 use crate::rules::lifecycle::{State, check_take};
 use crate::rules::status::{BlockReason, Status, Transition, check_status_transition};
 use crate::rules::text::shell_quote;
@@ -42,7 +42,7 @@ pub(crate) fn check_take_state(
                 _ => "it is leaving: run `crewboard stop` to finish, then `crewboard join` again",
             };
             Err(Refusal::new(
-                "agent-not-active",
+                ids::AGENT_NOT_ACTIVE,
                 format!("{agent} is {name}, not active: {fix}"),
             ))
         }
@@ -89,7 +89,7 @@ fn plan_take(
         from == Status::Ready || (from == Status::Blocked && t.agent() == Some(me.name.as_str()));
     if interrupt.is_some() && !ok {
         return Err(CbError::refused(
-            "interrupt-needs-ready-ticket",
+            ids::INTERRUPT_NEEDS_READY_TICKET,
             format!(
                 "--interrupt needs a Ready ticket or an answered Blocked ticket of yours, {} is {}",
                 t.key(),
@@ -114,7 +114,7 @@ fn plan_take(
         None => None,
         Some(_) if resume => {
             return Err(CbError::refused(
-                "adopt-pr-needs-ready-ticket",
+                ids::ADOPT_PR_NEEDS_READY_TICKET,
                 format!(
                     "--continue-pr goes with the first take of a Ready ticket, {} is {}",
                     t.key(),
@@ -134,7 +134,7 @@ fn plan_take(
         && let Some(busy) = in_progress_key(&rows, &me.name, &t.item_id)
     {
         return Err(CbError::refused(
-            "take-agent-busy",
+            ids::TAKE_AGENT_BUSY,
             format!(
                 "{} already has {busy} In Progress; free the agent first with `block`, `ask` or `done`, then take {}; \
                      for a ticket that is ahead of it in your queue use `crewboard take <n> --interrupt --why \"<why>\"`",
@@ -278,7 +278,7 @@ pub fn take(
     let issue = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if interrupt.is_some_and(|r| r.trim().is_empty()) {
         return Err(CbError::refused(
-            "interrupt-needs-reason",
+            ids::INTERRUPT_NEEDS_REASON,
             "--interrupt needs a reason (--why)",
         ));
     }

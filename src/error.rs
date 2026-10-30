@@ -2,6 +2,7 @@
 //!
 //! Every layer returns it. `main.rs` prints it and turns it into the exit code (see `exit.rs`).
 
+use crate::base::ids::RuleId;
 use crate::base::{GhError, Refusal};
 use crate::exit::Exit;
 use crate::protocol::ProtocolError;
@@ -22,7 +23,7 @@ impl CbError {
         CbError::Config(m.into())
     }
 
-    pub fn refused(rule: &'static str, m: impl Into<String>) -> Self {
+    pub fn refused(rule: RuleId, m: impl Into<String>) -> Self {
         CbError::Refused(Refusal::new(rule, m))
     }
 
@@ -77,7 +78,10 @@ mod tests {
 
     #[test]
     fn errors_map_to_distinct_exit_codes() {
-        assert_eq!(CbError::refused("x", "m").exit(), Exit::Refused);
+        assert_eq!(
+            CbError::refused(crate::base::ids::FIELD_WRONG_WRITER, "m").exit(),
+            Exit::Refused
+        );
         assert_eq!(
             CbError::Network(GhError::Network("x".into())).exit(),
             Exit::Network
@@ -102,7 +106,7 @@ mod tests {
         assert_eq!(CbError::config("x").exit(), Exit::Config);
         // None of the error paths may yield the "no events" code.
         for e in [
-            CbError::refused("x", "m"),
+            CbError::refused(crate::base::ids::FIELD_WRONG_WRITER, "m"),
             CbError::Network(GhError::Network("x".into())),
             CbError::config("x"),
         ] {

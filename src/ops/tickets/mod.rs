@@ -15,6 +15,7 @@
 
 use super::say::{require_approved, send_signed};
 use super::{AgentCtx, World, load_world};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::board::ItemRef;
 use crate::clock::{Clock, SystemClock, format_ts};
@@ -179,7 +180,7 @@ pub(crate) fn check_status_unchanged(
         return Ok(StatusNow::AlreadyThere);
     }
     Err(CbError::refused(
-        "status-changed-meanwhile",
+        ids::STATUS_CHANGED_MEANWHILE,
         format!(
             "{key} was {} when this command read it and is {} now: somebody moved it meanwhile. Read it again (`crewboard status`) and decide again; nothing was written",
             expected.name(),

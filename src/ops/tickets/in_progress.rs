@@ -1,5 +1,6 @@
 //! The In Progress bookkeeping shared by `take`, `done`, `block` and `ask`: which ticket of an agent is busy, when the agent goes idle, which ticket `take --interrupt` parks.
 
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World};
@@ -59,7 +60,7 @@ pub(crate) fn choose_park<'a>(
     let keys = cur.iter().map(|r| r.key()).collect::<Vec<_>>().join(", ");
     if cur.is_empty() {
         return Err(Refusal::new(
-            "interrupt-nothing-to-park",
+            ids::INTERRUPT_NOTHING_TO_PARK,
             "--interrupt parks a ticket of yours that is In Progress, and you have none: use a plain `take`",
         ));
     }
@@ -70,13 +71,13 @@ pub(crate) fn choose_park<'a>(
             .copied()
             .ok_or_else(|| {
                 Refusal::new(
-                    "interrupt-park-not-in-progress",
+                    ids::INTERRUPT_PARK_NOT_IN_PROGRESS,
                     format!("--park {repo}#{n} is not a ticket of yours that is In Progress; your In Progress tickets: {keys}"),
                 )
             }),
         (None, [only]) => Ok(only),
         (None, _) => Err(Refusal::new(
-            "interrupt-park-ambiguous",
+            ids::INTERRUPT_PARK_AMBIGUOUS,
             format!(
                 "you have {} tickets In Progress: {keys}; name the one to park with `--park <n>` \
                  (and repair the others with `block`, `ask` or `done`)",

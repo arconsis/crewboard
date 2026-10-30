@@ -9,6 +9,7 @@
 
 mod tty;
 
+use crate::base::ids;
 use crate::config::valid_initiative_name;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::{new_file_permissions, write_atomic_with};
@@ -16,11 +17,6 @@ use crate::github::{Client, Token};
 use crate::ops::doctor::{CheckVerdict, judge_scopes_in};
 use std::io::{BufRead, IsTerminal, Read};
 use std::path::{Path, PathBuf};
-
-/// The refusal of a token that lacks scopes or has too many.
-pub const SCOPES_RULE: &str = "crew-token-scopes";
-/// The refusal of a token of another account than the one that was named.
-pub const LOGIN_RULE: &str = "crew-token-login";
 /// The longest input that is read: a token is far shorter.
 const MAX_INPUT: u64 = 4096;
 
@@ -112,7 +108,7 @@ pub fn check(token: &str, want_login: Option<&str>, trial: bool) -> CbResult<Che
         && !want.eq_ignore_ascii_case(&login)
     {
         return Err(CbError::refused(
-            LOGIN_RULE,
+            ids::CREW_TOKEN_LOGIN,
             format!(
                 "this token belongs to {login}, not to {want}; nothing was written. Make the token as {want}"
             ),
@@ -122,7 +118,7 @@ pub fn check(token: &str, want_login: Option<&str>, trial: bool) -> CbResult<Che
         CheckVerdict::Ok(text) => text,
         CheckVerdict::Fail { what, .. } => {
             return Err(CbError::refused(
-                SCOPES_RULE,
+                ids::CREW_TOKEN_SCOPES,
                 format!(
                     "{what}; nothing was written. Make a new classic token as {login} with the scopes repo and project only, then run this command again"
                 ),

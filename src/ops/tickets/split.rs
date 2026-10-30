@@ -16,12 +16,12 @@ use super::assign::assign;
 use super::assign_checks::CapOverride;
 use super::new::{adopt_info, check_new_ticket, precheck_assign};
 use super::{Me, load_world_cached, me_of, post, to_agent};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::fields::Field;
-use crate::rules::ids;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ticket_loader::{
     IssueInfo, Ticket, check_repo, fetch_issue, load_ticket, parse_issue,
@@ -76,7 +76,7 @@ struct Done {
 
 fn no_agent(old_key: &str) -> CbError {
     CbError::refused(
-        "split-no-agent",
+        ids::SPLIT_NO_AGENT,
         format!("{old_key} has no Agent; there is nobody to queue the new ticket for"),
     )
 }
@@ -112,7 +112,7 @@ fn plan_split(
     let old = load_ticket(&ac.ctx.reader(), &world.trust, &repo, n)?;
     if !old.info.open {
         return Err(CbError::refused(
-            "ticket-closed",
+            ids::TICKET_CLOSED,
             format!("{repo}#{n} is closed"),
         ));
     }
@@ -130,7 +130,7 @@ fn plan_split(
         let status = old.status()?;
         if !matches!(status, Status::InProgress | Status::Blocked) {
             return Err(CbError::refused(
-                "split-not-in-progress",
+                ids::SPLIT_NOT_IN_PROGRESS,
                 format!(
                     "{old_key} is {}; only an In Progress or Blocked ticket is split",
                     status.name()

@@ -19,13 +19,10 @@
 //! route is not a capability. Why the diff as safety net: a coordinator can forget the
 //! mark. A patch file in the PR is proof enough that the dev agent chose the route.
 
+use crate::base::ids;
 use crate::rules::Refusal;
 use crate::rules::text::shell_quote;
 use crate::ticket::{VMsg, body_fields};
-
-pub const RULE: &str = "workflow-needs-owner";
-/// The PR of an owner-route `done` closes the ticket by a keyword.
-pub const KEYWORD_RULE: &str = "owner-route-closing-keyword";
 pub const ROUTE_VALUE: &str = "owner-workflow";
 pub(crate) const WORKFLOW_DIR: &str = ".github/workflows";
 
@@ -89,7 +86,7 @@ pub fn decide(declared: bool, files: &[String], issue: u64) -> Result<Route, Ref
     }
     if declared {
         return Err(Refusal::new(
-            RULE,
+            ids::WORKFLOW_NEEDS_OWNER,
             format!(
                 "this ticket changes workflow files, and the crew token cannot push them. Put the change in the PR as {patch} \
                  (git diff -- .github/workflows > {patch}), push everything else, then run done again. \
@@ -103,7 +100,7 @@ pub fn decide(declared: bool, files: &[String], issue: u64) -> Result<Route, Ref
 /// The refusal for an owner-route `done` whose PR closes the ticket.
 pub fn closing_keyword_refusal(issue: u64) -> Refusal {
     Refusal::new(
-        KEYWORD_RULE,
+        ids::OWNER_ROUTE_CLOSING_KEYWORD,
         format!(
             "this PR holds the workflow change only as a patch, and its title or body has a closing keyword for #{issue}. \
              GitHub would close the ticket when the owner merges the PR, while the workflow change is not live. \

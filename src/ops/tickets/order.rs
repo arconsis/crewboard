@@ -9,6 +9,7 @@ use super::assign_checks::{
     CapOverride, check_assignable, check_assignable_state, check_capabilities, post_assignment,
 };
 use super::{agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work};
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
@@ -29,7 +30,7 @@ pub fn parse_order(s: &str) -> Result<i64, Refusal> {
     match s.trim().parse::<i64>() {
         Ok(n) if (0..=MAX_ORDER).contains(&n) => Ok(n),
         _ => Err(Refusal::new(
-            "order-invalid",
+            ids::ORDER_INVALID,
             format!("order '{s}' is not a whole number from 0 to {MAX_ORDER} (lowest goes first)"),
         )),
     }
@@ -69,7 +70,7 @@ pub fn check_rebalance(
 ) -> Result<(), CbError> {
     if !Status::Ready.is(status) {
         return Err(CbError::refused(
-            "rebalance-not-ready",
+            ids::REBALANCE_NOT_READY,
             format!(
                 "{key} is {}, not Ready: only a queued ticket moves between agents (use `reassign` for other states)",
                 status.unwrap_or("without a Status")
@@ -78,13 +79,13 @@ pub fn check_rebalance(
     }
     let Some(cur) = current else {
         return Err(CbError::refused(
-            "rebalance-no-agent",
+            ids::REBALANCE_NO_AGENT,
             format!("{key} has no agent; use `assign` or `reassign --to`"),
         ));
     };
     if cur == to {
         return Err(CbError::refused(
-            "rebalance-same-agent",
+            ids::REBALANCE_SAME_AGENT,
             format!(
                 "{key} is queued for {to} already; use `assign --order` to change its position"
             ),
@@ -98,7 +99,7 @@ fn check_queued(t: &Ticket) -> CbResult<()> {
     let status = t.item.get(Field::Status);
     if !Status::Ready.is(status) || t.agent().is_none() {
         return Err(CbError::refused(
-            "reorder-not-queued",
+            ids::REORDER_NOT_QUEUED,
             format!(
                 "{} is {} with agent {}: only a Ready ticket that has an agent has a queue position",
                 t.key(),

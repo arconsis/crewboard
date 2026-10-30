@@ -5,6 +5,7 @@ use super::{
     check_status_unchanged, facts, load_world_cached, me_of, needs_owner_lines, post, remember,
     set_select_status, to_agent, unread_guard,
 };
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::acts::withdraw_body;
@@ -19,7 +20,7 @@ pub fn block(ac: &AgentCtx, issue_arg: &str, reason: &str, anyway: bool) -> CbRe
     let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if reason.trim().is_empty() {
         return Err(CbError::refused(
-            "block-needs-reason",
+            ids::BLOCK_NEEDS_REASON,
             "block needs a reason (--why)",
         ));
     }
@@ -130,7 +131,7 @@ pub fn unblock(
     let plan = plan_unblock(&t.msgs, &assignee, &text, unread_line.as_deref());
     if !plan_unblocks(&t.msgs, &me.name, me.role, &assignee, &plan.body) {
         return Err(CbError::refused(
-            "unblock-not-effective",
+            ids::UNBLOCK_NOT_EFFECTIVE,
             format!(
                 "{} stays Blocked: the answer would not satisfy `take` (nothing was written)",
                 t.key()
@@ -169,7 +170,7 @@ pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbRe
     let (repo, n) = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     if question.trim().is_empty() {
         return Err(CbError::refused(
-            "ask-needs-text",
+            ids::ASK_NEEDS_TEXT,
             "ask needs the question (--body or --body-file)",
         ));
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::base::ids;
 use crate::rules::evidence::CiSources;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -78,7 +79,7 @@ fn judge_open(
 }
 
 fn rule(r: Result<Evidence, Refusal>) -> &'static str {
-    r.expect_err("must be refused").rule
+    r.expect_err("must be refused").rule.as_str()
 }
 
 fn local_auth(local: bool) -> Authority {
@@ -719,12 +720,12 @@ fn evidence_rule(
 ) -> Option<&'static str> {
     check_evidence_for_merge(headless, ev, ev_local, ci_mode_local)
         .err()
-        .map(|r| r.rule)
+        .map(|r| r.rule.as_str())
 }
 
 #[test]
 fn a_headless_coordinator_leaves_evidence_without_a_ci_run_or_with_a_named_run() {
-    let rule = crate::headless::RULE;
+    let rule = ids::HEADLESS_SCOPE.as_str();
     for ci in ["none", "none (all files paths-ignored: docs/**)"] {
         assert_eq!(evidence_rule(true, &evidence(ci), false, false), Some(rule));
         // the interactive coordinator merges it
@@ -749,7 +750,7 @@ fn a_local_gate_is_for_the_interactive_coordinator_and_for_ci_mode_local_only() 
     // headless: the headless rule, whatever the mode says
     assert_eq!(
         evidence_rule(true, &ev, true, true),
-        Some(crate::headless::RULE)
+        Some(ids::HEADLESS_SCOPE.as_str())
     );
     // interactive: in ci mode the gate does not count any more
     assert_eq!(
@@ -784,7 +785,7 @@ fn a_headless_coordinator_merges_only_on_green_ci() {
         CiFacts::NotGreen(vec!["red".into()]),
         CiFacts::NotQueried("HTTP 500".into()),
     ] {
-        assert_eq!(rule(&ci), Some(crate::headless::RULE));
+        assert_eq!(rule(&ci), Some(ids::HEADLESS_SCOPE));
         // the interactive coordinator goes on to the evidence judgement
         assert!(check_headless_ci(false, &ci).is_ok());
     }

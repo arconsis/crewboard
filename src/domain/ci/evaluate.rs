@@ -11,6 +11,7 @@
 //! `services::ci_evidence`. The tests of this file run `evaluate_ci` on
 //! response fixtures in `tests/fixtures/ci/` (see the README there for how each was made).
 
+use crate::base::ids;
 use crate::base::{GhError, Refusal};
 use crate::rules::evidence::{CiFacts, CiSources};
 use serde_json::Value;
@@ -58,7 +59,7 @@ pub struct NamedRun {
 pub fn parse_run_ref(arg: &str, pr_repo: &str, initiative: &[String]) -> Result<NamedRun, Refusal> {
     let bad = || {
         Refusal::new(
-            "evidence-run-ref",
+            ids::EVIDENCE_RUN_REF,
             format!(
                 "'{arg}' is not a run id or a run URL (https://github.com/<owner>/<repo>/actions/runs/<id>)"
             ),
@@ -86,7 +87,7 @@ pub fn parse_run_ref(arg: &str, pr_repo: &str, initiative: &[String]) -> Result<
     let repo = format!("{}/{}", parts[0], parts[1]);
     if !initiative.iter().any(|r| r.eq_ignore_ascii_case(&repo)) {
         return Err(Refusal::new(
-            "evidence-run-foreign-repo",
+            ids::EVIDENCE_RUN_FOREIGN_REPO,
             format!(
                 "run {id} is in {repo}, which is not a repo of the initiative ({})",
                 initiative.join(", ")
@@ -100,7 +101,7 @@ pub fn parse_run_ref(arg: &str, pr_repo: &str, initiative: &[String]) -> Result<
 pub fn check_named_run(body: &Value, want_id: u64, sha: &str) -> Result<(), Refusal> {
     if run_id(body) != want_id {
         return Err(Refusal::new(
-            "evidence-run-ref",
+            ids::EVIDENCE_RUN_REF,
             format!(
                 "GitHub answered with run {} for run {want_id}",
                 run_id(body)
@@ -110,7 +111,7 @@ pub fn check_named_run(body: &Value, want_id: u64, sha: &str) -> Result<(), Refu
     let head = text(body, "head_sha").unwrap_or("?");
     if !head.eq_ignore_ascii_case(sha) {
         return Err(Refusal::new(
-            "evidence-run-wrong-sha",
+            ids::EVIDENCE_RUN_WRONG_SHA,
             format!(
                 "run {want_id} ran on {head}, not on the PR head {sha}; a named run must belong to the head"
             ),

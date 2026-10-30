@@ -5,6 +5,7 @@ use super::say::require_approved;
 use super::selftest;
 use super::{AgentCtx, Ctx, load_world};
 use crate::authority::Authority;
+use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::ctx::authority_text;
@@ -57,7 +58,7 @@ pub fn check_authority(ctx: &Ctx) -> CbResult<AuthorityCheck> {
                 }
                 Some(o) => {
                     return Err(CbError::refused(
-                        "authority-owner-mismatch",
+                        ids::AUTHORITY_OWNER_MISMATCH,
                         format!(
                             "{} names owner {o}, the board config names {}",
                             ctx.cfg.authority, ctx.cfg.owner_login
@@ -130,7 +131,7 @@ pub fn merge_advice_warning(a: &Authority, file: &str) -> String {
 /// The refusal for a failed toolchain check (rule `toolchain-unreachable`, exit 2).
 pub fn toolchain_refusal(rep: &crate::toolchain::Report) -> CbError {
     CbError::refused(
-        "toolchain-unreachable",
+        ids::TOOLCHAIN_UNREACHABLE,
         format!(
             "this agent cannot run the build tools of the repo from {}: {}. A harness sandbox may hide them (a tool in the home directory outside the work folder). Fix PATH or the sandbox and run `crewboard start` again; `status` shows the note meanwhile",
             std::env::current_dir()
@@ -199,7 +200,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     // after its signed comment. Starting now would race that write, so `start` waits for it.
     if state == Some(State::Requested) {
         return Err(CbError::refused(
-            "agent-approval-pending",
+            ids::AGENT_APPROVAL_PENDING,
             format!(
                 "{me}: the owner's approval is in the registry log, but the item State is still 'requested' (`approve` writes 'approved' a moment later); run `crewboard start` again"
             ),
@@ -250,7 +251,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
     out.push('\n');
     if !result.passed() {
         return Err(CbError::refused(
-            "selftest-failed",
+            ids::SELFTEST_FAILED,
             format!(
                 "{line}\n{out}the agent stays in its state; fix the cause and run `crewboard start` again"
             ),

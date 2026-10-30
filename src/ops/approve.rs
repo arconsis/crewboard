@@ -8,6 +8,7 @@
 //! board with a crew login (agents may not act as the owner).
 
 use super::{Ctx, Global, World, load_world, new_owner_client, resolve_board_config};
+use crate::base::ids;
 use crate::board::{FieldValue, ItemRef, OptionInfo};
 use crate::error::{CbError, CbResult};
 use crate::feed;
@@ -193,20 +194,20 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     let world = load_world(&ctx, &[], &mut StateCache::default())?;
     let entry = world.reg.agents.get(name.as_str()).ok_or_else(|| {
         CbError::refused(
-            "no-join-request",
+            ids::NO_JOIN_REQUEST,
             format!("{name} has no valid join request in the registry issue"),
         )
     })?;
     if entry.rejected {
         return Err(CbError::refused(
-            "agent-rejected",
+            ids::AGENT_REJECTED,
             format!("{name} was rejected"),
         ));
     }
     let join = entry
         .join
         .clone()
-        .ok_or_else(|| CbError::refused("no-join-request", format!("{name} has no join")))?;
+        .ok_or_else(|| CbError::refused(ids::NO_JOIN_REQUEST, format!("{name} has no join")))?;
     if entry.approval.is_none() && !entry.earlier_joins.is_empty() {
         return Err(ambiguous_join_refusal(&name, role, entry));
     }
@@ -215,15 +216,15 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
     })?;
     if let Some(why) = crate::registry::owner_account_refusal(&ctx.cfg, &join.login) {
         return Err(CbError::refused(
-            "approve-owner-account",
+            ids::APPROVE_OWNER_ACCOUNT,
             format!(
                 "{name} cannot be approved: {why}. The agent joins again with the token of the crew account or of its own account"
             ),
         ));
     }
-    let join_key = join
-        .key()
-        .ok_or_else(|| CbError::refused("bad-key", "the key of the join request is unreadable"))?;
+    let join_key = join.key().ok_or_else(|| {
+        CbError::refused(ids::BAD_KEY, "the key of the join request is unreadable")
+    })?;
     let fp = fingerprint(&join_key);
     // The Key field must be the key of the signed join (the agent wrote both).
     let item_key = item
@@ -231,7 +232,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
         .and_then(|k| ssh_key::PublicKey::from_openssh(k).ok());
     if item_key.as_ref().map(|k| k.key_data()) != Some(join_key.key_data()) {
         return Err(CbError::refused(
-            "key-mismatch",
+            ids::KEY_MISMATCH,
             "the Key field of the agent item differs from the key in the signed join request",
         ));
     }
@@ -242,7 +243,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
         && a.role != role
     {
         return Err(CbError::refused(
-            "already-approved",
+            ids::ALREADY_APPROVED,
             format!(
                 "{name} is approved as {}; change the role with `/crew role` (owner comment)",
                 role_name(a.role)
@@ -363,7 +364,7 @@ fn ambiguous_join_refusal(
         })
         .collect();
     CbError::refused(
-        "approve-ambiguous-join",
+        ids::APPROVE_AMBIGUOUS_JOIN,
         format!(
             "{name} has {} undecided join requests with different keys ({}); compare the key with the one that `join` printed on the agent host, then comment on the registry issue: `/crew approve {name} role={} key=<fingerprint> item=<id> login=<login>`",
             list.len(),

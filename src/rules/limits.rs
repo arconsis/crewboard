@@ -3,6 +3,7 @@
 //! `board.rs` checks them before every text-field write, and `ops/say.rs` before every post.
 
 use super::{Refusal, Verdict};
+use crate::base::ids;
 
 /// A project text field holds at most this many bytes of UTF-8 (spec/board#fields).
 pub const MAX_TEXT_FIELD_BYTES: usize = 1024;
@@ -16,7 +17,7 @@ pub fn check_text_field(value: &str) -> Verdict {
     let n = value.len();
     if n > MAX_TEXT_FIELD_BYTES {
         return Err(Refusal::new(
-            "text-field-too-long",
+            ids::TEXT_FIELD_TOO_LONG,
             format!("text field is {n} bytes (UTF-8); the limit is {MAX_TEXT_FIELD_BYTES}"),
         ));
     }
@@ -28,7 +29,7 @@ pub fn check_body(body: &str) -> Verdict {
     let n = body.chars().count();
     if n > MAX_BODY_CHARS {
         return Err(Refusal::new(
-            "body-too-long",
+            ids::BODY_TOO_LONG,
             format!("message body is {n} characters; the limit is {MAX_BODY_CHARS}"),
         ));
     }

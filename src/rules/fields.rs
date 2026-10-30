@@ -100,7 +100,7 @@ pub fn check_field_write(item: Item, field: Field, ctx: &WriteCtx) -> Verdict {
         .find(|r| r.item == item && r.field == field)
         .ok_or_else(|| {
             Refusal::new(
-                "field-not-on-item",
+                ids::FIELD_NOT_ON_ITEM,
                 format!("{field:?} is not a field of {item:?} items"),
             )
         })?;
@@ -108,51 +108,51 @@ pub fn check_field_write(item: Item, field: Field, ctx: &WriteCtx) -> Verdict {
     match rule.writer {
         Writer::CoordinatorOrOwner => require(
             a.is_owner() || a.is_coordinator(),
-            "field-wrong-writer",
+            ids::FIELD_WRONG_WRITER,
             &format!("{field:?} may be written only by the coordinator or the owner"),
         ),
         Writer::AssignedDevOrOwner => require(
             a.is_owner() || (a.is_dev() && ctx.is_assigned),
-            "field-wrong-writer",
+            ids::FIELD_WRONG_WRITER,
             &format!("{field:?} may be written only by the assigned dev agent or the owner"),
         ),
         Writer::SelfOnly => require(
             !a.is_owner() && ctx.is_subject,
-            "field-wrong-writer",
+            ids::FIELD_WRONG_WRITER,
             &format!("{field:?} may be written only by the agent itself"),
         ),
         Writer::SelfOrForcedStop => require(
             (!a.is_owner() && ctx.is_subject)
                 || (ctx.forced_stop && (a.is_owner() || a.is_coordinator())),
-            "field-wrong-writer",
+            ids::FIELD_WRONG_WRITER,
             &format!(
                 "{field:?} may be written only by the agent itself, or by the owner or the coordinator at a forced stop"
             ),
         ),
         Writer::SelfOrOwner => require(
             a.is_owner() || ctx.is_subject,
-            "field-wrong-writer",
+            ids::FIELD_WRONG_WRITER,
             &format!("{field:?} may be written only by the agent itself or the owner"),
         ),
         Writer::OwnerApproval => require(
             ctx.owner_approval,
-            "role-needs-owner-approval",
+            ids::ROLE_NEEDS_OWNER_APPROVAL,
             "Role may be set only after an owner approval comment in the registry issue",
         ),
         Writer::SelfUntilApproved => {
             require(
                 !ctx.approved,
-                "key-frozen",
+                ids::KEY_FROZEN,
                 "the Key is frozen after approval",
             )?;
             require(
                 !a.is_owner() && ctx.is_subject,
-                "field-wrong-writer",
+                ids::FIELD_WRONG_WRITER,
                 "Key may be written only by the agent itself, at join",
             )
         }
         Writer::Transition => Err(Refusal::new(
-            "use-transition",
+            ids::USE_TRANSITION,
             format!("{field:?} is written only through its transition table"),
         )),
     }
@@ -198,7 +198,7 @@ mod tests {
     const DEV: Actor = Actor::Agent(Role::Dev);
 
     fn rule_of(v: Verdict) -> &'static str {
-        v.expect_err("must be refused").rule
+        v.expect_err("must be refused").rule.as_str()
     }
 
     #[test]

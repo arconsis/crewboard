@@ -5,6 +5,7 @@
 
 use super::lifecycle::State;
 use super::{Refusal, Verdict};
+use crate::base::ids;
 
 /// One option as GitHub returns it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,13 +57,13 @@ pub fn merge_options(
             list.retain(|o| o.id.as_deref() != Some(id.as_str()));
             if list.len() == before {
                 return Err(Refusal::new(
-                    "option-unknown-id",
+                    ids::OPTION_UNKNOWN_ID,
                     format!("no option with id '{id}'"),
                 ));
             }
             if list.is_empty() {
                 return Err(Refusal::new(
-                    "option-last",
+                    ids::OPTION_LAST,
                     "a single-select field keeps at least one option",
                 ));
             }
@@ -70,7 +71,7 @@ pub fn merge_options(
         OptionChange::Add { name } => {
             if current.iter().any(|o| &o.name == name) {
                 return Err(Refusal::new(
-                    "option-duplicate-name",
+                    ids::OPTION_DUPLICATE_NAME,
                     format!("option '{name}' exists already"),
                 ));
             }
@@ -82,7 +83,7 @@ pub fn merge_options(
         OptionChange::Rename { id, name } => {
             if current.iter().any(|o| &o.name == name && &o.id != id) {
                 return Err(Refusal::new(
-                    "option-duplicate-name",
+                    ids::OPTION_DUPLICATE_NAME,
                     format!("option '{name}' exists already"),
                 ));
             }
@@ -90,7 +91,7 @@ pub fn merge_options(
                 Some(o) => o.name = name.clone(),
                 None => {
                     return Err(Refusal::new(
-                        "option-unknown-id",
+                        ids::OPTION_UNKNOWN_ID,
                         format!("no option with id '{id}'"),
                     ));
                 }
@@ -129,7 +130,7 @@ pub fn verify_ids_kept_except(
         .collect();
     if !renamed.is_empty() {
         return Err(Refusal::new(
-            "option-name-changed",
+            ids::OPTION_NAME_CHANGED,
             format!("options renamed by the write: {}", renamed.join(", ")),
         ));
     }
@@ -142,7 +143,7 @@ pub fn verify_ids_kept_except(
         Ok(())
     } else {
         Err(Refusal::new(
-            "option-not-removed",
+            ids::OPTION_NOT_REMOVED,
             format!("options still there after the write: {}", still.join(", ")),
         ))
     }
@@ -161,7 +162,7 @@ pub fn verify_ids_kept(before: &[OptionEntry], after: &[OptionEntry]) -> Verdict
         Ok(())
     } else {
         Err(Refusal::new(
-            "option-id-lost",
+            ids::OPTION_ID_LOST,
             format!("option ids lost by the write: {}", lost.join(", ")),
         ))
     }
@@ -281,13 +282,13 @@ pub fn is_noop(current: &[OptionEntry], desired: &[DesiredOption]) -> bool {
 pub fn check_prune(tickets_using: usize, agent_state: State) -> Verdict {
     if tickets_using > 0 {
         return Err(Refusal::new(
-            "prune-in-use",
+            ids::PRUNE_IN_USE,
             format!("{tickets_using} ticket(s) still use this option"),
         ));
     }
     if agent_state != State::Left {
         return Err(Refusal::new(
-            "prune-agent-not-left",
+            ids::PRUNE_AGENT_NOT_LEFT,
             format!("the agent is {agent_state:?}, not Left"),
         ));
     }
@@ -344,7 +345,7 @@ pub fn check_option_limit(field: &str, count: usize) -> Verdict {
         return Ok(());
     }
     Err(Refusal::new(
-        "option-field-full",
+        ids::OPTION_FIELD_FULL,
         format!(
             "field {field} would have {count} options; GitHub allows at most {OPTION_LIMIT} per single-select field"
         ),
@@ -410,7 +411,7 @@ pub fn plan_cap_prune(
     }
     if cands.len() < need {
         return Err(Refusal::new(
-            "agent-field-full",
+            ids::AGENT_FIELD_FULL,
             format!(
                 "the Agent field has {} options and GitHub allows {OPTION_LIMIT}; {need} must go for the new agent, but only {} can: every other option is in use ({in_use} carried by board items, {running} of agents that have not left, {no_agent} that name no agent). The owner can retire agents (`/crew reject <name>` and State left) or clear the Agent field of Done or Dropped items, then run the command again",
                 options.len(),

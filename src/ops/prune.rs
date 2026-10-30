@@ -11,6 +11,7 @@
 
 use super::AgentCtx;
 use super::tickets::{load_world_cached, me_of};
+use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::rules::fields::Field;
 use crate::rules::lifecycle::State;
@@ -23,7 +24,7 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
     let me = me_of(ac, &world)?;
     if !me.actor.is_coordinator() {
         return Err(CbError::refused(
-            "prune-coordinator-only",
+            ids::PRUNE_COORDINATOR_ONLY,
             "prune is a coordinator command (the Agent options have one writer, docs/design/spec/board.md#fields)",
         ));
     }
@@ -112,7 +113,7 @@ pub fn run(ac: &mut AgentCtx) -> CbResult<String> {
         .collect();
     if !changed.is_empty() {
         return Err(CbError::refused(
-            "prune-changed-ticket-values",
+            ids::PRUNE_CHANGED_TICKET_VALUES,
             format!(
                 "the Agent value of {} ticket(s) changed during the prune: {}",
                 changed.len(),
