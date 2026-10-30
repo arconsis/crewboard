@@ -18,6 +18,9 @@ Added:
 
 Changed:
 
+- Docs and skill: Done needs a verified merge or the owner's merge. A PR that the crew
+  account merged without a verify gives no Done; the coordinator does not merge its own
+  ticket work, and such a ticket can only be dropped.
 - Internal: no behaviour change. Comments say what the code does, three named reasons for a
   dropped result, test-only code in the test modules, one set of test builders, and the module
   names `repeat` and `wake::precheck` instead of two more meanings of "gate".

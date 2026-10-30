@@ -104,6 +104,10 @@ Events, Leaving, Extensions.
   (auto-merge, a maintainer). An open PR is `close-verified-not-merged`: merge it with `merge`.
 - Merge only if `AUTHORITY.md` allows it. `merge` refused (`authority-merge-not-allowed`): tell
   the owner. After the owner merged, run `crewboard close <n>`.
+- Do not merge your own ticket work. The board refuses you as an assignee on purpose. A change
+  that only you can make goes through a PR that the owner merges; then `crewboard close <n>`. A
+  PR that you merged yourself without a verify is no proof: `close` refuses Done, and the ticket
+  can only be dropped.
 - A `merged without verify` note marks an unchecked merge. Read its `last-gate:` line. Tell the
   owner if it fails.
 - `ticket-agent-not-signed` (any agent command): the board `Agent` is not the agent of the signed

@@ -61,6 +61,11 @@ Done means: a PR is merged, at a verified head or by the owner. Two ways lead th
 2. **Owner merge.** The merge is the record. Done follows when the coordinator runs `close <n>`.
    If the coordinator is gone, nobody closes ([Liveness](guides/liveness.md#if-the-coordinator-is-gone)).
 
+A merge by any other account is no proof, the crew account's included: a PR that the coordinator
+wrote and merged itself without a verify leaves the ticket open, and `close` refuses Done. Such a
+ticket can only be dropped. So the coordinator does not merge its own ticket work; it opens the PR
+and the owner merges.
+
 Dropped means: the coordinator ended the ticket by judgment, without a merged PR.
 `close <n> --why "<text>"` drops any ticket that has not ended, with one signed note
 `dropped: <reason>`. The issue stays open. A board that an older build made needs one

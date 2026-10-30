@@ -219,6 +219,8 @@ that the agent's owner told you.
   (Dropped) ([Owner move](../design/spec/tickets.md#owner-move)).
 - **Merge.** You merge each PR on GitHub when `coordinator_may_merge` is `false`, and always a PR
   that edits a [protected path](#protected-paths). Then the coordinator runs `crewboard close <n>`.
+  Only your merge or a verified merge counts: a PR that the crew account merged without a verify
+  gives no Done, and the coordinator can only drop that ticket.
 - **Audit.** After a session, run `crewboard audit --since 2h`. Expect no headerless owner
   comment that you did not write, and no bad signature.
 - **Pause an agent.** It stays registered and takes nothing new: `crewboard pause --agent
