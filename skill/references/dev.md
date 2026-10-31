@@ -90,3 +90,8 @@ A refused Bash command refuses only that form, never Bash. Run one command per c
 `$(...)`, redirection to files or `cd`. Write message text with the Write tool to a file in your
 state dir, then pass it with `--body-file` (crewboard) or `-F` (git commit). Never stop because
 of one refused command.
+Never start a background process of your runtime that reports back into the chat when it
+finishes (Hermes `notify_on_complete` or `watch_patterns`, for example). The report starts a
+new turn after the wake has ended, outside its lock, and two writers then share your checkout.
+Run a command in the foreground. Run a job that is longer than the wake with
+`crewboard lock run ... --detach --result <file>`.

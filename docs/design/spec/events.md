@@ -199,6 +199,8 @@ are over their time (late waits). One rule says who hears of a late wait. `statu
    - `done` (`green-not-done`): an open PR on such a branch has green CI (the judgement of [Evidence](tickets.md#evidence) and [Which CI runs count](ci.md#which-ci-runs-count))
      on its head for longer than `done`, and no signed `done` of the assignee names that head.
      The `since` time is when the last green part of the CI of that SHA completed.
+     Not with `ci_mode: local` in `AUTHORITY.md`: there the CI of a head is no signal
+     ([Local run](ci.md#local-run-ci_mode-local)).
    - `verify` (`review-not-verified`): the ticket is in Review for longer than `verify`. A ticket in Review waits
      for `verify`. A passing `verify` of the latest `done` on the CURRENT head of the open PR ends this wait: the
      verify report names that head (`head_now:`) and the PR still has it. A ticket that passed `verify` and waits
@@ -272,7 +274,9 @@ are over their time (late waits). One rule says who hears of a late wait. `statu
      `green-not-done`: an open PR on a branch `<dev_branch_prefix><agent>/<n>-...`). The
      coordinator gets none, and `status` shows none. A ticket in Review gets none: its `done`
      is filed, so the next step is `verify`, and a red CI there is a merge matter ([Which CI runs count](ci.md#which-ci-runs-count)),
-     not a wake of the dev.
+     not a wake of the dev. With `ci_mode: local` in `AUTHORITY.md` nobody gets it: the dev
+     delivers with its local run ([Local run](ci.md#local-run-ci_mode-local)), and a check that
+     runs anyway on a crew head (for example code scanning) is no proof of the tests.
    - **Fields.** The first line of the body is `ci-finished: <result>`, then `ticket:`, `pr:`
      (`owner/repo#n`) and `head:` (the full SHA). The result is `green`, `red` or `none`.
    - **Result.** The CI judgement of [Evidence](tickets.md#evidence) and [Which CI runs count](ci.md#which-ci-runs-count), not a new one. The CI is *finished* when every

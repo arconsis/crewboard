@@ -57,24 +57,6 @@ pub struct DoneArgs<'a> {
     pub local_gate: Option<&'a str>,
 }
 
-/// The `ci-info:` text of a local-gate `done`: what the CI of the head said, as information.
-fn ci_info_text(ci: &CiFacts) -> String {
-    let t = match ci {
-        CiFacts::Green { .. } => "green (information only)".to_string(),
-        CiFacts::NotGreen(r) => format!("not green (information only): {}", r.join("; ")),
-        CiFacts::NoCi(_) => "no CI run (information only)".to_string(),
-        CiFacts::OnlyInformation { info, .. } => {
-            format!("only runs that are information: {}", info.join(", "))
-        }
-        CiFacts::NotQueried(w) => format!("not readable (information only): {w}"),
-    };
-    let t = t.replace(['\n', '\r'], " ");
-    match t.char_indices().nth(300) {
-        Some((i, _)) => format!("{}...", &t[..i]),
-        None => t,
-    }
-}
-
 /// What `done` has loaded before it decides: the arguments, the agent and the ticket.
 struct DoneLoad {
     repo: String,
@@ -245,7 +227,9 @@ fn read_done_ci(ac: &AgentCtx, l: &DoneLoad, pre: &DonePre, p: &DonePr) -> CbRes
         .repos
         .iter()
         .any(|r| r.eq_ignore_ascii_case(&pr.repo));
-    let ci = if in_initiative {
+    // spec/ci#local-run-ci_mode-local: a local gate does not judge the CI of the head, so it is not
+    // read (a check that runs anyway, for example code scanning, is no proof of the tests).
+    let ci = if in_initiative && pre.local_gate.is_none() {
         let q = CiQuery {
             repo: &pr.repo,
             sha: &pr.head_sha,
@@ -255,12 +239,7 @@ fn read_done_ci(ac: &AgentCtx, l: &DoneLoad, pre: &DonePre, p: &DonePr) -> CbRes
             ignore: &pre.auth.ci_ignore,
             ..CiQuery::default()
         };
-        match fetch_ci(&|p| ac.ctx.client.get(p), &q).map(|(facts, _)| facts) {
-            Ok(f) => f,
-            // A local gate does not judge CI: a failed read is information, not a refusal.
-            Err(e) if pre.local_gate.is_some() => CiFacts::NotQueried(e.to_string()),
-            Err(e) => return Err(e),
-        }
+        fetch_ci(&|p| ac.ctx.client.get(p), &q).map(|(facts, _)| facts)?
     } else {
         CiFacts::NoCi(vec![])
     };
@@ -395,20 +374,15 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
     // checked here, before the signed message: a refused writer posts nothing
     let evidence_writer = work_write_ctx_of(f.actor, f.facts.actor_is_assignee);
     check_field_write(Item::Work, Field::Evidence, &evidence_writer)?;
-    let ci_info = if f.local_gate.is_some() {
-        format!("ci-info: {}\n", ci_info_text(f.ci))
-    } else {
-        String::new()
-    };
     Ok(DonePlan {
-        body: done_body(&msg, &done_notes(f, &ci_info)),
+        body: done_body(&msg, &done_notes(f)),
         owner: owner_step(f, &msg.sha),
         evidence_field: field,
         evidence_writer,
         status_write: (f.from != to).then_some(to),
         idle_when_free: f.from == Status::InProgress,
         remember: to,
-        head: done_head(f, &msg, &ci_info),
+        head: done_head(f, &msg),
         unread_note: crate::unread::note(f.unread_line),
         warning: format!(
             "{}{}",
@@ -420,7 +394,7 @@ fn decide_done(f: &DoneFacts<'_>) -> Result<DonePlan, Refusal> {
 
 /// The lines after the evidence in the `done` message. The parser reads only pr, sha, ci and
 /// ci-sources, so they do not change the evidence.
-fn done_notes(f: &DoneFacts<'_>, ci_info: &str) -> String {
+fn done_notes(f: &DoneFacts<'_>) -> String {
     let note = match f.route {
         Route::Normal => String::new(),
         Route::Owner { patch } => format!("owner-route: {patch}\n"),
@@ -437,7 +411,7 @@ fn done_notes(f: &DoneFacts<'_>, ci_info: &str) -> String {
         format!("{note}protected-paths: {}\n", hits.join(", "))
     };
     format!(
-        "{note}{ci_info}{}",
+        "{note}{}",
         f.unread_line.map(|l| format!("{l}\n")).unwrap_or_default()
     )
 }
@@ -465,7 +439,7 @@ fn owner_step(f: &DoneFacts<'_>, sha: &str) -> Option<OwnerStep> {
 }
 
 /// The answer of `done` up to the line that names the `done` message.
-fn done_head(f: &DoneFacts<'_>, msg: &EvidenceMsg, ci_info: &str) -> String {
+fn done_head(f: &DoneFacts<'_>, msg: &EvidenceMsg) -> String {
     let to = Status::Review;
     let sources_line = msg
         .ci_sources
@@ -482,7 +456,7 @@ fn done_head(f: &DoneFacts<'_>, msg: &EvidenceMsg, ci_info: &str) -> String {
             .as_ref()
             .map(|s| {
                 format!(
-                    "local-gate: {s}\n{}\n{ci_info}",
+                    "local-gate: {s}\n{}\n",
                     crate::ticket::LOCAL_GATE_OWNER_LINE
                 )
             })
@@ -653,21 +627,6 @@ fn writer_precheck(
 mod tests {
     use super::*;
     use crate::rules::Role;
-
-    #[test]
-    fn the_ci_info_text_names_the_state_on_one_short_line() {
-        assert_eq!(
-            ci_info_text(&CiFacts::NotGreen(vec!["a\nb".into()])),
-            "not green (information only): a b"
-        );
-        assert!(ci_info_text(&CiFacts::NoCi(vec![])).starts_with("no CI run"));
-        assert!(ci_info_text(&CiFacts::NotQueried("HTTP 500".into())).contains("HTTP 500"));
-        let long = ci_info_text(&CiFacts::NotGreen(vec!["é".repeat(500)]));
-        assert!(
-            long.ends_with("...") && long.chars().count() < 340,
-            "{long}"
-        );
-    }
 
     #[test]
     fn the_writer_precheck_names_the_wrong_writer_before_any_fact() {
@@ -977,15 +936,17 @@ mod tests {
     }
 
     #[test]
-    fn a_local_gate_names_the_ci_as_information_and_gives_no_ci_warning() {
+    fn a_local_gate_names_no_ci_and_gives_no_ci_warning() {
         let mut x = fix();
         x.ci = CiFacts::NotQueried("HTTP 500".into());
         let mut f = facts_of(&x, Status::InProgress);
         f.local_gate = Some("host-a: make test rc=0, log /tmp/g.log");
         let p = decide_done(&f).unwrap();
+        // spec/ci#local-run-ci_mode-local: the CI of the head is neither judged nor named
         assert!(
+            !p.body.contains("ci-info") && !p.head.contains("ci-info"),
+            "{}",
             p.body
-                .contains("ci-info: not readable (information only): HTTP 500\n")
         );
         assert!(p.head.contains("local-gate: host-a: make test rc=0"));
         assert_eq!(p.warning, "");

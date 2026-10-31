@@ -73,6 +73,8 @@ pub struct GhProbe<'a> {
     /// Comments that the caller has read already (`status` reads the whole feed).
     comments: Option<&'a [Comment]>,
     calls: Cell<u32>,
+    /// `AUTHORITY.md`, read once per run (`None` inside: missing or unreadable).
+    authority: RefCell<Option<Option<crate::authority::Authority>>>,
     prefix: RefCell<Option<String>>,
     prs: RefCell<BTreeMap<String, Option<Vec<OpenPr>>>>,
     green: RefCell<BTreeMap<String, i64>>,
@@ -95,6 +97,7 @@ impl<'a> GhProbe<'a> {
             trust,
             comments,
             calls: Cell::new(0),
+            authority: RefCell::new(None),
             prefix: RefCell::new(None),
             prs: RefCell::new(BTreeMap::new()),
             green: RefCell::new(known_green),
@@ -107,6 +110,17 @@ impl<'a> GhProbe<'a> {
     /// The branch prefix, if a read needed it.
     pub fn branch_prefix_if_read(&self) -> Option<String> {
         self.prefix.borrow().clone()
+    }
+
+    /// `AUTHORITY.md` of the main repo, read at the first need (one read per run).
+    fn authority(&self) -> Option<crate::authority::Authority> {
+        if let Some(a) = self.authority.borrow().as_ref() {
+            return a.clone();
+        }
+        self.calls.set(self.calls.get() + 1);
+        let a = crate::ctx::load_authority_quiet(self.ctx);
+        *self.authority.borrow_mut() = Some(a.clone());
+        a
     }
 
     /// GitHub reads made so far.
@@ -172,11 +186,15 @@ impl Probe for GhProbe<'_> {
         if let Some(p) = self.prefix.borrow().as_ref() {
             return p.clone();
         }
-        self.calls.set(self.calls.get() + 1);
-        let p = crate::ctx::load_authority_quiet(self.ctx)
+        let p = self
+            .authority()
             .map_or_else(|| DEFAULT_PREFIX.to_string(), |a| a.branch_prefix());
         *self.prefix.borrow_mut() = Some(p.clone());
         p
+    }
+
+    fn ci_off(&self) -> bool {
+        self.authority().is_some_and(|a| a.ci_mode.is_local())
     }
 
     fn has_branch(&self, repo: &str, prefix: &str, agent: &str, issue: u64) -> Option<bool> {
