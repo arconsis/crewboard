@@ -18,7 +18,7 @@ and where to start. English narration, English on-screen text.
 
 The narration speaks only what the docs of this repository say. `STORYBOARD.md` names the
 source file and line of every claim. It names no host, account or customer: only the example
-names of the docs (`claude@host-b`, `you/my-repo`, `crew-bot`).
+names of the docs (`claude@host-b`, `you/my-repo`, `teammate`).
 
 ## Files
 

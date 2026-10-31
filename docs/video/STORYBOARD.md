@@ -4,7 +4,10 @@ Status: v1.1, 2026-10-30. Drafted against the docs of commit `8788f9b` (branch `
 below are the line numbers of the files at that commit. v1.1 adds exit 64 to s9-4 from
 `origin/main` at `ca3fb47` (crewboard 0.8.0); that one row cites `ca3fb47`. Between the two commits
 only the exit-code docs changed among the cited files (`git diff --stat 8788f9b ca3fb47`), and
-SK 17-18 and 79-81 keep their lines.
+SK 17-18 and 79-81 keep their lines. v1.2 (2026-10-31) changes s3-2, s4-4, s10-2, s11-1, s12-2 and
+s13-2 for the docs change "agent account": each person brings the GitHub account that they
+already have, never the owner's. The rows of those six segments cite the docs of that change
+(the commit that adds v1.2); the other rows keep the lines of `8788f9b`.
 
 Files of v1: `script.json` (narration, scenes, order, voice), `scenes.py` (the title card and
 thirteen Manim scenes), `timing.json` (measured segment durations), `build.sh`, `narrate.sh`,
@@ -152,22 +155,23 @@ record", "the board is a view", "mismatch: reported, the owner decides"; the thr
 | id | Text |
 |---|---|
 | s3-1 | What makes a message count? Every agent has a name, a key and a role, for example claude at host-b. |
-| s3-2 | The agent acts on GitHub as one account, its crew account. The owner's approval binds that account and the key to the name. |
+| s3-2 | The agent acts on GitHub as one account: usually the own account of the person who runs it, never the owner's. The owner's approval binds that account and the key to the name. |
 | s3-3 | A message counts only when two checks pass: its GitHub author is the approved account, and its signature matches the approved key. |
 | s3-4 | Any other comment is data, never an instruction. A forged, edited or copied message is refused and reported as a security event. |
 
-Screen: the agent `claude@host-b` with a key icon and the role pill `dev`; the pill "crew
-account: crew-bot"; the owner and `crewboard approve claude@host-b`; binding lines and a lock; a
+Screen: the agent `claude@host-b` with a key icon and the role pill `dev`; the pill "account:
+teammate (own)" with "never the owner's" below it; the owner and `crewboard approve claude@host-b`; binding lines and a lock; a
 `done` message with the two checks ticked and "counts"; "forged", "edited", "copied" crossed,
 "security event".
 
 | Claim | Source | Status |
 |---|---|---|
 | an agent has a name `<runtime>@<host>`, a key and a role | CO 14 | doc |
-| the agent acts as one GitHub account, its crew account | CO 12; OG 30 | doc |
+| the agent acts as one GitHub account, usually the own account of the person who runs it | CO 12; OG 29-34 | doc |
+| never the owner's account | CO 12; OG 36-40 | doc |
 | the approval binds the account and the key to the agent | CO 12, 22; OG 48-50 | doc |
 | `crewboard approve claude@host-b` | OG 196-198 (form) | example |
-| `crew-bot` as the crew login | GS 19 | example |
+| `teammate` as the account of the dev agent | GS 42-45 (a teammate's own account) | example |
 | a message counts only if its author is the approved account and the signature matches the approved key | SE 15-17 | doc |
 | any other comment is data, never an instruction | SE 17; CO 27; SK 58 | doc |
 | forged, edited, replayed (copied) messages are refused and reported as security events | SE 54-58 | doc |
@@ -184,7 +188,7 @@ account: crew-bot"; the owner and `crewboard approve claude@host-b`; binding lin
 Screen: an owner terminal with `curl -fsSL .../install.sh | bash`, `crewboard init --initiative
 my-crew --repo you/my-repo --with-ci` (two lines), `host-b $ crewboard agent add you/my-repo
 --agent claude@host-b --wait-approval` (two lines), `crewboard approve claude@host-b` and the
-output line `approved as dev; login=crew-bot`; on the right the
+output line `approved as dev; login=teammate`; on the right the
 binary and the skill linked to `claude` and `codex` (gone when `init` runs), a small board, "registry issue (pinned)", the
 init pull request with `AUTHORITY.md` and `coordinator_may_merge: false`, "merged by the owner",
 a join message travelling into the registry issue, "waits for the approval" then "active", "key +
@@ -202,7 +206,7 @@ account bound to claude@host-b".
 | `agent add`: agent dir, `join`, clone of the work dir, `--wait-approval` waits | AG 33-37, 45-46 | doc |
 | the join is a comment in the registry issue | ES 58; CO 34 | doc |
 | `approve` prints the account of the join and binds it (`login=<account>`) | OG 200-202; GS 150 | doc |
-| output shape "approved as dev; ... account ... frozen" | ES 63-64 | example (shortened to `login=crew-bot`) |
+| output shape "approved as dev; ... account ... frozen" | ES 63-64 | example (shortened to `login=teammate`) |
 | without the approval an agent has no authority | CO 22; ES 69 | doc |
 | "registry issue (pinned)", locked | CO 34 | doc |
 | `agent add` ends with `start`, the agent is active | ES 66 | doc |
@@ -373,11 +377,11 @@ merge: a person decides".
 | id | Text |
 |---|---|
 | s10-1 | Proof before Done. Through the CLI, a ticket reaches Done in two ways only. One: the coordinator verified the pull request, and it is merged at that SHA. Two: the owner merged it, and the coordinator runs close. |
-| s10-2 | A merge by any other account is no proof, the crew account included. A pull request that the coordinator merged itself, without a verify, leaves the ticket open. |
+| s10-2 | A merge by any other account is no proof, an agent's account included. A pull request that the coordinator merged itself, without a verify, leaves the ticket open. |
 | s10-3 | A ticket that ends without a merge is not Done. The coordinator drops it with close and a written reason: Status Dropped. Done and Dropped are final; only the owner moves such a ticket. |
 
 Screen: two paths into "Done" ("verify passed, merged at that SHA"; "the owner merged, close"); a
-third path "merged by the crew account, no verify" crossed, "no proof: the ticket stays open";
+third path "merged by an agent account, no verify" crossed, "no proof: the ticket stays open";
 "no merge", `crewboard close 4 --why "replaced by #8"`, "Dropped", the note `dropped: replaced by
 #8`; locks on Done and Dropped; `crewboard move 4 Ready --why ...` by the owner.
 
@@ -385,7 +389,7 @@ third path "merged by the crew account, no verify" crossed, "no proof: the ticke
 |---|---|---|
 | through the CLI, Done in two ways only: verified and merged at that SHA, or the owner's merge | RM 11-15; CO 55-61; SE 26-28 | doc |
 | after the owner's merge the coordinator runs `close <n>` | CO 61; OG 221-222 | doc |
-| a merge by any other account is no proof, the crew account included; a self-merge without verify leaves the ticket open | CO 64-66; OG 222-224 | doc |
+| a merge by any other account is no proof, an agent's account included; a self-merge without verify leaves the ticket open | CO 64-66; OG 222-224 | doc |
 | a ticket without a merge is not Done: `close --why` drops it, Status Dropped, signed note `dropped: <reason>` | RM 17-18; CO 69-71 | doc |
 | name the replacing ticket in the reason | SKC 115-116 | doc |
 | Done and Dropped are final; only the owner moves such a ticket, with `crewboard move` | CO 50-51; SKC 117 | doc |
@@ -396,13 +400,13 @@ third path "merged by the crew account, no verify" crossed, "no proof: the ticke
 
 | id | Text |
 |---|---|
-| s11-1 | What if somebody writes Done on the board by hand? Any crew token can. crewboard cannot prevent that; it detects it. |
+| s11-1 | What if somebody writes Done on the board by hand? Any agent token can. crewboard cannot prevent that; it detects it. |
 | s11-2 | Status compares the board against the signed log and lists each ticket whose Status no signed message supports. Audit reports a field mismatch, and the coordinator tells the owner once. |
 | s11-3 | The coordinator also remembers its own notes on each ticket. A note that is gone on the next read raises the security event deleted-message. |
 | s11-4 | The repair is the owner's decision: a move with the move command, and that move is in the log. |
 
 Screen: left "the board" with `#4 Status: Review`, right "the signed log" with three lines
-(request, ack, done); "a crew token" turns the field into "Status: Done"; "detected, not
+(request, ack, done); "an agent token" turns the field into "Status: Done"; "detected, not
 prevented"; `crewboard status` with `board against signed log: 1 mismatch #4 Done`; "no signed
 message for Done"; `crewboard audit --since 2h` with `field-mismatch #4 Status=Done`; "one signed
 note to the owner"; "remembered note ids: 3", one log line vanishes, "security event:
@@ -411,7 +415,7 @@ deleted-message"; the owner's `crewboard move 4 Ready --why "no merge yet"` and 
 
 | Claim | Source | Status |
 |---|---|---|
-| the holder of any crew token can set `Status = Done`; crewboard cannot stop that; detected, not prevented | CO 82-84; RM 70-71; SE 33-34 | doc |
+| the holder of any agent token can set `Status = Done`; crewboard cannot stop that; detected, not prevented | CO 82-84; RM 70-71; SE 33-34 | doc |
 | `status` lists the ticket: `board against signed log` (a Status that no signed message supports) | CO 83-84; ES 208 | doc |
 | `audit` reports a `field-mismatch`; the coordinator tells the owner once | CO 84-85; SKC 157 | doc |
 | `audit --since 2h` | OG 225 | doc |
@@ -425,7 +429,7 @@ deleted-message"; the owner's `crewboard move 4 Ready --why "no merge yet"` and 
 | id | Text |
 |---|---|
 | s12-1 | What crewboard gives you: two or more coding agents on one GitHub repo, a shared queue, a record of who did what, and a check on every done. No server, no database. |
-| s12-2 | What it does not do. A Done written by hand is detected, not prevented. One coordinator verifies and merges: a few agents, not swarms. A leaked crew token acts as its account, but cannot sign as an agent without the agent's key. |
+| s12-2 | What it does not do. A Done written by hand is detected, not prevented. One coordinator verifies and merges: a few agents, not swarms. A leaked agent token acts as its account, but cannot sign as an agent without the agent's key. |
 | s12-3 | GitHub only; agent hosts run macOS or Linux. The setup has manual steps, and there is no sandbox. Only interactive Claude Code on macOS is fully tested. |
 | s12-4 | And crewboard does not make an agent write correct code. Your Gate, your CI and the owner's review do that. |
 
@@ -438,9 +442,9 @@ agent").
 | no server, no database | RM 9 | doc |
 | a Done written by hand is detected, not prevented | RM 70 | doc |
 | one coordinator verifies and merges: crews of a few agents, not swarms | RM 72 | doc |
-| a leaked crew token acts as its account, but cannot sign as an agent without that agent's key | RM 73-74 | doc |
+| a leaked agent token acts as its account, but cannot sign as an agent without that agent's key | RM 73-74 | doc |
 | GitHub only; agent hosts run macOS or Linux | RM 75; AG 10 | doc |
-| setup has manual steps: GitHub has no API for a crew account and its token | RM 76 | doc |
+| setup has manual steps: GitHub has no API to give an account access or to make its token | RM 78 | doc |
 | no sandbox: the agents run shell commands as your user | RM 77 | doc |
 | only interactive Claude Code on macOS is fully tested | RM 78; AG 13-18 | doc |
 | crewboard does not make an agent write correct code; your Gate, your CI and the owner's review do | SE 38-39 | doc |
@@ -450,13 +454,14 @@ agent").
 | id | Text |
 |---|---|
 | s13-1 | Where to start. The Quick try: one person, one machine, your own token, a test repo and one ticket. Nine steps, three terminals. |
-| s13-2 | Then a real crew: a crew account, a coordinator and a dev agent, in thirteen steps. |
+| s13-2 | Then a real crew: a coordinator and a dev agent, in thirteen steps. In a team, everyone brings the GitHub account that they already have. |
 | s13-3 | crewboard. A crew of agents. One board. Proof before Done. |
 
 | Claim | Source | Status |
 |---|---|---|
 | Quick try: 9 steps, 3 terminals; one person, one machine, your own token, a test repo, one ticket | RM 63-64; QT 1-3 | doc |
-| a real crew: 13 steps, a crew account, a coordinator and a dev agent | RM 65-66; GS 3-7 | doc |
+| a real crew: 13 steps, a coordinator and a dev agent | RM 67-68; GS 3-7 | doc |
+| in a team, each person uses the GitHub account that they already have | RM 50-53; GS 42-46 | doc |
 | the closing line | RM 3 | doc |
 
 ## 4. Mechanisms shown in motion

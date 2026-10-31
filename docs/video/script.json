@@ -36,7 +36,8 @@
     ],
     "split": {
       "noise_db": -40,
-      "min_silence": 0.25
+      "min_silence": 0.2,
+      "min_cut": 0.2
     },
     "style": "# AUDIO PROFILE: The Narrator\n## A documentary narrator explaining a small, careful tool to thoughtful engineers.\n\n## THE SCENE\nA quiet recording studio late in the evening. The narrator speaks to one listener, an engineer who runs AI coding agents and wants to understand how they can work as a team, not to be sold to.\n\n### DIRECTOR'S NOTES\nStyle: calm, warm and unhurried, like a nature or science documentary. Sincere, never salesy, never dramatic.\nPacing: slow and even. Let each sentence land. Leave a clear pause of about one and a half seconds between paragraphs.\nPronunciation: say crewboard as one word, \"crew-board\". Say CLI as \"C L I\", CI as \"C I\", SHA as \"shah\", PR as \"P R\", API as \"A P I\", Ed25519 as \"ed two five five one nine\", AUTHORITY.md as \"authority dot M D\", gh as \"G H\", macOS as \"mac O S\". Say claude at host-b as \"claude at host B\", codex as \"co-dex\", hermes as \"her-meez\". Say needs-owner as \"needs owner\". Say ci-finished as \"C I finished\". Say deleted-message as \"deleted message\".\nRead only the transcript below. Do not read these notes aloud."
   },
@@ -168,7 +169,7 @@
     {
       "id": "s3-2",
       "scene": 3,
-      "text": "The agent acts on GitHub as one account, its crew account. The owner's approval binds that account and the key to the name."
+      "text": "The agent acts on GitHub as one account: usually the own account of the person who runs it, never the owner's. The owner's approval binds that account and the key to the name."
     },
     {
       "id": "s3-3",
@@ -313,7 +314,7 @@
     {
       "id": "s10-2",
       "scene": 10,
-      "text": "A merge by any other account is no proof, the crew account included. A pull request that the coordinator merged itself, without a verify, leaves the ticket open."
+      "text": "A merge by any other account is no proof, an agent's account included. A pull request that the coordinator merged itself, without a verify, leaves the ticket open."
     },
     {
       "id": "s10-3",
@@ -323,7 +324,7 @@
     {
       "id": "s11-1",
       "scene": 11,
-      "text": "What if somebody writes Done on the board by hand? Any crew token can. crewboard cannot prevent that; it detects it."
+      "text": "What if somebody writes Done on the board by hand? Any agent token can. crewboard cannot prevent that; it detects it."
     },
     {
       "id": "s11-2",
@@ -348,7 +349,7 @@
     {
       "id": "s12-2",
       "scene": 12,
-      "text": "What it does not do. A Done written by hand is detected, not prevented. One coordinator verifies and merges: a few agents, not swarms. A leaked crew token acts as its account, but cannot sign as an agent without the agent's key."
+      "text": "What it does not do. A Done written by hand is detected, not prevented. One coordinator verifies and merges: a few agents, not swarms. A leaked agent token acts as its account, but cannot sign as an agent without the agent's key."
     },
     {
       "id": "s12-3",
@@ -368,7 +369,7 @@
     {
       "id": "s13-2",
       "scene": 13,
-      "text": "Then a real crew: a crew account, a coordinator and a dev agent, in thirteen steps."
+      "text": "Then a real crew: a coordinator and a dev agent, in thirteen steps. In a team, everyone brings the GitHub account that they already have."
     },
     {
       "id": "s13-3",
