@@ -149,11 +149,8 @@ fn local_mode_done_verify_and_merge_pass_with_red_ci_and_record_the_gates() {
         o.all()
     );
     assert!(o.stdout.contains(OWNER_LINE), "{}", o.all());
-    assert!(
-        o.stdout.contains("ci-info: not green (information only)"),
-        "{}",
-        o.all()
-    );
+    // spec/ci#local-run-ci_mode-local: the CI of the head is not named
+    assert!(!o.stdout.contains("ci-info"), "{}", o.all());
     let done_msg = bodies(&fake, &k.ts)
         .into_iter()
         .find(|b| b.contains("Done. Evidence follows."))
@@ -221,16 +218,20 @@ fn local_mode_done_verify_and_merge_pass_with_red_ci_and_record_the_gates() {
 }
 
 #[test]
-fn local_mode_done_does_not_refuse_when_the_ci_cannot_be_read() {
+fn local_mode_done_does_not_read_the_ci() {
     let (fake, _c, b, k) = case(&authority(LOCAL));
-    for _ in 0..8 {
-        fake.fail_once("GET", "/actions/runs", "");
-        fake.fail_once("GET", "/check-runs", "");
-        fake.fail_once("GET", "/status", "");
-    }
     let o = ok(&fake, &b.dir, &done_args(&k, &["--local-run", DEV_GATE]));
     assert!(o.stdout.contains("ci: local-gate"), "{}", o.all());
-    assert!(o.stdout.contains("ci-info: not readable"), "{}", o.all());
+    assert!(!o.stdout.contains("ci-info"), "{}", o.all());
+    let ci_reads: Vec<String> = fake
+        .requests()
+        .into_iter()
+        .map(|r| r.path)
+        .filter(|p| {
+            p.contains("/actions/runs") || p.contains("/check-runs") || p.contains("/status")
+        })
+        .collect();
+    assert!(ci_reads.is_empty(), "{ci_reads:?}");
 }
 
 #[test]

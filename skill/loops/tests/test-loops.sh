@@ -1591,8 +1591,9 @@ real=$(cd "$T/a8home/clone-skill" && pwd -P)
 HOME="$T/a8home" "$AWX" --runtime claude "${AWC[@]}" --lock-dir "$FAKE_DIR/lock" >/dev/null 2>&1; rc=$?
 adds=$(grep -A1 -x 'arg=--add-dir' "$FAKE_DIR/rt.out" | grep -v -x -e 'arg=--add-dir' -e '--' | tr '\n' '|')
 ok=1; [ "$rc" -eq 0 ] && case "$adds" in *"|arg=$real|arg=$T/a8home/.claude/skills/crewboard|") true ;; *) false ;; esac \
-  && grep -q 'Never stop because of one refused command' "$FAKE_DIR/rt.out" && ok=0
-case_result "A8e claude: --add-dir skill dirs; refused-command rule in the prompt" $ok "rc=$rc, add-dir=$adds"
+  && grep -q 'Never stop because of one refused command' "$FAKE_DIR/rt.out" \
+  && grep -q 'Never start a background process of your runtime' "$FAKE_DIR/rt.out" && ok=0
+case_result "A8e claude: --add-dir skill dirs; refused-command and background rules in the prompt" $ok "rc=$rc, add-dir=$adds"
 # A9: hermes gets chat -Q -s crewboard -q and the SAME prompt as claude (one template)
 new_case a9 '0||' '1||'
 "$AWX" --runtime claude "${AWC[@]}" --lock-dir "$FAKE_DIR/lock" >/dev/null 2>&1

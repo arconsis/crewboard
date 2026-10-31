@@ -682,6 +682,11 @@ pub trait Probe {
             _ => Some(None),
         }
     }
+    /// `AUTHORITY.md` has `ci_mode: local` (spec/ci#local-run-ci_mode-local): the CI of a head is
+    /// no signal, so `ci-finished` and `green-not-done` stay quiet.
+    fn ci_off(&self) -> bool {
+        false
+    }
     /// Does a signed `done` of `agent` on the ticket name this head SHA?
     fn has_done(&self, t: &TicketRef, agent: &str, sha: &str) -> Option<bool>;
     /// The verify state of the latest `done` of `assignee` on the ticket (not of any sender).
@@ -916,6 +921,10 @@ impl Scanner<'_> {
             return;
         };
         if self.seen_is(r, Wait::Done, &pr.head_sha) {
+            return;
+        }
+        if probe.ci_off() {
+            self.clear(r, Wait::Done);
             return;
         }
         match probe.green_since(&r.repo, &pr) {
@@ -1183,6 +1192,9 @@ pub fn ci_scan(inp: &Inputs<'_>, probe: &dyn Probe) -> CiScan {
     for r in sorted {
         if !r.in_status(Status::InProgress) || r.agent.as_deref() != Some(me) {
             continue;
+        }
+        if probe.ci_off() {
+            return out;
         }
         let prefix = probe.branch_prefix();
         let want = format!("{prefix}{me}/{}-", r.issue);

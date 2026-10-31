@@ -26,6 +26,8 @@ struct Fake {
     question: Option<i64>,
     /// The issues whose open wait is a question to the owner.
     to_owner: Vec<u64>,
+    /// `ci_mode: local` in AUTHORITY.md.
+    ci_off: bool,
     calls: Cell<u32>,
 }
 
@@ -40,6 +42,7 @@ impl Fake {
             verify: None,
             question: None,
             to_owner: Vec::new(),
+            ci_off: false,
             calls: Cell::new(0),
         }
     }
@@ -75,6 +78,9 @@ impl Probe for Fake {
             Some(None) => Some(CiState::Pending),
             None => None,
         }
+    }
+    fn ci_off(&self) -> bool {
+        self.ci_off
     }
     fn has_done(&self, _: &TicketRef, _: &str, _: &str) -> Option<bool> {
         self.done
@@ -594,6 +600,23 @@ fn done_for_the_coordinator_needs_green_for_done_plus_escalate() {
 }
 
 #[test]
+fn green_not_done_stays_quiet_in_local_mode() {
+    // spec/ci#local-run-ci_mode-local: the CI of a head is no signal there
+    let e = defaults();
+    let seen = BTreeMap::new();
+    let rows = [row(7, "In Progress", "dev@host", 3 * H)];
+    let f = Fake {
+        green: Some(Some(T0 - 7200)),
+        branch: Some(true),
+        ci_off: true,
+        ..Fake::new().pr(7, SHA1)
+    };
+    let s = scan(&inputs(&rows, &e, &seen, Scope::Coordinator, true), &f);
+    assert!(s.late.is_empty(), "{:?}", words(&s.late));
+    assert!(s.clear.contains(&("PVTI_7".to_string(), Wait::Done)));
+}
+
+#[test]
 fn tells_follows_the_table_row_by_row() {
     let e = defaults();
     let ticket = |wait: Wait, since: i64, expected: i64| Late {
@@ -777,6 +800,26 @@ fn with_state(state: Option<CiState>) -> Fake {
     Fake {
         state: Some(state),
         ..Fake::new().pr(1, SHA1)
+    }
+}
+
+#[test]
+fn ci_finished_stays_quiet_in_local_mode() {
+    // spec/ci#local-run-ci_mode-local: the dev delivers with its local run, not on a CI event
+    let rows = [row(1, "In Progress", "dev@host", 600)];
+    let seen = BTreeMap::new();
+    for st in [
+        CiState::Green(None),
+        CiState::Red(vec!["check 9 (CodeQL) concluded neutral".into()]),
+        CiState::NoCi,
+    ] {
+        let f = Fake {
+            ci_off: true,
+            ..with_state(Some(st))
+        };
+        let out = scan_ci(&rows, &seen, Scope::Dev("dev@host"), &f);
+        assert!(out.events.is_empty() && out.none_seen.is_empty());
+        assert_eq!(f.calls.get(), 0, "the CI of the head was read");
     }
 }
 

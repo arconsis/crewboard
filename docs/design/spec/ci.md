@@ -266,8 +266,10 @@ ci_mode: local     # ci (default) or local
    without it, or with a blank text). The text is one line of at most 400 bytes
    (`local-gate-invalid` otherwise; the refusal names the actual length and the limit) and passes the check of every note (`secret-in-body`). The
    checks of the PR, the head and the branch are those of `done`. The CI of the head is NOT
-   judged: a red, pending or missing CI does not refuse, and neither does a CI that cannot be
-   read. crewboard reads it and names it as information on a `ci-info:` line.
+   judged and not read: a red, pending or missing CI does not refuse. A check that runs anyway
+   on a crew head (for example code scanning) is no proof of the tests, so `done` names no CI
+   state. `poll` and `watch` give no `ci-finished` and no `green-not-done` in this mode
+   ([Events](events.md#stale-work)).
 3. **What is recorded.** The signed `done` message has `ci: local-gate`, the line
    `local-gate: <text>` and the line `CI off by owner decision (AUTHORITY.md ci_mode: local)`.
    The Evidence field has `ci=local-gate local-gate=<text>`.

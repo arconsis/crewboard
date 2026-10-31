@@ -4,6 +4,20 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Fixed:
+
+- **Two writers after a Hermes wake.** `hermes chat -q` runs the model turn in the Hermes
+  gateway. A background process with `notify_on_complete` or `watch_patterns` that finished
+  after the turn made the gateway start a new turn in that chat, after the wake had ended and
+  released its lock; the next wake then worked in the same checkout. The wake prompt and the dev
+  skill now forbid background processes that report back into the chat (a long job uses
+  `crewboard lock run --detach`), and the [Hermes guide](docs/guides/runtimes/hermes-cron.md#notes)
+  names the two gateway settings that turn the reports off.
+- **`ci_mode: local`: no CI verdicts.** `poll` and `watch` gave `ci-finished` and
+  `green-not-done` from whatever checks ran on a crew head (for example code scanning), and
+  `done` named that state on a `ci-info:` line. In local mode the CI of a head is no proof of the
+  tests: these events stay quiet, and `done` neither reads the CI nor writes a `ci-info:` line.
+
 Changed:
 
 - Docs, skill and CLI texts say **agent account** for the GitHub account that an agent acts as

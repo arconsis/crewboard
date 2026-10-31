@@ -192,6 +192,11 @@ pub fn skill_read_dirs(home: Option<&Path>) -> Vec<PathBuf> {
 /// One rule for a refused command; the model must not conclude that Bash is off.
 pub const REFUSED_RULE: &str = "If a Bash command is refused, only that command form is refused: run one command per call, without $(...), redirection to files or cd. Write message text with the Write tool to a file in your state dir and pass it with --body-file (crewboard) or -F (git commit). Never stop because of one refused command.";
 
+/// One rule for background work: a runtime that reports a finished background process back into
+/// the chat starts a new model turn after the wake has ended, outside its lock, and two writers
+/// then share one checkout.
+pub const BACKGROUND_RULE: &str = "Never start a background process of your runtime that reports back into this chat when it finishes (for example Hermes notify_on_complete or watch_patterns): run a command in the foreground, or a long one as a detached crewboard job.";
+
 /// The wake prompt, the same for every runtime. The rules are in the skill; the prompt points
 /// there and names the host locks of the agent.
 pub fn prompt(
@@ -204,7 +209,7 @@ pub fn prompt(
     extra: Option<&str>,
 ) -> String {
     let mut p = format!(
-        "Use the crewboard skill (SKILL.md and references/dev.md). You are {agent}, a dev agent of {initiative}. Your events are in {}; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. {REFUSED_RULE}",
+        "Use the crewboard skill (SKILL.md and references/dev.md). You are {agent}, a dev agent of {initiative}. Your events are in {}; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. {REFUSED_RULE} {BACKGROUND_RULE}",
         events_file.display()
     );
     if let Some(c) = config_dir {
@@ -517,7 +522,7 @@ mod tests {
         );
         assert_eq!(
             p,
-            "Use the crewboard skill (SKILL.md and references/dev.md). You are dev@host-a, a dev agent of demo. Your events are in /s/events.txt; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. If a Bash command is refused, only that command form is refused: run one command per call, without $(...), redirection to files or cd. Write message text with the Write tool to a file in your state dir and pass it with --body-file (crewboard) or -F (git commit). Never stop because of one refused command."
+            "Use the crewboard skill (SKILL.md and references/dev.md). You are dev@host-a, a dev agent of demo. Your events are in /s/events.txt; handle them. Before you act on a ticket, read its thread: crewboard mine <n>. Then work as references/dev.md \"Headless wake: work until done\" says. If a Bash command is refused, only that command form is refused: run one command per call, without $(...), redirection to files or cd. Write message text with the Write tool to a file in your state dir and pass it with --body-file (crewboard) or -F (git commit). Never stop because of one refused command. Never start a background process of your runtime that reports back into this chat when it finishes (for example Hermes notify_on_complete or watch_patterns): run a command in the foreground, or a long one as a detached crewboard job."
         );
         assert!(!p.to_lowercase().contains("budget") && !p.contains("poll --quiet"));
         let p = prompt(

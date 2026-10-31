@@ -119,4 +119,21 @@ Also run `crewboard pause` (agent state) so the coordinator assigns nothing whil
   jobs on a shared host. The prompt then tells the agent to use `crewboard lock run`, and the
   wrapper releases the lock of the agent at the end of the time budget. Test:
   `bash skill/loops/tests/test-locks.sh`.
+- **No background reports into a wake.** `hermes chat -q` hands the prompt to the gateway, and
+  the model turn runs there. A background process with `notify_on_complete` or `watch_patterns`
+  that finishes after the turn makes the gateway start a new turn in that chat. The wake has
+  then ended and released its lock, so the next wake works in the same checkout at the same
+  time. The wake prompt and the skill forbid such processes. Also turn the reports off in
+  `~/.hermes/config.yaml` of the gateway that runs wakes:
+
+  ```yaml
+  terminal:
+    process_wait_auto_notify: false        # no automatic notify_on_complete after two waits
+  display:
+    background_process_notifications: off  # no report turns at all
+  ```
+
+  Both apply to every chat of that gateway. Hermes reads them at each use, so no restart is
+  needed. A long job goes through `crewboard lock run ... --detach`: its end is an event of the
+  next wake.
 - Do not put tokens in the script or in `jobs.json`. The env file holds them (mode 600).

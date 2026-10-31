@@ -34,10 +34,12 @@ const NOT_REFUSALS: &[(&str, &str)] = &[
         "branches-ignore",
         "a workflow trigger key of GitHub Actions",
     ),
+    ("ci-finished", "an event kind"),
     ("claude-code", "a runtime name"),
     ("crew-bot", "an example account name"),
     ("edited-message", "an event reason"),
     ("field-mismatch", "an `audit` finding"),
+    ("green-not-done", "a wait of the stale-work events"),
     (
         "late-and-stale-both-set",
         "a config error of the board config",
