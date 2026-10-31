@@ -23,7 +23,7 @@ reports its write as an ordinary `status-changed`, and the coordinator cannot se
 crewboard command made it.
 
 1. The `creator` of a field value is not the last writer: it still names
-   `github-project-automation` after a crew account set the value again. Only the issue timeline
+   `github-project-automation` after an agent account set the value again. Only the issue timeline
    names the real actor: `GET /repos/{o}/{r}/issues/{n}/timeline`, event
    `project_v2_item_status_changed`, field `actor.login`. The automation shows there as
    `github-project-automation[bot]`.
@@ -46,7 +46,7 @@ crewboard command made it.
 
 ## Status against the signed log
 
-Any crew token can write the board `Status`, so crewboard detects a Done or Dropped without
+Any agent token can write the board `Status`, so crewboard detects a Done or Dropped without
 proof instead of preventing it. The coordinator's cycle (`poll`, `watch`) checks the tickets that
 another writer moved to Done or Dropped since the last snapshot, the tickets that another writer
 moved out of Done or Dropped (set back behind a close; both are final; the agent's own writes are

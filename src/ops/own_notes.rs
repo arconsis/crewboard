@@ -1,7 +1,7 @@
 //! The coordinator's memory of its own signed notes, and the check that one of them is gone
 //! (spec/security-details#deleted-notes).
 //!
-//! The threat: a holder of a crew token deletes a signed note of the coordinator (most of all its
+//! The threat: a holder of an agent token deletes a signed note of the coordinator (most of all its
 //! close note) and sets the board back. The signed log then agrees with the board, so `status` and
 //! `audit` see nothing. An edit is detected (`edited-message`); a deletion leaves no comment to
 //! judge. Only the sender knows what it posted, so the coordinator remembers it.

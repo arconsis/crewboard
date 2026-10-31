@@ -1,12 +1,12 @@
 //! The default branch of the main repo: `start` and `doctor --board` warn when nothing protects
-//! it against a direct push of the crew account, and say `unknown` when the token cannot read
+//! it against a direct push of the agent account, and say `unknown` when the token cannot read
 //! the answer (`domain::branch_guard`, spec/board#authority), against the fake GitHub.
 
 use crate::support::board::{Agent, FakeBoard, Out};
 use crate::support::cli::{crew, run_ok};
 use serde_json::json;
 
-const WARNING: &str = "warning: the default branch main of fake-owner/fake-repo is not protected: the crew account can push to it and change AUTHORITY.md or .crewboard.toml without a pull request. Fix: require a pull request for the branch, with owner or CODEOWNERS review for AUTHORITY.md and .crewboard.toml (docs/guides/security.md)";
+const WARNING: &str = "warning: the default branch main of fake-owner/fake-repo is not protected: the agent account can push to it and change AUTHORITY.md or .crewboard.toml without a pull request. Fix: require a pull request for the branch, with owner or CODEOWNERS review for AUTHORITY.md and .crewboard.toml (docs/guides/security.md)";
 
 fn doctor_board(fake: &FakeBoard) -> Out {
     let dir = fake.owner_dir();

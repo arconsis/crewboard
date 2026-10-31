@@ -7,7 +7,7 @@
 //! and creates ONE private project under that user, titled "crewboard user-owned IT (test)".
 //! The project is reused on later runs and CLOSED (never deleted) at the end, also on a panic.
 //! No repository is written: the test covers project, fields, views and the collaborator call.
-//! The owner login comes from the token at run time. The crew account is a second user: set
+//! The owner login comes from the token at run time. The agent account is a second user: set
 //! `CREWBOARD_IT_CREW_LOGIN` to its login (the test is skipped without it).
 //! No other board is touched.
 
@@ -92,7 +92,7 @@ fn it_a_user_owned_board_gets_fields_views_and_a_collaborator_and_is_closed_afte
         return;
     }
     let Ok(crew_login) = std::env::var("CREWBOARD_IT_CREW_LOGIN") else {
-        eprintln!("SKIPPED: set CREWBOARD_IT_CREW_LOGIN to the login of the crew account");
+        eprintln!("SKIPPED: set CREWBOARD_IT_CREW_LOGIN to the login of the agent account");
         return;
     };
     let crew_login = crew_login.as_str();
@@ -165,7 +165,7 @@ fn it_a_user_owned_board_gets_fields_views_and_a_collaborator_and_is_closed_afte
     let reloaded = Board::load(&client, owner, board.number).expect("reload");
     assert_eq!(reloaded.project_id, board.project_id);
 
-    // collaborator with the Write role (the crew account)
+    // collaborator with the Write role (the agent account)
     let crew = client
         .get(&format!("users/{crew_login}"))
         .expect("crew user");

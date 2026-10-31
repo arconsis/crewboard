@@ -151,7 +151,7 @@ fn latest_body(fake: &FakeBoard, issue: u64, kind: &str) -> String {
         .expect("a comment of that kind")
 }
 
-/// Post `text` again as a new comment of the crew account, created 5 s ago.
+/// Post `text` again as a new comment of the agent account, created 5 s ago.
 fn post_copy(fake: &FakeBoard, issue: u64, text: &str) -> u64 {
     let created = crewboard::clock::now_epoch() - 5;
     fake.comment_at(issue, OWNER, text, created, created)

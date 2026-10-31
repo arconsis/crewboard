@@ -135,7 +135,7 @@ pub fn multiple_in_progress(tickets: &[TicketLine]) -> Vec<(String, Vec<String>)
 }
 
 /// One foreign comment (spec/messages#untrusted-input): its author is neither the owner nor, for a
-/// comment with a crew header, the crew account.
+/// comment with a crew header, the agent account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForeignComment {
     /// `owner/repo#n`.
@@ -145,7 +145,7 @@ pub struct ForeignComment {
     pub author: String,
     pub created_at: String,
     /// Why it is foreign: `crew-header-by-foreign-author` (it wears a crew header),
-    /// `headerless-crew-account-comment` (the crew account posts without a header: it is no
+    /// `headerless-crew-account-comment` (the agent account posts without a header: it is no
     /// owner message and no signed message) or `headerless-foreign-author`.
     pub reason: &'static str,
 }
@@ -755,7 +755,7 @@ fn tickets_text(snap: &Snapshot, ex: &Extras, s: &mut String) {
         }
     }
     // The board Status against the signed log. Done without proof is detected here, not
-    // prevented: a holder of the crew token can write the field.
+    // prevented: a holder of the agent token can write the field.
     let mismatches = log_mismatches(&snap.tickets);
     s.push_str(&format!(
         "board against signed log: {} mismatch(es) (a Status that no signed message supports; a Done without proof is detected, not prevented)\n",
@@ -1080,7 +1080,7 @@ mod tests {
         let comments = vec![
             comment(1, "owner-login", "owner comment"),
             comment(2, "mallory", "hello"),
-            comment(3, "crew-bot", "headerless by the crew account"),
+            comment(3, "crew-bot", "headerless by the agent account"),
             comment(4, "mallory", &crew_header),
             comment(5, "crew-bot", &crew_header),
         ];

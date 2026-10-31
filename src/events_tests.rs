@@ -300,7 +300,7 @@ fn a_message_counts_only_from_the_account_that_the_approval_bound() {
     };
     assert_eq!(s.reason, Reason::ForeignAuthor);
     assert!(s.detail.contains("as the account dev-a"), "{}", s.detail);
-    // and by the shared crew account, which no agent of this board uses
+    // and by the shared agent account, which no agent of this board uses
     assert_eq!(
         refused_with(classify(
             &as_author(signed_by_a.clone(), "crew-bot"),
@@ -327,7 +327,7 @@ fn a_crew_authored_message_with_a_valid_header_is_delivered() {
     let w = crew_world();
     let b = AgentName::parse("hermes@b").unwrap();
     let c = as_author(
-        msg(10, &w.ka, "claude@a", "hermes@b", "from the crew account"),
+        msg(10, &w.ka, "claude@a", "hermes@b", "from the agent account"),
         "crew-bot",
     );
     let e = delivered(classify(&c, &env(&w, &b, Some(Role::Dev))));

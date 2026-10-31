@@ -293,7 +293,7 @@ fn b1_seven_steps_join_posted_one_next_step() {
     assert_eq!(
         stub,
         format!(
-            "#!/bin/sh\n# crewboard gh shim for {d}: runs the real gh as the crew account.\nexec '{exe}' agent with-env --env-file '{d}/agent.env' -- '{gh}' \"$@\"\n",
+            "#!/bin/sh\n# crewboard gh shim for {d}: runs the real gh as the agent account.\nexec '{exe}' agent with-env --env-file '{d}/agent.env' -- '{gh}' \"$@\"\n",
             d = dir.display(),
             exe = env!("CARGO_BIN_EXE_crewboard"),
             gh = s.realgh.join("gh").display()

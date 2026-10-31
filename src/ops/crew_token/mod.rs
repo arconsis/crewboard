@@ -1,4 +1,4 @@
-//! `crewboard agent token` (old name `crew-token set`): put the token of the crew account into its env file.
+//! `crewboard agent token` (old name `crew-token set`): put the token of the agent account into its env file.
 //!
 //! The token comes from standard input: typed without echo on a terminal, or piped. It is checked
 //! against the GitHub API first (whose token it is, which scopes it has). Only a good token is
@@ -83,7 +83,7 @@ pub fn clean_token(raw: &str) -> Result<String, &'static str> {
 pub fn read_token() -> CbResult<String> {
     let stdin = std::io::stdin();
     let raw = if stdin.is_terminal() {
-        tty::read_hidden("GitHub token of the crew account (the input is hidden): ")
+        tty::read_hidden("GitHub token of the agent account (the input is hidden): ")
     } else {
         read_all(&mut stdin.lock())
     }
@@ -98,7 +98,7 @@ fn read_all(r: &mut dyn BufRead) -> std::io::Result<String> {
 }
 
 /// Ask GitHub whose token this is and which scopes it has. A token that lacks a scope, or has
-/// one that the crew account must not have, is refused with the fix. A fine-grained token shows
+/// one that the agent account must not have, is refused with the fix. A fine-grained token shows
 /// no scopes: it passes, and the report says so. In `trial` mode (one account for the owner and
 /// the agents) the owner's `workflow` scope passes with a note; every other wide scope fails.
 pub fn check(token: &str, want_login: Option<&str>, trial: bool) -> CbResult<Checked> {
@@ -226,7 +226,7 @@ mod tests {
             "  ghp_abcdefgh1234  \r\n",
             "GH_TOKEN=ghp_abcdefgh1234\n",
             "export GH_TOKEN=\"ghp_abcdefgh1234\"\n",
-            "# the crew token\n\nghp_abcdefgh1234\nsecond line\n",
+            "# the agent token\n\nghp_abcdefgh1234\nsecond line\n",
         ] {
             assert_eq!(
                 clean_token(raw).as_deref(),

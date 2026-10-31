@@ -1,6 +1,6 @@
 //! One GitHub account per agent: a contributor joins with its own account and token, the
 //! owner's approval binds that account to the agent, and a message of the agent counts only from
-//! that account. A shared crew account keeps working beside it. Against the fake GitHub; plain
+//! that account. A shared agent account keeps working beside it. Against the fake GitHub; plain
 //! `cargo test`.
 
 use crate::support::board::{Agent, FakeBoard, INITIATIVE, OWNER, REGISTRY, REPO, THREAD, sign};
@@ -15,7 +15,7 @@ use serde_json::Value;
 use std::path::Path;
 
 const FILE: &str = ".crewboard.toml";
-/// The shared crew account of the board (the coordinator acts as it).
+/// The shared agent account of the board (the coordinator acts as it).
 const CREW: &str = "fake-crew";
 
 /// The board file of a crew board: a crew login, no one-account key.
@@ -179,7 +179,7 @@ fn two_contributors_join_with_their_own_accounts_get_approved_take_and_deliver()
     let o = start(dir_b.path(), &gh_says(tools.path(), "dev-b"));
     assert_eq!(o.code, 0, "{}", o.all());
 
-    // the coordinator (shared crew account) assigns; each dev takes and delivers as itself
+    // the coordinator (shared agent account) assigns; each dev takes and delivers as itself
     let body = format!("Goal: accounts ticket.\n\n{GATE}CI: none\n");
     for (name, login, dir) in [(a, "dev-a", dir_a.path()), (b, "dev-b", dir_b.path())] {
         let t = fake.ticket_issue(name, &body, &["crew:work"]);

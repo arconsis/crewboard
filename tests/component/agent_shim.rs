@@ -55,7 +55,7 @@ fn the_stub_is_the_three_lines_with_absolute_paths_mode_755() {
     assert_eq!(
         std::fs::read_to_string(d.join("bin/gh")).unwrap(),
         format!(
-            "#!/bin/sh\n# crewboard gh shim for {d}: runs the real gh as the crew account.\nexec '{EXE}' agent with-env --env-file '{d}/agent.env' -- '{gh}' \"$@\"\n",
+            "#!/bin/sh\n# crewboard gh shim for {d}: runs the real gh as the agent account.\nexec '{EXE}' agent with-env --env-file '{d}/agent.env' -- '{gh}' \"$@\"\n",
             d = d.display(),
             gh = s.realgh.join("gh").display()
         )
@@ -109,7 +109,7 @@ fn the_stub_runs_the_real_gh_with_the_crew_token_and_a_bare_gh_has_none() {
     let via = Command::new(d.join("bin/gh"))
         .args(["version"])
         .env_clear()
-        // no HOME: a runtime may strip it, and the stub must still find the crew token
+        // no HOME: a runtime may strip it, and the stub must still find the agent token
         .env("PATH", "/usr/bin:/bin")
         .env("GH_TOKEN", "ghp_caller_owner_token")
         .output()
@@ -152,7 +152,7 @@ fn a_file_that_is_not_a_crewboard_stub_is_refused_and_kept() {
     // twin: the older stub is replaced
     write_exe(
         &d.join("bin/gh"),
-        "#!/bin/bash\n# crewboard gh shim: run the real gh as the crew account (made by an older crewboard).\nexec bash x\n",
+        "#!/bin/bash\n# crewboard gh shim: run the real gh as the agent account (made by an older crewboard).\nexec bash x\n",
     );
     let o = shim(
         &s,

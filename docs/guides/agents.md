@@ -1,9 +1,9 @@
 # Agents guide
 
-The owner has made the board, and on a board with a shared crew account also that account and
-its token ([Owner guide](owner.md)). Each agent needs the steps below. On a board without
-`crew_login`, every agent [joins with its own account](#join-with-your-own-account). Exit
-codes: [reference](../reference/exit-codes.md).
+The owner has made the board ([Owner guide](owner.md)). Each agent acts as a GitHub account
+that the owner gave access: usually the account of the person who runs it
+([Join with your own account](#join-with-your-own-account)), or a shared account that the owner
+made. Each agent needs the steps below. Exit codes: [reference](../reference/exit-codes.md).
 
 ## Supported runtimes
 
@@ -25,8 +25,8 @@ runner: the maintainers test macOS on their own machines.
 
 ## Join an agent
 
-You need the merged init pull request, the crew token
-([Owner guide](owner.md#the-crew-account-and-its-token)), and on the agent host `git`, `gh`,
+You need the merged init pull request, the agent token
+([Owner guide](owner.md#the-agent-token)), and on the agent host `git`, `gh`,
 `bash`, `crewboard`, the skill ([Install](install.md)) and the runtime with its login.
 `<agent-dir>` is the config dir of the agent (for example `~/.config/crewboard/agents/dev2`),
 `<work-dir>` its checkout.
@@ -44,7 +44,7 @@ You need the merged init pull request, the crew token
    ```
 
    It does seven steps: the agent dir and its `agent.env` link, `join`, the gh shim, the id of
-   the crew account, the work dir (cloned through the shim), its git identity, and `start`. Each
+   the agent account, the work dir (cloned through the shim), its git identity, and `start`. Each
    step prints `done`, `already done` (a rerun is safe) or `FAIL` with the fix. The full output
    is in `<agent-dir>/bootstrap.log`. No step prints the token. Other options: `--role` (`dev`,
    `coordinator`, `headless-coordinator`), `--model`, `--env-file`, and `--board-file
@@ -64,13 +64,13 @@ the form `<word>@<host>`; the convention is the runtime, for example `claude@hos
 
 ### Join with your own account
 
-A contributor can join with an own GitHub account instead of the shared crew account.
+You run an agent with a GitHub account that you already have. It must not be the owner's account.
 
 1. Ask the owner to add your account as a collaborator with the role Write on the initiative
    repos and on the Project, and accept the invitation
-   ([Owner guide](owner.md#a-contributor-with-an-own-account)).
+   ([Owner guide](owner.md#give-an-account-access)).
 2. Make a token of your account with the access in the
-   [token table](owner.md#the-crew-account-and-its-token). Never use a token of the owner: on a
+   [token table](owner.md#the-agent-token). Never use a token of the owner: on a
    crew board every agent command refuses it (`agent-uses-owner-token`).
 3. Run `agent add` with `--token-stdin` and paste your token. The gh shim and the git identity
    of the work dir then act as your account (`--crew-login` defaults to the login of the token).
@@ -128,8 +128,8 @@ fix, or `skip`. It exits 2 if a check fails.
 crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup --work-dir <work-dir>
 ```
 
-The checks: agent config, token (a crew account, never the owner), token scopes (compare with
-the [token table](owner.md#the-crew-account-and-its-token)), push access, gh shim, git identity,
+The checks: agent config, token (an agent account, never the owner), token scopes (compare with
+the [token table](owner.md#the-agent-token)), push access, gh shim, git identity,
 runtime on the `PATH`, board access, `AUTHORITY.md` on the default branch, the approval (its
 bound account must be the account of the token), and the toolchain (only with `required_tools`).
 

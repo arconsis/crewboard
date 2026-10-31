@@ -2,6 +2,20 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Changed:
+
+- Docs, skill and CLI texts say **agent account** for the GitHub account that an agent acts as
+  (was "crew account"), and **agent token** for its token. Nothing else changes: the flag
+  `--crew-login`, the board key `crew_login` and the rule ids stay. The docs now lead with what
+  was already the default: each person runs agents with the GitHub account that they already
+  have, and the owner gives that account access. A shared account is optional. Agents never act
+  as the owner's account, so an owner who runs agents uses a second account. New owner guide
+  sections: [Give an account access](docs/guides/owner.md#give-an-account-access),
+  [The agent token](docs/guides/owner.md#the-agent-token) and
+  [A shared agent account](docs/guides/owner.md#a-shared-agent-account).
+
 ## v0.8.0 (2026-10-31)
 
 Upgrade: a script or a wrapper that reads exit 4 as "bad command line" reads 64 now (all

@@ -13,7 +13,7 @@ account, use the [Quick try](quick-try.md). Terms are in [Concepts](concepts.md)
 - **Registry issue**: the pinned issue where agents ask to join. `init` makes it.
 
 There are 13 steps: 8 commands and 5 browser actions, plus the prerequisites below. Setup takes
-about 25 minutes. Most of it is the crew account in the browser. The first ticket then takes 5
+about 25 minutes. Most of it is the second account in the browser. The first ticket then takes 5
 to 20 minutes, because a dev agent wakes every 5 minutes. Both times are estimates. The agents
 spend the tokens of your own runtime plans
 ([Keep the cost down](guides/agents.md#keep-the-cost-down)). CI minutes are yours too.
@@ -24,7 +24,7 @@ Replace these example values in every command:
 |---|---|
 | `my-crew` | The name of the initiative. |
 | `you/my-repo` | The repo of the work: your GitHub login and a test repo. |
-| `crew-bot` | The login of the shared crew account. |
+| `you-agents` | The login of the account that your agents act as: a second account of yours. |
 | `claude@host-a` | The coordinator. The name is free text in the form `<word>@<host>`; the convention is the runtime, for example `claude@host-b`. Lowercase `a-z`, `0-9` and `-`, 40 characters at most. |
 | `claude@host-b` | The dev agent. |
 
@@ -32,22 +32,23 @@ Replace these example values in every command:
 drop `--token-stdin`: `agent add` then reads `~/.config/crewboard/my-crew.env`, the file of
 step 6, by default.
 
-> **Why a crew account?** GitHub sees one login for everything an agent does. An agent with your
-> own login could merge, change `AUTHORITY.md` or delete things. A crew account with write access
-> to the test repo keeps the damage inside that repo. The price is one more account and one
-> token. If you will not pay it, use the [Quick try](quick-try.md).
+> **Why a second account?** Your agents never act as your account. GitHub sees one login for
+> everything an agent does: with your login, an agent could merge, change `AUTHORITY.md` or
+> delete things. An account with write access to the test repo keeps the damage inside that
+> repo. On this page you run both agents yourself, so they act as a second account of yours
+> (`--crew-login you-agents` in step 7). If you will not make one, use the
+> [Quick try](quick-try.md).
 >
-> This page makes one shared crew account for your agents (`--crew-login crew-bot` in step 7).
-> A shared account is optional. Without `--crew-login`, `init` makes a crew where each agent
-> joins with its own account, and the owner invites each account; the
-> [Owner guide](guides/owner.md#crew-accounts) shows the modes, and
-> [A contributor with an own account](guides/owner.md#a-contributor-with-an-own-account) the
-> steps. A contributor can also join a board with a shared account with an own account.
+> **In a team** nobody needs a new account. Each teammate runs agents with the GitHub account
+> that they already have: you give that account access, the teammate joins, you approve
+> ([Give an account access](guides/owner.md#give-an-account-access)). Without `--crew-login`,
+> `init` makes such a crew ([Agent accounts](guides/owner.md#agent-accounts)).
 
 ## What you need
 
-- Two GitHub accounts: yours and a second one for the crew (`crew-bot`), with its own e-mail
-  address. A plus address such as `you+crew@example.com` works if your provider delivers it.
+- Two GitHub accounts: yours and a second one of yours for the agents (`you-agents`), with its
+  own e-mail address. A plus address such as `you+agents@example.com` works if your provider
+  delivers it.
 - The tools in [Install](guides/install.md#what-you-need), with `gh` 2.17 or newer.
   `crewboard doctor` shows the `gh` and `git` versions it found and whether the skill is installed.
 - `gh` logged in as you (`gh auth login`). `init` and `approve` need the `project` scope; they
@@ -70,31 +71,31 @@ step 6, by default.
    curl -fsSL https://raw.githubusercontent.com/arconsis/crewboard/main/install.sh | bash
    ```
 
-2. **Sign up the crew account** (web). In a private browser window open
-   `https://github.com/signup`. Make `crew-bot` and confirm the e-mail. Read the note on
-   GitHub's terms in [owner.md](guides/owner.md#the-crew-account-and-its-token) first. If GitHub
-   blocks the sign-up, stop: a real crew needs a crew account. Use the
+2. **Sign up the second account** (web). In a private browser window open
+   `https://github.com/signup`. Make `you-agents` and confirm the e-mail. Read the note on
+   GitHub's terms in [owner.md](guides/owner.md#a-shared-agent-account) first. If GitHub
+   blocks the sign-up, stop: your agents need an account that is not yours. Use the
    [Quick try](quick-try.md).
 
 3. **Give it access** (web, as you). Open `you/my-repo`, then Settings, Collaborators, Add
-   people. Add `crew-bot` with the role Write. For an organisation repo, invite `crew-bot` to
+   people. Add `you-agents` with the role Write. For an organisation repo, invite `you-agents` to
    the organisation first. Give the account access to the test repo only: the token of step 5
    reaches everything that the account can reach.
 
-4. **Accept the invitation** (web, as `crew-bot`). Open
+4. **Accept the invitation** (web, as `you-agents`). Open
    `https://github.com/you/my-repo/invitations` and accept.
 
-5. **Make the token** (web, as `crew-bot`). Open Settings, Developer settings, Personal access
+5. **Make the token** (web, as `you-agents`). Open Settings, Developer settings, Personal access
    tokens, Tokens (classic), Generate new token (classic). Tick `repo` and `project`, nothing
    else, and copy the token. Keep it until step 12. An organisation board needs a fine-grained
-   token ([owner.md](guides/owner.md#the-crew-account-and-its-token)).
+   token ([owner.md](guides/owner.md#the-agent-token)).
 
 6. **Store the token** (command, host A). Paste the token when it asks. The command checks
    whose token it is and which scopes it has. It writes `~/.config/crewboard/my-crew.env`
    (mode 600) only when the token is right, and it never prints the token.
 
    ```sh
-   crewboard agent token --initiative my-crew --crew-login crew-bot
+   crewboard agent token --initiative my-crew --crew-login you-agents
    ```
 
 7. **Make the board** (command, host A, as the owner, with your own `gh` login). `init` makes
@@ -107,7 +108,7 @@ step 6, by default.
 
    ```sh
    crewboard init --initiative my-crew \
-     --repo you/my-repo --crew-login crew-bot --with-ci
+     --repo you/my-repo --crew-login you-agents --with-ci
    ```
 
 8. **Merge the init pull request** (web). Read `AUTHORITY.md`. To change it, edit the file on
@@ -145,7 +146,7 @@ step 6, by default.
 
 12. **Add the dev agent** (command, host B). `--install-wake` installs a scheduler unit
     (launchd, systemd or cron) that wakes the dev agent every 5 minutes when work exists. Use
-    `--runtime codex` for Codex. `--token-stdin` reads the crew token: paste it.
+    `--runtime codex` for Codex. `--token-stdin` reads the agent token: paste it.
 
     ```sh
     crewboard agent add you/my-repo --initiative my-crew --agent claude@host-b \
@@ -157,7 +158,7 @@ step 6, by default.
     `ssh host-a cat .config/crewboard/my-crew.env | ssh host-b <the command above>`.
 
 13. **Approve the dev agent** (command, host A, as the owner). Run the line that step 12
-    printed. `approve` prints the account of the join (`crew-bot`) and binds it to the agent. The command of step 12 then runs the start checks and installs the unit. A check
+    printed. `approve` prints the account of the join (`you-agents`) and binds it to the agent. The command of step 12 then runs the start checks and installs the unit. A check
     that fails names its fix. If another job already wakes this agent, the install refuses and
     prints the fix. On Linux, the command of step 12 also prints a `next:`
     line, `loginctl enable-linger "$USER"`. Run it on host B, so that the unit survives logout.

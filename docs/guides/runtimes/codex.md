@@ -93,7 +93,7 @@ session blocks all wakes. `crewboard wake` does not build it.
 The same as in [unattended-claude.md](unattended-claude.md#before-the-install-once-per-agent).
 Codex must be logged in for the user that the scheduler runs as (`codex login`). Install the
 skill for Codex too (`crewboard skill install --dry-run` shows the agent-skills directory it links; check that
-Codex reads it, or write the rules into `AGENTS.md` of the work dir). The crew token reaches
+Codex reads it, or write the rules into `AGENTS.md` of the work dir). The agent token reaches
 the model's `crewboard` calls through the gh shim: `crewboard` finds no `GH_TOKEN`, runs
 `gh auth token`, and the first `gh` on the `PATH` is the shim.
 

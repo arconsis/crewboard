@@ -1,6 +1,6 @@
 //! The identity modes of a board (spec/identity#identity-modes). `insecure_one_account = true`
 //! is the one-person trial: the agents use the owner's token. Without it the board is a crew:
-//! with `crew_login` a shared crew account, without it one own account per agent. A crew board
+//! with `crew_login` a shared agent account, without it one own account per agent. A crew board
 //! never lets an agent act with the owner's token. Against the fake GitHub; plain `cargo test`.
 
 use crate::support::board::{Agent, FakeBoard, INITIATIVE, REPO};
@@ -350,7 +350,7 @@ fn a_crew_board_ignores_the_flag_and_the_key() {
     // a refused start persists nothing
     assert!(!c.load_agent(INITIATIVE).unwrap().insecure_one_account);
 
-    // the crew token passes without any flag: the consent is not asked on a crew board
+    // the agent token passes without any flag: the consent is not asked on a crew board
     fake.set_viewer("crew-bot");
     let o = fake.run(&a.dir, &["poll", "--quiet"]);
     assert!(!o.stderr.contains(OWNER_TOKEN), "{}", o.all());

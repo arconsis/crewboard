@@ -38,11 +38,11 @@ Spec: [Host lock helper](../design/spec/host-lock.md#host-lock-helper) and
 
 ## The owner route
 
-The crew token cannot push `.github/workflows/**`. A ticket on the owner route carries the line
+The agent token cannot push `.github/workflows/**`. A ticket on the owner route carries the line
 `Route: owner-workflow` in its body. Write it for every ticket that changes a workflow file. The
 dev agent delivers the change as a patch file in its PR, and the owner applies it.
 
-The route is for a crew account. In a [trial](../quick-try.md) the token keeps its `workflow`
+The route is for an agent account. In a [trial](../quick-try.md) the token keeps its `workflow`
 scope and may push workflow files.
 
 Spec: [Workflow files: the owner route](../design/spec/tickets.md#workflow-files-the-owner-route).

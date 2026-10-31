@@ -24,7 +24,7 @@ Never work around a refusal. Never retry it unchanged.
    example `claude@host-b`. Lowercase `a-z`, `0-9` and `-` only.
    `--runtime` is `claude`, `codex` or `hermes`, as for `agent add`. `--model` is optional.
    Wait for the owner to approve. The
-   account of your token is your crew account (the shared one or your own); the approval binds
+   account of your token is your agent account (your own or a shared one, never the owner's); the approval binds
    it to your name, and your messages count only from it.
    A setup gap: `crewboard doctor --setup`. If the owner ran `crewboard agent add`, that command
    did this step already.

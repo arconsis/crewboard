@@ -38,7 +38,7 @@ pub struct InitArgs<'a> {
     /// GitHub login of the account all agents act as (machine account). It is written to
     /// `.crewboard.toml` as `crew_login` and added to the board with the Write role.
     pub crew_login: Option<&'a str>,
-    /// The owner's consent to a board without a crew account (a one-person trial). It is
+    /// The owner's consent to a board without an agent account (a one-person trial). It is
     /// written to `.crewboard.toml` as `insecure_one_account`.
     pub insecure_one_account: bool,
     pub no_pr: bool,
@@ -278,7 +278,7 @@ fn mode_lines(a: &InitArgs<'_>, rep: &mut Report) {
     if a.insecure_one_account {
         rep.line("WARNING: one-account board: the agents use the owner's token and nothing separates owner from agent. Use it for a one-person trial only; for a crew run init without --insecure-one-account.");
     } else if a.crew_login.is_none() {
-        rep.line("identity: own accounts: each agent joins with its own GitHub account, never yours. Invite each contributor account as a collaborator with the Write role on the repos and on the Project; `approve` shows the account of each join. (A shared crew account: init --crew-login <account>.)");
+        rep.line("identity: own accounts: each agent joins with its own GitHub account, never yours. Invite each contributor account as a collaborator with the Write role on the repos and on the Project; `approve` shows the account of each join. (A shared agent account: init --crew-login <account>.)");
     }
 }
 
@@ -800,12 +800,12 @@ pub fn owner_checklist(c: &Checklist<'_>) -> String {
             &mut s,
             if c.org {
                 format!(
-                    "Crew token: as {crew}, open https://github.com/settings/personal-access-tokens/new (fine-grained; resource owner {}; only the initiative repos; permissions as in README.md, action 15).",
+                    "Agent token: as {crew}, open https://github.com/settings/personal-access-tokens/new (fine-grained; resource owner {}; only the initiative repos; permissions as in README.md, action 15).",
                     c.main_repo.split('/').next().unwrap_or("")
                 )
             } else {
                 format!(
-                    "Crew token: as {crew}, open https://github.com/settings/tokens/new (classic; scopes repo and project, nothing else)."
+                    "Agent token: as {crew}, open https://github.com/settings/tokens/new (classic; scopes repo and project, nothing else)."
                 )
             },
         );
@@ -822,7 +822,7 @@ pub fn owner_checklist(c: &Checklist<'_>) -> String {
 }
 
 /// The last line of `init`: the next owner command. Pure.
-/// In trial mode (`trial`: one account) there is no crew token to store: the agents use the
+/// In trial mode (`trial`: one account) there is no agent token to store: the agents use the
 /// owner's token, so the join starts from the env file that holds it.
 pub fn next_step(initiative: &str, repo: &str, pr: bool, trial: bool) -> String {
     let merge = if pr {
@@ -832,7 +832,7 @@ pub fn next_step(initiative: &str, repo: &str, pr: bool, trial: bool) -> String 
     };
     let join = if trial {
         format!(
-            "Trial mode, one account: there is no crew token, so skip `agent token`. On the agent host run `crewboard agent add {repo} --initiative {initiative} --env-file <the env file with your token> --wait-approval`"
+            "Trial mode, one account: there is no agent token, so skip `agent token`. On the agent host run `crewboard agent add {repo} --initiative {initiative} --env-file <the env file with your token> --wait-approval`"
         )
     } else {
         format!(
@@ -872,7 +872,7 @@ pub fn ensure_project(
     }
 }
 
-/// The crew account must exist, be a user and differ from the owner. Returns its
+/// The agent account must exist, be a user and differ from the owner. Returns its
 /// `(numeric id, node id)`. A missing write access to a repo is a warning, not a failure
 /// (the owner may add it after `init`).
 fn check_crew_login(
@@ -910,7 +910,7 @@ fn check_crew_login(
         .and_then(Value::as_str)
         .ok_or_else(|| GhError::Shape("crew user has no node_id".into()))?
         .to_string();
-    rep.line(format!("crew account: {crew}"));
+    rep.line(format!("agent account: {crew}"));
     for repo in repos {
         match client.get(&format!("{}/collaborators/{crew}/permission", repo_path(repo)?)) {
             Ok(p) => {
@@ -920,7 +920,7 @@ fn check_crew_login(
                     .and_then(Value::as_str)
                     .unwrap_or("none");
                 if matches!(perm, "write" | "admin" | "maintain") {
-                    rep.line(format!("crew account on {repo}: {perm}"));
+                    rep.line(format!("agent account on {repo}: {perm}"));
                 } else {
                     rep.line(format!(
                         "WARNING: {crew} has permission '{perm}' on {repo}; agents need write access there."
@@ -936,7 +936,7 @@ fn check_crew_login(
     Ok((id, node))
 }
 
-/// Give the crew account the Write role on the project (user-owned boards have no team
+/// Give the agent account the Write role on the project (user-owned boards have no team
 /// access, so this is the way in). `updateProjectV2Collaborators` sets the role; calling it
 /// again is harmless.
 pub fn add_collaborator(
@@ -1434,7 +1434,7 @@ mod tests {
         );
         assert!(!t.contains('\n'), "one line: {t}");
         assert!(t.contains("crewboard agent token --initiative demo"), "{t}");
-        // trial mode: no crew token to store, the owner's env file is used
+        // trial mode: no agent token to store, the owner's env file is used
         let tr = next_step("demo", "o/app", true, true);
         assert!(!tr.contains("crewboard agent token"), "{tr}");
         assert!(tr.contains("Trial mode, one account"), "{tr}");
@@ -1450,7 +1450,7 @@ mod tests {
 
     #[test]
     fn the_owner_checklist_leaves_out_what_is_done_or_unknown_to_init() {
-        // no workflow on, no crew account (a trial), no PR (not needed or --no-pr)
+        // no workflow on, no agent account (a trial), no PR (not needed or --no-pr)
         let t = list(true, 0, None, None);
         assert!(t.is_empty(), "no step, no header: {t}");
         let t = list(true, 0, None, Some("https://github.com/acme/app/pull/3"));

@@ -8,7 +8,7 @@ use crewboard::protocol::names::Kind;
 use crewboard::protocol::signature::generate_key;
 use crewboard::registry::{fingerprint, join_body};
 
-/// A second join of the name with another key, as any holder of the crew token can post it.
+/// A second join of the name with another key, as any holder of the agent token can post it.
 fn rival_join(fake: &FakeBoard, name: &str) -> String {
     let key = generate_key().unwrap();
     let mut public = key.public_key().clone();

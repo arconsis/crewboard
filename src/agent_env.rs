@@ -1,6 +1,6 @@
 //! The env file of an agent (`agent.env`) and the token it holds.
 //!
-//! crewboard reads the crew token itself. It does not source a shell file and it does not call
+//! crewboard reads the agent token itself. It does not source a shell file and it does not call
 //! `std::env::set_var`: the loader runs once, before the command, and keeps the result in a
 //! read-only [`OnceLock`]. The client reads [`token`]; a child process gets [`AgentEnv::apply`].
 //!
@@ -636,7 +636,7 @@ pub fn check_token_source() -> Option<Refusal> {
         Refusal::new(
             ids::OWNER_TOKEN_IN_AGENT_DIR,
             format!(
-                "{dir} is an agent dir; it has no agent.env and no GH_TOKEN, so crewboard would use the login of gh (the owner). Link the env file of the crew account with `ln -sfn <file> {dir}/agent.env`, or put the crew token in {dir}/agent.env"
+                "{dir} is an agent dir; it has no agent.env and no GH_TOKEN, so crewboard would use the login of gh (the owner). Link the env file of the agent account with `ln -sfn <file> {dir}/agent.env`, or put the agent token in {dir}/agent.env"
             ),
         )
     })

@@ -81,7 +81,7 @@ pub struct AddArgs {
     /// Test seams: seconds between two polls (default 15) and the longest wait (default 1800).
     pub wait_interval: Option<u64>,
     pub wait_max: Option<u64>,
-    /// `--token-stdin`: read the crew token from standard input, check it and write the env file
+    /// `--token-stdin`: read the agent token from standard input, check it and write the env file
     /// first (`agent token` for this host).
     pub token_stdin: bool,
     /// `--insecure-one-account`: a one-person trial; the token of `--token-stdin` may have the
@@ -145,14 +145,14 @@ fn early_secrets(a: &AddArgs) -> Vec<String> {
 pub(super) fn env_fix(m: &str, env: &Path) -> String {
     if m.contains("not found:") {
         format!(
-            "store the token of the crew account: crewboard agent token --initiative <initiative> (it writes {} with mode 600), or run this command with --token-stdin. Trial mode (one account): use the env file that holds the owner's token, the one you gave to `crewboard init --insecure-one-account`; do not run `agent token`",
+            "store the token of the agent account: crewboard agent token --initiative <initiative> (it writes {} with mode 600), or run this command with --token-stdin. Trial mode (one account): use the env file that holds the owner's token, the one you gave to `crewboard init --insecure-one-account`; do not run `agent token`",
             env.display()
         )
     } else if m.contains(" has mode ") {
         format!("chmod 600 {}", env.display())
     } else {
         format!(
-            "check the env file {}: one line GH_TOKEN=<token of the crew account>, mode 600, your own file",
+            "check the env file {}: one line GH_TOKEN=<token of the agent account>, mode 600, your own file",
             env.display()
         )
     }
@@ -994,7 +994,7 @@ fn run_steps(p: &Plan) -> u8 {
         Err(f) => return run.fail(f),
     }
     if seam_bin(p).is_none() {
-        // from here the token of the crew account is the token of this process
+        // from here the token of the agent account is the token of this process
         if let Err(e) = agent_env::init(&p.agent_dir, None) {
             eprintln!(
                 "{PREFIX} cannot load the env file of the agent: {}",
@@ -1688,7 +1688,7 @@ fn git_origin(wd: &Path) -> Option<String> {
     (cap.code == 0).then(|| cap.text.trim().to_string())
 }
 
-/// Step 6: the git identity of the crew account in the work dir.
+/// Step 6: the git identity of the agent account in the work dir.
 fn step_git(p: &Plan, run: &mut Run, shim: &Path, login: &str, email: &str) -> Result<Ok_, Fail> {
     let id = Identity {
         repo: &p.work_dir,

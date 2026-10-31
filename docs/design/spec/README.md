@@ -34,7 +34,7 @@ example `spec/board#lifecycle`. It means `docs/design/spec/<file>.md#<anchor>`. 
 without an anchor names the whole file, for example `spec/profiles`. A text that crewboard
 prints to a user (an error, a warning, an issue body) uses the full path
 `docs/design/spec/<file>.md#<anchor>`, because the reader may not know the short form. The skill
-(`skill/SKILL.md` and `skill/references/`) is installed without `docs/`, and the crew account may
+(`skill/SKILL.md` and `skill/references/`) is installed without `docs/`, and the agent account may
 not read the crewboard repo, so the skill names a docs path as plain text for a reader with a clone
 of crewboard (`docs/design/spec/<file>.md`) and links only its own files. The anchor is the
 GitHub slug of the heading: lower case, spaces become `-`, punctuation and backticks are

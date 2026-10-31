@@ -96,7 +96,7 @@ fn adopt_refused(rule: RuleId, why: String) -> CbError {
 /// ticket `<n>` (in the repo of the PR) is Done or Dropped, or is back in Backlog or Ready and its
 /// reassign notice names this PR. The status of ticket `<n>` is the one of its SIGNED LOG
 /// (`fold_ticket`, as `status` and `audit` judge it), never the board field: any holder of the
-/// crew token can write the board, and a board Dropped would hand the open PR of a running
+/// agent token can write the board, and a board Dropped would hand the open PR of a running
 /// ticket to a new one.
 pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResult<Adoption> {
     let u = parse_pr_url(url)?;

@@ -523,14 +523,14 @@ STUB
 chmod +x "$GS/real/gh"
 printf 'GH_TOKEN=tok-CREW-456\n' >"$GS/crew.env"; chmod 600 "$GS/crew.env"
 
-# G1: make-shim writes a shim that loads the crew token for the real gh; a bare gh sees none
+# G1: make-shim writes a shim that loads the agent token for the real gh; a bare gh sees none
 out=$(mkshim --dir "$GS/agent/bin" --env-file "$GS/crew.env" --real-gh "$GS/real/gh" 2>&1); rc=$?
 via=$(env -u GH_TOKEN "$GS/agent/bin/gh" api user --jq .login 2>&1)
 bare=$(env -u GH_TOKEN "$GS/real/gh" api user 2>&1)
 ok=1; [ "$rc" -eq 0 ] && [ "$via" = "gh-saw token=tok-CREW-456 args=api user --jq .login" ] \
   && [ "$bare" = "gh-saw token=unset args=api user" ] && [ -d "$GS/agent/gh-empty-config" ] \
   && printf '%s' "$out" | grep -q 'agent shim: \[1/1\] gh shim: done ' && ok=0
-case_result "G1 shim loads the crew token; a bare gh has none" $ok "rc=$rc, via shim='$via', bare='$bare'"
+case_result "G1 shim loads the agent token; a bare gh has none" $ok "rc=$rc, via shim='$via', bare='$bare'"
 
 # G1b: the token never appears in the shim file or in the printed lines
 leak=0; grep -q 'tok-CREW-456' "$GS/agent/bin/gh" && leak=1; printf '%s' "$out" | grep -q 'tok-CREW-456' && leak=1
@@ -701,7 +701,7 @@ case_result "A6 bad runtime, work dir, shim dir -> exit 4, nothing started" $ok 
 echo "== agent dir"
 CAD="$T/ca"; mkdir -p "$CAD"
 printf 'GH_TOKEN=crew-token-value\n' >"$CAD/crew.env"; chmod 600 "$CAD/crew.env"
-# an agent dir: the config dir of one agent, with agent.env linked to the env file of the crew account
+# an agent dir: the config dir of one agent, with agent.env linked to the env file of the agent account
 mkdir -p "$CAD/dev1" && ln -sfn "$CAD/crew.env" "$CAD/dev1/agent.env"
 mkdir -p "$CAD/empty"
 
@@ -805,7 +805,7 @@ esac
 exit 0
 STUB
 chmod +x "$BOOT/crewboard"
-# a fake real gh: the crew login and its id, only with the crew token loaded (through the shim)
+# a fake real gh: the crew login and its id, only with the agent token loaded (through the shim)
 cat >"$BOOT/realgh/gh" <<'STUB'
 #!/bin/bash
 [ "$GH_TOKEN" = boot-token-SECRET ] || { echo "gh: not logged in" >&2; exit 4; }

@@ -153,7 +153,7 @@ catalog! {
         SINGLE_COORDINATOR = "single-coordinator" :
             "Another agent is the coordinator; a crew has one.";
         CREW_LOGIN_IS_OWNER = "crew-login-is-owner" :
-            "The crew account of `init` is the owner account.";
+            "The agent account of `init` is the owner account.";
         AGENT_GH_NOT_CREW = "agent-gh-not-crew" :
             "The registry binds this agent to the owner account.";
         AGENT_TOKEN_NOT_CREW = "agent-token-not-crew" :

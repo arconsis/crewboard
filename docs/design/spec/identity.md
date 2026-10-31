@@ -10,7 +10,7 @@ agent must be able to join with an own account.
 
 ## Accounts
 
-An agent acts as one GitHub account, its **crew account**: a shared crew account of the owner,
+An agent acts as one GitHub account, its **agent account**: a shared agent account of the owner,
 or a contributor's own account. The account that writes the signed join comment is the account
 of the agent. The owner's approval binds it to the agent together with the key: `crewboard
 approve` posts `/crew approve <name> role=<r> key=<fingerprint> item=<id> login=<account>`. An
@@ -25,7 +25,7 @@ the Project; the owner adds it as a collaborator.
 | Mode | Keys | Who the agents act as | The owner's account |
 |---|---|---|---|
 | One-person trial | `insecure_one_account = true` | the owner's account | allowed: any token passes, nothing separates owner from agent |
-| Shared crew account | `crew_login = "<account>"` | the shared crew account, or a contributor's own account | refused |
+| Shared agent account | `crew_login = "<account>"` | the shared agent account, or a contributor's own account | refused |
 | Own accounts | neither key | each agent its own account | refused |
 
 On both crew modes an agent command refuses the owner's token (`agent-uses-owner-token`), and
@@ -39,7 +39,7 @@ and changes nothing on a crew board. `init` writes the mode: `--insecure-one-acc
 
 | Layer | What it gives |
 |---|---|
-| **GitHub author** | The owner posts as the owner's account. An agent posts as its crew account: the shared `crew_login` or a contributor's own account (phase 1b, the crew path of [Getting started](../../getting-started.md), shared or own), or with the owner's token (phase 1, the one-person Quick try only). A signed message counts only from the account that the approval bound to its sender. crewboard drops a comment with a crew header whose author is neither the owner nor the account of an approved agent ([Untrusted input](messages.md#untrusted-input)). A join request is the one exception: any account may post it, and the owner decides. Only a headerless comment of the owner account is an owner message ([Owner messages](messages.md#owner-messages)). |
+| **GitHub author** | The owner posts as the owner's account. An agent posts as its agent account: the shared `crew_login` or a contributor's own account (phase 1b, the crew path of [Getting started](../../getting-started.md), shared or own), or with the owner's token (phase 1, the one-person Quick try only). A signed message counts only from the account that the approval bound to its sender. crewboard drops a comment with a crew header whose author is neither the owner nor the account of an approved agent ([Untrusted input](messages.md#untrusted-input)). A join request is the one exception: any account may post it, and the owner decides. Only a headerless comment of the owner account is an owner message ([Owner messages](messages.md#owner-messages)). |
 | **Ed25519 key per agent** | Each message carries an SSH signature (`sshsig` format, namespace `crewboard`). `from=hermes@host-b` is proven by the public key registered for that name. |
 
 The signature is made in-process (Rust `ssh-key` crate), so a host needs no
@@ -60,7 +60,7 @@ that the registry bound to the agent (phase 1b). See
 and `agent profile set` with `--agent`) runs with the owner's own `gh` login. It reads the
 `--env-file` of the call, else the output of `gh auth token`; it runs `gh` without the four token
 variables. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, and prints one note on standard error that
-names a token variable that was set (never its value). So a crew token in the owner's terminal
+names a token variable that was set (never its value). So an agent token in the owner's terminal
 never decides who an owner command acts as. The owner command then reads `GET /user` and refuses
 a login that is not the board owner (`owner-command-not-owner`): the `owner_login` of the board
 config, or for `init` the owner that it is about to write. In an agent dir without
@@ -113,7 +113,7 @@ one board field write cannot silence it.
 ## Phases
 
 - **Phase 1 (one-person trial, owner token):** agents use the owner's `gh` token. This is the
-  [Quick try](../../quick-try.md): one person, one host, no crew account. A crew uses phase 1b. The mode
+  [Quick try](../../quick-try.md): one person, one host, no agent account. A crew uses phase 1b. The mode
   is explicit: only `init --insecure-one-account` makes it. It writes
   `insecure_one_account = true` to `.crewboard.toml` and prints a `WARNING: one-account board`
   line. The key and `crew_login` together are a config error. `status` prints
@@ -122,8 +122,8 @@ one board field write cannot silence it.
   agent that posts without a header could impersonate the owner. Level: *stated* plus
   *loud* (crewboard never posts without a header, and `crewboard audit` lists every
   headerless comment by the owner account that was posted while an agent session ran).
-- **Phase 1b (crew accounts):** a board without `insecure_one_account`. Each agent acts as a
-  crew account with write access to the repos and the Write role on the board: the shared
+- **Phase 1b (agent accounts):** a board without `insecure_one_account`. Each agent acts as a
+  agent account with write access to the repos and the Write role on the board: the shared
   `crew_login` (for example `crew-bot`) if the board names one, or its own account
   ([Identity modes](#identity-modes)). A comment of an agent's account with a valid header is a message of
   that agent; a headerless comment of such an account is foreign, never an owner message; only

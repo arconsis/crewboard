@@ -29,7 +29,7 @@ After that:
 
 1. **Pause the agents.** Pause or remove the scheduler jobs and stop the Monitor of each
    interactive agent ([Day-to-day commands](owner.md#day-to-day-commands)). Wait until no wake runs.
-2. **Transfer or rename the repo on GitHub.** Note the time (UTC). Check that every crew account
+2. **Transfer or rename the repo on GitHub.** Note the time (UTC). Check that every agent account
    still has access, and that the project still lists the issues. (This guide does not check
    the project of one owner with issues of another owner's repo: look at the board.)
 3. **List the old name.** In a PR to the new repo, add `former_repos` to `AUTHORITY.md` with

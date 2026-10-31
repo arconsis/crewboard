@@ -8,9 +8,9 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 |---|---|
 | **Owner** | The human who runs the work. Only the owner approves agents, edits `AUTHORITY.md` and merges protected changes. |
 | **Initiative** | One piece of work with one goal and one board. `crewboard init` makes it. |
-| **Identity mode** | How the agents of a board act on GitHub: own accounts (the default), a shared crew account (`crew_login`), or the **trial** (your account, [Quick try](quick-try.md)). `init` sets it ([modes](guides/owner.md#crew-accounts)). |
-| **Crew account** | The GitHub account that an agent acts as: a contributor's own account, or an optional shared account. It has the Write role on the repos and the board. The approval binds each agent to the account that wrote its join. The signature, not the account, names the agent. |
-| **Crew token** | The access token of a crew account, not an agent key. It sits in the **env file** (mode 600) on the agent host. |
+| **Identity mode** | How the agents of a board act on GitHub: own accounts (the default), a shared agent account (`crew_login`), or the **trial** (your account, [Quick try](quick-try.md)). `init` sets it ([modes](guides/owner.md#agent-accounts)). |
+| **Agent account** | The GitHub account that an agent acts as: usually the own account of the person who runs it, or an optional shared account. Never the owner's account. The owner gives it the Write role on the repos and the board. The approval binds each agent to the account that wrote its join. The signature, not the account, names the agent. |
+| **Agent token** | The access token of an agent account, not an agent key. It sits in the **env file** (mode 600) on the agent host. |
 | **Agent** | One AI instance with a name, a key and a role. The name is free text in the form `<word>@<host>`; the convention is the runtime, for example `claude@host-b`. |
 | **Runtime** | The agent program: `claude` (Claude Code), `codex`, `hermes` or `copilot` (`copilot` gets the skill but has no wake loop). The **model** is the language model that it calls (`--model`). |
 | **Unattended runtime** | A runtime that a scheduler starts: `crewboard wake` from launchd, systemd or cron ([guide](guides/runtimes/unattended-claude.md)). The opposite is an interactive session, where the agent watches. Either way a program, not the model, waits for work ([The loop](guides/agents.md#the-loop)). |
@@ -19,7 +19,7 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **Coordinator** | The one agent that assigns tickets, verifies evidence and keeps work moving. It writes no code. |
 | **Headless coordinator** | An optional second coordinator program that starts no model: `crewboard tick` in a config dir with `headless = true` ([spec](design/spec/agents.md#headless-coordinator)). "Headless" always means "no model". |
 | **Dev agent** | An agent that takes tickets and delivers pull requests. |
-| **Approve** | The owner's command that lets an agent, its key and its crew account join. Without it an agent has no authority. |
+| **Approve** | The owner's command that lets an agent, its key and its agent account join. Without it an agent has no authority. |
 | **Ticket** | The unit of work: a GitHub issue. |
 | **Gate** | The one line that decides whether a ticket is done. It must be able to fail, for example "CI is green for the head SHA, and `grep` finds the new heading". |
 | **Status** | The column of a ticket: Backlog, Ready, In Progress, Review, Blocked, Done, Dropped. An agent has a **State** instead (`requested`, `approved`, `active`, `paused`, `draining`, `left`). |
@@ -30,7 +30,7 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **Liveness** | The `Heartbeat` of each running agent. A silent agent becomes `late`, then `dead` ([Liveness](guides/liveness.md#heartbeats)). |
 | **Close** | `close <n>` makes a ticket Done after a merge; `close <n> --why` drops it (Dropped) ([Done and Dropped](#done-and-dropped)). Closing the GitHub issue is a separate act: a closing keyword in the PR does it. |
 | **`needs-owner`** | The label on a ticket with an open question to you (view Needs Owner). Not the key `needs_owner` of [`AUTHORITY.md`](guides/owner.md#authoritymd), and not the line `Needs:` of a [ticket](design/spec/tickets.md#ticket-content). |
-| **Extension** | A feature that no ticket needs to reach Done, for example the **owner route**: on a crew account, you apply the patch for a change to `.github/workflows/` ([Extensions](guides/extensions.md#the-owner-route)). |
+| **Extension** | A feature that no ticket needs to reach Done, for example the **owner route**: on an agent account, you apply the patch for a change to `.github/workflows/` ([Extensions](guides/extensions.md#the-owner-route)). |
 | **Registry issue** | The pinned issue where agents ask to join, locked to collaborators. |
 
 ## The life of a ticket: who does what
@@ -61,7 +61,7 @@ Done means: a PR is merged, at a verified head or by the owner. Two ways lead th
 2. **Owner merge.** The merge is the record. Done follows when the coordinator runs `close <n>`.
    If the coordinator is gone, nobody closes ([Liveness](guides/liveness.md#if-the-coordinator-is-gone)).
 
-A merge by any other account is no proof, the crew account's included: a PR that the coordinator
+A merge by any other account is no proof, an agent's account included: a PR that the coordinator
 wrote and merged itself without a verify leaves the ticket open, and `close` refuses Done. Such a
 ticket can only be dropped. So the coordinator does not merge its own ticket work; it opens the PR
 and the owner merges.
@@ -79,7 +79,7 @@ none of these. Any other Done or Dropped is a mismatch.
 ## Done without proof is detected
 
 The signed messages are the record. The board field `Status` is the view that commands read
-([which source wins](design/spec/board.md#fields)). The holder of any crew token can set
+([which source wins](design/spec/board.md#fields)). The holder of any agent token can set
 `Status = Done` or `Dropped` with one call. crewboard cannot stop that, but `status` lists the ticket
 (`board against signed log`), `audit` reports a `field-mismatch`, and the coordinator tells the
 owner once. A repair is the owner's decision ([Owner guide](guides/owner.md#day-to-day-commands)). The owner

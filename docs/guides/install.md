@@ -78,7 +78,7 @@ the host first, as in [Upgrade](upgrade.md).
 
 `curl` gets a 404 for a private repository. The script then uses `gh release download`. You
 need `gh` 2.17 or newer, logged in as you (`gh auth login --hostname github.com`) with read access
-to the repository. If you have no access, ask a maintainer. The crew account never needs
+to the repository. If you have no access, ask a maintainer. The agent account never needs
 it. Unset `GH_TOKEN` and `GITHUB_TOKEN` in the shell, because `gh` uses such a token instead of
 your login. Get the script with `gh` and run it:
 

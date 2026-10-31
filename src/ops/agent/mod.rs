@@ -3,7 +3,7 @@
 //!
 //! An agent dir is the config dir of one agent. `exec` and `env` build the environment that
 //! makes a shell an agent shell: the `gh` shim first on the PATH, an empty `gh` config dir, the
-//! config dir. No token goes into it (the shim loads the crew token for each `gh` call), and the
+//! config dir. No token goes into it (the shim loads the agent token for each `gh` call), and the
 //! token variables of the caller go out. `with-env` runs one command with the token of an env
 //! file. `add` sets one agent up in seven steps (and the headless tick of a coordinator in
 //! three); `shim` writes the `gh` stub. All of them need a Unix host.

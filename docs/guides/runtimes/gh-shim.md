@@ -1,6 +1,6 @@
 # The gh shim: once per agent
 
-`gh` and `git push` in an agent's shell must act as the agent's crew account (the shared one or
+`gh` and `git push` in an agent's shell must act as the agent's account (the shared one or
 the contributor's own: the account that the owner's approval bound), never as the owner.
 `crewboard agent shim` makes sure of it (`crewboard agent add` does it for a new agent). Do it **once per agent**, for any runtime that
 needs it.
@@ -17,7 +17,7 @@ You need the shim when ONE of these is true:
   from the owner login without a header is an owner message to the coordinator. This is a
   security problem, not a style one.
 - You do not know. `crewboard start` tells you: it refuses an agent whose plain `gh` is not its
-  crew account (rule `agent-gh-not-crew`). That refusal means "install the shim". Its message prints the commands of the Steps below with your initiative and crew login filled in. Replace `<agent-dir>` and `<work-dir>`, then run them.
+  agent account (rule `agent-gh-not-crew`). That refusal means "install the shim". Its message prints the commands of the Steps below with your initiative and crew login filled in. Replace `<agent-dir>` and `<work-dir>`, then run them.
 
 You can skip it when the runtime keeps `GH_TOKEN` and the env file is always loaded. Claude
 Code does keep it ([unattended-claude.md](unattended-claude.md)). The shim is still a good safety
@@ -31,14 +31,14 @@ net: it also works when the env is lost.
 crewboard agent shim --agent-dir ~/.config/crewboard/agents/<agent-dir> --work-dir <work-dir>
 ```
 
-The command needs the env file of the crew account: `<agent-dir>/agent.env` (made by
+The command needs the env file of the agent account: `<agent-dir>/agent.env` (made by
 `crewboard agent add`), or `--env-file <file>`. It finds the real `gh` as the first `gh` on the
 PATH that is not the shim; `--real-gh <path>` names it. It reads the crew login and its id from
 `<agent-dir>/crew-id` (written by `agent add`); `--crew-login <login>` names the login. It refuses
 to overwrite a `bin/gh` that is not a crewboard stub. A second run says `already done`.
 
 The shim is a file of three lines. Its last line runs
-`crewboard agent with-env --env-file <agent-dir>/agent.env -- <real gh> "$@"`. It needs no `HOME` and no other variable: a runtime that strips the environment of the model's commands (Hermes) still gets the crew token for each `gh` call. If you move the
+`crewboard agent with-env --env-file <agent-dir>/agent.env -- <real gh> "$@"`. It needs no `HOME` and no other variable: a runtime that strips the environment of the model's commands (Hermes) still gets the agent token for each `gh` call. If you move the
 `crewboard` binary or install another `gh`, run `crewboard agent shim` again.
 
 The agent shell needs the shim first on its `PATH` and an empty `GH_CONFIG_DIR`. The wake script
@@ -50,14 +50,14 @@ starts: it prints the `PATH` and `GH_CONFIG_DIR` lines plus `CREWBOARD_CONFIG_DI
 
 What the shim does:
 
-- It runs the real `gh` through `crewboard agent with-env`, so the crew token loads for that call only.
+- It runs the real `gh` through `crewboard agent with-env`, so the agent token loads for that call only.
 - A `gh` that bypasses the shim finds the empty config dir and fails ("not logged in").
 - `--work-dir` points `credential.helper` at the shim, rewrites `git@github.com:` to HTTPS, and
-  sets the author to the crew account (use the noreply address `<id>+<crew-login>@users.noreply.github.com`).
+  sets the author to the agent account (use the noreply address `<id>+<crew-login>@users.noreply.github.com`).
 
 ## The agent environment
 
-The model of an agent calls plain `gh` and `git`. They must act as the crew account. Each agent
+The model of an agent calls plain `gh` and `git`. They must act as the agent account. Each agent
 has its own agent dir. It holds the key, the agent config, `agent.env` (a link to the env file),
 the shim `bin/gh` and `crew-id`. Two agents never share one dir. Run every agent command through
 `crewboard agent`:

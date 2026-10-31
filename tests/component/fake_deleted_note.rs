@@ -1,6 +1,6 @@
 //! A deleted note of the coordinator (spec/security-details#deleted-notes), against the fake
 //! GitHub. The coordinator remembers the comment ids of the signed notes it posts on a ticket. A
-//! holder of the crew token deletes the close note and sets the board back: the signed log then
+//! holder of the agent token deletes the close note and sets the board back: the signed log then
 //! agrees with the board, but the next `poll` of the coordinator raises the security event
 //! `deleted-message` once, and the owner hears of it once. A ticket without a deletion raises
 //! nothing, a failed read raises nothing, and the order "set back, then delete" is seen too.
@@ -72,7 +72,7 @@ fn a_deleted_close_note_raises_deleted_message_once_and_a_ticket_without_a_delet
     // control: nothing is deleted, nothing is raised
     assert_eq!(deleted(&fake, &c), vec![]);
 
-    // somebody with the crew token deletes the close note and sets the board back; the signed
+    // somebody with the agent token deletes the close note and sets the board back; the signed
     // log now agrees with the board
     let note = comment_with(&fake, t, "dropped: no PR needed");
     fake.delete_comment(note);

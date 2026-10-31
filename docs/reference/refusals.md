@@ -52,7 +52,7 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `agent-approval-pending` | The approval is in the registry log, but the item State is still `requested`; run the command again in a moment. |
 | `sender-not-approved` | This agent is not approved, so it cannot sign messages. |
 | `single-coordinator` | Another agent is the coordinator; a crew has one. |
-| `crew-login-is-owner` | The crew account of `init` is the owner account. |
+| `crew-login-is-owner` | The agent account of `init` is the owner account. |
 | `agent-gh-not-crew` | The registry binds this agent to the owner account. |
 | `agent-token-not-crew` | The token belongs to another account than the one the registry binds to the agent. |
 | `agent-uses-owner-token` | The token is the owner's; an agent loads its own token. |

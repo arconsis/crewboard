@@ -154,7 +154,7 @@ pub fn agent_contradicts(log: &LogTicket, board_agent: Option<&str>) -> bool {
 }
 
 /// The board shows an end (Done or Dropped) that the signed log does not show: somebody set
-/// the field by hand (the owner in the web UI, or a crew token). Pure.
+/// the field by hand (the owner in the web UI, or an agent token). Pure.
 pub fn unsigned_end(board: Status, log: &Expected) -> bool {
     board.ended() && !matches!(log, Expected::Is(s) if s.ended())
 }

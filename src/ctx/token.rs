@@ -42,7 +42,7 @@ pub fn judge_owner(viewer: &str, owner: &str, source: OwnerSource, action: &str)
 pub enum IdentityMode {
     /// `insecure_one_account = true`: the one-person trial. The agents use the owner's token.
     Trial,
-    /// `crew_login`: a crew with a shared crew account; a contributor may use an own account.
+    /// `crew_login`: a crew with a shared agent account; a contributor may use an own account.
     SharedAccount,
     /// Neither key: a crew where each agent acts as its own account.
     OwnAccounts,
@@ -75,7 +75,7 @@ pub fn judge_agent(viewer: &str, cfg: &BoardConfig) -> CbResult<()> {
         return Ok(());
     }
     let who = match &cfg.crew_login {
-        Some(crew) => format!("the crew account {crew} or their own account"),
+        Some(crew) => format!("the shared agent account {crew} or their own account"),
         None => "their own account (the board names no crew_login)".to_string(),
     };
     Err(CbError::refused(

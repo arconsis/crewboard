@@ -1,11 +1,11 @@
 # Quick try: one person, one machine
 
-**This is a trial, not a crew.** It uses your own GitHub token, one machine and no crew account.
+**This is a trial, not a crew.** It uses your own GitHub token, one machine and no agent account.
 Only `init --insecure-one-account` makes a trial. Use it on a test repo only. For a real crew use
 [Getting started](getting-started.md). These safety checks are off:
 
 - Any token passes the agent commands, yours too. The rules `agent-uses-owner-token`,
-  `approve-owner-account`, `agent-token-not-crew` and `agent-gh-not-crew` need a crew account.
+  `approve-owner-account`, `agent-token-not-crew` and `agent-gh-not-crew` need an agent account.
 - A comment from your account without a header counts as an owner message. An agent that
   forgets the header posts as you. `crewboard audit` lists such comments afterwards.
 

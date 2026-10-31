@@ -5,13 +5,13 @@
 //! (seen in practice: a PR and a comment posted as the owner). `start` and `selftest` run
 //! `gh api user --jq .login` the way the agent's shell would run it: the `gh` that is first
 //! on the PATH, without a token in the environment. If the login is not the agent's own account
-//! (the account that the registry bound to it: the shared crew account or a contributor's own
+//! (the account that the registry bound to it: the shared agent account or a contributor's own
 //! account), they refuse with rule `agent-gh-not-crew`.
 //!
 //! The token variables are removed for this call, because some harnesses (Hermes) strip them
 //! from every command the model runs, while crewboard itself still holds the token through
 //! `crewboard agent with-env`. `CREWBOARD_GH_KEEP_TOKEN=1` keeps them, for a runtime whose shell really
-//! holds the crew token. `CREWBOARD_AGENT_GH` names another `gh` executable (tests).
+//! holds the agent token. `CREWBOARD_AGENT_GH` names another `gh` executable (tests).
 
 use crate::base::ids;
 use crate::config::BoardConfig;
@@ -131,7 +131,7 @@ pub fn judge(cfg: &BoardConfig, account: &str, got: &GhLogin) -> CbResult<String
         return Err(CbError::refused(
             ids::AGENT_GH_NOT_CREW,
             format!(
-                "the registry binds this agent to the owner account {account}; on a crew board an agent never acts as the owner. Join again with the token of the crew account or of your own account"
+                "the registry binds this agent to the owner account {account}; on a crew board an agent never acts as the owner. Join again with the token of the shared agent account or of your own account"
             ),
         ));
     }
@@ -178,7 +178,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    /// A crew board: a shared crew account, or (`None`) one own account per agent.
+    /// A crew board: a shared agent account, or (`None`) one own account per agent.
     fn cfg(crew: Option<&str>) -> BoardConfig {
         crate::registry::tests::crew_cfg(crew)
     }

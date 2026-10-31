@@ -14,9 +14,9 @@ Before the move:
    board file and env file (`~/.config/crewboard/<initiative>.board.toml`, `<initiative>.env`), the
    agent dirs (`~/.config/crewboard/agents/<initiative>-<runtime>`) and the work dirs
    (`~/crew/<initiative>-...`). A new name keeps the old crew readable and avoids a clash.
-2. **Give every crew account access.** Add the shared crew account and each contributor's
+2. **Give every agent account access.** Add the shared agent account and each contributor's
    account to the new repo with the Write role. In an organisation, check that its policy lets
-   the crew tokens in: an organisation can block
+   the agent tokens in: an organisation can block
    classic personal access tokens, or require approval for fine-grained ones. Your own token needs
    the right to create a project in the organisation; `init` creates the board under the owner of
    the main repo.
@@ -31,7 +31,7 @@ The move:
    (`crewboard wake uninstall --agent-dir <dir>`) and stop the Monitor of each interactive agent
    ([Day-to-day commands](owner.md#day-to-day-commands)). Wait until no wake runs.
 2. **Create the new repo** with the snapshot. This step is outside crewboard.
-3. **Store the crew token for the new initiative** (an owner step on each host that needs it):
+3. **Store the agent token for the new initiative** (an owner step on each host that needs it):
    `crewboard agent token --initiative <new-initiative> --crew-login <crew-login>`. The same token
    works if it reaches the new repo.
 4. **Create the new board** as in [Getting started](../getting-started.md):
