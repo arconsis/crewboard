@@ -11,7 +11,7 @@ Audio layout per scene (build.sh muxes exactly this):
 
 On-screen text rule: no token, no key, no real host or account name. Only the example
 names of the docs: the owner, `claude@host-a` (coordinator), `claude@host-b` (dev agent),
-`crew-bot`, `you/my-repo`, `my-crew`, ticket `#4`, PR `#5`, head `17731ed`.
+`teammate`, `you/my-repo`, `my-crew`, ticket `#4`, PR `#5`, head `17731ed`.
 `Text` only, no LaTeX.
 """
 
@@ -479,22 +479,25 @@ class S03Trust(Narrated):
         self.play(FadeIn(VGroup(role, rl), shift=LEFT * 0.15), run_time=0.5)
 
         self.seg("s3-2")
-        acct = pill("crew account: crew-bot", BOARD, 22).move_to([3.4, 1.2, 0])
-        self.cue("crew account")
+        acct = pill("account: teammate (own)", BOARD, 22).move_to([3.4, 1.2, 0])
+        self.cue("own account")
         self.play(FadeIn(acct, shift=LEFT * 0.2), run_time=0.6)
+        self.cue("never the owner")
+        nev = T("never the owner's", 18, MUTED).next_to(acct, DOWN, buff=0.18)
+        self.play(FadeIn(nev), run_time=0.4)
         self.cue("approval")
         own = person("owner", OWNER, 0.9).move_to([0, -1.6, 0])
         appr = cmd("crewboard approve claude@host-b", 18).next_to(own, DOWN, buff=0.3)
         self.play(FadeIn(own), FadeIn(appr), run_time=0.6)
         self.cue("binds")
-        br = Brace(VGroup(ag, key, kl, role, rl, acct), DOWN, color=OWNER, buff=0.2)
+        br = Brace(VGroup(ag, key, kl, role, rl, acct, nev), DOWN, color=OWNER, buff=0.2)
         lk = lock_icon(OWNER, 0.16).next_to(br, DOWN, buff=0.15)
         l1, l2 = br, VGroup()
         self.play(GrowFromCenter(br), run_time=0.6)
         self.play(FadeIn(lk, scale=0.6), run_time=0.4)
 
         self.seg("s3-3")
-        bound = VGroup(ag, key, kl, role, rl, acct, l1, l2, lk)
+        bound = VGroup(ag, key, kl, role, rl, acct, nev, l1, l2, lk)
         self.play(FadeOut(VGroup(own, appr)), bound.animate.scale(0.7).move_to([0, 2.5, 0]), run_time=0.8)
         m = msg("claude@host-b", "coordinator", "done", "Done. Evidence follows.", SIGNED, w=5.4).move_to([-3.6, -0.6, 0])
         self.play(FadeIn(m, shift=RIGHT * 0.3), run_time=0.6)
@@ -605,7 +608,7 @@ class S04OwnerSetup(Narrated):
         c4 = say_cmd("crewboard approve claude@host-b", OWNER)
         self.play(Write(c4), run_time=0.8)
         self.cue("prints the account")
-        out = M("approved as dev; login=crew-bot", 16, MUTED)
+        out = M("approved as dev; login=teammate", 16, MUTED)
         out.next_to(c4, DOWN, buff=0.22).align_to(c4, LEFT)
         fit(out, 6.2)
         self.play(FadeIn(out), run_time=0.5)
@@ -1112,7 +1115,7 @@ class S10Proof(Narrated):
         self.play(FadeIn(p2[1], shift=RIGHT * 0.15), GrowArrow(a2), run_time=0.5)
 
         self.seg("s10-2")
-        p3 = VGroup(pill("merged by the crew account", MUTED, 20), pill("no verify", REFUSAL, 20)).arrange(RIGHT, buff=0.3)
+        p3 = VGroup(pill("merged by an agent account", MUTED, 20), pill("no verify", REFUSAL, 20)).arrange(RIGHT, buff=0.3)
         p3.move_to([-2.6, -2.6, 0])
         a3 = Arrow(p3.get_right(), done.get_bottom() + LEFT * 0.4, buff=0.15, color=REFUSAL, stroke_width=3)
         self.cue("any other account")
@@ -1168,7 +1171,7 @@ class S11BoardLog(Narrated):
 
         self.seg("s11-1")
         self.cue("by hand")
-        tok = pill("a crew token", MUTED, 16).move_to([-3.4, 0.6, 0])
+        tok = pill("an agent token", MUTED, 16).move_to([-3.4, 0.6, 0])
         self.play(FadeIn(tok, shift=UP * 0.1), run_time=0.4)
         newst = pill("Status: Done", REFUSAL, 18).move_to(brow[1])
         self.play(Transform(brow[1], newst), Indicate(tok, color=REFUSAL, scale_factor=1.05), run_time=0.7)
@@ -1249,7 +1252,7 @@ class S12Limits(Narrated):
 
         nots = [("s12-2", [("a Done written by hand: detected, not prevented", "written by hand"),
                            ("one coordinator: a few agents, not swarms", "One coordinator"),
-                           ("a leaked token acts as its account, not as an agent", "leaked crew token")]),
+                           ("a leaked token acts as its account, not as an agent", "leaked agent token")]),
                 ("s12-3", [("GitHub only; agent hosts run macOS or Linux", "GitHub only"),
                            ("the setup has manual steps", "manual steps"),
                            ("no sandbox: shell commands as your user", "no sandbox"),
@@ -1289,15 +1292,18 @@ class S13Close(Narrated):
         self.seg("s13-2")
         h2 = T("A real crew", 36, SIGNED, weight=BOLD).move_to([3.4, 2.2, 0])
         self.play(FadeIn(h2, shift=UP * 0.1), run_time=0.5)
-        ritems = [("a crew account", "crew account"), ("a coordinator", "a coordinator"), ("a dev agent", "a dev agent")]
+        ritems = [("a coordinator", "a coordinator"), ("a dev agent", "a dev agent"),
+                  ("in a team: your own accounts", "In a team")]
         rc = VGroup(*[T(txt, 24, FG) for txt, _ in ritems]).arrange(DOWN, buff=0.28)
         rc.move_to([3.4, 0, 0]).align_to(qt, UP)
-        for t, (_, cue) in zip(rc, ritems):
+        for t, (_, cue) in zip(rc[:2], ritems[:2]):
             self.cue(cue)
             self.play(FadeIn(t, shift=UP * 0.1), run_time=0.3)
         self.cue("thirteen steps")
         n2 = T("13 steps", 22, MUTED).move_to([3.4, -2.2, 0])
         self.play(FadeIn(n2), run_time=0.4)
+        self.cue(ritems[2][1])
+        self.play(FadeIn(rc[2], shift=UP * 0.1), run_time=0.3)
 
         self.seg("s13-3")
         self.play(FadeOut(VGroup(h1, qt, n1, h2, rc, n2)), run_time=0.4)

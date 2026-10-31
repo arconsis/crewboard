@@ -66,6 +66,16 @@ if __name__ == "__main__":
     print(json.dumps(res, indent=1))
 
 
+def _seconds(stamp):
+    """A transcript time stamp in seconds: `12.3`, or `mm:ss` / `mm:ss.s` (the model sometimes
+    answers in clock form although the prompt asks for seconds)."""
+    parts = stamp.split(":")
+    secs = 0.0
+    for part in parts:
+        secs = secs * 60 + float(part)
+    return secs
+
+
 def _words(s):
     return re.sub(r"[^a-z0-9 ]", " ", s.lower()).split()
 
@@ -86,7 +96,7 @@ def align_by_transcript(wav_path, ids, texts, model, key):
     with urllib.request.urlopen(req, timeout=600) as r:
         d = json.load(r)
     txt = "".join(p.get("text", "") for p in d["candidates"][0].get("content", {}).get("parts", []))
-    lines = [(float(m.group(1)), m.group(2)) for m in re.finditer(r"\[([0-9.]+)\]\s*(.*)", txt)]
+    lines = [(_seconds(m.group(1)), m.group(2)) for m in re.finditer(r"\[([0-9:.]+)\]\s*(.*)", txt)]
     if not lines:
         raise RuntimeError(f"transcript has no timed lines: {txt[:200]}")
     # flat word list with an estimated time per word (linear inside a line)
