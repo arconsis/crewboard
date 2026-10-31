@@ -884,7 +884,7 @@ fn the_field_mismatch_is_no_security_event() {
 
 #[test]
 fn a_message_counts_only_from_the_account_that_the_approval_bound() {
-    // one account per agent on a board with a shared crew account
+    // one account per agent on a board with a shared agent account
     let (ka, kb) = (generate_key().unwrap(), generate_key().unwrap());
     let cfg = crate::registry::tests::crew_cfg(Some("crew-bot"));
     let as_login = |mut c: Comment, login: &str| {

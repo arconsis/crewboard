@@ -1,4 +1,4 @@
-//! A Done without proof is detected, not prevented. The crew token can write the board
+//! A Done without proof is detected, not prevented. The agent token can write the board
 //! `Status` field; `status` lists every ticket whose Status the signed log does not support, and
 //! the coordinator's watch cycle reports one to the owner once. Both use the judgement of
 //! `audit` (`ticket::log::status_contradicts`).

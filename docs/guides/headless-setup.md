@@ -79,7 +79,7 @@ sudo install -o cb-headless -m 600 ~/.config/crewboard/agents/<agent-dir>/keys/<
 On Linux the home dir is `/home/cb-headless`. Put `headless = true` as the first line of the
 copied `<initiative>.toml`. This key switches the headless scope on.
 
-The env file with the crew token goes to the same user, mode 600. It must be the token of the
+The env file with the agent token goes to the same user, mode 600. It must be the token of the
 account that wrote the coordinator's join: the approval binds that account, and a message of the
 coordinator counts only from it.
 
@@ -160,7 +160,7 @@ while `protected_paths` is empty.
 The `headless` key limits what the `crewboard` binary does. It does not limit the
 headless OS user:
 
-- **The GitHub token.** The headless user holds a token of the crew account. A process of that
+- **The GitHub token.** The headless user holds a token of the agent account. A process of that
   user that runs its own code (`curl`, `gh`, a script) can call the GitHub API directly: merge
   a PR, edit a board field, post a comment. crewboard does not see this.
 - **The signing key.** The headless user can read its key, so its own code can sign messages
@@ -173,7 +173,7 @@ headless OS user:
 
 So limit the token as well. The token is the real power of the headless user:
 
-- **Use a crew account** (the shared `crew_login` of `.crewboard.toml`, or an own account),
+- **Use an agent account** (the shared `crew_login` of `.crewboard.toml`, or an own account),
   never the owner's token. Give it
   write access only to the repos of the initiative, and no admin rights. An account without
   admin rights cannot change branch protection or repo settings.

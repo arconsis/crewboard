@@ -239,7 +239,7 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
             ac.ctx.main_repo()
         )),
     }
-    // The default branch: can the crew account push to it? One line; a warning only when the
+    // The default branch: can the agent account push to it? One line; a warning only when the
     // readable answers show that nothing protects the branch (never on a guess).
     out.push_str(&crate::services::branch_guard::guard_line(
         &ac.ctx.client,

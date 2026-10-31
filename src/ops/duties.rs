@@ -573,7 +573,7 @@ pub fn coordinator_duties(
             Liveness::Dead { age } => dead_duty(&c, &j, age, &mut duty)?,
         }
     }
-    // A board Status that the signed log does not support is detected here (the crew token
+    // A board Status that the signed log does not support is detected here (the agent token
     // can write the field, crewboard cannot prevent it).
     let own = duty.snaps.clone();
     let check = super::log_check::status_log_duty(ac, world, rows, &own, &c.msgs, cache, now);

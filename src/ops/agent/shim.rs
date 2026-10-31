@@ -2,11 +2,11 @@
 //! stub, the real `gh`, and the git identity of a work dir.
 //!
 //! The stub is a three-line `sh` file. It runs the real `gh` through `crewboard agent with-env`,
-//! so the crew token is loaded for that one call and the model never sees it:
+//! so the agent token is loaded for that one call and the model never sees it:
 //!
 //! ```sh
 //! #!/bin/sh
-//! # crewboard gh shim for <agent dir>: runs the real gh as the crew account.
+//! # crewboard gh shim for <agent dir>: runs the real gh as the agent account.
 //! exec '<crewboard>' agent with-env --env-file '<env file>' -- '<real gh>' "$@"
 //! ```
 
@@ -29,7 +29,7 @@ pub(super) fn sq(s: &str) -> String {
 /// The text of the stub. Pure.
 pub fn stub_text(agent_dir: &Path, crewboard: &Path, env_file: &Path, real_gh: &Path) -> String {
     format!(
-        "#!/bin/sh\n{STUB_MARK} for {}: runs the real gh as the crew account.\nexec {} agent with-env --env-file {} -- {} \"$@\"\n",
+        "#!/bin/sh\n{STUB_MARK} for {}: runs the real gh as the agent account.\nexec {} agent with-env --env-file {} -- {} \"$@\"\n",
         agent_dir.display().to_string().replace('\n', " "),
         sq(&crewboard.display().to_string()),
         sq(&env_file.display().to_string()),
@@ -191,7 +191,7 @@ fn is_linked_worktree(repo: &Path) -> Result<bool, String> {
     Ok(resolve("--git-dir")? != resolve("--git-common-dir")?)
 }
 
-/// The identity of the crew account in one checkout.
+/// The identity of the agent account in one checkout.
 pub struct Identity<'a> {
     pub repo: &'a Path,
     pub shim: &'a Path,
@@ -251,7 +251,7 @@ impl Identity<'_> {
     }
 }
 
-/// The e-mail that GitHub accepts for a crew account: `<id>+<login>@users.noreply.github.com`.
+/// The e-mail that GitHub accepts for an agent account: `<id>+<login>@users.noreply.github.com`.
 pub fn noreply_email(login: &str, id: &str) -> String {
     format!("{id}+{login}@users.noreply.github.com")
 }
@@ -462,7 +462,7 @@ mod tests {
     fn the_stub_has_three_lines() {
         assert_eq!(
             text(),
-            "#!/bin/sh\n# crewboard gh shim for /a/dev1: runs the real gh as the crew account.\nexec '/usr/local/bin/crewboard' agent with-env --env-file '/a/dev1/agent.env' -- '/usr/bin/gh' \"$@\"\n"
+            "#!/bin/sh\n# crewboard gh shim for /a/dev1: runs the real gh as the agent account.\nexec '/usr/local/bin/crewboard' agent with-env --env-file '/a/dev1/agent.env' -- '/usr/bin/gh' \"$@\"\n"
         );
     }
 
@@ -483,7 +483,7 @@ mod tests {
         assert!(is_crewboard_stub(&text()));
         // the older stub is one too
         assert!(is_crewboard_stub(
-            "#!/bin/bash\n# crewboard gh shim: run the real gh as the crew account (made by an older crewboard).\nexec bash x\n"
+            "#!/bin/bash\n# crewboard gh shim: run the real gh as the agent account (made by an older crewboard).\nexec bash x\n"
         ));
         assert!(!is_crewboard_stub("#!/bin/sh\nexec /usr/bin/gh \"$@\"\n"));
         assert!(!is_crewboard_stub(""));

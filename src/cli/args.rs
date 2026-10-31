@@ -46,7 +46,7 @@ pub struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Env file with the crew token (mode 600)",
+        help = "Env file with the agent token (mode 600)",
         long_help = "Load this env file (`KEY=VALUE` lines; it must define GH_TOKEN or GITHUB_TOKEN and \
                      have mode 600). Its token wins over the token variables of the caller. Without \
                      it, the `agent.env` of the config dir is loaded when there is one. An owner \
@@ -120,14 +120,14 @@ pub enum CrewCmd {
         /// must match).
         #[arg(long)]
         owner_login: Option<String>,
-        /// GitHub login of the shared crew account that your agents act as (for example
+        /// GitHub login of the shared agent account that your agents act as (for example
         /// `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board
         /// with the Write role. Agent commands then refuse the owner's token. A contributor's
         /// agent may act as its own account instead; `approve` binds each agent to the account
         /// that wrote its join.
         #[arg(long)]
         crew_login: Option<String>,
-        /// A one-person trial without a crew account: the agents use the owner's token and
+        /// A one-person trial without an agent account: the agents use the owner's token and
         /// nothing separates owner from agent. Written to .crewboard.toml as
         /// `insecure_one_account`. Without `--crew-login` and without this flag, each agent acts
         /// as its own GitHub account.
@@ -1016,7 +1016,7 @@ pub enum HostCmd {
     /// token variables of the caller are removed). `env` prints the same as `export` lines for
     /// `eval`. `with-env` runs CMD with the token of the env file `--env-file`. Unix only. `add` and
     /// `shim` set an agent up. `profile` shows or changes what the agent declares, `token` stores
-    /// the token of the crew account on this host, and `selftest` proves that the agent sees events.
+    /// the token of the agent account on this host, and `selftest` proves that the agent sees events.
     #[command(display_order = 43)]
     Agent {
         #[command(subcommand)]
@@ -1104,9 +1104,9 @@ pub enum AgentAction {
         #[command(subcommand)]
         action: ProfileAction,
     },
-    /// Store the token of the crew account.
+    /// Store the token of the agent account.
     ///
-    /// Any: the token of the crew account goes into the env file of the initiative, without a
+    /// Any: the token of the agent account goes into the env file of the initiative, without a
     /// text editor and without a command line that holds the token. It reads the token from
     /// standard input (typed without echo on a terminal, or piped), asks GitHub whose token it
     /// is and which scopes it has, and only then writes `~/.config/crewboard/<initiative>.env`
@@ -1165,7 +1165,7 @@ pub enum AgentAction {
     ///
     /// Owner of the agent host: set one agent up in one command (the agent dir, `join`, the `gh`
     /// shim, the crew id, the work dir, its git identity and `start`). A rerun is safe: a step
-    /// that is done says so. `--env-file` is the env file of the crew account. With `--role
+    /// that is done says so. `--env-file` is the env file of the agent account. With `--role
     /// headless-coordinator --from <dir>` it makes the config dir of the headless tick from the
     /// dir of the interactive coordinator.
     Add {
@@ -1192,7 +1192,7 @@ pub enum AgentAction {
         /// The checkout of the repo (default: ~/crew/<initiative>-<agent dir name>).
         #[arg(long)]
         work_dir: Option<PathBuf>,
-        /// The login of the crew account of this agent: the shared one or your own (default: the
+        /// The login of the account that this agent acts as: the shared one or your own (default: the
         /// login of the token).
         #[arg(long)]
         crew_login: Option<String>,
@@ -1220,7 +1220,7 @@ pub enum AgentAction {
         /// Test seam: the longest wait of `--wait-approval`, in seconds.
         #[arg(long, hide = true, requires = "wait_approval")]
         wait_max: Option<u64>,
-        /// Read the token of the crew account from standard input (typed without echo, or piped
+        /// Read the token of the agent account from standard input (typed without echo, or piped
         /// from the first host), check it and write the env file first. The env file is
         /// `--env-file`, else `~/.config/crewboard/<initiative>.env` (then `--initiative` is
         /// needed). It replaces `agent token` and a copy of the file for a second host.
@@ -1255,7 +1255,7 @@ pub enum AgentAction {
     /// Write the gh stub of an agent dir again.
     ///
     /// Owner of the agent host: write the `gh` stub of an agent dir again (and, with `--work-dir`,
-    /// the git identity of that checkout). The stub runs the real `gh` as the crew account.
+    /// the git identity of that checkout). The stub runs the real `gh` as the agent account.
     Shim {
         /// The agent dir: this option, else `--config-dir`, else a non-empty $CREWBOARD_CONFIG_DIR.
         /// There is no home default: with none of these the command exits 4.
@@ -1267,7 +1267,7 @@ pub enum AgentAction {
         /// The real `gh` (default: the first `gh` on the PATH that is not the stub).
         #[arg(long)]
         real_gh: Option<PathBuf>,
-        /// The login of the crew account (default: the `crew-id` file of the agent dir).
+        /// The login of the agent account (default: the `crew-id` file of the agent dir).
         #[arg(long)]
         crew_login: Option<String>,
         /// The dir of the stub (default: `<agent dir>/bin`).
@@ -1389,7 +1389,7 @@ pub struct RepeatArgs {
 pub enum TicketAction {
     /// Create a work ticket and put it on the board.
     ///
-    /// Create the `crew:work` issue as the crew account, check its `Gate:` line, put it on the
+    /// Create the `crew:work` issue as the agent account, check its `Gate:` line, put it on the
     /// board (Kind Work, Status Backlog, Gate) and write the signed info comment, so that
     /// `status` lists it. Default: park it in Backlog.
     New {

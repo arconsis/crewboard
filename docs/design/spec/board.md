@@ -30,7 +30,7 @@ values in its row above). An item has a *Kind* (field `Kind`), and a signed mess
 (its header). The prose uses the field names.
 
 **Which source is the truth.** The signed messages are the record. The board shows a copy for
-people and for fast reads. The two can differ, because the token of any crew account can write a board field
+people and for fast reads. The two can differ, because the token of any agent account can write a board field
 (a hand edit, a raw API call). No command reconciles them. The table says, for each fact, where
 the truth is, where the copies are, and what a command does when they differ. The owner
 decides how to repair a difference.
@@ -437,7 +437,7 @@ headless `tick` leaves it for the owner. A bad entry (empty, with a leading `/`,
 `..` part) is refused when the file is read: `authority-bad-front-matter` names the key and the
 entry (`protected_paths: '/etc/x' is not a relative path glob`). `start` prints the entries.
 
-**Branch protection is set by `init` and only checked afterwards.** Every crew account has Write
+**Branch protection is set by `init` and only checked afterwards.** Every agent account has Write
 on the repo, and AUTHORITY.md and `.crewboard.toml` are read from the default branch. Without a
 rule that requires a pull request, an agent can push a change of either file with no review.
 

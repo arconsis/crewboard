@@ -1,6 +1,6 @@
 //! The coordinator's check of the board `Status` against the signed log.
 //!
-//! The crew token has Write on the board, so a holder can set `Status = Done` on any ticket
+//! The agent token has Write on the board, so a holder can set `Status = Done` on any ticket
 //! with one call. crewboard cannot prevent that. It detects it: the same judgement as the
 //! `field-mismatch` of `audit` ([`crate::ticket::log::status_contradicts`]) runs for the tickets
 //! that another writer moved to Done or Dropped since the last cycle, or moved back out of Done or
@@ -115,7 +115,7 @@ pub fn judge(contradicts: bool, was_pending: bool, quiet: bool) -> Verdict {
 /// The key of the report: one per ticket (the repo in lower case) and state of its signed log,
 /// named by the id of the latest verified comment of the ticket (`0`: none). A board that flips
 /// between statuses gives one report; the owner hears again only after a new signed message,
-/// which no crew token can write.
+/// which no agent token can write.
 pub fn event_key(t: &TicketRef, last_signed: u64) -> String {
     format!("{}/status@c-{last_signed}", t.key())
 }
@@ -123,7 +123,7 @@ pub fn event_key(t: &TicketRef, last_signed: u64) -> String {
 /// The signed `info` to the owner.
 fn report_body(key: &str, ekey: &str, text: &str) -> String {
     format!(
-        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the crew token can). A board Status without a signed message (a Done or Dropped without proof, a ticket set back behind its close) is detected, not prevented. Check the ticket and the board history.\n"
+        "Status mismatch: {key}\nevent={ekey}\n{text}.\nNo signed message supports this Status: somebody wrote the board field directly (the agent token can). A board Status without a signed message (a Done or Dropped without proof, a ticket set back behind its close) is detected, not prevented. Check the ticket and the board history.\n"
     )
 }
 

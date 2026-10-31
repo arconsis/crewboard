@@ -1,7 +1,7 @@
 //! The replay window (spec/messages#signature, guides/security#threats-that-crewboard-handles).
 //!
 //! The canonical form binds the issue, the sender, the receiver, the kind, `re`, `ts` and the
-//! body hash, but it has no nonce. A holder of the crew token can post a copy of an old valid
+//! body hash, but it has no nonce. A holder of the agent token can post a copy of an old valid
 //! message as a new comment. The copy keeps its old `ts`, and GitHub gives it a new
 //! `created_at`. So a message is fresh only when its signed `ts` is close to the GitHub
 //! creation time of the comment that carries it.

@@ -4,7 +4,7 @@ You run `init` once, you approve each agent, and you merge what needs your decis
 crew: [Getting started](../getting-started.md). Threats and limits: [Security](security.md).
 
 Placeholders: `<initiative>` is a short name such as `my-crew`. `<account>/<repo>` is the
-initiative repo, with at least one commit. `<crew-login>` is the optional shared crew account.
+initiative repo, with at least one commit. `<crew-login>` is the optional [shared agent account](#a-shared-agent-account).
 
 ## Before you start
 
@@ -13,8 +13,9 @@ initiative repo, with at least one commit. `<crew-login>` is the optional shared
 - `gh` logged in as you. `init` checks the `project` scope before it writes anything and prints
   the `gh auth refresh` line if it is missing.
 - The runtime and its login on each agent host (`claude` or `codex login`).
-- For a shared crew account: a second e-mail address (a plus address works if your provider
-  delivers it).
+- To run agents yourself: a second GitHub account of yours for them, with its own e-mail address
+  (a plus address works if your provider delivers it). Agents never act as your account
+  ([Agent accounts](#agent-accounts)).
 - A CI workflow that runs the tests: `done` needs a CI run for the head of each PR. `init
   --with-ci` adds a minimal one ([CI for crew pull requests](ci-for-crew-prs.md)).
 - Organisation repo only: permission to create Projects, and GitHub CLI allowed if the
@@ -25,20 +26,31 @@ set` with `--agent`) use your own `gh` login or `--env-file`, never `GH_TOKEN` o
 They refuse any account but the board owner (`owner-command-not-owner`). Run them in your own
 terminal, not in an agent's config dir. Token order: [Token handling](../design/spec/security-details.md#token-handling).
 
-## Crew accounts
+## Agent accounts
 
-An agent acts as one GitHub account, its crew account. `init` sets one of three identity modes:
+An agent acts on GitHub as one account, its agent account. Each person who runs agents uses a
+GitHub account that they already have. You give that account access to the repos and the
+Project in the normal GitHub way ([Give an account access](#give-an-account-access)), and
+`approve` binds it to the agent. Several agents may act as the same account.
+
+One rule: no agent acts as your account. Only you merge protected changes and approve agents,
+and GitHub sees one login for everything that an agent does. To run agents yourself, use a
+second account of yours for them. In both crew modes agent commands refuse your token
+(`agent-uses-owner-token`), and `approve` refuses a join of your account
+(`approve-owner-account`). Only the [Quick try](../quick-try.md) allows it.
+
+`init` sets one of three identity modes:
 
 | `init` flag | Mode | The agents act as |
 |---|---|---|
-| neither flag | own accounts | each agent its own account ([A contributor with an own account](#a-contributor-with-an-own-account)) |
-| `--crew-login <account>` | shared crew account | the shared account ([The crew account and its token](#the-crew-account-and-its-token)), or a contributor's own account |
+| neither flag | own accounts (the default) | the account of the person who runs the agent |
+| `--crew-login <account>` | one shared account | the account that you name ([A shared agent account](#a-shared-agent-account)); a contributor can still join with an own account |
 | `--insecure-one-account` | one-person trial | your account; nothing separates you from the agents ([Quick try](../quick-try.md)) |
 
 A rerun of `init` on an existing board keeps its mode. Without a flag, it keeps the identity keys
 of the board config (the local `<initiative>.board.toml` and `.crewboard.toml` on the default
 branch) and prints `identity: ... kept`. A flag of the same mode works as on the first run
-(`--crew-login` may name another crew account). A flag of another mode than the board config
+(`--crew-login` may name another account). A flag of another mode than the board config
 names is refused before any write (`init-identity-mode-change`): every approved agent is bound to
 its account. To switch the mode on purpose, edit `crew_login` and `insecure_one_account` in both
 files by hand (the repo file through a pull request), run `init` again, and let every agent join
@@ -46,54 +58,64 @@ again. A board config without either key (own accounts, or a trial board of an o
 the mode of a flag.
 
 The account that writes the signed join is the account of the agent. `approve` binds it to the
-agent with the key: the agent's messages count only from that account. In both crew modes agent
-commands refuse your token, and `approve` refuses a join of your account (`approve-owner-account`).
+agent with the key: the agent's messages count only from that account.
 
-## The crew account and its token
+## Give an account access
 
-GitHub's terms call the shared crew account a machine account: you make it by hand, accept the
-terms for it, and are responsible for what it does. Use it only for the agents.
-
-1. Make the account, give it write access and accept the invitation: steps 2 to 4 of
-   [Getting started](../getting-started.md#the-steps). For an organisation repo, invite the
-   account to the organisation, add it to the repo with the role Write, and accept at
-   `https://github.com/orgs/<account>/invitation`.
-2. Make the token as the crew account (Settings, Developer settings, Personal access tokens):
-
-   | Board | Token | Exact access |
-   |---|---|---|
-   | User-owned | Tokens (classic) | Scopes `repo` and `project`. Nothing else. A fine-grained token cannot reach a user-owned project. |
-   | Organisation | Fine-grained tokens | Resource owner: the organisation. Repositories: only the initiative repos. Repository permissions: Contents, Issues and Pull requests read and write; Actions, Checks and Commit statuses read-only. Organisation permissions: Projects read and write. |
-
-   A classic token reaches every repo and project of the account, so give the account access to
-   the initiative repos only. Never give the token `workflow` (classic) or Workflows and
-   Administration (fine-grained): workflow changes are yours. For an organisation board, an
-   organisation owner must allow fine-grained tokens first, and approve the token if approval is
-   on.
-3. Store the token with `agent token` on the first agent host (step 6 of
-   [Getting started](../getting-started.md#the-steps)), and with `agent add --token-stdin` on
-   each other host ([Agents guide](agents.md#join-an-agent)). Both read standard input, check the
-   account and the scopes, and write `~/.config/crewboard/<initiative>.env` (mode 600) only for a
-   right token. Run them in your own terminal, not through an agent. `doctor --setup` checks the
-   token later ([Agents](agents.md#check-the-setup)).
-
-## A contributor with an own account
-
-A contributor runs an own agent with an own GitHub account and token. You give that account
-access; the contributor makes the token.
+The person who runs the agent tells you the account. You give it access; the person makes the
+token.
 
 1. Add the account as a collaborator with the role Write on each initiative repo (for an
-   organisation repo, invite it to the organisation first). The contributor accepts.
+   organisation repo, invite it to the organisation first). The person accepts the invitation
+   (from the e-mail, or on the repo page while logged in as that account).
 2. Add the account to the Project with the role Write (the project page, Settings, Manage access).
-3. The contributor makes a token with the access in the
-   [token table](#the-crew-account-and-its-token) and joins with `agent add --token-stdin`
-   ([Agents guide](agents.md#join-with-your-own-account)).
+3. The person makes a token with the access in [The agent token](#the-agent-token) and joins
+   with `agent add --token-stdin` ([Agents guide](agents.md#join-with-your-own-account)).
 4. You approve the agent ([Approve agents](#approve-agents)). `approve` prints the account of the
-   join: check that it is the contributor's.
+   join: check that it is the account that the person told you.
 
-**When a contributor leaves,** post `/crew reject <name>` for each agent of the contributor in
-the registry issue, then remove the access of the account on the repos and on the Project. The
-reject ends the key; the removed access ends the account.
+Give the account access to the initiative repos only, if you can: a classic token reaches every
+repo that the account can reach.
+
+**When a person leaves,** post `/crew reject <name>` for each of their agents in the registry
+issue, then remove the access of the account on the repos and on the Project. The reject ends
+the key; the removed access ends the account.
+
+## The agent token
+
+The person who runs the agent makes the token as the agent account (Settings, Developer
+settings, Personal access tokens):
+
+| Board | Token | Exact access |
+|---|---|---|
+| User-owned | Tokens (classic) | Scopes `repo` and `project`. Nothing else. A fine-grained token cannot reach a user-owned project. |
+| Organisation | Fine-grained tokens | Resource owner: the organisation. Repositories: only the initiative repos. Repository permissions: Contents, Issues and Pull requests read and write; Actions, Checks and Commit statuses read-only. Organisation permissions: Projects read and write. |
+
+Never give the token `workflow` (classic) or Workflows and Administration (fine-grained):
+workflow changes are yours. For an organisation board, an organisation owner must allow
+fine-grained tokens first, and approve the token if approval is on.
+
+Store the token with `agent token` or with `agent add --token-stdin`
+([Agents guide](agents.md#join-an-agent)). Both read standard input, check the account and the
+scopes, and write `~/.config/crewboard/<initiative>.env` (mode 600) only for a right token. Run
+them in your own terminal, not through an agent. `doctor --setup` checks the token later
+([Agents](agents.md#check-the-setup)).
+
+## A shared agent account
+
+Optional. With `init --crew-login <account>`, `agent add` uses that account by default, so all
+agents act as one account that you made for them. Use it when the people who run agents have no
+GitHub account of their own for this work. A contributor can still join with an own account.
+
+GitHub's terms call such an account a machine account: you make it by hand, accept the terms for
+it, and are responsible for what it does. Use it only for the agents.
+
+1. In a private browser window, sign up at `https://github.com/signup` with a second e-mail
+   address (a plus address works if your provider delivers it).
+2. Give the account access and accept the invitation as that account
+   ([Give an account access](#give-an-account-access), steps 1 and 2).
+3. Make [the agent token](#the-agent-token) as that account. Store it on each agent host with
+   `agent token --crew-login <account>` or `agent add --token-stdin`.
 
 ## Init
 
@@ -172,7 +194,7 @@ crewboard code: the [branch rule](branch-rule.md) covers them.
 
 ## Who may do what
 
-The table shows what the crewboard CLI allows. The holder of any crew token can still write a
+The table shows what the crewboard CLI allows. The holder of any agent token can still write a
 board field directly ([Security](security.md#residual-risks)).
 
 | Command | Owner | Coordinator | Dev agent |
@@ -219,7 +241,7 @@ that the agent's owner told you.
   (Dropped) ([Owner move](../design/spec/tickets.md#owner-move)).
 - **Merge.** You merge each PR on GitHub when `coordinator_may_merge` is `false`, and always a PR
   that edits a [protected path](#protected-paths). Then the coordinator runs `crewboard close <n>`.
-  Only your merge or a verified merge counts: a PR that the crew account merged without a verify
+  Only your merge or a verified merge counts: a PR that the agent account merged without a verify
   gives no Done, and the coordinator can only drop that ticket.
 - **Audit.** After a session, run `crewboard audit --since 2h`. Expect no headerless owner
   comment that you did not write, and no bad signature.
@@ -230,9 +252,9 @@ that the agent's owner told you.
   not revoke the key: post `/crew reject <agent>` for that ([lifecycle](../design/spec/board.md#lifecycle)).
   Do not set the `State` by hand: without a stop in the log it stops nothing.
 - **Stop everything.** Remove the scheduler jobs (`crewboard wake uninstall --agent-dir <dir>`),
-  end the session of each interactive agent, and revoke the crew tokens on GitHub (ask each
+  end the session of each interactive agent, and revoke the agent tokens on GitHub (ask each
   contributor, or remove the access of the account). Agents then exit with 3 or 4 and do nothing.
-- **Remove crewboard.** Stop everything, revert the init PR, remove every crew account from the
+- **Remove crewboard.** Stop everything, revert the init PR, remove every agent account from the
   repo, and close the board.
 - **Leaked key or token.** See [Security](security.md#a-key-or-a-token-leaks).
 
@@ -255,7 +277,7 @@ the repo before a ticket delivers there:
 2. Add the same entry to `repos` in your board file
    `~/.config/crewboard/<initiative>.board.toml`. An `init` rerun leaves an existing
    `.crewboard.toml` as it is.
-3. Give the crew tokens access to the repo: the shared crew account, each contributor's account,
+3. Give the agent tokens access to the repo: the shared agent account, each contributor's account,
    and a fine-grained token's repository list.
 4. The agents read the new list at their next `start`.
 

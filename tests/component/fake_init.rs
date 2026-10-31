@@ -290,7 +290,7 @@ fn an_init_rerun_keeps_the_identity_mode_and_refuses_a_flag_of_another_mode() {
     assert!(pr_file.contains(REPO2), "init set its key: {pr_file}");
     assert!(
         pr_file.contains("crew_login = \"crew-account\""),
-        "the PR drops the crew account: {pr_file}"
+        "the PR drops the agent account: {pr_file}"
     );
 
     // a rerun with the same flag: nothing changes for the identity

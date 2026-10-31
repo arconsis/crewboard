@@ -104,7 +104,7 @@ pub fn gate_line_of(body: &str) -> Option<String> {
 }
 
 /// The Gate that the coordinator signed in the latest assignment message. The issue body is
-/// not signed: any holder of a crew token can edit it, so a judgement that must hold (the
+/// not signed: any holder of an agent token can edit it, so a judgement that must hold (the
 /// headless "CI only") reads this line and not the body. `None`: no signed gate.
 pub fn signed_gate(msgs: &[VMsg]) -> Option<String> {
     match signed_assignment(msgs)?.act() {

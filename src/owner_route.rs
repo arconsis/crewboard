@@ -1,7 +1,7 @@
 //! The owner route for workflow files (spec/tickets#workflow-files-the-owner-route).
 //! Everything here is pure.
 //!
-//! The crew token has no `workflow` scope, on purpose: a token that can write workflows can
+//! The agent token has no `workflow` scope, on purpose: a token that can write workflows can
 //! add one that reads the secrets of the repository. So a dev agent cannot push a change of
 //! `.github/workflows/**`. Such a ticket goes the owner route:
 //!
@@ -57,7 +57,7 @@ pub fn assign_lines(body: &str, issue: u64) -> (String, String) {
     (
         format!("route: {ROUTE_VALUE}\npatch: {patch}\n"),
         format!(
-            "route: {ROUTE_VALUE} (the crew token has no workflow scope); the dev agent delivers the workflow change as {patch}\n"
+            "route: {ROUTE_VALUE} (the agent token has no workflow scope); the dev agent delivers the workflow change as {patch}\n"
         ),
     )
 }
@@ -88,7 +88,7 @@ pub fn decide(declared: bool, files: &[String], issue: u64) -> Result<Route, Ref
         return Err(Refusal::new(
             ids::WORKFLOW_NEEDS_OWNER,
             format!(
-                "this ticket changes workflow files, and the crew token cannot push them. Put the change in the PR as {patch} \
+                "this ticket changes workflow files, and the agent token cannot push them. Put the change in the PR as {patch} \
                  (git diff -- .github/workflows > {patch}), push everything else, then run done again. \
                  Do not block: the owner applies the patch"
             ),
@@ -329,7 +329,7 @@ pub fn owner_message(repo: &str, issue: u64, branch: &str, patch: &str, sha: &st
     format!(
         "{}\n\
          Apply the patch to the branch and push. Do NOT merge the PR as it is: the ticket would close while the workflow change is not live. The ticket is in Review; after your merge the coordinator closes it.\n\
-         Ticket {repo}#{issue} changes workflow files. The crew token has no workflow scope, so the change waits as a patch in the PR.\n\
+         Ticket {repo}#{issue} changes workflow files. The agent token has no workflow scope, so the change waits as a patch in the PR.\n\
          Apply it (you run this, with your own credentials):\n\
          git fetch origin {branch} && git switch {branch} && git apply {patch} && git add .github/workflows && git commit -m \"Apply the workflow change of #{issue}\" && git push origin {branch}\n\
          Then answer here. The dev agent resumes and proves the Gate on the pushed head.",

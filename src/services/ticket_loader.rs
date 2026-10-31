@@ -145,7 +145,7 @@ impl Ticket {
 
     /// The one check that an agent-facing command runs before it trusts [`Ticket::agent`]:
     /// the board `Agent` must be the agent of the latest signed assignment
-    /// (spec/tickets#assignment). Board fields are not signed; any holder of the crew token can
+    /// (spec/tickets#assignment). Board fields are not signed; any holder of the agent token can
     /// write one. An empty `Agent` passes (it gives nobody a right).
     pub(crate) fn check_agent_signed(&self) -> Result<(), crate::rules::Refusal> {
         let log = crate::ticket::log::fold_ticket(&self.msgs);

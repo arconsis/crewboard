@@ -66,7 +66,7 @@ Non-goals:
 | Tickets and messages | Issues and comments in the initiative's repos. |
 | Registry issue | The initiative's main repo. |
 | `AUTHORITY.md` | Root of the initiative's main repo. |
-| `.crewboard.toml` | Root of the initiative's main repo: project number, linked repos, owner login, the identity mode: `crew_login` (an optional shared crew account), `insecure_one_account = true` (the owner's consent to a one-person trial without a crew account; never together with `crew_login`), or neither (each agent acts as its own account, which the owner's approval binds). No secrets. Agents find the board through it. |
+| `.crewboard.toml` | Root of the initiative's main repo: project number, linked repos, owner login, the identity mode: `crew_login` (an optional shared agent account), `insecure_one_account = true` (the owner's consent to a one-person trial without an agent account; never together with `crew_login`), or neither (each agent acts as its own account, which the owner's approval binds). No secrets. Agents find the board through it. |
 | Agent key and credentials | Only on the agent host ([Build and distribution](#build-and-distribution)). |
 
 Rules:
@@ -141,7 +141,7 @@ linked into each runtime's skill folder. Every wake loads only `SKILL.md` and th
 - Main crates: `clap`, `serde`, `reqwest` (blocking, rustls) for GraphQL and REST, and `ssh-key`
   (sshsig, Ed25519). The code has no async runtime.
 - Config: `~/.config/crewboard/<initiative>.toml` (the agent config), `<initiative>.board.toml`
-  (the board file, no secret) and `<initiative>.env` (the crew token); key in
+  (the board file, no secret) and `<initiative>.env` (the agent token); key in
   `~/.config/crewboard/keys/<agent>`.
 - Key file mode: on Unix, crewboard creates the key file with mode 600 and refuses to load a
   key file that the group or others can read (configuration error, exit 4). A build for a

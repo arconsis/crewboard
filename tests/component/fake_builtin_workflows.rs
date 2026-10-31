@@ -3,7 +3,7 @@
 //! `doctor --board` warns once per enabled workflow that writes Status or adds items, gives no
 //! warning when all of them are off, and says "could not check" when the query fails, with the
 //! exit of the local check. The watch marks a status change that GitHub automation made, does
-//! not mark one by a crew account, reads no timeline for a change that a signed crewboard
+//! not mark one by an agent account, reads no timeline for a change that a signed crewboard
 //! message explains, and reads no timeline in a quiet poll or a poll without a change.
 //! `selftest` calls the same check (`builtin_workflows::check`). `init` and `migrate` delete the
 //! four that write Status (`fake_init.rs`, `fake_migrate.rs`).
@@ -196,7 +196,7 @@ fn a_status_change_by_github_automation_is_marked_and_one_by_a_crew_account_is_n
     );
     assert_eq!(fake.timeline_reads(), 1);
 
-    // a person with the crew account moves it in the web UI: one read, no mark
+    // a person with the agent account moves it in the web UI: one read, no mark
     fake.set_item(&item, "Status", "Ready");
     fake.touch_item(&item);
     fake.status_changed_by(t, "fake-crew");

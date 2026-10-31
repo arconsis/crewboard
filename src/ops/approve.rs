@@ -218,7 +218,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
         return Err(CbError::refused(
             ids::APPROVE_OWNER_ACCOUNT,
             format!(
-                "{name} cannot be approved: {why}. The agent joins again with the token of the crew account or of its own account"
+                "{name} cannot be approved: {why}. The agent joins again with the token of the shared agent account or of its own account"
             ),
         ));
     }

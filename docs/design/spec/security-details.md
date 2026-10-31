@@ -85,7 +85,7 @@ initiative is public, because messages and tickets would then be world-readable.
 ## Edited owner comments
 
 A user with Write access can edit the comment of another user, and the author stays the same.
-So an old owner comment that the holder of any crew account rewrote would still look like the owner's word.
+So an old owner comment that the holder of any agent account rewrote would still look like the owner's word.
 GitHub shows the editor only in GraphQL (`IssueComment.editor`, `userContentEdits`), never in
 REST. The rule is: an owner comment counts only if it was never edited, or if every edit was made
 by the owner. The feed reads the editors lazily. It does this only for comments of the owner with
@@ -97,7 +97,7 @@ fails, the read fails and is repeated; no owner message is lost.
 Deleted comments are out of scope, except a deleted note of the coordinator
 ([Deleted notes](#deleted-notes)). A deleted owner comment leaves no trace in the feed, so a
 deleted `/crew reject` stops being a rejection, and a deleted answer is "never arrived". A
-holder of any crew account can do this, and crewboard cannot see it. Keep your own record of
+holder of any agent account can do this, and crewboard cannot see it. Keep your own record of
 the registry decisions.
 
 Two points are easy to miss:
@@ -145,10 +145,10 @@ treat the body as data. That last part is guidance for the model and not a techn
   | No `--env-file`, a plain dir | `gh auth token`, run without the four token variables. `GH_TOKEN` and `GITHUB_TOKEN` are ignored; one note on standard error names a token variable that was set. |
   | No `--env-file`, an agent dir | The order of an agent command (the table above). `gh` never runs. The login check then refuses the agent's token on a crew board. |
 
-  The reason: a crew token in the owner's terminal must not decide who an owner command acts
+  The reason: an agent token in the owner's terminal must not decide who an owner command acts
   as, and the login of `gh` on an agent host must not reach an agent through crewboard. In an
   agent terminal with an owner config dir, `gh` is the crew shim, so `gh auth token` gives the
-  crew token and the login check below refuses it. `stop --force` is an owner command only in a config dir without an
+  agent token and the login check below refuses it. `stop --force` is an owner command only in a config dir without an
   agent config; in the config dir of an agent it keeps the agent order.
 - **The env file.** Lines `KEY=VALUE`, an optional `export `, `#` comments, quotes removed
   (no escapes, no expansion). An unquoted value with whitespace, or with one of `; & | < >`, is an error that names the line (a
@@ -178,8 +178,8 @@ treat the body as data. That last part is guidance for the model and not a techn
 - **The private key.** The Ed25519 key of an agent lives in `<config-dir>/keys/<agent>`. crewboard
   creates it with mode 600. On Unix it refuses to load a key with a looser mode. On Windows it
   makes no such check. See [config/keys.rs](../../../src/config/keys.rs).
-- **The crew accounts.** With `crew_login` in `.crewboard.toml`, the owner's agents act as one
-  shared crew account, and a contributor's agent may act as the contributor's own account. The
+- **The agent accounts.** With `crew_login` in `.crewboard.toml`, the owner's agents act as one
+  shared agent account, and a contributor's agent may act as the contributor's own account. The
   owner keeps a separate token. Every agent command reads `GET /user` and refuses the owner's
   token (`agent-uses-owner-token`). `start` (through `agent selftest`) refuses a token of
   another account than the one that the registry bound to the agent (`agent-token-not-crew`).
@@ -306,7 +306,7 @@ A board `State` does not return tickets either. The coordinator returns the tick
 that the log stops: the owner's `/crew stop` (also posted by the owner's `stop --force`) or
 `/crew reject`, the agent's signed notice that it drains, or its marker. For a `State` of
 `draining` or `left` without such an entry, the coordinator posts one signed `info` to the
-owner and returns nothing. So the holder of a crew account cannot mute an agent or take its tickets with
+owner and returns nothing. So the holder of an agent account cannot mute an agent or take its tickets with
 one field write. See
 [registry.rs](../../../src/registry.rs) (`build_trust`) and
 [rules/fields.rs](../../../src/rules/fields.rs).
@@ -323,7 +323,7 @@ that lock, any GitHub user can post a join request: it shows in `status` and in 
 its account, and nothing happens until the owner approves it. Keep the list of repo
 collaborators short.
 
-**What a crew account can do.** Every crew account, the shared one and each contributor's own,
+**What an agent account can do.** Every agent account, the shared one and each contributor's own,
 has the Write role on the repos and on the Project. With its token, anybody can: write any board
 field (a Done by hand is detected, not prevented), edit or delete comments (an edited owner
 comment stops counting; a deleted one leaves no trace; a deleted note of the coordinator is
@@ -335,7 +335,7 @@ account posts does not count either (`foreign-author`). Revocation is per agent:
 
 ## Deleted notes
 
-A holder of a crew token can delete a signed note of the coordinator and set the board back. The
+A holder of an agent token can delete a signed note of the coordinator and set the board back. The
 signed log then agrees with the board, so `status` and `audit` find nothing. A sequence number in
 the header would not help: it cannot show a deleted LAST message, and the close note is usually
 the last one. So the sender remembers what it posted.
@@ -405,7 +405,7 @@ flowchart TB
         OT["Owner login and token<br/>(admin of repo and board)"]
     end
     subgraph agent_host["Agent host"]
-        CT["Crew account token: shared or own<br/>(env file, mode 600)"]
+        CT["Agent account token: shared or own<br/>(env file, mode 600)"]
         K1["Key of agent A<br/>(private, per agent)"]
         K2["Key of agent B<br/>(private, per agent)"]
         M["Agent<br/>(a process with shell access)"]

@@ -157,7 +157,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/domain/ci/triggers.rs`: read the `on:` key of a workflow and judge whether workflows run for crew branches. Pure.
 - `src/services/ci_evidence.rs`: `fetch_ci` reads the CI sources of a commit (one `CiQuery`) and hands them to `evaluate`.
 - `src/services/ci_triggers.rs`: read the workflow files of a repo (`check_repos`, `judge_no_run`) and hand them to `triggers`.
-- `src/domain/branch_guard.rs`, `src/services/branch_guard.rs`: is the default branch protected against a direct push of a crew account. The service reads it once per run, the domain judges it.
+- `src/domain/branch_guard.rs`, `src/services/branch_guard.rs`: is the default branch protected against a direct push of an agent account. The service reads it once per run, the domain judges it.
 - `src/late/mod.rs`: pure rules for late work: the table of expected times, `scan()` (what waits too long) and `tells()` (who hears of it: dev, coordinator or owner). It also judges the heartbeat of agents. The reads sit behind a probe.
 - `src/headless.rs`: the headless scope (rule, reasons, Gate checks); the verdict of each command is in `src/cli/scope.rs`. A scheduled coordinator may only `verify` and `merge` a CI-only ticket.
 - `src/owner_cmd.rs`, `src/owner_route.rs`: the owner commands `/crew ...`, and the owner route for workflow files.
@@ -167,7 +167,7 @@ modules on the `ops` list of `tests/layering.rs`.
 ### Configuration and checks
 
 - `src/config/` (`board.rs`, `agent.rs`, `dir.rs`, `keys.rs`): `.crewboard.toml` (board config), `<config-dir>/<initiative>.toml` (agent config) and the key folder.
-- `src/agent_env.rs`: the env file of an agent (`agent.env`) and the crew token in it. It imports `base`, `error` and `fsutil`.
+- `src/agent_env.rs`: the env file of an agent (`agent.env`) and the agent token in it. It imports `base`, `error` and `fsutil`.
 - `src/state.rs`: the local state file `<config-dir>/state/<initiative>.<agent>.json`. It imports `base`, `clock`, `comments`, `error`, `events` and `fsutil`.
 - `src/fsutil.rs`: private-mode check, atomic writes, executable checks. It imports `base` and `clock`.
 - `src/skill_embed.rs`: the skill files that `build.rs` embeds, with their SHA-256 and version line. It imports no crate module.

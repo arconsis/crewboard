@@ -237,7 +237,7 @@ limits it. The prompt does not.
 5. **CI only, exactly.** The Gate is the signed `gate:` line of the latest assignment message
    (a coordinator `request`; `assign` writes it from the ticket body, `reassign` copies it
    forward; [Ticket content](tickets.md#ticket-content)). The issue body is NOT read: any holder
-   of a crew token can edit it after the assignment. The typed CI-only Gate is the value `ci`
+   of an agent token can edit it after the assignment. The typed CI-only Gate is the value `ci`
    (`Gate: ci` in the body; one parser, `Gate::parse`, reads it): the signed text, trimmed, is
    `ci` in any letter case. No new signed line is needed: the signed `gate:` text is the value,
    and wire format `v=1` does not change. Phrases such as `CI green` or `CI only` are not
@@ -322,7 +322,7 @@ limits it. The prompt does not.
 
    The headless user holds a GitHub token and a signing key. A process of that user that runs
    its own code (not `crewboard`) can call the GitHub API directly, or sign messages with the
-   key, and the key does not limit that. Limit the token itself: a crew account (the shared
+   key, and the key does not limit that. Limit the token itself: an agent account (the shared
    `crew_login` or an own one) with write access only to the initiative repos, branch protection on the main
    branch that requires the CI checks, and no admin rights. See
    [Headless setup](../../guides/headless-setup.md).

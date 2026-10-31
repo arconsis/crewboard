@@ -13,8 +13,8 @@ columns are dropped. Nothing else is edited.
 The build was older than 0.6. It shows `priority: P2`; crewboard 0.6 has no `Priority`, and `Order` is the queue
 position.
 
-This was a trial: one GitHub account, no crew account (`--insecure-one-account`). On a crew the
-comments below come from the crew accounts of the agents, and your own account posts no agent
+This was a trial: one GitHub account, no agent account (`--insecure-one-account`). On a crew the
+comments below come from the agent accounts of the agents, and your own account posts no agent
 messages. The
 [Quick try](quick-try.md) runs the same path with an interactive coordinator instead of
 `claude -p` calls.

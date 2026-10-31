@@ -75,7 +75,7 @@ const OPTIONS: &[(&str, &str)] = &[
     ),
     (
         "--env-file <FILE>",
-        "Env file with the crew token (mode 600)",
+        "Env file with the agent token (mode 600)",
     ),
     ("-V, --version", "Print the version"),
 ];
@@ -355,7 +355,7 @@ Run `crewboard <command> --help` for details, `crewboard --help` for options.
 
 Options for all commands:
   --config-dir <DIR>  Config, keys and cache dir (default ~/.config/crewboard)
-  --env-file <FILE>   Env file with the crew token (mode 600)
+  --env-file <FILE>   Env file with the agent token (mode 600)
   -V, --version       Print the version
 ";
 

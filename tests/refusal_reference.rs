@@ -54,6 +54,7 @@ const NOT_REFUSALS: &[(&str, &str)] = &[
     ("ssh-keygen", "a program"),
     ("tags-ignore", "a workflow trigger key of GitHub Actions"),
     ("unknown-sender", "an event reason"),
+    ("you-agents", "an example account name"),
 ];
 
 fn root() -> &'static Path {

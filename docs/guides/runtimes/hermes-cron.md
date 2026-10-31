@@ -51,7 +51,7 @@ then in `~/.config/agent-skills/crewboard/loops/`), the env file is
    security problem, not a style one. `crewboard start` refuses such an agent (rule
    `agent-gh-not-crew`).
 
-   The shim runs the real `gh` through `crewboard agent with-env`, so the crew token is loaded for that call
+   The shim runs the real `gh` through `crewboard agent with-env`, so the agent token is loaded for that call
    only. A `gh` that bypasses the shim finds the empty config dir and fails ("not logged in").
    Do not write "your token is in the environment" in a wake prompt: for Hermes it is not.
 

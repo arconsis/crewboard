@@ -772,7 +772,7 @@ insecure_one_account = true
         .unwrap()
     }
 
-    /// The same board as a crew: with the shared crew account `crew` (`crew_login`), or with
+    /// The same board as a crew: with the shared agent account `crew` (`crew_login`), or with
     /// `None` one own account per agent.
     pub fn crew_cfg(crew: Option<&str>) -> BoardConfig {
         let mut c = cfg();
@@ -933,7 +933,7 @@ insecure_one_account = true
         let k = generate_key().unwrap();
         let mut join = join_comment(1, "claude@a", &k, "PVTI_a");
         join.author = "crew-bot".into();
-        // the crew account tries to approve itself with a headerless command
+        // the agent account tries to approve itself with a headerless command
         let mut self_approve = owner(2, "/crew approve claude@a role=coordinator");
         self_approve.author = "crew-bot".into();
         let reg = resolve(&c, &[join.clone(), self_approve]);
@@ -1624,7 +1624,7 @@ insecure_one_account = true
             join_comment(1, "claude@a", &k, "PVTI_a"),
             owner(2, "/crew approve claude@a"),
         ];
-        // a shared crew account, and one own account per agent (no crew_login)
+        // a shared agent account, and one own account per agent (no crew_login)
         for board in [crew_cfg(Some("crew-bot")), crew_cfg(None)] {
             let reg = resolve(&board, &comments);
             assert!(!reg.agents["claude@a"].approved());

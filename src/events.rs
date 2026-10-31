@@ -8,7 +8,7 @@
 //! - `Security`: a comment that claims to be a crew message but is not valid (bad
 //!   signature, edited, unknown or unapproved sender, malformed header). It is not
 //!   delivered as a message; it is reported (spec/messages#signature, loud);
-//! - `Foreign`: an author that is neither the owner nor the crew account. Dropped and counted
+//! - `Foreign`: an author that is neither the owner nor the agent account. Dropped and counted
 //!   (spec/messages#untrusted-input);
 //! - `Skip`: valid, but not for this agent (or its own message).
 
@@ -79,7 +79,7 @@ pub enum Reason {
     /// A valid signature, but the signed `ts` is far from the GitHub creation time of the
     /// comment: a copy of an older message (spec/messages#signature).
     Replayed,
-    /// A comment with a crew header by an author who is neither the owner nor the crew account:
+    /// A comment with a crew header by an author who is neither the owner nor the agent account:
     /// somebody tries to pass as an agent (spec/messages#untrusted-input). Routed like a bad
     /// signature.
     ForeignAuthor,

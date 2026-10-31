@@ -1,5 +1,5 @@
 //! The token of an owner command (spec/identity#author-and-signature): the owner's own `gh` login,
-//! or `--env-file`. A crew token in `GH_TOKEN` is ignored with one note, a `gh` login that is
+//! or `--env-file`. An agent token in `GH_TOKEN` is ignored with one note, a `gh` login that is
 //! not the board owner is refused, and an agent dir keeps the agent order, so it never reaches
 //! the `gh` login. Agent commands keep their order.
 //!
@@ -237,7 +237,7 @@ fn an_owner_command_in_an_agent_dir_keeps_the_agent_order() {
     assert_eq!(o.code, 0, "{}", o.all());
     assert_eq!(bearers(&fake), ["ghp_test_agent_file"], "{}", o.all());
     assert!(!o.stderr.contains("note:"), "{}", o.all());
-    // a crew token there is refused, and the fix names the own terminal
+    // an agent token there is refused, and the fix names the own terminal
     fake.set_viewer("crew-bot");
     let o = cb(&fake, &b.dir, &audit(), &[GH_LOGIN]);
     assert_eq!(o.code, 2, "{}", o.all());

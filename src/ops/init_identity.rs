@@ -1,13 +1,13 @@
-//! The identity mode on an `init` rerun (spec/identity, guides/owner#crew-accounts).
+//! The identity mode on an `init` rerun (spec/identity, guides/owner#agent-accounts).
 //!
 //! A board config names one of three modes: `crew_login` (the old name `app_login`) for a shared
-//! crew account, `insecure_one_account = true` for a one-person trial, or neither key (each agent
+//! agent account, `insecure_one_account = true` for a one-person trial, or neither key (each agent
 //! its own account). Every approved agent is bound to its account, so a rerun of `init` (an
 //! upgrade note asks for one) must not switch the mode by the way:
 //!
 //! - no identity flag: the mode of the existing board config stays (the local file, and
 //!   `.crewboard.toml` on the default branch), with one line that names it;
-//! - a flag of the same mode: as before (`--crew-login` may name another crew account);
+//! - a flag of the same mode: as before (`--crew-login` may name another agent account);
 //! - a flag of another mode than an existing mode key: refused before any write
 //!   (`init-identity-mode-change`). A file without a mode key (an own-accounts board, or an old
 //!   trial board) takes the mode of the flag.
@@ -18,7 +18,7 @@ use crate::error::{CbError, CbResult};
 /// The identity mode of a board config.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mode {
-    /// `crew_login` (or `app_login`): the shared crew account.
+    /// `crew_login` (or `app_login`): the shared agent account.
     Crew(String),
     /// `insecure_one_account = true`: the one-person trial.
     OneAccount,
@@ -128,7 +128,7 @@ pub fn resolve(
                 ));
             }
             let change = match first {
-                Mode::Crew(_) => "pass --crew-login <account> to use another crew account",
+                Mode::Crew(_) => "pass --crew-login <account> to use another agent account",
                 _ => "edit the board config by hand to change the mode",
             };
             let line = format!("identity: {} kept ({change})", first.describe());
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(
             id.kept.as_deref(),
             Some(
-                "identity: crew_login crew-bot kept (pass --crew-login <account> to use another crew account)"
+                "identity: crew_login crew-bot kept (pass --crew-login <account> to use another agent account)"
             )
         );
         let id = resolve(None, false, &file(Mode::OneAccount)).unwrap();
@@ -201,7 +201,7 @@ mod tests {
         .unwrap();
         assert_eq!(id.crew_login.as_deref(), Some("crew-bot"));
         assert!(id.kept.is_none());
-        // another crew account is the same mode
+        // another agent account is the same mode
         let id = resolve(Some("crew-2"), false, &file(Mode::Crew("crew-bot".into()))).unwrap();
         assert_eq!(id.crew_login.as_deref(), Some("crew-2"));
         // an old trial board without the key keeps working with the flag (spec/identity)

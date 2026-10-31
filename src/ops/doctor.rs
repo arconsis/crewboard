@@ -7,7 +7,7 @@
 //!
 //! `doctor --board` also reads the board and warns about the built-in project workflows that
 //! write Status behind crewboard (spec/board#built-in-project-workflows), and about a default
-//! branch that the crew account can push to (`domain::branch_guard`). That part never changes
+//! branch that the agent account can push to (`domain::branch_guard`). That part never changes
 //! the exit.
 //!
 //! `doctor --setup` checks the setup of one agent, as that agent: token, push access, plain
@@ -143,7 +143,7 @@ pub fn board_report(g: &Global, scope_ok: bool) -> String {
         Ok(c) => c,
         Err(e) => return builtin_workflows::could_not_check(&place, &e.to_string()),
     };
-    // The default branch of the main repo: can the crew account push to it (read once per run)?
+    // The default branch of the main repo: can the agent account push to it (read once per run)?
     let guard = crate::services::branch_guard::guard_line(&client, cfg.main_repo());
     let board = match Board::load(&client, &cfg.project_owner, cfg.project_number) {
         Ok(b) => b,
@@ -331,7 +331,7 @@ impl SetupReport {
 pub fn judge_scopes_in(header: Option<&str>, trial: bool) -> CheckVerdict {
     let Some(h) = header else {
         return CheckVerdict::Ok(
-            "GitHub shows no scopes (a fine-grained token); compare its permissions on its GitHub page with the token table of docs/guides/owner.md#the-crew-account-and-its-token".into(),
+            "GitHub shows no scopes (a fine-grained token); compare its permissions on its GitHub page with the token table of docs/guides/owner.md#the-agent-token".into(),
         );
     };
     let have: Vec<&str> = h
@@ -349,7 +349,7 @@ pub fn judge_scopes_in(header: Option<&str>, trial: bool) -> CheckVerdict {
         .filter(|s| *s == "workflow" || *s == "delete_repo" || s.starts_with("admin:"))
         .filter(|s| !(trial && *s == "workflow"))
         .collect();
-    let fix = "make a new classic token as the crew account with the scopes repo and project only, and write it to the env file";
+    let fix = "make a new classic token as the agent account with the scopes repo and project only, and write it to the env file";
     if !missing.is_empty() {
         return fail(
             format!(
@@ -376,7 +376,7 @@ pub fn judge_scopes_in(header: Option<&str>, trial: bool) -> CheckVerdict {
     CheckVerdict::Ok(format!("classic token, scopes {h}"))
 }
 
-/// Write access of the crew account to one repo: the `permissions.push` of `GET repos/{r}`.
+/// Write access of the agent account to one repo: the `permissions.push` of `GET repos/{r}`.
 pub fn judge_push(
     repo: &str,
     crew: &str,
@@ -394,7 +394,7 @@ pub fn judge_push(
             Some(false) => fail(format!("{repo}: the token has no write access"), collab),
             None => fail(
                 format!("{repo}: the answer has no permissions"),
-                "run the check again with the crew token loaded",
+                "run the check again with the agent token loaded",
             ),
         },
         Err(crate::github::GhError::Http { status: 404, .. }) => fail(
@@ -425,7 +425,7 @@ fn judge_agent_env(dir: &Path) -> Vec<(&'static str, CheckVerdict)> {
     use crate::agent_env::{FileKind, TokenSource};
     let dir_text = dir.display().to_string();
     let relink = format!(
-        "ln -sfn <file> {dir_text}/agent.env; the file needs mode 600 and one line GH_TOKEN=<token of the crew account>"
+        "ln -sfn <file> {dir_text}/agent.env; the file needs mode 600 and one line GH_TOKEN=<token of the agent account>"
     );
     let loaded = crate::agent_env::state();
     let mut out = Vec::new();
@@ -475,7 +475,7 @@ fn judge_agent_env(dir: &Path) -> Vec<(&'static str, CheckVerdict)> {
                 }
                 TokenSource::Refused => fail(
                     "gh auth token in an agent dir: crewboard would use the login of gh, which is the owner",
-                    format!("put the crew token in agent.env: {relink}"),
+                    format!("put the agent token in agent.env: {relink}"),
                 ),
             },
         },
@@ -537,7 +537,7 @@ fn judge_dir_mode(dir: &Path) -> CheckVerdict {
 
 /// What plain `gh` of this shell is (spec/identity#identity-of-the-agents-own-gh), as a setup
 /// check. `account` is the agent's own account (the login of its token on a board with a crew
-/// login: the shared crew account or the contributor's own account). Unlike `start`, a `gh` that
+/// login: the shared agent account or the contributor's own account). Unlike `start`, a `gh` that
 /// fails or is missing is a FAIL here: the agent cannot open its pull requests.
 pub fn judge_agent_gh(
     cfg: &crate::config::BoardConfig,
@@ -637,7 +637,7 @@ pub fn judge_runtime(bin: &str, minimal: Option<&Path>, anywhere: Option<&Path>)
     }
 }
 
-/// The git identity that the crew account needs in the work dir.
+/// The git identity that the agent account needs in the work dir.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitIdentity {
     pub name: Option<String>,
@@ -935,7 +935,7 @@ fn check_token(
                         "acts as {login}; identity: ONE ACCOUNT (insecure), a one-person trial, so any token passes"
                     ),
                     Some(crew) if crew.eq_ignore_ascii_case(&login) => {
-                        format!("acts as {login}, the shared crew account")
+                        format!("acts as {login}, the shared agent account")
                     }
                     _ => format!(
                         "acts as {login}, an own account (the owner's approval binds the account that writes the join)"
@@ -957,7 +957,7 @@ fn check_token(
                 };
                 let env = env_file_of(&cd.0, &cfg.initiative);
                 let fix = format!(
-                    "{env} must hold the token of the agent's account (the crew account or its own); {token_fix}"
+                    "{env} must hold the token of the agent's account (the shared agent account or its own); {token_fix}"
                 );
                 rep.push("token", fail(what, fix));
                 None
@@ -1120,7 +1120,7 @@ fn check_board_side(
                         cfg.project_number, cfg.project_owner
                     ),
                     format!(
-                        "the owner gives the agent's account the Write role on the board (`crewboard init --crew-login` does it for the shared crew account {}); a classic token needs the project scope",
+                        "the owner gives the agent's account the Write role on the board (`crewboard init --crew-login` does it for the shared agent account {}); a classic token needs the project scope",
                         cfg.crew_login.as_deref().unwrap_or("-")
                     ),
                 ),

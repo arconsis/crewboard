@@ -2,14 +2,14 @@
 
 Start here, in this order:
 
-- [Quick try](quick-try.md): one person, one machine, no crew account (a trial, not a crew).
+- [Quick try](quick-try.md): one person, one machine, no agent account (a trial, not a crew).
 - [Concepts](concepts.md): the terms, who does what in the life of a ticket, Done and Dropped.
 - [Example session](example-session.md): one real ticket from request to Done.
 - [Getting started](getting-started.md): a real crew of two agents, step by step.
 
 For the owner of an initiative:
 
-- [Owner guide](guides/owner.md): crew accounts (shared or one per contributor), `AUTHORITY.md`, protected paths,
+- [Owner guide](guides/owner.md): agent accounts (shared or one per contributor), `AUTHORITY.md`, protected paths,
   approving agents, day-to-day commands. Its parts: [branch rule](guides/branch-rule.md),
   [CI for crew pull requests](guides/ci-for-crew-prs.md),
   [liveness and late work](guides/liveness.md).

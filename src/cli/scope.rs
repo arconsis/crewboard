@@ -64,7 +64,7 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         Command::Host(HostCmd::Agent {
             action: AgentAction::Add { .. } | AgentAction::Shim { .. },
         }) => Deny(headless::DENY_OWNER),
-        // `agent token` writes the env file of the crew account: a model must not change it
+        // `agent token` writes the env file of the agent account: a model must not change it
         Command::Host(HostCmd::Agent {
             action: AgentAction::Token { .. },
         }) => Deny(headless::DENY_OWNER),
@@ -245,7 +245,7 @@ mod tests {
         (&["repeat", "--times", "1", "--", "true"], true),
         // local work: a shell setup, or a command that its own guard judges
         (&["agent", "env"], true),
-        // it writes the env file of the crew account: a model must not change it
+        // it writes the env file of the agent account: a model must not change it
         (&["agent", "token", "--initiative", "x"], false),
         // the moved commands keep the verdict of their old names
         (&["agent", "selftest"], true),

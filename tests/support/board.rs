@@ -131,7 +131,7 @@ struct State {
     /// names a next page), so a read hits the page limit.
     flooded: Vec<(String, u64)>,
     /// Logins that `GET users/{login}` answers as a user account with write access to the repos
-    /// (a crew account for `init --crew-login`). Every other login is an organisation.
+    /// (an agent account for `init --crew-login`). Every other login is an organisation.
     users: Vec<String>,
     /// Counter for the ids of options that `updateProjectV2Field` creates.
     next_option: u64,
@@ -419,7 +419,7 @@ impl FakeBoard {
         c.editors.push(c.login.clone());
     }
 
-    /// Delete a comment, as any account with Write on the repo can (the crew token can). Panics
+    /// Delete a comment, as any account with Write on the repo can (the agent token can). Panics
     /// when there is no such comment.
     /// A comment flood on `issue` of the main repo: from now on the comment list of the issue
     /// has more pages than crewboard reads (`MAX_PAGES`). The pages after the first are empty.
@@ -627,7 +627,7 @@ impl FakeBoard {
     }
 
     /// [`FakeBoard::agent`], but the join is a comment of the GitHub account `login` (the
-    /// agent's own account, or a shared crew account), and the approval names it.
+    /// agent's own account, or a shared agent account), and the approval names it.
     pub fn agent_as(&self, name: &str, role: Role, login: &str) -> Agent {
         self.agent_with(name, role, true, login)
     }

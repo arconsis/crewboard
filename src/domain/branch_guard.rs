@@ -1,12 +1,12 @@
-//! Is the default branch of the main repo protected against a direct push of the crew account
+//! Is the default branch of the main repo protected against a direct push of the agent account
 //! (spec/board#authority, docs/guides/security.md)? Pure: the caller reads the answers.
 //!
-//! The crew account has Write on the repo, and AUTHORITY.md and `.crewboard.toml` are read from
+//! The agent account has Write on the repo, and AUTHORITY.md and `.crewboard.toml` are read from
 //! the default branch. Without a rule that requires a pull request, an agent can push a change
 //! of either file with no review. crewboard cannot enforce the rule, it only reads it and
 //! warns. The check never warns on a guess: what the token cannot read is `unknown`.
 //!
-//! The crew token reads `protected` of `GET repos/{r}/branches/{b}`. It is true when ANY rule
+//! The agent token reads `protected` of `GET repos/{r}/branches/{b}`. It is true when ANY rule
 //! applies to the branch, a classic branch protection rule or a ruleset (checked against public
 //! repos: a branch with a ruleset only has `protected: true` and `protection.enabled: false`).
 //! The pull request requirement itself needs admin rights (`.../protection`, and a 404 there is
@@ -21,7 +21,7 @@ pub enum Guard {
     /// GitHub reports a rule on the branch. The token cannot read whether the rule requires a
     /// pull request.
     Protected,
-    /// Nothing protects the branch: a direct push of the crew account is accepted.
+    /// Nothing protects the branch: a direct push of the agent account is accepted.
     Open,
     /// The answer cannot tell (the reason is the text).
     Unknown(String),
@@ -100,7 +100,7 @@ pub fn line(repo: &str, branch: &str, g: &Guard) -> (String, bool) {
         ),
         Guard::Open => (
             format!(
-                "warning: the default branch {branch} of {repo} is not protected: the crew account can push to it and change AUTHORITY.md or .crewboard.toml without a pull request. Fix: {FIX}\n"
+                "warning: the default branch {branch} of {repo} is not protected: the agent account can push to it and change AUTHORITY.md or .crewboard.toml without a pull request. Fix: {FIX}\n"
             ),
             true,
         ),

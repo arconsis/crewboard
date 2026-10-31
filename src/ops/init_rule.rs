@@ -1,6 +1,6 @@
 //! The branch rule of `init` (spec/board#authority, docs/guides/owner.md#branch-rule).
 //!
-//! The crew account has Write on the main repo, and AUTHORITY.md and `.crewboard.toml` are read
+//! The agent account has Write on the main repo, and AUTHORITY.md and `.crewboard.toml` are read
 //! from the default branch. `init` runs with the owner token, which is admin on the repo, so it
 //! can close the gap: a repository ruleset on the default branch that requires a pull request
 //! and forbids force push and deletion. It asks for no approval (GitHub does not let an author

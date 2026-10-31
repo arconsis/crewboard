@@ -34,7 +34,7 @@ pub struct BoardConfig {
     /// Path of AUTHORITY.md in the main repo.
     #[serde(default = "default_authority")]
     pub authority: String,
-    /// GitHub login of the shared crew account (a machine account such as `crew-bot`): the
+    /// GitHub login of the shared agent account (a machine account such as `crew-bot`): the
     /// account that the agents of the owner act as. Optional. A contributor's agent may act as
     /// its own account instead; the owner's approval binds each agent to the account that wrote
     /// its join. Absent (and no `insecure_one_account`): each agent acts as its own account. On
@@ -50,7 +50,7 @@ pub struct BoardConfig {
     pub crew_login: Option<String>,
     /// The owner's consent to a one-person trial: the agents then use the owner's token and
     /// nothing separates owner from agent. Without this key the board is a crew: with
-    /// `crew_login` a shared crew account, without it one own account per agent; both refuse
+    /// `crew_login` a shared agent account, without it one own account per agent; both refuse
     /// the owner's token for agents (rule `agent-uses-owner-token`). It must not be set together
     /// with `crew_login`.
     #[serde(default, skip_serializing_if = "super::is_false")]
@@ -419,7 +419,7 @@ impl BoardConfig {
 
     /// The changed keys that a refresh must not apply (rule `board-identity-changed`).
     /// Identity: the board (`project_owner`, `project_number`), who the owner is
-    /// (`owner_login`), the shared crew account (`crew_login`), the consent to a one-person trial
+    /// (`owner_login`), the shared agent account (`crew_login`), the consent to a one-person trial
     /// (`insecure_one_account`, it decides whether agents may act as the owner), the registry
     /// (`registry_issue`), the file name of the config (`initiative`) and the main repo (the
     /// first entry of `repos`: registry and AUTHORITY.md live there). The other repos are not

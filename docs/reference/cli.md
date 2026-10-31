@@ -144,10 +144,10 @@ Options:
           GitHub login of the owner (default: the login of your own gh, or of --env-file; it must match)
 
       --crew-login <CREW_LOGIN>
-          GitHub login of the shared crew account that your agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse the owner's token. A contributor's agent may act as its own account instead; `approve` binds each agent to the account that wrote its join
+          GitHub login of the shared agent account that your agents act as (for example `crew-bot`). Written to .crewboard.toml as `crew_login`; added to the board with the Write role. Agent commands then refuse the owner's token. A contributor's agent may act as its own account instead; `approve` binds each agent to the account that wrote its join
 
       --insecure-one-account
-          A one-person trial without a crew account: the agents use the owner's token and nothing separates owner from agent. Written to .crewboard.toml as `insecure_one_account`. Without `--crew-login` and without this flag, each agent acts as its own GitHub account
+          A one-person trial without an agent account: the agents use the owner's token and nothing separates owner from agent. Written to .crewboard.toml as `insecure_one_account`. Without `--crew-login` and without this flag, each agent acts as its own GitHub account
 
       --no-pr
           Do not open the pull request with AUTHORITY.md and .crewboard.toml
@@ -167,13 +167,13 @@ Options:
 ```text
 Set up and run one agent on this host.
 
-Any: run a command as one agent. `exec` runs CMD with the environment of an agent dir (the `gh` shim first on the PATH, an empty `gh` config dir, the config dir; no token, and the token variables of the caller are removed). `env` prints the same as `export` lines for `eval`. `with-env` runs CMD with the token of the env file `--env-file`. Unix only. `add` and `shim` set an agent up. `profile` shows or changes what the agent declares, `token` stores the token of the crew account on this host, and `selftest` proves that the agent sees events.
+Any: run a command as one agent. `exec` runs CMD with the environment of an agent dir (the `gh` shim first on the PATH, an empty `gh` config dir, the config dir; no token, and the token variables of the caller are removed). `env` prints the same as `export` lines for `eval`. `with-env` runs CMD with the token of the env file `--env-file`. Unix only. `add` and `shim` set an agent up. `profile` shows or changes what the agent declares, `token` stores the token of the agent account on this host, and `selftest` proves that the agent sees events.
 
 Usage: crewboard agent [OPTIONS] <COMMAND>
 
 Commands:
   profile   Show or change what an agent declares
-  token     Store the token of the crew account
+  token     Store the token of the agent account
   selftest  Check that this agent can see events
   exec      Run CMD with the environment of the agent dir
   env       Print export lines for the agent shell
@@ -265,9 +265,9 @@ Options:
 #### `crewboard agent token`
 
 ```text
-Store the token of the crew account.
+Store the token of the agent account.
 
-Any: the token of the crew account goes into the env file of the initiative, without a text editor and without a command line that holds the token. It reads the token from standard input (typed without echo on a terminal, or piped), asks GitHub whose token it is and which scopes it has, and only then writes `~/.config/crewboard/<initiative>.env` (mode 600, by a rename; a dir that crewboard creates gets mode 700, an existing dir keeps its mode). A token without the scopes `repo` and `project`, or with `workflow`, is refused and nothing is written. The token is never printed. Exit 2 for a refused token, 3 for a network failure, 4 for a bad input.
+Any: the token of the agent account goes into the env file of the initiative, without a text editor and without a command line that holds the token. It reads the token from standard input (typed without echo on a terminal, or piped), asks GitHub whose token it is and which scopes it has, and only then writes `~/.config/crewboard/<initiative>.env` (mode 600, by a rename; a dir that crewboard creates gets mode 700, an existing dir keeps its mode). A token without the scopes `repo` and `project`, or with `workflow`, is refused and nothing is written. The token is never printed. Exit 2 for a refused token, 3 for a network failure, 4 for a bad input.
 
 Usage: crewboard agent token [OPTIONS]
 
@@ -363,7 +363,7 @@ Options:
 ```text
 Set up one agent in one command.
 
-Owner of the agent host: set one agent up in one command (the agent dir, `join`, the `gh` shim, the crew id, the work dir, its git identity and `start`). A rerun is safe: a step that is done says so. `--env-file` is the env file of the crew account. With `--role headless-coordinator --from <dir>` it makes the config dir of the headless tick from the dir of the interactive coordinator.
+Owner of the agent host: set one agent up in one command (the agent dir, `join`, the `gh` shim, the crew id, the work dir, its git identity and `start`). A rerun is safe: a step that is done says so. `--env-file` is the env file of the agent account. With `--role headless-coordinator --from <dir>` it makes the config dir of the headless tick from the dir of the interactive coordinator.
 
 Usage: crewboard agent add [OPTIONS] [REPO|BOARD-FILE]
 
@@ -393,7 +393,7 @@ Options:
           The checkout of the repo (default: ~/crew/<initiative>-<agent dir name>)
 
       --crew-login <CREW_LOGIN>
-          The login of the crew account of this agent: the shared one or your own (default: the login of the token)
+          The login of the account that this agent acts as: the shared one or your own (default: the login of the token)
 
       --model <MODEL>
           The model, passed to `join --model`: the runtime label of the join request is `claude-code/<model>` for the runtime claude, else `codex/<model>` or `hermes/<model>`
@@ -413,7 +413,7 @@ Options:
           After the join, print the exact `crewboard approve` line for the owner and wait for the approval (a check every 15 seconds, for up to 30 minutes; Ctrl-C is safe), then run `start`. Without it the command stops after the join and you run it again
 
       --token-stdin
-          Read the token of the crew account from standard input (typed without echo, or piped from the first host), check it and write the env file first. The env file is `--env-file`, else `~/.config/crewboard/<initiative>.env` (then `--initiative` is needed). It replaces `agent token` and a copy of the file for a second host
+          Read the token of the agent account from standard input (typed without echo, or piped from the first host), check it and write the env file first. The env file is `--env-file`, else `~/.config/crewboard/<initiative>.env` (then `--initiative` is needed). It replaces `agent token` and a copy of the file for a second host
 
       --insecure-one-account
           With `--token-stdin`: a one-person trial (one account for the owner and the agents). The token is the owner's, so the `workflow` scope passes with a note. A crew still refuses it
@@ -441,7 +441,7 @@ Options:
 ```text
 Write the gh stub of an agent dir again.
 
-Owner of the agent host: write the `gh` stub of an agent dir again (and, with `--work-dir`, the git identity of that checkout). The stub runs the real `gh` as the crew account.
+Owner of the agent host: write the `gh` stub of an agent dir again (and, with `--work-dir`, the git identity of that checkout). The stub runs the real `gh` as the agent account.
 
 Usage: crewboard agent shim [OPTIONS]
 
@@ -456,7 +456,7 @@ Options:
           The real `gh` (default: the first `gh` on the PATH that is not the stub)
 
       --crew-login <CREW_LOGIN>
-          The login of the crew account (default: the `crew-id` file of the agent dir)
+          The login of the agent account (default: the `crew-id` file of the agent dir)
 
   -h, --help
           Print help (see a summary with '-h')
@@ -1015,7 +1015,7 @@ Options:
 ```text
 Create a work ticket and put it on the board.
 
-Create the `crew:work` issue as the crew account, check its `Gate:` line, put it on the board (Kind Work, Status Backlog, Gate) and write the signed info comment, so that `status` lists it. Default: park it in Backlog.
+Create the `crew:work` issue as the agent account, check its `Gate:` line, put it on the board (Kind Work, Status Backlog, Gate) and write the signed info comment, so that `status` lists it. Default: park it in Backlog.
 
 Usage: crewboard ticket new [OPTIONS]
 

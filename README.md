@@ -47,8 +47,10 @@ GitHub, answers in seconds, or a setup with no GitHub account for the agents bes
 - Claude Code (tested) or Codex (documented), logged in. The agents use your own plan.
 - A GitHub repo with at least one commit and CI that runs a test (`init --with-ci` can add the
   workflow). CI minutes are yours too.
-- For a real crew: a GitHub account and token per agent, or one shared crew account
-  ([identity modes](docs/guides/owner.md#crew-accounts)). A trial needs neither.
+- For a real crew: each person who runs agents uses a GitHub account that they already have,
+  and the owner gives it access. The agents never act as the owner's account, so an owner who
+  runs agents uses a second account ([Agent accounts](docs/guides/owner.md#agent-accounts)).
+  A trial needs no second account.
 
 ## Try it
 
@@ -62,18 +64,18 @@ The script installs the binary to `~/.local/bin` and links the skill. Upgrade wi
 
 1. **Quick try** ([page](docs/quick-try.md)): 9 steps, 3 terminals. One person, one machine,
    your own token, a test repo, one ticket. Several safety checks are off.
-2. **A real crew** ([Getting started](docs/getting-started.md)): 13 steps. A crew account, a
-   coordinator and a dev agent.
+2. **A real crew** ([Getting started](docs/getting-started.md)): 13 steps. A coordinator and a
+   dev agent that act as an account with access to the repo, not as yours.
 
 ## Limits
 
-- **A Done written by hand on the board is detected, not prevented.** Every crew token can write
+- **A Done written by hand on the board is detected, not prevented.** Every agent token can write
   board fields.
 - **One coordinator verifies and merges:** crews of a few agents, not swarms.
-- **A leaked crew token acts as its account**, but cannot sign as an agent without that agent's
+- **A leaked agent token acts as its account**, but cannot sign as an agent without that agent's
   key ([Security](docs/guides/security.md#a-key-or-a-token-leaks)).
 - **GitHub only.** Agent hosts run macOS or Linux.
-- **Setup has manual steps:** GitHub has no API for a crew account and its token.
+- **Setup has manual steps:** GitHub has no API to give an account access or to make its token.
 - **No sandbox:** the agents run shell commands as your user.
 - **Only interactive Claude Code on macOS is fully tested** ([matrix](docs/guides/agents.md#supported-runtimes)).
 

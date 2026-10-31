@@ -75,7 +75,7 @@ fn gh_says(login: &str) -> String {
     format!("#!/bin/sh\necho {login}\n")
 }
 
-/// An agent that is ready: approved, crew token, classic token with repo and project, push
+/// An agent that is ready: approved, agent token, classic token with repo and project, push
 /// access, the shim first on the PATH, the crew identity in its checkout, `claude` in
 /// ~/.local/bin, AUTHORITY.md merged.
 fn ready_with(agent: impl FnOnce(&FakeBoard) -> Agent) -> Setup {

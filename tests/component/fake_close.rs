@@ -231,7 +231,7 @@ fn every_failed_condition_is_close_needs_reason_and_writes_nothing() {
         "is not merged",
     );
 
-    // the merge actor is not the owner (the crew account merged it)
+    // the merge actor is not the owner (the agent account merged it)
     let k = case("review");
     k.fake.merge_pr_by(k.pr.number, "fake-crew");
     k.fake.close_issue(k.t);

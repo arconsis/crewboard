@@ -393,7 +393,7 @@ PR URL (`evidence-pr-url`) of a repo of the initiative (`repo-not-in-initiative`
 (`evidence-pr-missing`); open; a crew branch `<dev_branch_prefix><agent>/<n>-<slug>`; and ticket
 `<n>` is Done or Dropped, or in Backlog or Ready with a reassign notice that names this PR
 (`adopt-pr-parent-not-done`). The status of ticket `<n>` is the one of its signed log, as
-`status` and `audit` judge it. A board Status alone does not count: the crew token can write it.
+`status` and `audit` judge it. A board Status alone does not count: the agent token can write it.
 To end the old ticket first, run `close <n> --why "<text>"`. A board that shows Done or Dropped
 without a signed end (set by hand) makes `close --why` refuse too (`status-no-change`): the
 owner first moves the ticket back in the signed log (`crewboard move <n> Backlog`), then
@@ -461,7 +461,7 @@ missing steps. Another title is another split.
 
 ## Workflow files: the owner route
 
-A crew token has no `workflow` scope: a token that can write workflows can read the secrets of
+An agent token has no `workflow` scope: a token that can write workflows can read the secrets of
 the repository. So a dev agent delivers a change to `.github/workflows/**` as a patch.
 
 1. **Mark.** The body line `Route: owner-workflow` marks the route; a `Scope:` line does not.
