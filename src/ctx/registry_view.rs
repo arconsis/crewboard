@@ -1,14 +1,21 @@
 //! Reads of the registry world that more than one command needs: the verified registry
-//! messages, the liveness of one agent and the coordinator test.
+//! messages, the ones that fail only the replay window, the liveness of one agent and the
+//! coordinator test.
 
 use super::{AgentCtx, World};
 use crate::late::liveness::{Liveness, derive, last_seen};
 use crate::rules::Actor;
 use crate::rules::fields::Field;
-use crate::ticket::{VMsg, verified_messages};
+use crate::ticket::{VMsg, out_of_window_messages, verified_messages};
 
 pub fn registry_msgs(ac: &AgentCtx, world: &World) -> Vec<VMsg> {
     verified_messages(&world.registry_comments, &ac.ctx.cfg, &world.trust)
+}
+
+/// The registry messages that fail only the replay window ([`out_of_window_messages`]): for
+/// [`crate::audit::reported_events`] and nothing else.
+pub fn registry_late_msgs(ac: &AgentCtx, world: &World) -> Vec<VMsg> {
+    out_of_window_messages(&world.registry_comments, &ac.ctx.cfg, &world.trust)
 }
 
 /// The baseline of an agent: its last heartbeat, else the newer of its approval and its start.

@@ -101,6 +101,81 @@ fn an_owner_comment_counts_unless_somebody_but_the_owner_edited_it() {
     assert_eq!(ids, vec![1, 2]);
 }
 
+/// `c` as GitHub stamps it `secs` late: `created_at` and `updated_at` move, the signed `ts` stays.
+fn stamped_late(mut c: Comment, secs: i64) -> Comment {
+    c.created_epoch += secs;
+    c.updated_epoch += secs;
+    c.created = crate::clock::format_ts(c.created_epoch);
+    c.updated = c.created.clone();
+    c
+}
+
+#[test]
+fn a_message_that_fails_only_the_window_is_no_ticket_act_but_an_out_of_window_message() {
+    let w = w();
+    let report = "Security event: bad-signature\nevent=o/r#2/c-9:bad-signature\n";
+    let wrong = generate_key().unwrap();
+    let late = |c: Comment| stamped_late(c, 3600);
+    let mut edited = late(by_a(&w, 16, "owner", Kind::Info, report));
+    edited.updated = "2026-10-15T15:09:00Z".into();
+    let mut copy = by_a(&w, 10, "owner", Kind::Info, report);
+    copy.id = 17;
+    let cs = [
+        by_a(&w, 10, "owner", Kind::Info, report),
+        // an hour late (too old), and ten minutes early (from the future)
+        late(by_a(&w, 11, "owner", Kind::Info, report)),
+        stamped_late(
+            by_a(
+                &w,
+                12,
+                "all",
+                Kind::Info,
+                "Ticket is on the board\nitem=PVTI_t1",
+            ),
+            -600,
+        ),
+        // late, and a wrong key, an unknown sender or another account
+        late(signed(
+            13,
+            "owner-login",
+            &wrong,
+            "claude@a",
+            "owner",
+            Kind::Info,
+            report,
+        )),
+        late(signed(
+            14,
+            "owner-login",
+            &wrong,
+            "nobody@x",
+            "owner",
+            Kind::Info,
+            report,
+        )),
+        late(signed(
+            15,
+            "mallory",
+            &w.ka,
+            "claude@a",
+            "owner",
+            Kind::Info,
+            report,
+        )),
+        edited,
+        // inside the window, but a copy of comment 10
+        copy,
+    ];
+    let ids = |v: Vec<VMsg>| v.iter().map(|m| m.comment_id).collect::<Vec<_>>();
+    assert_eq!(ids(msgs(&w, &cs)), vec![10]);
+    assert_eq!(
+        ids(out_of_window_messages(&cs, &w.cfg, &w.trust)),
+        vec![11, 12]
+    );
+    // the ticket note from the future makes no ticket: the acts read the verified messages only
+    assert_eq!(find_item_id(&msgs(&w, &cs)), None);
+}
+
 #[test]
 fn old_coordinator_messages_count_after_a_handover() {
     // claude@a is the coordinator at first and a dev after comment 20; hermes@b becomes

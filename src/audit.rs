@@ -156,12 +156,24 @@ fn normalized_key(k: &str) -> String {
     }
 }
 
-/// The events that a valid message `kind=info`, `to=owner` already reported (`event=` lines),
-/// with the repo part of each key in lower case.
-pub fn reported_events(msgs: &[VMsg]) -> HashSet<String> {
+/// Is `m` a report of an agent to the owner: a `kind=info`, `to=owner` with an `event=` line?
+pub fn is_owner_report(m: &VMsg) -> bool {
+    is_owner_info(m) && m.body.lines().any(|l| l.starts_with("event="))
+}
+
+fn is_owner_info(m: &VMsg) -> bool {
+    m.kind == Some(Kind::Info) && m.to == "owner" && matches!(m.sender, Sender::Agent { .. })
+}
+
+/// The events that a message `kind=info`, `to=owner` of an agent already reported (`event=`
+/// lines), with the repo part of each key in lower case. `msgs` are the verified messages of the
+/// registry issue, `late` its messages that fail only the replay window
+/// ([`crate::ticket::out_of_window_messages`]): a report with a wrong time still reported its
+/// keys, so they count too (spec/messages#signature).
+pub fn reported_events(msgs: &[VMsg], late: &[VMsg]) -> HashSet<String> {
     msgs.iter()
-        .filter(|m| m.kind == Some(Kind::Info) && m.to == "owner")
-        .filter(|m| matches!(m.sender, Sender::Agent { .. }))
+        .chain(late)
+        .filter(|m| is_owner_info(m))
         .flat_map(|m| {
             m.body
                 .lines()

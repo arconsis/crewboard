@@ -193,6 +193,9 @@ struct State {
     /// `(item, field, value, reads to let pass)`: before the read that follows that many reads of the item by id, the
     /// field is set, as a writer behind crewboard does between two reads of one command.
     flip_after_item_reads: Vec<(String, String, String, u32)>,
+    /// Seconds that GitHub adds to the time stamps of a comment that a POST creates (a wrong
+    /// clock on its side). Default: 0.
+    post_late: i64,
 }
 
 /// GitHub's limit of options per single-select field, and its error text (seen on the sandbox
@@ -303,6 +306,7 @@ fn new_state(base: &str) -> State {
         rename_on_options_write: Vec::new(),
         drop_new_option_on_write: 0,
         flip_after_item_reads: Vec::new(),
+        post_late: 0,
     }
 }
 
@@ -931,6 +935,12 @@ impl FakeBoard {
         self.st.lock().unwrap().scopes = Some(scopes.to_string());
     }
 
+    /// From now on a comment that a POST creates gets `created_at` and `updated_at` `secs` late,
+    /// as from a GitHub with a wrong clock.
+    pub fn post_late(&self, secs: i64) {
+        self.st.lock().unwrap().post_late = secs;
+    }
+
     /// `permissions.push` of `GET repos/{r}`.
     pub fn set_push(&self, push: bool) {
         self.st.lock().unwrap().push = push;
@@ -1493,7 +1503,7 @@ fn post_issue_comment(st: &mut State, repo: &str, num: &str, body: &str) -> Resp
     let Some(text) = text else {
         return Resp::json(422, r#"{"message":"Validation Failed"}"#);
     };
-    let now = now_epoch();
+    let now = now_epoch() + st.post_late;
     let c = Comment {
         id: st.next_comment,
         repo: repo.into(),

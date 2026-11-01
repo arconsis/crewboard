@@ -25,11 +25,13 @@
 
 use super::late::{Note, agent_waits, late_coordinator, late_owner_duty};
 use super::lifecycle::{apply_owner_commands, finish_draining};
-use super::registry_post::{liveness_event, post_registry, report_security, state_event_key};
+use super::registry_post::{
+    is_late_report, liveness_event, post_registry, report_security, state_event_key,
+};
 use super::tickets::{reassign_derived, tag_earlier_work};
 use super::{AgentCtx, World};
 use crate::audit::reported_events;
-use crate::ctx::{agent_liveness, registry_msgs};
+use crate::ctx::{agent_liveness, registry_late_msgs, registry_msgs};
 use crate::error::CbResult;
 use crate::events::{Event, SecurityEvent};
 use crate::late::liveness::{
@@ -191,8 +193,17 @@ struct Cycle<'a> {
     world: &'a World,
     rows: &'a [TicketRow],
     msgs: Vec<VMsg>,
+    /// The registry messages that fail only the replay window (`registry_late_msgs`).
+    late: Vec<VMsg>,
     now: i64,
     interval: i64,
+}
+
+impl Cycle<'_> {
+    /// The `event=` keys that the registry issue reported to the owner already.
+    fn reported(&self) -> HashSet<String> {
+        reported_events(&self.msgs, &self.late)
+    }
 }
 
 /// One approved agent as the coordinator judges it.
@@ -325,7 +336,7 @@ fn unlogged_state_duty(
         return Ok(());
     }
     let key = state_event_key(&j.name, state);
-    if reported_events(&c.msgs).contains(&key) {
+    if c.reported().contains(&key) {
         return Ok(());
     }
     let name = &j.name;
@@ -417,10 +428,14 @@ fn dead_duty(c: &Cycle, j: &Judged, age: i64, duty: &mut Duty) -> CbResult<()> {
     Ok(())
 }
 
-/// Security events go to the owner once (the coordinator itself reads them in its output).
+/// Security events go to the owner once (the coordinator itself reads them in its output). The
+/// window failure of a late owner report is not reported ([`is_late_report`]).
 fn security_duty(c: &Cycle, security: &[SecurityEvent], duty: &mut Duty) -> CbResult<()> {
-    let mut reported = reported_events(&c.msgs);
-    for s in security {
+    let mut reported = c.reported();
+    for s in security
+        .iter()
+        .filter(|s| !is_late_report(c.ac, s, &c.late))
+    {
         if let Some(url) = report_security(c.ac, s, &mut reported)? {
             duty.events.push(liveness_event(
                 c.ac,
@@ -445,7 +460,7 @@ fn not_checked_duty(
     list: Vec<super::own_notes::NotChecked>,
     duty: &mut Duty,
 ) -> CbResult<()> {
-    let mut reported = reported_events(&c.msgs);
+    let mut reported = c.reported();
     for n in list {
         if duty
             .not_checked
@@ -528,6 +543,7 @@ pub fn coordinator_duties(
         world,
         rows,
         msgs: registry_msgs(ac, world),
+        late: registry_late_msgs(ac, world),
         now,
         interval: ac.ctx.hb_interval,
     };
@@ -576,7 +592,7 @@ pub fn coordinator_duties(
     // A board Status that the signed log does not support is detected here (the agent token
     // can write the field, crewboard cannot prevent it).
     let own = duty.snaps.clone();
-    let check = super::log_check::status_log_duty(ac, world, rows, &own, &c.msgs, cache, now);
+    let check = super::log_check::status_log_duty(ac, world, rows, &own, c.reported(), cache, now);
     duty.events.extend(check.events);
     // A deleted note of this coordinator: the lists that the Status check read, then the tickets
     // whose board row changed (spec/security-details#deleted-notes).
@@ -612,10 +628,10 @@ pub fn orphan_security_duty(
     if world.trust.coordinator_exists() || security.is_empty() {
         return Ok(Vec::new());
     }
-    let msgs = registry_msgs(ac, world);
-    let mut reported = reported_events(&msgs);
+    let late = registry_late_msgs(ac, world);
+    let mut reported = reported_events(&registry_msgs(ac, world), &late);
     let mut out = Vec::new();
-    for s in security {
+    for s in security.iter().filter(|s| !is_late_report(ac, s, &late)) {
         if let Some(url) = report_security(ac, s, &mut reported)? {
             out.push(liveness_event(
                 ac,

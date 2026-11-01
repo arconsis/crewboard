@@ -11,7 +11,7 @@ use crate::feed;
 use crate::late::liveness::LATE_INTERVALS;
 use crate::rules::fields::Field;
 use crate::services::ticket_index::{discover_tickets, read_ticket_rows};
-use crate::ticket::verified_messages;
+use crate::ticket::{out_of_window_messages, verified_messages};
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -58,7 +58,8 @@ pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<String> 
     }
     let board = board_view(&ctx, &world)?;
     let reg_msgs = verified_messages(&world.registry_comments, &ctx.cfg, &world.trust);
-    let reported = reported_events(&reg_msgs);
+    let late = out_of_window_messages(&world.registry_comments, &ctx.cfg, &world.trust);
+    let reported = reported_events(&reg_msgs, &late);
     let grace = LATE_INTERVALS * ctx.hb_interval;
     let mut report = audit(
         &ctx.cfg,

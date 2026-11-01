@@ -28,7 +28,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub use authority_file::{authority_text, load_authority, load_authority_quiet};
-pub use registry_view::{agent_liveness, agent_since, is_coordinator, registry_msgs};
+pub use registry_view::{
+    agent_liveness, agent_since, is_coordinator, registry_late_msgs, registry_msgs,
+};
 pub use token::{
     IdentityMode, judge_agent, judge_agent_account, judge_owner, require_agent, require_owner,
 };

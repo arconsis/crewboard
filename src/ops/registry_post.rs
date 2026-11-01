@@ -4,11 +4,12 @@
 
 use super::AgentCtx;
 use super::say::send_signed;
-use crate::audit::event_key;
+use crate::audit::{event_key, is_owner_report};
 use crate::clock::now_ts;
 use crate::error::CbResult;
-use crate::events::{Event, EventClass, SecurityEvent};
+use crate::events::{Event, EventClass, Reason, SecurityEvent};
 use crate::protocol::names::{Kind, Re, To};
+use crate::ticket::VMsg;
 
 /// A board-made liveness event for this agent (not a signed message).
 pub(super) fn liveness_event(ac: &AgentCtx, kind: &str, body: String) -> Event {
@@ -59,6 +60,21 @@ pub(super) fn post_registry(
 /// the report and the cycle does not repeat it.
 pub(super) fn state_event_key(agent: &str, state: &str) -> String {
     format!("{agent}/state:{state}")
+}
+
+/// Is `s` the `replayed-message` event of an owner report in the registry issue that fails only
+/// the replay window (`late`, from `ctx::registry_late_msgs`)? Its keys count as reported
+/// (`audit::reported_events`), and the event itself is not reported: a report about it would
+/// fail the window as well, and so on. A copy, a bad signature, an unknown sender or a foreign
+/// author on such a comment is reported as usual.
+pub(super) fn is_late_report(ac: &AgentCtx, s: &SecurityEvent, late: &[VMsg]) -> bool {
+    let cfg = &ac.ctx.cfg;
+    s.reason == Reason::Replayed
+        && s.repo.eq_ignore_ascii_case(cfg.main_repo())
+        && s.issue == cfg.registry_issue
+        && late
+            .iter()
+            .any(|m| m.comment_id == s.comment_id && is_owner_report(m))
 }
 
 /// The security event as a signed owner message, once per event: `reported` holds the `event=`

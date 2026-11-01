@@ -463,7 +463,10 @@ fn deleted_note_lines(ac: &AgentCtx, s: &Scan<'_>, t: &Ticket) -> CbResult<Strin
     if gone.is_empty() {
         return Ok(String::new());
     }
-    let mut reported = crate::audit::reported_events(&crate::ctx::registry_msgs(ac, world));
+    let mut reported = crate::audit::reported_events(
+        &crate::ctx::registry_msgs(ac, world),
+        &crate::ctx::registry_late_msgs(ac, world),
+    );
     let mut out = String::new();
     for e in &gone {
         let told = crate::ops::registry_post::report_security(ac, e, &mut reported)?;
