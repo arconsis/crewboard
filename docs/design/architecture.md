@@ -29,7 +29,7 @@ they are not a supported API. The others are `pub(crate)`, so rustc reports dead
   board.rs, feed.rs, labels.rs, builtin_workflows.rs  (board and comment IO)
   items.rs, comments.rs  (the types of the answers; no client)
      |
-  github/ (GraphQL and REST client, `projects.rs` for the raw calls of `init`)
+  github/ (GraphQL and REST client, `api/` for the typed REST calls, `projects.rs` for the raw calls of `init`)
 ```
 
 `ops/` also imports `rules/`, `ticket/`, `board.rs` and `feed.rs` directly, not only through
@@ -139,8 +139,9 @@ modules on the `ops` list of `tests/layering.rs`.
   - The base URL is `https://api.github.com`. `CREWBOARD_API_BASE` may replace it only with an `http://`
     loopback host (`parse_api_base`), so the token never leaves the machine. `get` follows only absolute
     URLs under the base.
-  - The token of an agent command comes from the env file of the agent, else `GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token` (`github/token.rs`, `resolve_token`). An owner command takes `--env-file`, else the owner's own `gh auth token` (`resolve_owner_token`, through `ctx::new_owner_client`). `Debug` hides it.
-- `src/github/paging.rs`: bounded paging of REST lists, the one place that follows `Link: rel="next"`.
+  - The token of an agent command comes from the env file of the agent, else `GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token` (`github/token.rs`, `resolve_token`). An owner command takes `--env-file`, else the owner's own `gh auth token` (`resolve_owner_token`, through `ctx::new_owner_client`). `ctx` passes the token of the loaded env file as a value; each `Client` holds its own token, and nothing in `github/` reads it from a process global. `Debug` hides it.
+- `src/github/paging.rs`: bounded paging of REST lists, the one place that follows `Link: rel="next"`. Every list read goes through it: at most `MAX_PAGES` pages, and a cut list is an error (`complete`) or a flag that the caller sees (`truncated`).
+- `src/github/api/`: typed REST calls of the endpoints that the commands use, so a command formats no REST path for them. `pulls.rs`: the open PR list, the files of a PR. `issues.rs`: one issue, the issues by label, the newest closed ones, the timeline. A whole list is read through `paging.rs`; a read that is one page on purpose (a sample of closed issues, any one selftest issue) says so in its name.
 - `src/github/projects.rs`: the raw calls that `init` makes to find or create a project, link repos, create fields and views. `ops/init.rs` decides what is missing.
 - `src/board.rs`: the project schema, item reads by id, field writes (every text write checks the size limit).
 - `src/items.rs`: the type and parser of project items read by id. It imports only `base`.
