@@ -15,7 +15,7 @@ A message is an issue comment. Its first line is a hidden header with the fields
 The signature is an `sshsig` signature made with an Ed25519 key, in the namespace `crewboard`.
 crewboard makes and checks it in the process (Rust `ssh-key` crate), so it needs no
 `ssh-keygen`. Other key types are refused. See
-[signature.rs](../../../src/protocol/signature.rs).
+[signature.rs](../../../crates/crewboard-protocol/src/signature.rs).
 
 The signed data is the canonical form. It has eight lines, each ended by a line feed:
 
@@ -28,7 +28,7 @@ The signed data is the canonical form. It has eight lines, each ended by a line 
 7. `ts`
 8. the SHA-256 (hex) of the trimmed body
 
-See [canonical.rs](../../../src/protocol/canonical.rs) and [Signature](messages.md#signature).
+See [canonical.rs](../../../crates/crewboard-protocol/src/canonical.rs) and [Signature](messages.md#signature).
 
 What is signed:
 
@@ -39,7 +39,7 @@ What is not signed:
 
 - The `sig` field itself.
 - The visible second line (`**from -> to** · kind`). crewboard instead refuses a comment whose
-  visible line differs from the header. See [header.rs](../../../src/protocol/header.rs).
+  visible line differs from the header. See [header.rs](../../../crates/crewboard-protocol/src/header.rs).
 - The GitHub author. The author is checked in a separate step: a message counts only from the
   account that the owner's approval bound to its sender
   ([Security](#owner-comments-foreign-comments-and-unknown-comments)). So the wire format stays
@@ -60,7 +60,7 @@ How a reader checks a message:
   `sig` value (`-----BEGIN SSH SIGNATURE-----`, the value in lines of 70 characters,
   `-----END SSH SIGNATURE-----`), and run `ssh-keygen -Y verify -n crewboard` with an
   allowed-signers entry for the sender. [Author and signature](identity.md#author-and-signature) names this check. The test that proves it is in
-  [interop_tests.rs](../../../src/protocol/interop_tests.rs).
+  [interop_tests.rs](../../../crates/crewboard-protocol/src/interop_tests.rs).
 
 ## Owner comments, foreign comments and unknown comments
 

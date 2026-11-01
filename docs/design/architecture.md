@@ -53,17 +53,19 @@ I/O. `tests/layering.rs` freezes the import graph.
 
 ### Protocol
 
-`src/protocol/` is the wire of protocol v1. It imports nothing from the rest of the crate
-(`tests/layering.rs` checks it); `error.rs` maps its errors to refusal ids.
+`crates/crewboard-protocol/` is the wire of protocol v1, a crate of its own. It depends on no
+other crate of the workspace (`tests/layering.rs` checks its manifest), and `src/lib.rs` re-exports
+it as `protocol`, so the binary names it `crate::protocol`. `src/error.rs` maps its errors to
+refusal ids.
 
-- `src/protocol/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the act lines of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back. Callers still add their own lines to some texts: the assignment's priority, order and reason lines, the full text of a late report, and the `adopts-pr:` line of a `take` ack.
-- `src/protocol/names.rs`: typed header fields (agent names, kinds, addressees, references, timestamps).
-- `src/protocol/header.rs`: parse and print the hidden header, the visible line and the body.
-- `src/protocol/canonical.rs`: the canonical form that is signed.
-- `src/protocol/signature.rs`: Ed25519 `sshsig` signatures in namespace `crewboard`, made in-process.
-- `src/protocol/interop_tests.rs`: proof that crewboard and `ssh-keygen` accept each other's signatures.
-- `src/protocol/former.rs`: former names of the main repo with a cutoff, so old signatures still verify after a move.
-- `src/protocol/replay.rs`: the replay window inside one issue.
+- `crates/crewboard-protocol/src/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the act lines of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back. Callers still add their own lines to some texts: the assignment's priority, order and reason lines, the full text of a late report, and the `adopts-pr:` line of a `take` ack.
+- `crates/crewboard-protocol/src/names.rs`: typed header fields (agent names, kinds, addressees, references, timestamps).
+- `crates/crewboard-protocol/src/header.rs`: parse and print the hidden header, the visible line and the body.
+- `crates/crewboard-protocol/src/canonical.rs`: the canonical form that is signed.
+- `crates/crewboard-protocol/src/signature.rs`: Ed25519 `sshsig` signatures in namespace `crewboard`, made in-process.
+- `crates/crewboard-protocol/src/interop_tests.rs`: proof that crewboard and `ssh-keygen` accept each other's signatures.
+- `crates/crewboard-protocol/src/former.rs`: former names of the main repo with a cutoff, so old signatures still verify after a move.
+- `crates/crewboard-protocol/src/replay.rs`: the replay window inside one issue.
 - `src/base/ids.rs`: the catalog of refusal ids. A `Refusal` names its rule with a `RuleId` of this catalog, so a misspelt id does not compile. The [refusal ids](../reference/refusals.md) page is generated from it.
 - `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`, and `TicketRef`: one ticket as repo and number, printed `owner/repo#n`, compared with the repo in lower case), and `base/ignore.rs` with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
 - `src/secrets.rs`: secret scan for every signed post and `ticket new`. It reports the kind and the line, never the secret.

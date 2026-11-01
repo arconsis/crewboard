@@ -70,7 +70,7 @@ pub fn canonical(issue: &IssueRef, header: &Header, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::header::tests::sample_header;
+    use crate::header::tests::sample_header;
 
     #[test]
     fn body_hash_known_vector_and_trim() {

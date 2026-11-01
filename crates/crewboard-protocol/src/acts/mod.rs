@@ -35,7 +35,7 @@ pub use evidence::*;
 pub use lifecycle::*;
 pub use ticket::*;
 
-use crate::protocol::names::Kind;
+use crate::names::Kind;
 
 /// Why a ticket was closed, as its notice says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

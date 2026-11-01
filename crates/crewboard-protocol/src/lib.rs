@@ -1,7 +1,19 @@
 //! Message protocol (spec/messages): header, canonical form, signature.
 //!
-//! Pure, without IO. `ops/say.rs` builds and signs a message here; `events.rs` parses and
-//! verifies one. The typed fields are in `names.rs`.
+//! Pure, without IO, and without a dependency on another crate of the workspace. In the binary,
+//! `ops/say.rs` builds and signs a message here; `events.rs` parses and verifies one. The typed
+//! fields are in `names.rs`.
+
+// The test code of the crate: a test fails by panic and may wait for real processes.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        clippy::disallowed_methods,
+    )
+)]
 
 pub mod acts;
 pub mod canonical;

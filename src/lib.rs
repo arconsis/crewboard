@@ -62,8 +62,10 @@ pub mod ops;
 pub mod owner_cmd;
 pub(crate) mod owner_route;
 pub(crate) mod profile;
+/// The wire, a crate of its own (`crates/crewboard-protocol`). The name `protocol` keeps every
+/// `crate::protocol::...` path.
 #[doc(hidden)]
-pub mod protocol;
+pub use crewboard_protocol as protocol;
 #[doc(hidden)]
 pub mod registry;
 pub(crate) mod repeat;

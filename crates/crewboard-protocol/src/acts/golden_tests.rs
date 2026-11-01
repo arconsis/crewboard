@@ -5,7 +5,7 @@
 //! A text that no act parses (`done`) is pinned the same way, with the parser of its lines.
 
 use super::*;
-use crate::protocol::names::Kind;
+use crate::names::Kind;
 
 /// One golden case: the writer's output, the bytes it must be, the kind it is posted with and the
 /// act that the parser reads.

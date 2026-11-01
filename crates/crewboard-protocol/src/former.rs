@@ -92,9 +92,9 @@ pub fn current_name_of<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::header::Header;
-    use crate::protocol::names::{AgentName, Kind, Re, To};
-    use crate::protocol::signature::{Outgoing, generate_key, sign_message};
+    use crate::header::Header;
+    use crate::names::{AgentName, Kind, Re, To};
+    use crate::signature::{Outgoing, generate_key, sign_message};
 
     const OLD: &str = "old-owner/old-repo";
     const CUT: &str = "2026-11-01T12:00:00Z";

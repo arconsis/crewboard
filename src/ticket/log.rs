@@ -110,7 +110,7 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
             (_, Act::Verify { pass: false }) if coordinator => {
                 status = Expected::OneOf(vec![Status::InProgress, Status::Ready]);
             }
-            (_, Act::Closed(k)) if coordinator => status = Expected::Is(k.status()),
+            (_, Act::Closed(k)) if coordinator => status = Expected::Is(Status::after_close(k)),
             (Some(Kind::Ack), _) if assignee => status = Expected::Is(Status::InProgress),
             (Some(Kind::Done), _) if assignee && parse_evidence(&m.body).is_some() => {
                 status = Expected::Is(Status::Review);
