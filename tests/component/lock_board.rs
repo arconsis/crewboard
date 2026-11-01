@@ -166,3 +166,73 @@ fn e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavail
     let q = run("status", &["--no-board"]);
     assert!(!q.stderr.contains("board check"), "{}", q.stderr);
 }
+
+/// `crewboard lock take <name> ...` against the fake board, with `CREWBOARD_CONFIG_DIR` set to
+/// `env_dir` and no global `--config-dir`.
+fn take_with_env_dir(
+    r: &Rig,
+    fake: &crate::support::board::FakeBoard,
+    env_dir: &Path,
+    name: &str,
+    extra: &[&str],
+) -> Out {
+    let l = r.s(name);
+    let live = r.live().to_string();
+    let mut c = std::process::Command::new(BIN);
+    c.args(["lock", "take", &l, "--holder", "new@x", "--pid", &live])
+        .args(extra)
+        .env("CREWBOARD_CONFIG_DIR", env_dir)
+        .env("HOST_LOCK_HOST", HOST)
+        .env("HOST_LOCK_PS_CMD", format!("cat {}", r.s("ps.txt")))
+        .env("CREWBOARD_API_BASE", fake.base())
+        .env("GH_TOKEN", "ghp_faketoken")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("CREWBOARD_HOST_LOCK")
+        .env_remove("CREWBOARD_HOST_LOCK_PID");
+    out_of(c.output().unwrap())
+}
+
+#[test]
+fn e6_the_config_dir_variable_reaches_the_board_check() {
+    let (fake, c, b) = crew();
+    let r = Rig::new();
+    // the owner agent is alive on the board: held
+    r.plant("l", &b.name, HOST, r.live(), now());
+    let o = take_with_env_dir(&r, &fake, &c.dir, "l", &[]);
+    assert_eq!(o.code, 75, "{}", o.all());
+    // E6f: dead on the board, the check works with the variable alone
+    make_dead(&fake, &c, &b);
+    let o = take_with_env_dir(&r, &fake, &c.dir, "l", &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stderr.contains("reason=board-dead"), "{}", o.stderr);
+}
+
+#[test]
+fn e6b_the_config_dir_option_beats_the_variable_and_the_initiative_is_used() {
+    let (fake, c, b) = crew();
+    let r = Rig::new();
+    make_dead(&fake, &c, &b);
+    let empty = tempfile::tempdir().unwrap();
+    let dir = c.dir.to_str().unwrap();
+    // an initiative that the config dir does not have: no board to ask, the lock is held
+    r.plant("l", &b.name, HOST, r.live(), now());
+    let o = take_with_env_dir(
+        &r,
+        &fake,
+        empty.path(),
+        "l",
+        &["--config-dir", dir, "--initiative", "nope"],
+    );
+    assert_eq!(o.code, 75, "{}", o.all());
+    assert!(!o.stderr.contains("took over"), "{}", o.stderr);
+    // the variable names an empty dir, the option the agent dir: the option counts
+    let o = take_with_env_dir(
+        &r,
+        &fake,
+        empty.path(),
+        "l",
+        &["--config-dir", dir, "--initiative", "fake"],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stderr.contains("reason=board-dead"), "{}", o.stderr);
+}

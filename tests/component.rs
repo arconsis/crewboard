@@ -161,6 +161,9 @@ mod lock_cli;
 #[cfg(unix)]
 #[path = "component/lock_detach.rs"]
 mod lock_detach;
+#[cfg(unix)]
+#[path = "component/lock_judge.rs"]
+mod lock_judge;
 #[path = "component/lock_platform.rs"]
 mod lock_platform;
 #[cfg(unix)]
