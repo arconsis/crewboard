@@ -842,7 +842,7 @@ pub(super) fn get_pull_files(st: &State, repo: &str, num: &str, query: &str) -> 
     };
     let per_page = arg("per_page", 30).max(1);
     let page = arg("page", 1).max(1);
-    ok(Value::Array(
+    let mut resp = ok(Value::Array(
         p.files
             .iter()
             .skip((page - 1) * per_page)
@@ -858,7 +858,19 @@ pub(super) fn get_pull_files(st: &State, repo: &str, num: &str, query: &str) -> 
                 }
             })
             .collect(),
-    ))
+    ));
+    // GitHub names the next page while more files are left
+    if p.files.len() > page * per_page {
+        resp.headers.push((
+            "link".into(),
+            format!(
+                "<{}/repos/{repo}/pulls/{num}/files?per_page={per_page}&page={}>; rel=\"next\"",
+                st.base,
+                page + 1
+            ),
+        ));
+    }
+    resp
 }
 
 /// `PUT /repos/{repo}/pulls/{n}/merge`: 409 if `sha` is not the head; 405 if the PR is not

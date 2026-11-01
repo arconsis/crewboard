@@ -32,6 +32,8 @@ pub struct Scene {
     pub green_at: i64,
     /// Answer 500 on every read of the markers.
     pub fail: bool,
+    /// The open PR list has two pages: another PR on page 1, the PR of the ticket on page 2.
+    pub pr_on_page_2: bool,
     /// The workflow runs of every head: `(status, conclusion)`. Empty: no CI at all.
     pub runs: Vec<(String, Option<String>)>,
 }
@@ -91,6 +93,16 @@ fn route(s: &Scene, base: &str, r: &Req) -> Option<Resp> {
             } else {
                 ok(json!([]))
             }
+        }
+        ("GET", ["", "repos", _, _, "pulls"]) if s.pr_on_page_2 && !query.contains("page=2") => {
+            let other = json!([{"number": 6, "head": {"ref": "feature/other", "sha": SHA2},
+                                "base": {"ref": "main"}}]);
+            let mut resp = Resp::json(200, &other.to_string());
+            resp.headers.push((
+                "link".into(),
+                format!("<{base}{path}?{query}&page=2>; rel=\"next\""),
+            ));
+            Some(resp)
         }
         ("GET", ["", "repos", _, _, "pulls"]) => {
             let list: Vec<Value> = s
@@ -188,6 +200,7 @@ impl LateBoard {
             pr_head: None,
             green_at: now_epoch() - 3600,
             fail: false,
+            pr_on_page_2: false,
             runs: vec![("completed".into(), Some("success".into()))],
         }));
         let (board_base, sc) = (board.base(), scene.clone());

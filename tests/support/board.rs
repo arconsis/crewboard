@@ -154,6 +154,9 @@ struct State {
     fail_workflow_delete: Option<String>,
     /// Issue number -> the events of `GET .../issues/{n}/timeline`, oldest first.
     timelines: BTreeMap<u64, Vec<Value>>,
+    /// The page size of the list answers ([`FakeBoard::page_lists`]). Default: none, every
+    /// list on one page.
+    page_size: Option<usize>,
     /// Workflow runs (`GET actions/runs`). Default: none, so a commit has no CI.
     runs: Vec<Value>,
     /// Check runs (jobs) of the commits, as `GET commits/{sha}/check-runs` answers them.
@@ -283,6 +286,7 @@ fn new_state(base: &str) -> State {
         workflows_deleted: Vec::new(),
         fail_workflow_delete: None,
         timelines: BTreeMap::new(),
+        page_size: None,
         runs: Vec::new(),
         checks: Vec::new(),
         project: project::ProjectState::default(),
@@ -343,6 +347,9 @@ impl FakeBoard {
             move |r: &Req| {
                 let mut st = st3.lock().unwrap();
                 let mut resp = route(&mut st, r);
+                if let Some(n) = st.page_size {
+                    resp = one_page(&st.base, r, resp, n);
+                }
                 if let Some(s) = &st.scopes {
                     resp.headers.push(("x-oauth-scopes".into(), s.clone()));
                 }
@@ -429,6 +436,13 @@ impl FakeBoard {
             .unwrap()
             .flooded
             .push((REPO.to_string(), issue));
+    }
+
+    /// From now on the lists of PRs, issues, timeline events and project fields come in pages
+    /// of `n` items, each page with `Link: rel="next"` while more are left, as GitHub sends a
+    /// list of more than 100. A test seeds `n + 1` items to put the last one on page 2.
+    pub fn page_lists(&self, n: usize) {
+        self.st.lock().unwrap().page_size = Some(n.max(1));
     }
 
     /// A user account that `init --crew-login` accepts: a user with write access to the repos.
@@ -1321,6 +1335,60 @@ fn route(st: &mut State, r: &Req) -> Resp {
         ("POST", ["", "repos", _, _, "rulesets"]) => tickets::post_ruleset(st, &r.body),
         _ => no_handler(st, r),
     }
+}
+
+/// The list endpoints that [`FakeBoard::page_lists`] cuts into pages.
+fn pageable(path: &str) -> bool {
+    let seg: Vec<&str> = path.split('/').collect();
+    matches!(
+        seg.as_slice(),
+        ["", "repos", _, _, "pulls"]
+            | ["", "repos", _, _, "issues"]
+            | ["", "repos", _, _, "issues", _, "timeline"]
+            | ["", "orgs", _, "projectsV2", _, "fields"]
+    )
+}
+
+/// Page `page=` (default 1) of a list answer, `size` items, with the link to the next page
+/// while more are left. Any other answer stays as it is.
+fn one_page(base: &str, r: &Req, resp: Resp, size: usize) -> Resp {
+    let (path, query) = r.path.split_once('?').unwrap_or((&r.path, ""));
+    if r.method != "GET" || resp.status != 200 || !pageable(path) {
+        return resp;
+    }
+    let Ok(Value::Array(all)) = serde_json::from_str::<Value>(&resp.body) else {
+        return resp;
+    };
+    let page: usize = query
+        .split('&')
+        .find_map(|p| p.strip_prefix("page="))
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    let items: Vec<Value> = all
+        .iter()
+        .skip((page - 1) * size)
+        .take(size)
+        .cloned()
+        .collect();
+    let mut out = Resp {
+        status: 200,
+        body: Value::Array(items).to_string(),
+        headers: resp.headers,
+    };
+    if all.len() > page * size {
+        let mut q: Vec<String> = query
+            .split('&')
+            .filter(|p| !p.is_empty() && !p.starts_with("page="))
+            .map(str::to_string)
+            .collect();
+        q.push(format!("page={}", page + 1));
+        out.headers.push((
+            "link".into(),
+            format!("<{base}{path}?{}>; rel=\"next\"", q.join("&")),
+        ));
+    }
+    out
 }
 
 /// A request that no handler knows: recorded, and answered with 501.
