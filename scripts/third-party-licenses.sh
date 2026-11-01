@@ -32,12 +32,16 @@ cd "$root"
 
 "$about" generate --locked --offline --fail --config about.toml about.hbs -o "$tmp/main.md"
 
-# Crates of Cargo.lock (not the root crate, whose version changes with every release) as "name version", one per line, sorted.
+# Crates of Cargo.lock that come from a registry, as "name version", one per line, sorted. The
+# crates of this workspace have no `source` line: their version changes with every release.
 lock_crates() {
   awk '
-    /^\[\[package\]\]/ { n = "" }
+    function flush() { if (n != "" && src) print n " " v; n = ""; v = ""; src = 0 }
+    /^\[\[package\]\]/ { flush() }
     /^name = / { gsub(/"/, "", $3); n = $3 }
-    /^version = / && n != "" { gsub(/"/, "", $3); if (n != "crewboard") print n " " $3; n = "" }
+    /^version = / { gsub(/"/, "", $3); v = $3 }
+    /^source = / { src = 1 }
+    END { flush() }
   ' Cargo.lock | LC_ALL=C sort -u
 }
 # Crates that the generated list names, as "name version".

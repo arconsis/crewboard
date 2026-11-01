@@ -59,15 +59,15 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Format
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test --locked -- --nocapture
+        run: cargo test --workspace --locked -- --nocapture
       # Broken intra-doc links and bad HTML in doc comments fail here. One OS is enough.
       - name: Doc
         if: matrix.os == 'ubuntu-latest'
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 
   # Advisories, licenses, banned and duplicate crates, and crate sources (deny.toml).
   cargo-deny:

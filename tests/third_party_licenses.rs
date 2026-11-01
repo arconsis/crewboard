@@ -16,14 +16,16 @@ use std::path::Path;
 
 const REGENERATE: &str = "run scripts/third-party-licenses.sh and commit THIRD-PARTY-LICENSES.md";
 
-/// `name version` of every package in a `Cargo.lock`, without the root package `crewboard`.
+/// `name version` of every package in a `Cargo.lock` that comes from a registry. The crates of
+/// this workspace (`crewboard` and the crates under `crates/`) have no `source`: their version
+/// changes with every release, and they are not third-party code.
 fn lock_crates(lock: &str) -> BTreeSet<String> {
     let value: toml::Table = lock.parse().expect("Cargo.lock is TOML");
     value["package"]
         .as_array()
         .expect("package list")
         .iter()
-        .filter(|p| p["name"].as_str() != Some("crewboard"))
+        .filter(|p| p.get("source").is_some())
         .map(|p| {
             format!(
                 "{} {}",
@@ -115,8 +117,7 @@ fn the_license_file_names_the_direct_dependencies_and_the_c_code_notices() {
     let file = read("THIRD-PARTY-LICENSES.md");
     let (shipped, _) = listed_crates(&file);
     let names: BTreeSet<&str> = shipped.iter().filter_map(|c| c.split(' ').next()).collect();
-    let manifest: toml::Table = read("Cargo.toml").parse().unwrap();
-    for dep in manifest["dependencies"].as_table().unwrap().keys() {
+    for dep in direct_dependencies() {
         assert!(
             names.contains(dep.as_str()),
             "direct dependency {dep}: {REGENERATE}"
@@ -147,11 +148,65 @@ fn the_license_file_names_the_direct_dependencies_and_the_c_code_notices() {
     }
 }
 
+/// The workspace members: the root package and the paths of `[workspace] members`.
+fn members() -> Vec<String> {
+    let manifest: toml::Table = read("Cargo.toml").parse().unwrap();
+    manifest["workspace"]["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m.as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The `[dependencies]` of every workspace member (the shipped code), without the workspace
+/// crates themselves.
+fn direct_dependencies() -> BTreeSet<String> {
+    let manifests: Vec<toml::Table> = members()
+        .iter()
+        .map(|m| read(&format!("{m}/Cargo.toml")).parse().unwrap())
+        .collect();
+    let own: BTreeSet<&str> = manifests
+        .iter()
+        .map(|m| m["package"]["name"].as_str().unwrap())
+        .collect();
+    manifests
+        .iter()
+        .filter_map(|m| m.get("dependencies").and_then(|d| d.as_table()))
+        .flat_map(|d| d.keys().cloned())
+        .filter(|d| !own.contains(d.as_str()))
+        .collect()
+}
+
+#[test]
+fn the_direct_dependencies_come_from_every_member_and_skip_the_workspace_crates() {
+    assert!(members().contains(&".".to_string()), "{:?}", members());
+    let deps = direct_dependencies();
+    // The root alone has 11 direct dependencies; a scan that reads no manifest finds none.
+    assert!(deps.len() >= 11, "{deps:?}");
+    for d in ["clap", "reqwest", "ssh-key"] {
+        assert!(deps.contains(d), "{d} missing in {deps:?}");
+    }
+    assert!(
+        !deps
+            .iter()
+            .any(|d| d.starts_with("crewboard") || d == "host-lock"),
+        "{deps:?}"
+    );
+}
+
 #[test]
 fn the_check_fires_on_a_stale_file_and_passes_a_matching_one() {
-    let lock = "[[package]]\nname = \"crewboard\"\nversion = \"1.0.0\"\n\n\
-                [[package]]\nname = \"a\"\nversion = \"1.0.0\"\n\n\
-                [[package]]\nname = \"b\"\nversion = \"2.0.0\"\n";
+    // `crewboard` and `crewboard-x` are workspace crates (no `source`), `a` and `b` come from a
+    // registry.
+    let reg = "source = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+    let lock = format!(
+        "[[package]]\nname = \"crewboard\"\nversion = \"1.0.0\"\n\n\
+         [[package]]\nname = \"crewboard-x\"\nversion = \"1.0.0\"\n\n\
+         [[package]]\nname = \"a\"\nversion = \"1.0.0\"\n{reg}\n\
+         [[package]]\nname = \"b\"\nversion = \"2.0.0\"\n{reg}"
+    );
+    let lock = lock.as_str();
     let file = "## Crates and license texts\n\n- a 1.0.0 (https://x)\n\n```text\n- zzz 9.9.9\n```\n\n\
                 ## Not part of a release build\n\n- b 2.0.0 (not shipped)\n";
     assert_eq!(problems(lock, file), Vec::<String>::new());
