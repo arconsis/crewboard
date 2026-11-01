@@ -4,8 +4,8 @@
 //!
 //! A text that no act parses (`done`) is pinned the same way, with the parser of its lines.
 
-use super::acts::*;
-use super::names::Kind;
+use super::*;
+use crate::protocol::names::Kind;
 
 /// One golden case: the writer's output, the bytes it must be, the kind it is posted with and the
 /// act that the parser reads.
@@ -34,8 +34,8 @@ fn assigned(gate: Option<&str>, ci_none: Option<bool>) -> Act {
 const PR: &str = "https://github.com/o/r/pull/9";
 const BRANCH: &str = "crew/a@h/5-x";
 
-fn evidence() -> crate::ticket::EvidenceMsg {
-    crate::ticket::EvidenceMsg {
+fn evidence() -> EvidenceMsg {
+    EvidenceMsg {
         pr: PR.into(),
         sha: "abc".into(),
         ci: "success".into(),
@@ -45,8 +45,8 @@ fn evidence() -> crate::ticket::EvidenceMsg {
     }
 }
 
-fn local_evidence() -> crate::ticket::EvidenceMsg {
-    crate::ticket::EvidenceMsg {
+fn local_evidence() -> EvidenceMsg {
+    EvidenceMsg {
         ci: "local-gate".into(),
         ci_sources: Some("workflow-runs, statuses".into()),
         ci_runs: Some("counted: 9 (push, success)".into()),
@@ -104,14 +104,14 @@ fn golden_board_announce() {
     check(vec![
         Golden {
             name: "creation info",
-            text: crate::ticket::info_body("PVTI_x", 15),
+            text: info_body("PVTI_x", 15),
             bytes: "Ticket is on the board.\nitem=PVTI_x\nproject=15\n",
             kind: Kind::Info,
             act: Act::BoardAnnounce,
         },
         Golden {
             name: "creation info that adopts a PR",
-            text: crate::ticket::info_body_adopting("PVTI_x", 15, PR, BRANCH),
+            text: info_body_adopting("PVTI_x", 15, PR, BRANCH),
             bytes: "Ticket is on the board.\nitem=PVTI_x\nproject=15\nadopts-pr: https://github.com/o/r/pull/9 branch: crew/a@h/5-x\n",
             kind: Kind::Info,
             act: Act::BoardAnnounce,
@@ -171,21 +171,6 @@ fn golden_reassign_notice() {
 
 #[test]
 fn golden_close_notices() {
-    let merged = crate::ops::tickets::pr_read::MergedPr {
-        repo: "o/r".into(),
-        number: 9,
-        merged: true,
-        body: String::new(),
-        merged_by: Some("owner-login".into()),
-        merge_commit: Some("abc".into()),
-        head_sha: Some("def".into()),
-        base: None,
-    };
-    let unknown = crate::ops::tickets::pr_read::MergedPr {
-        merge_commit: None,
-        ..merged.clone()
-    };
-    let owner_notice = crate::ops::tickets::owner_merge::notice_body;
     check(vec![
         Golden {
             name: "close --verified",
@@ -196,9 +181,13 @@ fn golden_close_notices() {
         },
         Golden {
             name: "merge notice",
-            text: format!(
-                "{}abc123\nbranch: crew/x",
-                merged_head("https://github.com/o/r/pull/1", "deadbeef", "squash")
+            text: merged_body(
+                "https://github.com/o/r/pull/1",
+                "deadbeef",
+                "squash",
+                "abc123",
+                "crew/x",
+                None,
             ),
             bytes: "Merged by the coordinator.\npr: https://github.com/o/r/pull/1\nsha: deadbeef\nmethod: squash\nmerge-commit: abc123\nbranch: crew/x",
             kind: Kind::Info,
@@ -206,9 +195,13 @@ fn golden_close_notices() {
         },
         Golden {
             name: "merge notice of a local gate",
-            text: format!(
-                "{}abc123\nbranch: crew/x\nci-mode: local\nlocal-gate: host-a: make test rc=0\ncoordinator-local-gate: host-c: make test rc=0",
-                merged_head("https://github.com/o/r/pull/1", "deadbeef", "rebase")
+            text: merged_body(
+                "https://github.com/o/r/pull/1",
+                "deadbeef",
+                "rebase",
+                "abc123",
+                "crew/x",
+                Some(("host-a: make test rc=0", "host-c: make test rc=0")),
             ),
             bytes: "Merged by the coordinator.\npr: https://github.com/o/r/pull/1\nsha: deadbeef\nmethod: rebase\nmerge-commit: abc123\nbranch: crew/x\nci-mode: local\nlocal-gate: host-a: make test rc=0\ncoordinator-local-gate: host-c: make test rc=0",
             kind: Kind::Info,
@@ -216,14 +209,14 @@ fn golden_close_notices() {
         },
         Golden {
             name: "owner merge notice",
-            text: owner_notice(&merged, None),
+            text: owner_merged_body(PR, Some("abc"), None),
             bytes: "The ticket is closed: the owner merged the PR by hand.\npr: https://github.com/o/r/pull/9\nmerge-commit: abc\nmerged by the owner\nclosed: owner merged https://github.com/o/r/pull/9\n",
             kind: Kind::Info,
             act: Act::Closed(CloseKind::OwnerMerged),
         },
         Golden {
             name: "owner merge notice with a reason and no merge commit",
-            text: owner_notice(&unknown, Some("why")),
+            text: owner_merged_body(PR, None, Some("why")),
             bytes: "The ticket is closed: the owner merged the PR by hand.\npr: https://github.com/o/r/pull/9\nmerge-commit: unknown\nmerged by the owner\nclosed: owner merged https://github.com/o/r/pull/9\nreason: why\n",
             kind: Kind::Info,
             act: Act::Closed(CloseKind::OwnerMerged),
@@ -242,18 +235,17 @@ fn golden_close_notices() {
 fn golden_verify_result() {
     assert_eq!(verify_head(true), "verify: pass");
     assert_eq!(verify_head(false), "verify: fail");
-    let verify = crate::ticket::verify_body;
     check(vec![
         Golden {
             name: "verify pass",
-            text: verify(true, &evidence(), "abc", &[], "", None, None),
+            text: verify_body(true, &evidence(), "abc", &[], "", None, None),
             bytes: "verify: pass\npr: https://github.com/o/r/pull/9\nsha: abc\nhead_now: abc\nci: success\n",
             kind: Kind::Report,
             act: Act::Verify { pass: true },
         },
         Golden {
             name: "verify fail with every line",
-            text: verify(
+            text: verify_body(
                 false,
                 &local_evidence(),
                 "def",
@@ -271,28 +263,24 @@ fn golden_verify_result() {
 
 #[test]
 fn golden_done_evidence() {
-    let done = crate::ticket::done_body;
     check(vec![
         Golden {
             name: "done",
-            text: done(&evidence(), "note: shipped\n"),
+            text: done_body(&evidence(), "note: shipped\n"),
             bytes: "Done. Evidence follows.\npr: https://github.com/o/r/pull/9\nsha: abc\nci: success\nnote: shipped\n",
             kind: Kind::Done,
             act: Act::Other,
         },
         Golden {
             name: "done of a local gate",
-            text: done(&local_evidence(), ""),
+            text: done_body(&local_evidence(), ""),
             bytes: "Done. Evidence follows.\npr: https://github.com/o/r/pull/9\nsha: abc\nci: local-gate\nci-sources: workflow-runs, statuses\nci-runs: counted: 9 (push, success)\nlocal-gate: host-a: make test rc=0, log /tmp/gate.log\nCI off by owner decision (AUTHORITY.md ci_mode: local)\n",
             kind: Kind::Done,
             act: Act::Other,
         },
     ]);
     for ev in [evidence(), local_evidence()] {
-        assert_eq!(
-            crate::ticket::parse_evidence(&done(&ev, "")),
-            Some(ev.clone())
-        );
+        assert_eq!(parse_evidence(&done_body(&ev, "")), Some(ev.clone()));
     }
 }
 

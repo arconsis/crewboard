@@ -2,7 +2,7 @@
 //!
 //! Every layer returns it. `main.rs` prints it and turns it into the exit code (see `exit.rs`).
 
-use crate::base::ids::RuleId;
+use crate::base::ids::{self, RuleId};
 use crate::base::{GhError, Refusal};
 use crate::exit::Exit;
 use crate::protocol::ProtocolError;
@@ -70,11 +70,22 @@ impl From<GhError> for CbError {
     }
 }
 
+/// The rule id of a protocol failure.
+fn protocol_rule(e: &ProtocolError) -> RuleId {
+    match e {
+        ProtocolError::Malformed(_) => ids::MALFORMED_MESSAGE,
+        ProtocolError::VisibleLineMismatch => ids::VISIBLE_LINE_MISMATCH,
+        ProtocolError::BadSignature(_) => ids::BAD_SIGNATURE,
+        ProtocolError::BadKey(_) => ids::BAD_KEY,
+        ProtocolError::BodyTooLong(_) => ids::BODY_TOO_LONG,
+    }
+}
+
 impl From<ProtocolError> for CbError {
     fn from(e: ProtocolError) -> Self {
         match e {
             ProtocolError::BadKey(m) => CbError::Config(format!("bad key: {m}")),
-            other => CbError::Refused(Refusal::new(other.rule(), other.to_string())),
+            other => CbError::Refused(Refusal::new(protocol_rule(&other), other.to_string())),
         }
     }
 }
@@ -131,5 +142,22 @@ mod tests {
         assert_eq!(e.exit(), Exit::Config);
         let e: CbError = ProtocolError::BodyTooLong(70_000).into();
         assert_eq!(e.exit(), Exit::Refused);
+    }
+
+    #[test]
+    fn each_protocol_error_names_its_rule_id() {
+        for (e, rule) in [
+            (ProtocolError::Malformed("x".into()), "malformed-message"),
+            (ProtocolError::VisibleLineMismatch, "visible-line-mismatch"),
+            (ProtocolError::BadSignature("x".into()), "bad-signature"),
+            (ProtocolError::BadKey("x".into()), "bad-key"),
+            (ProtocolError::BodyTooLong(70_000), "body-too-long"),
+        ] {
+            assert_eq!(protocol_rule(&e), rule, "{e:?}");
+        }
+        let CbError::Refused(r) = CbError::from(ProtocolError::BodyTooLong(70_000)) else {
+            panic!("a body that is too long is refused");
+        };
+        assert_eq!(r.rule, "body-too-long");
     }
 }

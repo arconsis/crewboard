@@ -4,6 +4,10 @@ use crate::comments::tests::comment;
 use crate::config::BoardConfig;
 use crate::events::{Event, EventClass};
 use crate::items::ItemSnapshot;
+use crate::protocol::acts::{
+    EvidenceMsg, LOCAL_GATE_CI, LOCAL_GATE_OWNER_LINE, done_body, info_body, info_body_adopting,
+    is_local_gate, parse_evidence, verify_body,
+};
 use crate::protocol::names::{Kind, Re};
 use crate::protocol::signature::generate_key;
 use crate::registry::Trust;

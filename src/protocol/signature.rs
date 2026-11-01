@@ -103,7 +103,7 @@ pub fn sign_message(
     };
     let body = body.replace("\r\n", "\n").trim().to_string();
     let n = body.chars().count();
-    if n > crate::rules::limits::MAX_BODY_CHARS {
+    if n > super::MAX_BODY_CHARS {
         return Err(ProtocolError::BodyTooLong(n));
     }
     header.sig = sign(key, canonical(issue, &header, &body).as_bytes())?;
@@ -175,7 +175,6 @@ pub(super) mod tests {
     fn body_of_65537_chars_is_refused() {
         let e = sign_body(&"a".repeat(65_537)).unwrap_err();
         assert_eq!(e, ProtocolError::BodyTooLong(65_537));
-        assert_eq!(e.rule(), "body-too-long");
     }
 
     #[test]
@@ -192,12 +191,10 @@ pub(super) mod tests {
         let key = generate_key().unwrap();
         let text = make(&key, "all green").to_comment();
         let edited = Message::parse(&text.replace("all green", "all red")).unwrap();
-        assert_eq!(
-            verify_message(&edited, &issue(), key.public_key())
-                .unwrap_err()
-                .rule(),
-            "bad-signature"
-        );
+        assert!(matches!(
+            verify_message(&edited, &issue(), key.public_key()),
+            Err(ProtocolError::BadSignature(_))
+        ));
     }
 
     #[test]
@@ -255,6 +252,9 @@ pub(super) mod tests {
         // An RSA public key line cannot be used. Parse a known ecdsa key instead of generating one.
         let ecdsa = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg= test";
         let public = PublicKey::from_openssh(ecdsa).unwrap();
-        assert_eq!(verify(&public, b"x", &sig).unwrap_err().rule(), "bad-key");
+        assert!(matches!(
+            verify(&public, b"x", &sig),
+            Err(ProtocolError::BadKey(_))
+        ));
     }
 }

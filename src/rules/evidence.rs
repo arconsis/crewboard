@@ -273,7 +273,7 @@ impl CiProof {
             CiProof::Runs { run_url, .. } => run_url.clone(),
             CiProof::None => CI_NONE.to_string(),
             CiProof::Skipped(text) => text.clone(),
-            CiProof::Local => super::text::LOCAL_GATE_CI.to_string(),
+            CiProof::Local => crate::protocol::acts::LOCAL_GATE_CI.to_string(),
         }
     }
 }
@@ -526,7 +526,7 @@ mod tests {
         i.local_gate = Some("3 runs green");
         let local = judge_ci(&i).unwrap();
         assert_eq!(local, CiProof::Local);
-        assert_eq!(local.text(), crate::rules::text::LOCAL_GATE_CI);
+        assert_eq!(local.text(), crate::protocol::acts::LOCAL_GATE_CI);
     }
 
     #[test]

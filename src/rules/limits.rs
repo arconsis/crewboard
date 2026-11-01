@@ -4,12 +4,10 @@
 
 use super::{Refusal, Verdict};
 use crate::base::ids;
+use crate::protocol::MAX_BODY_CHARS;
 
 /// A project text field holds at most this many bytes of UTF-8 (spec/board#fields).
 pub const MAX_TEXT_FIELD_BYTES: usize = 1024;
-
-/// A message body has at most this many characters (spec/messages#format).
-pub const MAX_BODY_CHARS: usize = 65_536;
 
 /// Check a text field value before a write. Counts bytes, not characters: GitHub's limit
 /// is in bytes, and `ä` is two bytes.

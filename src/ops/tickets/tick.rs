@@ -525,7 +525,7 @@ fn one_ci_only(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
         return Ok(left(key, "protected path: the owner merges this PR"));
     }
     // A local gate (`ci_mode: local`) is a judgment of the interactive coordinator.
-    if crate::ticket::is_local_gate(&ev) {
+    if crate::protocol::acts::is_local_gate(&ev) {
         return Ok(left(
             key,
             "the evidence is a local gate ('ci: local-gate'): a local gate is a judgment, so the Gate is not CI only",

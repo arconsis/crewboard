@@ -215,21 +215,6 @@ pub fn timeline_prs(timeline: &Value) -> Vec<(String, u64)> {
     out
 }
 
-/// The text of the `info` of a close after an owner merge. A reason is added as a line.
-pub fn notice_body(pr: &MergedPr, reason: Option<&str>) -> String {
-    let mut body = format!(
-        "{}\npr: {}\nmerge-commit: {}\nmerged by the owner\nclosed: owner merged {}\n",
-        crate::protocol::acts::OWNER_MERGED_HEAD,
-        pr.url(),
-        pr.merge_commit.as_deref().unwrap_or("unknown"),
-        pr.url()
-    );
-    if let Some(r) = reason {
-        body.push_str(&format!("reason: {r}\n"));
-    }
-    body
-}
-
 /// The login that counts as the owner: `owner_login` of the board config, the one source
 /// (`owner:` of AUTHORITY.md only ever agreed with it, because `start` refuses a mismatch).
 fn owner_of(ac: &AgentCtx) -> String {
@@ -453,7 +438,8 @@ fn close_after_merge(
     end_issue: bool,
 ) -> CbResult<String> {
     let key = t.key();
-    let note = notice_body(pr, reason);
+    let note =
+        crate::protocol::acts::owner_merged_body(&pr.url(), pr.merge_commit.as_deref(), reason);
     check_body_text(&note)?;
     let close = Transition::Close {
         reason: Some(DoneReason::OwnerMerged),
@@ -734,19 +720,5 @@ mod tests {
             vec![("o/r".to_string(), 9), ("o/r2".to_string(), 11)]
         );
         assert!(timeline_prs(&json!({"message": "x"})).is_empty());
-    }
-
-    #[test]
-    fn the_notice_has_the_lines_that_the_assignee_reads() {
-        let b = notice_body(&pr(), None);
-        assert!(b.contains("pr: https://github.com/o/r/pull/9\n"), "{b}");
-        assert!(b.contains("merge-commit: abc\n"), "{b}");
-        assert!(b.contains("merged by the owner\n"), "{b}");
-        assert!(
-            b.contains("closed: owner merged https://github.com/o/r/pull/9\n"),
-            "{b}"
-        );
-        assert!(!b.contains("reason:"), "{b}");
-        assert!(notice_body(&pr(), Some("x y")).ends_with("reason: x y\n"));
     }
 }

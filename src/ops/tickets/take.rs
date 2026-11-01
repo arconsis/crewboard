@@ -335,7 +335,7 @@ fn act_take(ac: &AgentCtx, world: &World, me: &Me, plan: TakePlan) -> CbResult<S
             let adopts = adopt.as_ref().map_or(String::new(), |a| {
                 format!(
                     "{} {} branch: {}\n",
-                    crate::ticket::ADOPTS_PR,
+                    crate::protocol::acts::ADOPTS_PR,
                     a.url,
                     a.branch
                 )

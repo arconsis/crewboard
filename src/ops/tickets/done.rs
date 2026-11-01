@@ -23,6 +23,7 @@ use crate::error::CbResult;
 use crate::ops::behind::{behind_by, done_warning};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::owner_route::Route;
+use crate::protocol::acts::{EvidenceMsg, done_body};
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::Actor;
 use crate::rules::Refusal;
@@ -38,7 +39,7 @@ use crate::services::ticket_loader::Ticket;
 use crate::services::ticket_loader::load_ticket;
 use crate::ticket::VMsg;
 use crate::ticket::latest_done;
-use crate::ticket::{EvidenceMsg, ci_none_declared, done_body, evidence_field, question_open};
+use crate::ticket::{ci_none_declared, evidence_field, question_open};
 
 pub struct DoneArgs<'a> {
     pub issue: &'a str,
@@ -457,7 +458,7 @@ fn done_head(f: &DoneFacts<'_>, msg: &EvidenceMsg) -> String {
             .map(|s| {
                 format!(
                     "local-gate: {s}\n{}\n",
-                    crate::ticket::LOCAL_GATE_OWNER_LINE
+                    crate::protocol::acts::LOCAL_GATE_OWNER_LINE
                 )
             })
             .unwrap_or_default();

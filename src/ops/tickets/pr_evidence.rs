@@ -4,10 +4,10 @@ use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use crate::ops::AgentCtx;
+use crate::protocol::acts::EvidenceMsg;
 use crate::rules::Refusal;
 use crate::rules::evidence::{CiFacts, PrFacts};
 use crate::rules::protected::MAX_FILES;
-use crate::ticket::EvidenceMsg;
 use serde_json::Value;
 
 /// Read the `--run` values (spec/ci#which-ci-runs-count) against the repos of the initiative. A run

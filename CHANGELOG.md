@@ -34,6 +34,12 @@ Changed:
   [The agent token](docs/guides/owner.md#the-agent-token) and
   [A shared agent account](docs/guides/owner.md#a-shared-agent-account).
 
+Other:
+
+- Internal: no behaviour change. Every writer of a message act lives next to the one parser
+  (`protocol::acts`), golden tests pin the bytes of each text, and `protocol` imports nothing
+  from the rest of the crate. The wire stays protocol v1, byte for byte.
+
 ## v0.8.0 (2026-10-31)
 
 Upgrade: a script or a wrapper that reads exit 4 as "bad command line" reads 64 now (all

@@ -53,6 +53,10 @@ I/O. `tests/layering.rs` freezes the import graph.
 
 ### Protocol
 
+`src/protocol/` is the wire of protocol v1. It imports nothing from the rest of the crate
+(`tests/layering.rs` checks it); `error.rs` maps its errors to refusal ids.
+
+- `src/protocol/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the text of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back.
 - `src/protocol/names.rs`: typed header fields (agent names, kinds, addressees, references, timestamps).
 - `src/protocol/header.rs`: parse and print the hidden header, the visible line and the body.
 - `src/protocol/canonical.rs`: the canonical form that is signed.
@@ -151,8 +155,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/unread.rs`: the unread-message check of `say`, `done`, `block` and `ask`.
 - `src/registry.rs`: the registry issue as the source of truth for who may speak.
 - `src/late/liveness.rs`: `late` and `dead` are derived from the age of the `Heartbeat` field alone (no ping, no pong), never written.
-- `src/ticket/`: ticket facts derived from the board and from signed comments. `messages.rs` (verified messages, questions, blocks, splits), `evidence.rs` (`done` evidence, signed gate and CI lines, verify result), `rows.rs` (creation `info`, board rows, events), `log.rs` (the status that the signed log shows) and `queue_order.rs` (the queue of an agent and the `Order` of a new ticket).
-- `src/protocol/acts.rs`: what a message means: the one parser of message acts and the writers of their bodies.
+- `src/ticket/`: ticket facts derived from the board and from signed comments. `messages.rs` (verified messages, questions, blocks, splits), `evidence.rs` (the latest `done` evidence, signed gate and CI lines, verify result), `rows.rs` (creation `info`, board rows, events), `log.rs` (the status that the signed log shows) and `queue_order.rs` (the queue of an agent and the `Order` of a new ticket).
 - `src/domain/ci/evaluate.rs`: judge the CI facts of one commit from the answers that were read. Pure.
 - `src/domain/ci/triggers.rs`: read the `on:` key of a workflow and judge whether workflows run for crew branches. Pure.
 - `src/services/ci_evidence.rs`: `fetch_ci` reads the CI sources of a commit (one `CiQuery`) and hands them to `evaluate`.
