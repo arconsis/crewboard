@@ -65,7 +65,7 @@ pub trait Steps {
     fn heartbeat(&mut self) -> StepRc;
     /// The head of a PR. `None` when the PR cannot be found.
     fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc>;
-    /// The open PRs of a repo (up to 100).
+    /// The open PRs of a repo, every page.
     fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc>;
 }
 
