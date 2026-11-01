@@ -2,7 +2,11 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.8.1 (2026-11-01)
+
+Upgrade: run `crewboard update` on each host. It also installs the new skill, so a headless
+wake gets the rule against background reports. On a Hermes host, also set the two gateway keys
+of the [Hermes guide](docs/guides/runtimes/hermes-cron.md#notes).
 
 Fixed:
 
