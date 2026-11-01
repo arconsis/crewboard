@@ -7,6 +7,7 @@ use crate::protocol::replay::{Replay, Seen};
 use crate::registry::{CREW_PREFIX, Trust, TrustSpan};
 use crate::rules::status::{BlockReason, Status};
 use crate::rules::{Actor, Role};
+use std::collections::HashSet;
 
 /// Who wrote a verified comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,21 +106,29 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
 
 /// Signed messages that are valid in every way but the replay window (`TooOld` or `FromFuture`):
 /// not edited, from an agent trusted at that comment, by the account that the approval bound to
-/// it, with a signature that verifies. They answer one question only: did an agent report an
-/// event to the owner already ([`crate::audit::reported_events`])? A signed report with a wrong
-/// time was still posted by its sender, or it repeats an earlier report of the same keys. Such a
-/// message is never a ticket act: everything else reads [`verified_messages`].
+/// it, with a signature that verifies, and no copy: no earlier comment of the list carries the
+/// same sender and signature. Such a message was posted by its sender with a wrong time (a
+/// replay repeats an older signature). It answers one question only: did the sender post this
+/// already (a report to the owner, [`crate::audit::reported_events`]; a note or an ack that a
+/// duty posts once)? It is never a ticket act or an answer to the owner: everything else reads
+/// [`verified_messages`].
 pub fn out_of_window_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) -> Vec<VMsg> {
     let mut sorted: Vec<&Comment> = comments
         .iter()
-        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited())
+        .filter(|c| c.body.starts_with(CREW_PREFIX))
         .collect();
     sorted.sort_by_key(|c| c.id);
     let mut out = Vec::new();
+    // every signature seen so far, also of an edited or a refused comment
+    let mut signed: HashSet<(String, String)> = HashSet::new();
     for c in sorted {
         let Ok(msg) = Message::parse(&c.body) else {
             continue;
         };
+        let first = signed.insert((msg.header.from.to_string(), msg.header.sig.clone()));
+        if !first || c.edited() {
+            continue;
+        }
         if !matches!(
             c.check_ts(&msg),
             Err(Replay::TooOld { .. } | Replay::FromFuture { .. })
