@@ -8,8 +8,9 @@
 //!   then it is an error (exit 3).
 //! - Conditional requests (ETag) for feeds; a 304 is a distinct result, never an error.
 //! - The token comes from the env file of the agent (`agent.env`, `--env-file`), else from
-//!   `GH_TOKEN` / `GITHUB_TOKEN`, else from `gh auth token` (see `agent_env` for the order). It
-//!   is never stored in a config file, never printed, and `Debug` redacts it.
+//!   `GH_TOKEN` / `GITHUB_TOKEN`, else from `gh auth token` (see `token.rs` for the order). Each
+//!   client holds its own token; no process global holds it. It is never stored in a config
+//!   file, never printed, and `Debug` redacts it.
 
 pub(crate) mod api;
 pub(crate) mod paging;

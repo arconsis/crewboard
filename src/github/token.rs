@@ -1,19 +1,17 @@
 //! Which token, from where. An agent command: the env file of the agent, else `GH_TOKEN` /
 //! `GITHUB_TOKEN`, else `gh auth token`. An owner command: `--env-file`, else the owner's own
-//! `gh auth token`. The transport in `github/mod.rs` only uses the result.
+//! `gh auth token`. The caller passes the token of the env file in force as a value; nothing
+//! here reads the loaded env. The client in `github/mod.rs` keeps the result.
 
 use super::{GhError, Token};
 use std::process::Command;
 
-/// Token from the env file of the agent, else from the environment, else from `gh auth token`
-/// (spec/overview#build-and-distribution). The refusal of an agent dir without a token
-/// is `agent_env::check_token_source`; the caller runs it first.
-pub fn resolve_token() -> Result<Token, GhError> {
-    // a file that did not load is final: no variable and no `gh` takes its place
-    if let Some(e) = crate::agent_env::failure() {
-        return Err(GhError::Auth(e.to_string()));
-    }
-    if let Some(t) = crate::agent_env::token() {
+/// `file_token` (the token of the env file of the agent), else the token from the environment,
+/// else from `gh auth token` (spec/overview#build-and-distribution). The caller
+/// (`ctx::new_client`) stops first when the env file did not load, so that no variable and no
+/// `gh` takes its place, and when an agent dir has no token (`agent_env::check_token_source`).
+pub fn resolve_token(file_token: Option<&str>) -> Result<Token, GhError> {
+    if let Some(t) = file_token {
         return Ok(Token::new(t));
     }
     for var in ["GH_TOKEN", "GITHUB_TOKEN"] {
@@ -43,15 +41,12 @@ pub fn resolve_token() -> Result<Token, GhError> {
 /// `gh` script does not run on every platform.
 pub const TEST_GH_AUTH_TOKEN_ENV: &str = "CREWBOARD_TEST_GH_AUTH_TOKEN";
 
-/// The token of an owner command outside an agent dir (spec/identity#author-and-signature): the
-/// file of `--env-file`, else the owner's own `gh auth token`. `GH_TOKEN` and `GITHUB_TOKEN` are
-/// ignored. The caller (`ctx::new_owner_client`) keeps the agent order in an agent dir
-/// and prints the note.
-pub fn resolve_owner_token() -> Result<Token, GhError> {
-    if let Some(e) = crate::agent_env::failure() {
-        return Err(GhError::Auth(e.to_string()));
-    }
-    if let Some(t) = crate::agent_env::explicit_token() {
+/// The token of an owner command outside an agent dir (spec/identity#author-and-signature):
+/// `env_file_token` (the token of `--env-file`), else the owner's own `gh auth token`.
+/// `GH_TOKEN` and `GITHUB_TOKEN` are ignored. The caller (`ctx::new_owner_client`) stops first
+/// when the env file did not load, keeps the agent order in an agent dir and prints the note.
+pub fn resolve_owner_token(env_file_token: Option<&str>) -> Result<Token, GhError> {
+    if let Some(t) = env_file_token {
         return Ok(Token::new(t));
     }
     own_gh_token().map(Token::new)
@@ -91,4 +86,18 @@ fn test_gh_token() -> Option<String> {
         .ok()
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_token_of_the_env_file_is_a_value_of_each_call() {
+        let a = resolve_token(Some("token-a")).unwrap();
+        let b = resolve_token(Some("token-b")).unwrap();
+        assert_eq!((a.expose(), b.expose()), ("token-a", "token-b"));
+        let o = resolve_owner_token(Some("owner-file-token")).unwrap();
+        assert_eq!(o.expose(), "owner-file-token");
+    }
 }
