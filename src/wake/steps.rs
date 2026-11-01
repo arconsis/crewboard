@@ -484,4 +484,22 @@ mod tests {
         assert_eq!(rc.msg, "err");
         assert_eq!(String::from_utf8_lossy(&out), "out\n");
     }
+
+    /// The hook makes no output of a failed poll of this code (`src/wake/hook.rs`, hk4).
+    #[test]
+    fn hk4b_a_binary_that_is_not_there_is_exit_127() {
+        let sub = Subprocess {
+            bin: "/nonexistent/crewboard".into(),
+            config_dir: None,
+            initiative: None,
+        };
+        let mut out = Vec::new();
+        let rc = sub.run(&["poll"], &[], &mut out);
+        assert_eq!(rc.code, 127, "{rc:?}");
+        assert!(
+            rc.msg.contains("cannot run /nonexistent/crewboard"),
+            "{rc:?}"
+        );
+        assert!(out.is_empty());
+    }
 }
