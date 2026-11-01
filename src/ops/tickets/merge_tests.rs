@@ -868,10 +868,12 @@ fn the_notice_names_the_merge_commit_and_a_local_gate_adds_its_lines() {
     let mut f = step_facts(&auth, &lg, "crew/hermes@b/12-fix-it", Some("a/b"));
     f.ev_local = true;
     f.coordinator_gate = Some("host-c: make test rc=0");
-    let body = merge_steps(&f).notice_body("abc123");
-    assert!(body.ends_with(
-        "branch: crew/hermes@b/12-fix-it\nci-mode: local\nlocal-gate: host-a: make test rc=0\ncoordinator-local-gate: host-c: make test rc=0"
-    ), "{body}");
+    assert_eq!(
+        merge_steps(&f).notice_body("abc123"),
+        format!(
+            "Merged by the coordinator.\npr: {PR_URL}\nsha: {SHA}\nmethod: squash\nmerge-commit: abc123\nbranch: crew/hermes@b/12-fix-it\nci-mode: local\nlocal-gate: host-a: make test rc=0\ncoordinator-local-gate: host-c: make test rc=0"
+        )
+    );
 }
 
 #[test]

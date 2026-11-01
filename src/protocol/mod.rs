@@ -12,6 +12,8 @@ pub mod replay;
 pub mod signature;
 
 #[cfg(test)]
+mod acts_golden_tests;
+#[cfg(test)]
 mod interop_tests;
 
 use crate::base::ids::{self, RuleId};
