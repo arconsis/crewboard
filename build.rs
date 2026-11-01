@@ -2,8 +2,7 @@
 //!
 //! It walks `skill/` and writes `$OUT_DIR/skill_files.rs`, a table
 //! `pub static FILES: &[(&str, &[u8], bool)]` of (path relative to `skill/`, file bytes, executable).
-//! `src/skill_embed.rs` includes it. Left out: `loops/tests/` (the shell tests stay in the clone),
-//! and dot files and directories. A file is executable when its mode says so (Unix).
+//! `src/skill_embed.rs` includes it. Left out: dot files and directories. A file is executable when its mode says so (Unix).
 
 #![allow(clippy::expect_used, reason = "a build script fails by panic")]
 
@@ -11,7 +10,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 fn skipped(rel: &str) -> bool {
-    rel.starts_with("loops/tests/") || rel.split('/').any(|c| c.starts_with('.'))
+    rel.split('/').any(|c| c.starts_with('.'))
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {

@@ -52,8 +52,7 @@ The command needs a Unix host (macOS or Linux); on another platform it refuses w
 8. Proof: the Rust tests in `src/lock/` (the stale rules on fake time and processes) and
    `tests/component/lock_*.rs` (the binary on a temp dir; the test names start with the case id, for
    example `h3b_a_live_pid_of_another_user_is_alive`), both directions, including 8 concurrent
-   takers on a free and on a stale lock. The shell suite `skill/loops/tests/test-locks.sh` runs the
-   same cases through a test driver (cases H1 to H11).
+   takers on a free and on a stale lock.
 
 ## Re-entrancy: a tool under the lock
 
@@ -88,7 +87,7 @@ is a process, so its descendants can be told that the lock is held for them.
    the lock with `crewboard lock`, or it treats `CREWBOARD_HOST_LOCK` equal to its own lock dir
    as "already held by my caller".
 6. Proof: the re-entrancy tests (`tests/component/lock_reentry.rs`, real process chains, and the
-   fake process table in `src/lock/run.rs`) and the re-entrancy cases of `skill/loops/tests/test-locks.sh`.
+   fake process table in `src/lock/run.rs`).
    Each check was broken by hand once to see its test fail.
 
 ## Repeated runs of a Gate
@@ -119,8 +118,7 @@ A relative `--lock <dir>` is relative to the current directory of the caller, no
    the signal, the lock is released, the evidence so far is printed, the exit code is 143. The
    same holds while it waits for the lock or for CI.
 8. **Exit codes.** They are in the [exit codes reference](../../reference/exit-codes.md#by-command).
-9. Proof: `tests/repeat_cli.rs` and `src/repeat/verdict.rs`; cases G1 to G10e of
-   `skill/loops/tests/test-locks.sh` run through a test driver.
+9. Proof: `tests/repeat_cli.rs` and `src/repeat/verdict.rs` (cases G1 to G10e).
 
 ## CI first, empty lock grace, named reasons
 
@@ -146,8 +144,9 @@ the agent's load.
 4. **repeat.** Before each run `crewboard repeat` checks CI like `ci-status`. It pauses with a log line and
    goes on when CI is gone (`--ci-poll`, default 10 s). After `--ci-max-wait` (default 3600 s)
    it stops with exit 3. The evidence block notes each pause. `--no-ci-check` turns it off.
-5. Proof: tests H11 to H16 (`src/lock/`, `tests/component/lock_ci.rs`), and cases H11 to H16 and G9
-   of `skill/loops/tests/test-locks.sh`, P5c and P5d of `test-loops.sh`.
+5. Proof: tests H11 to H16 (`src/lock/`, `tests/component/lock_ci.rs`,
+   `tests/component/lock_judge.rs`), G9 (`tests/repeat_cli.rs`), and P5c and P5d of the wake lock
+   (`src/wake/lockdir.rs`, `tests/component/wake_lock.rs`).
 
 ## Expect and overdue: a lock without a provable holder
 
@@ -178,7 +177,7 @@ the lock was still held. With `pid=0` no taker can prove the holder dead, so the
    loop does not repeat it. No state file keeps the "once": one `status` call is one process and
    prints the line once.
 6. Proof: tests E1 to E6f (`src/lock/`, `src/ops/lock_cmd.rs`, `tests/component/lock_cli.rs`,
-   `tests/component/lock_board.rs`) and cases E1 to E6f of `skill/loops/tests/test-locks.sh`.
+   `tests/component/lock_judge.rs`, `tests/component/lock_board.rs`).
 
 ## Foreign holder: a lock without an owner file
 
@@ -208,8 +207,8 @@ jobs then ran together.
    name order. Control characters are removed and the text is cut to 120 characters. A directory
    entry instead of a file is shown as `foreign holder: <name> (not a regular file)`.
 4. **Release.** `release` refuses a foreign holder (exit 3), as for any lock of another owner.
-5. Proof: tests F1 to F6b (`src/lock/judge.rs`, `src/lock/snapshot.rs`, `tests/component/lock_cli.rs`)
-   and cases F1 to F6b of `skill/loops/tests/test-locks.sh`. `crewboard wake` keeps its own
+5. Proof: tests F1 to F6b (`src/lock/judge.rs`, `src/lock/snapshot.rs`, `tests/component/lock_cli.rs`,
+   `tests/component/lock_judge.rs`). `crewboard wake` keeps its own
    lock dir rule (pid file); this change does not touch it.
 
 ## Invalid owner file: no agent or start time
@@ -242,9 +241,9 @@ every taker for 5.5 hours, and a CI job waited its full 20 minutes and then went
    names the same agent and host. Only a stale takeover removes it.
 5. **Valid files keep their rules.** For a valid owner file the clock is `started_epoch`, never the
    file mtime, and all rules of the sections above hold.
-6. Proof: tests O1 to O6 (`src/lock/judge.rs`, `src/lock/owner.rs`, `tests/component/lock_cli.rs`) and
-   cases O1 to O6 of `skill/loops/tests/test-locks.sh` (both directions). Each check was broken by
-   hand once to see its test fail.
+6. Proof: tests O1 to O6 (`src/lock/judge.rs`, `src/lock/owner.rs`, `tests/component/lock_cli.rs`,
+   `tests/component/lock_judge.rs`), both directions. Each check was broken by hand once to see its
+   test fail.
 
 ## Detached jobs, atomic release, Gate jobs
 
@@ -290,7 +289,6 @@ after such a stop and took it over 35 s later (`empty-after-grace`).
    new run of the job writes a new line and is reported again. A file without an `rc=` line, a file
    outside the dir and a poll without `--events-file` are not read. So `done` runs once after the
    wake that sees the event, with no cron job of the agent.
-9. Proof: tests DT1 to DT7 and GT1 to GT4 (`tests/component/lock_detach.rs`, `lock_ci.rs`), cases DT1
-   to DT4, DT6 and GT1 to GT4 of `skill/loops/tests/test-locks.sh` (DT5 and DT7 live in Rust only:
-   the shell proof of them needed stubs for `rm` and `setsid`, which the binary does not call), and
-   cases RS1 to RS3 of `skill/loops/tests/test-loops.sh`.
+9. Proof: tests DT1 to DT7 and GT1 to GT4 (`tests/component/lock_detach.rs`, `lock_ci.rs`), TB10
+   and TB11 (`tests/component/wake_budget.rs`), and RS1 to RS4 (`src/wake/results.rs`,
+   `src/wake/cmd_tests/results.rs`).

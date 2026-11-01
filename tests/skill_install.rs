@@ -212,9 +212,8 @@ fn existing_dir_is_linked_without_flag() {
         canon(&h)
     );
     assert!(canon(&h).join("SKILL.md").is_file());
-    // the copy has no tests, no installer and no script
+    // the copy has no installer and no script
     assert!(canon(&h).join("references/loops.md").is_file());
-    assert!(!canon(&h).join("loops/tests").exists());
     assert!(!canon(&h).join("install.sh").exists());
     assert!(!canon(&h).join("loops/watch-loop.sh").exists());
     // a second run is the same (idempotent) and says so
@@ -300,8 +299,9 @@ fn references_installed_next_to_skill_md() {
     assert!(
         canon(&h2).join("references/dev.md").is_file() && canon(&h2).join("SKILL.md").is_file()
     );
-    assert!(
-        canon(&h2).join("loops/tests").is_dir(),
+    assert_eq!(
+        fs::read_link(canon(&h2)).unwrap(),
+        clone.join("skill"),
         "--link shows the clone itself"
     );
 }
@@ -398,7 +398,7 @@ fn install_changes_no_source_file() {
     assert_eq!(hash_tree(&clone), before);
     // --link: the shared path is the clone; no change
     let (_t2, h2) = home();
-    let r = skill_in(&h2, &clone.join("skill/loops"), &["install", "--link"]);
+    let r = skill_in(&h2, &clone.join("skill/references"), &["install", "--link"]);
     assert_eq!(r.code, 0, "{}{}", r.out, r.err);
     assert_eq!(
         fs::read_link(canon(&h2)).unwrap(),

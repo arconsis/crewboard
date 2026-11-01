@@ -197,8 +197,8 @@ fn tracked_files_name_no_private_names() {
             .starts_with("skill/references/")),
         "skill/references/ is not tracked, so the guard cannot check it"
     );
-    // The loop scripts' docs, the security policy and the GitHub templates are public text too.
-    for want in ["skill/loops/", "SECURITY.md", ".github/"] {
+    // The security policy and the GitHub templates are public text too.
+    for want in ["SECURITY.md", ".github/"] {
         assert!(
             files
                 .iter()

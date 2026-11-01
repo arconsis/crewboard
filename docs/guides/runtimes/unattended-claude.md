@@ -71,8 +71,9 @@ Tested on macOS (Darwin, Claude Code 2.1.302), 2026-10-17 and 2026-10-18:
 - `claude -p` keeps `GH_TOKEN` in the shell that the model uses, finds the installed skill
   without a flag, and continues a session with `--resume <uuid>`.
 - A launchd user agent with `StartInterval` ran a script on a timer.
-- Tests with fake `claude`, `crewboard`, `launchctl`, `systemctl`, `loginctl` and `crontab`:
-  `loops/tests/test-loops.sh` and `tests/component/wake_install.rs`. No case installs a real unit.
+- Tests with fake `claude`, `launchctl`, `systemctl`, `loginctl` and `crontab`, and a fake board:
+  `src/wake/cmd_tests/`, `tests/component/fake_wake.rs` and `tests/component/wake_install.rs`. No
+  case installs a real unit.
 
 Not tested: a real systemd or cron job on Linux, a full wake with a real board, and
 `--permission-mode bypassPermissions`.

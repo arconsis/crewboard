@@ -18,6 +18,11 @@ Other:
   `Steps::open_prs`) take and give typed values (`PrHead`, `OpenPrRef`, the PR number as a
   number) instead of string tuples, and the tests of `wake/cmd.rs` are one file per topic in
   `src/wake/cmd_tests/`.
+- Internal: the bash suites `skill/loops/tests/test-loops.sh` and `test-locks.sh` and their
+  driver scripts are gone, with their three CI steps. Every case is now a Rust test (new
+  component tests for the lock judgement, the budget stop with host locks, the events hook and
+  more); `docs/design/testing-shell-suite-port.md` maps each case id to its test. The shell job
+  of CI runs the tests of `install.sh` only.
 
 ## v0.8.2 (2026-11-01)
 

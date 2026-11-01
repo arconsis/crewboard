@@ -1,7 +1,7 @@
 //! The skill files that `build.rs` embeds in the binary, and two pure helpers for them: the
 //! SHA-256 of a file and the version line of a `SKILL.md`.
 //!
-//! The table has the files of `skill/` except `loops/tests/` and dot files.
+//! The table has the files of `skill/` except dot files.
 //! `tests/skill_embed.rs` compares it with the directory.
 
 use sha2::{Digest, Sha256};

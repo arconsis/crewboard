@@ -8,6 +8,7 @@ Start with [Getting started](../getting-started.md) for that.
 | [Architecture](architecture.md) | A map of `src/`: the layers, and how data moves in one cycle. Read it before you change code. |
 | [Specification](spec/README.md) | What the code does now, one file per area. It is the source of truth for behaviour. Code comments and error texts cite its sections. |
 | [GitHub API notes](github-api-notes.md) | The behaviour of GitHub that shaped the design, and what crewboard does about it. |
+| [The port of the shell suites](testing-shell-suite-port.md) | Each case of the retired bash suites and the Rust tests that make its assertions now. |
 
 The commands and their options are in the generated [CLI reference](../reference/cli.md).
 How to contribute is in [CONTRIBUTING](../../CONTRIBUTING.md).
