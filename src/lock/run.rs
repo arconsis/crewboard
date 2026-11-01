@@ -464,6 +464,123 @@ mod tests {
         assert_eq!(names, vec!["l".to_string()]);
     }
 
+    /// A session whose board check plays `script`, with a cache of `ttl` seconds.
+    fn board_session<'a>(
+        dir: &Path,
+        o: Opts,
+        rig: &Rig<'a>,
+        script: &'a crate::lock::board::tests::Script,
+        ttl: i64,
+    ) -> Session<'a> {
+        let mut s = session(dir, o, rig);
+        s.board = BoardCheck::new(Some(Box::new(script)), ttl, true, false, rig.log);
+        s
+    }
+
+    #[test]
+    fn h8g_a_wait_of_many_polls_asks_the_board_once() {
+        use crate::lock::board::tests::{Script, agent};
+        let d = tempfile::tempdir().unwrap();
+        let lock = d.path().join("l");
+        plant(&lock, "alive@x", "hostA", "111", NOW);
+        let (c, p) = (FakeClock::at(NOW), FakeProcs::new().alive_pids(&[111]));
+        let log = Log::memory(&c);
+        let rig = Rig {
+            clock: &c,
+            procs: &p,
+            log: &log,
+        };
+        let script = Script::new(vec![Ok(vec![agent("alive@x", "alive", "active")])]);
+        let mut o = opts("new@x");
+        o.wait = 2;
+        o.poll = Duration::from_millis(400);
+        assert_eq!(board_session(&lock, o, &rig, &script, 60).take("222"), 75);
+        // 2 s of polls every 0.4 s: five or more judgements, one board call
+        assert!(c.now() >= NOW + 2);
+        assert_eq!(script.calls.get(), 1);
+    }
+
+    #[test]
+    fn h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again() {
+        use crate::lock::board::ProbeError;
+        use crate::lock::board::tests::{Script, agent};
+        let d = tempfile::tempdir().unwrap();
+        let lock = d.path().join("l");
+        plant(&lock, "alive@x", "hostA", "111", NOW);
+        let (c, p) = (FakeClock::at(NOW), FakeProcs::new().alive_pids(&[111]));
+        let log = Log::memory(&c);
+        let rig = Rig {
+            clock: &c,
+            procs: &p,
+            log: &log,
+        };
+        let fail = || {
+            Err(ProbeError::Failed {
+                cause: "error: API rate limit exceeded".into(),
+                exit: Some(1),
+            })
+        };
+        let script = Script::new(vec![
+            fail(),
+            fail(),
+            fail(),
+            Ok(vec![agent("alive@x", "alive", "active")]),
+        ]);
+        let mut o = opts("new@x");
+        o.wait = 3;
+        o.poll = Duration::from_millis(300);
+        assert_eq!(board_session(&lock, o, &rig, &script, 0).take("222"), 75);
+        let said = log.said();
+        let skips: Vec<_> = said
+            .iter()
+            .filter(|l| l.contains("board check skipped"))
+            .collect();
+        assert_eq!(skips.len(), 1, "{said:?}");
+        assert!(
+            skips[0].ends_with("skipped: crewboard status failed: error: API rate limit exceeded"),
+            "{said:?}"
+        );
+        assert_eq!(
+            said.iter()
+                .filter(|l| l.contains("board check works again"))
+                .count(),
+            1,
+            "{said:?}"
+        );
+        assert!(script.calls.get() >= 4);
+    }
+
+    #[test]
+    fn h8i_a_dead_owner_is_taken_over_as_board_dead_with_one_board_call() {
+        use crate::lock::board::tests::{Script, agent};
+        let d = tempfile::tempdir().unwrap();
+        let lock = d.path().join("l");
+        plant(&lock, "own@x", "hostA", "111", NOW);
+        let (c, p) = (FakeClock::at(NOW), FakeProcs::new().alive_pids(&[111]));
+        let log = Log::memory(&c);
+        let rig = Rig {
+            clock: &c,
+            procs: &p,
+            log: &log,
+        };
+        let script = Script::new(vec![Ok(vec![agent("own@x", "dead", "active")])]);
+        assert_eq!(
+            board_session(&lock, opts("new@x"), &rig, &script, 60).take("222"),
+            0
+        );
+        let said = log.said();
+        assert!(
+            said.iter().any(|l| l.contains("reason=board-dead")),
+            "{said:?}"
+        );
+        assert!(
+            std::fs::read_to_string(lock.join("owner"))
+                .unwrap()
+                .contains("agent=new@x")
+        );
+        assert_eq!(script.calls.get(), 1);
+    }
+
     #[test]
     fn h3b_a_live_pid_that_kill_cannot_reach_is_not_stale() {
         // the fake says Alive::Yes for a pid of another user, as the real one does for EPERM

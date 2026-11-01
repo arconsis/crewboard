@@ -466,6 +466,7 @@ mod unix {
             lines_of(&o.stdout, "  (judged by the exit code; no --result-re)"),
             2
         );
+        assert!(o.stdout.contains("PASS: 2 of 2"), "{}", o.stdout);
     }
 
     #[test]
@@ -699,7 +700,8 @@ mod unix {
         let during = g.rig.s("g7.during");
         let script = format!(
             "grep '^agent=' {lk}/owner >>{during}; grep '^reason=' {lk}/owner >>{during}; \
-             echo \"grant=$CREWBOARD_HOST_LOCK\" >>{during}; {GREEN}"
+             echo \"grant=$CREWBOARD_HOST_LOCK\" >>{during}; \
+             {BIN} lock status {lk} --no-board >>{during}; {GREEN}"
         );
         let o = g.sh(
             "g7",
@@ -721,6 +723,12 @@ mod unix {
         assert!(seen.contains("reason=gate-loop run 1 of 2"), "{seen}");
         assert!(seen.contains("reason=gate-loop run 2 of 2"), "{seen}");
         assert_eq!(lines_of(&seen, "grant="), 2);
+        // the status of the lock during each run: held by the gate owner on this host
+        assert_eq!(
+            lines_of(&seen, &format!("held: gl@x@{}", lock::HOST)),
+            2,
+            "{seen}"
+        );
         assert!(!seen.contains("grant=\n"), "{seen}");
         assert!(
             !g.rig.p("g7.lock.d").exists(),
