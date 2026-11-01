@@ -111,19 +111,23 @@ fn stamped_late(mut c: Comment, secs: i64) -> Comment {
 }
 
 #[test]
-fn a_message_that_fails_only_the_window_is_no_ticket_act_but_an_out_of_window_message() {
+fn a_message_that_fails_only_the_window_and_is_no_copy_is_an_out_of_window_message_only() {
     let w = w();
-    let report = "Security event: bad-signature\nevent=o/r#2/c-9:bad-signature\n";
+    // one text per comment, so that no two comments share a signature by chance
+    let report =
+        |n: u64| format!("Security event: bad-signature\nevent=o/r#2/c-{n}:bad-signature\n");
     let wrong = generate_key().unwrap();
     let late = |c: Comment| stamped_late(c, 3600);
-    let mut edited = late(by_a(&w, 16, "owner", Kind::Info, report));
+    let relabel = |mut c: Comment, id: u64| {
+        c.id = id;
+        c
+    };
+    let mut edited = late(by_a(&w, 16, "owner", Kind::Info, &report(16)));
     edited.updated = "2026-10-15T15:09:00Z".into();
-    let mut copy = by_a(&w, 10, "owner", Kind::Info, report);
-    copy.id = 17;
     let cs = [
-        by_a(&w, 10, "owner", Kind::Info, report),
+        by_a(&w, 10, "owner", Kind::Info, &report(10)),
         // an hour late (too old), and ten minutes early (from the future)
-        late(by_a(&w, 11, "owner", Kind::Info, report)),
+        late(by_a(&w, 11, "owner", Kind::Info, &report(11))),
         stamped_late(
             by_a(
                 &w,
@@ -142,7 +146,7 @@ fn a_message_that_fails_only_the_window_is_no_ticket_act_but_an_out_of_window_me
             "claude@a",
             "owner",
             Kind::Info,
-            report,
+            &report(13),
         )),
         late(signed(
             14,
@@ -151,7 +155,7 @@ fn a_message_that_fails_only_the_window_is_no_ticket_act_but_an_out_of_window_me
             "nobody@x",
             "owner",
             Kind::Info,
-            report,
+            &report(14),
         )),
         late(signed(
             15,
@@ -160,11 +164,14 @@ fn a_message_that_fails_only_the_window_is_no_ticket_act_but_an_out_of_window_me
             "claude@a",
             "owner",
             Kind::Info,
-            report,
+            &report(15),
         )),
         edited,
         // inside the window, but a copy of comment 10
-        copy,
+        relabel(by_a(&w, 10, "owner", Kind::Info, &report(10)), 17),
+        // late copies of a valid message and of a late one: a replay repeats a signature
+        late(relabel(by_a(&w, 10, "owner", Kind::Info, &report(10)), 18)),
+        relabel(late(by_a(&w, 11, "owner", Kind::Info, &report(11))), 19),
     ];
     let ids = |v: Vec<VMsg>| v.iter().map(|m| m.comment_id).collect::<Vec<_>>();
     assert_eq!(ids(msgs(&w, &cs)), vec![10]);

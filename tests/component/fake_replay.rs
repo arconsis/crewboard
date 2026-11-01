@@ -278,3 +278,20 @@ fn a_late_report_with_a_bad_signature_is_reported_and_hides_no_event() {
     assert_eq!(owner_reports(&fake, &of_report).len(), 1, "{v}");
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }
+
+#[test]
+fn a_replay_of_an_old_valid_report_is_reported_to_the_owner() {
+    let (fake, c, _b) = crew();
+    // a valid report of the coordinator, signed and posted two hours ago
+    let body =
+        format!("Security event: bad-signature\nevent={REPO}#{THREAD}/c-999:bad-signature\n");
+    let original = fake.signed_ago(&c.key, &c.name, "owner", Kind::Info, REGISTRY, &body, 7200);
+    // a holder of the token posts its text again now: the old signature, a new comment
+    let copy = post_copy(&fake, REGISTRY, &fake.comment_body(original));
+    let (v, code) = fake.poll_json(&c);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(reasons(&v, copy), vec!["replayed"], "{v}");
+    let of_copy = format!("event={REPO}#{REGISTRY}/c-{copy}:replayed-message");
+    assert_eq!(owner_reports(&fake, &of_copy).len(), 1, "{v}");
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
