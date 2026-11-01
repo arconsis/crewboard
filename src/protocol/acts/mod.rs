@@ -28,7 +28,7 @@ pub mod ticket;
 #[cfg(test)]
 mod golden_tests;
 #[cfg(test)]
-mod tests;
+mod unit_tests;
 
 pub use close::*;
 pub use evidence::*;
