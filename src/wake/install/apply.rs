@@ -33,13 +33,15 @@ pub fn run(action: &WakeAction, f: &Flags) -> Result<String, CbError> {
     }
 }
 
-/// The host of this process. `CREWBOARD_WAKE_OS` (`Darwin` or `Linux`) is a test seam.
+/// The host of this process. `CREWBOARD_WAKE_OS` (`Darwin` or `Linux`) is a test seam that only
+/// a build with debug assertions reads: it picks the scheduler commands that run.
 fn real_host(sys: &dyn Sys) -> Result<Host, CbError> {
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let home = var("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| cfg_err("HOME is not set; the units go below it"))?;
-    let os = match var("CREWBOARD_WAKE_OS").as_deref() {
+    let test_os = var("CREWBOARD_WAKE_OS").filter(|_| cfg!(debug_assertions));
+    let os = match test_os.as_deref() {
         Some("Darwin") => Os::Mac,
         Some("Linux") => Os::Linux,
         Some(_) => Os::Other,

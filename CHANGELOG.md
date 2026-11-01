@@ -11,6 +11,13 @@ Changed:
   interval of the sandbox and component tests). Only a build with debug assertions, as
   `cargo test` makes, reads them. Neither was a user setting; only someone who ran these test
   suites against a release binary relied on them.
+- A release build ignores the hidden test option `--crewboard BIN` of `lock`, `monitor` and
+  `agent add` (it ran another binary in place of the board check, the watch, or `join` and
+  `start`) and the hidden test variables `HOST_LOCK_HOST` (the host name of the lock files) and
+  `CREWBOARD_WAKE_OS` (the operating system of `wake install`). Only a build with debug
+  assertions, as `cargo test` makes, reads them; only test setups used them.
+- Through the hidden test option `wake --crewboard BIN` the wake no longer asks `gh` for the PR
+  of a ticket at a budget stop; its message names no PR. Only test setups used this path.
 
 Other:
 

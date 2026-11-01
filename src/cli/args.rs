@@ -1248,7 +1248,8 @@ pub enum AgentAction {
         /// takes it (claude only). Repeat it for more.
         #[arg(long, requires = "install_wake")]
         allow: Vec<String>,
-        /// Test seam: run `join` and `start`, and ask for the crew id, through this binary.
+        /// Test seam: run `join` and `start`, and ask for the crew id, through this binary. Only
+        /// a build with debug assertions reads it.
         #[arg(long, hide = true)]
         crewboard: Option<String>,
     },
@@ -1308,7 +1309,8 @@ pub struct MonitorArgs {
     /// Replace a damaged cursor with "now".
     #[arg(long)]
     pub reset_cursor: bool,
-    /// Test seam: run `watch` of this binary instead of in this process.
+    /// Test seam: run `watch` of this binary instead of in this process. Only a build with debug
+    /// assertions reads it.
     #[arg(long, hide = true)]
     pub crewboard: Option<String>,
     #[command(flatten)]

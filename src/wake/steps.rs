@@ -362,83 +362,13 @@ impl Steps for Subprocess {
         self.run_within(&["heartbeat"], &[], &mut Vec::new(), Some(HEARTBEAT_LIMIT))
     }
 
-    // The test seam asks `gh`: the other binary has no PR calls.
-    fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc> {
-        let number = number.to_string();
-        let mut out = Vec::new();
-        let rc = gh(
-            &[
-                "pr",
-                "view",
-                &number,
-                "--repo",
-                repo,
-                "--json",
-                "headRefName,headRefOid",
-                "--jq",
-                ".headRefName + \" \" + .headRefOid",
-            ],
-            &mut out,
-        );
-        if rc.code != 0 {
-            return Ok(None);
-        }
-        let text = String::from_utf8_lossy(&out);
-        Ok(text
-            .lines()
-            .next()
-            .and_then(|l| l.split_once(' '))
-            .map(|(b, h)| PrHead {
-                head_ref: b.to_string(),
-                head_sha: h.to_string(),
-            }))
+    // The other binary has no PR calls: through the seam the wake knows no PR.
+    fn pr_head(&mut self, _repo: &str, _number: u64) -> Result<Option<PrHead>, StepRc> {
+        Ok(None)
     }
 
-    fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
-        let mut out = Vec::new();
-        let rc = gh(
-            &[
-                "pr",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "open",
-                "--limit",
-                "100",
-                "--json",
-                "number,headRefName,headRefOid",
-                "--jq",
-                ".[] | \"\\(.number) \\(.headRefName) \\(.headRefOid)\"",
-            ],
-            &mut out,
-        );
-        if rc.code != 0 {
-            return Err(rc);
-        }
-        Ok(String::from_utf8_lossy(&out)
-            .lines()
-            .filter_map(|l| {
-                let mut w = l.split_whitespace();
-                Some(OpenPrRef {
-                    number: w.next()?.parse().ok()?,
-                    head_ref: w.next()?.into(),
-                    head_sha: w.next()?.into(),
-                })
-            })
-            .collect())
-    }
-}
-
-/// `gh <args>` for the test seam; its answer in `out`.
-fn gh(args: &[&str], out: &mut Vec<u8>) -> StepRc {
-    use std::process::{Command, Stdio};
-    match crate::spawn::output_retrying(Command::new("gh").args(args).stdin(Stdio::null())) {
-        Ok(o) => {
-            out.extend_from_slice(&o.stdout);
-            StepRc::from_stderr(code_of(o.status), &String::from_utf8_lossy(&o.stderr))
-        }
-        Err(e) => StepRc::from_stderr(127, &format!("cannot run gh: {e}")),
+    fn open_prs(&mut self, _repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
+        Ok(Vec::new())
     }
 }
 

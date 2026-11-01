@@ -92,7 +92,8 @@ pub struct Parsed {
     pub ci_mode: bool,
     pub gate: bool,
     pub no_board: bool,
-    /// The test seam: ask this binary for the board (`crewboard status --json`).
+    /// The test seam: ask this binary for the board (`crewboard status --json`). Only a build
+    /// with debug assertions uses it.
     pub crewboard: Option<String>,
     pub config_dir: Option<String>,
     pub initiative: Option<String>,

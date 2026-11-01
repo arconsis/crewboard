@@ -34,6 +34,22 @@ The fake `crewboard` of the suites reached the binary through the hidden test op
 `CREWBOARD_WAKE_OS` and `CREWBOARD_RETRY_DELAYS`. Most Rust tests replace them with the fake
 GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock and process traits.
 
+## The test seams after the port
+
+| Seam | Used by the Rust tests | Now |
+|---|---|---|
+| `lock --crewboard BIN` | `component/agent_env`, the probe tests of `src/ops/lock_cmd` | read only by a build with debug assertions |
+| `monitor --crewboard BIN` | `component/agent_env`, `src/ops/monitor` | read only by a build with debug assertions |
+| `agent add --crewboard BIN` | `component/agent_add` | read only by a build with debug assertions |
+| `CREWBOARD_WAKE_OS` | `component/wake_install`, `component/agent_add` | read only by a build with debug assertions |
+| `HOST_LOCK_HOST` | `component/lock_*`, `tests/repeat_cli` | read only by a build with debug assertions |
+| the `gh` calls of `wake --crewboard BIN` | none | removed: through the seam the wake knows no PR |
+| `wake --crewboard BIN` (and the `hook --crewboard BIN` that it passes on) | `component/wake_lock`, `component/fake_wake` | unchanged: named in `docs/design/spec/cli.md`; `wake install --crewboard` is the binary of the wrapper |
+| `--wake-cmd`, `CREWBOARD_WAKE_CMD` | `src/wake/cmd_tests`, `component/wake_*`, `component/fake_wake` | unchanged: named in the guide of the unattended Claude wake |
+| `HOST_LOCK_PS_CMD`, `HOST_LOCK_PARENT_CMD` | `component/lock_*`, `tests/repeat_cli` | unchanged: named in `lock --help` and `docs/reference/cli.md` |
+| `HOST_LOCK_BOARD_TTL` | none | unchanged: named in `lock --help` and `docs/reference/cli.md` |
+| `CREWBOARD_RETRY_DELAYS` | `src/wake/cmd_tests/values` | unchanged: the default of `--retry-delays`; it runs nothing |
+
 ## test-loops.sh
 
 | Case | What the case asserted | Status | Rust tests | Note |

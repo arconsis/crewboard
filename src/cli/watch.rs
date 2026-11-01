@@ -239,8 +239,8 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
         json,
     };
     let mut out = std::io::stdout();
-    let code = match m.crewboard.as_deref() {
-        Some(bin) if !ops::lock_cmd::is_this_binary(bin) => {
+    let code = match ops::lock_cmd::test_seam(m.crewboard.as_deref()) {
+        Some(bin) => {
             let (before, after) = watch_command_args(cli, &w);
             let mut cycle = Subprocess {
                 bin: bin.to_string(),

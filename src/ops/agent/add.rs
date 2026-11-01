@@ -6,7 +6,8 @@
 //! no token goes into it. The end is the one next step: for a start, the command to paste on its own line.
 //!
 //! The steps that talk to GitHub run in this process. With the hidden option `--crewboard BIN`
-//! (a test seam) `join`, `start` and the crew id lookup go through another binary instead. `start` always runs as a child of a crewboard binary: it
+//! (a test seam that only a build with debug assertions reads) `join`, `start` and the crew id
+//! lookup go through another binary instead. `start` always runs as a child of a crewboard binary: it
 //! checks the working directory and the PATH of the agent, so it needs its own process.
 
 use super::install_wake::{self, Installer, WakeSpec};
@@ -967,9 +968,7 @@ fn plan(a: &AddArgs, coordinator: bool) -> Result<Plan, Early> {
 
 /// The other binary of the test seam, when there is one.
 fn seam_bin(p: &Plan) -> Option<&str> {
-    p.seam
-        .as_deref()
-        .filter(|b| !crate::ops::lock_cmd::is_this_binary(b))
+    crate::ops::lock_cmd::test_seam(p.seam.as_deref())
 }
 
 /// The binary that runs `start` (and `join` with the seam): the seam, else this one.
