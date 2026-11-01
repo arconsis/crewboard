@@ -221,11 +221,10 @@ pub fn is_automation(login: &str) -> bool {
         .eq_ignore_ascii_case(AUTOMATION_LOGIN)
 }
 
-/// The actor of the last `project_v2_item_status_changed` event in a timeline page. `None`: the
-/// page has no such event.
-pub fn last_status_actor(timeline: &Value) -> Option<String> {
+/// The actor of the last `project_v2_item_status_changed` event of a timeline. `None`: the
+/// timeline has no such event.
+pub fn last_status_actor(timeline: &[Value]) -> Option<String> {
     timeline
-        .as_array()?
         .iter()
         .rev()
         .find(|e| e.get("event").and_then(Value::as_str) == Some("project_v2_item_status_changed"))
@@ -233,26 +232,19 @@ pub fn last_status_actor(timeline: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Did GitHub automation make the last `Status` change of this issue? One REST call
-/// (`GET /repos/{r}/issues/{n}/timeline`, 100 events). `Ok(None)`: it cannot tell, because the
-/// page has no status event or the timeline has more than 100 events (the newest are on a later
-/// page, and crewboard reads one page only).
+/// Did GitHub automation make the last `Status` change of this issue? One timeline read, every
+/// page (100 events each). `Ok(None)`: it cannot tell, because the timeline has no status event
+/// or is cut at `MAX_PAGES` pages (the newest events are on the pages that were not read).
 pub fn automation_changed_status(
     client: &Client,
     repo: &str,
     issue: u64,
 ) -> Result<Option<bool>, GhError> {
-    let r = client.get(&format!(
-        "{}/issues/{issue}/timeline?per_page=100",
-        crate::board::repo_path(repo).map_err(|e| GhError::Shape(e.to_string()))?
-    ))?;
-    if !r.body.is_array() {
-        return Err(GhError::Shape("issue timeline is not an array".into()));
-    }
-    if r.link_next.is_some() {
+    let t = crate::github::api::issues::timeline(client, repo, issue)?;
+    if t.truncated {
         return Ok(None);
     }
-    Ok(last_status_actor(&r.body).map(|a| is_automation(&a)))
+    Ok(last_status_actor(&t.items).map(|a| is_automation(&a)))
 }
 
 #[cfg(test)]
@@ -387,17 +379,17 @@ mod tests {
 
     #[test]
     fn the_last_status_change_names_the_actor() {
-        let t = json!([
-            {"event": "project_v2_item_status_changed", "actor": {"login": "crew-account"}},
-            {"event": "commented", "actor": {"login": "someone"}},
-            {"event": "project_v2_item_status_changed", "actor": {"login": "github-project-automation[bot]"}},
-            {"event": "labeled", "actor": {"login": "crew-account"}},
-        ]);
+        let t = [
+            json!({"event": "project_v2_item_status_changed", "actor": {"login": "crew-account"}}),
+            json!({"event": "commented", "actor": {"login": "someone"}}),
+            json!({"event": "project_v2_item_status_changed", "actor": {"login": "github-project-automation[bot]"}}),
+            json!({"event": "labeled", "actor": {"login": "crew-account"}}),
+        ];
         assert_eq!(
             last_status_actor(&t).as_deref(),
             Some("github-project-automation[bot]")
         );
-        assert_eq!(last_status_actor(&json!([{"event": "commented"}])), None);
-        assert_eq!(last_status_actor(&json!({"message": "x"})), None);
+        assert_eq!(last_status_actor(&[json!({"event": "commented"})]), None);
+        assert_eq!(last_status_actor(&[]), None);
     }
 }

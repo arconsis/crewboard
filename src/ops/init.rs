@@ -21,6 +21,7 @@ use crate::config::{
 };
 use crate::ctx::decode_contents;
 use crate::error::{CbError, CbResult};
+use crate::github::api::issues::{self, IssueSummary, State};
 use crate::github::projects;
 use crate::github::{Client, GhError, is_already_exists};
 use crate::rules::fields::Field;
@@ -391,32 +392,24 @@ fn find_registry_issue(
     a: &InitArgs<'_>,
     main: &str,
     title: &str,
-) -> CbResult<Option<Value>> {
+) -> CbResult<Option<IssueSummary>> {
     let remembered = std::fs::read_to_string(cd.board_config_path(a.initiative))
         .ok()
         .and_then(|t| BoardConfig::parse(&t).ok())
         .filter(|c| c.initiative == a.initiative && c.main_repo() == main)
         .map(|c| c.registry_issue);
     if let Some(n) = remembered
-        && let Ok(r) = client.get(&format!("{}/issues/{n}", repo_path(main)?))
-        && r.body.get("title").and_then(Value::as_str) == Some(title)
-        && r.body.get("state").and_then(Value::as_str) == Some("open")
+        && let Ok(i) = issues::get(client, main, n)
+        && i.title == title
+        && i.open
     {
-        return Ok(Some(r.body));
+        return Ok(Some(i));
     }
-    let issues = client.get(&format!(
-        "{}/issues?labels=crew:registry&state=open&per_page=100",
-        repo_path(main)?
-    ))?;
-    Ok(issues
-        .body
-        .as_array()
-        .ok_or_else(|| GhError::Shape("issue list is not an array".into()))?
-        .iter()
-        .find(|i| {
-            i.get("pull_request").is_none() && i.get("title").and_then(Value::as_str) == Some(title)
-        })
-        .cloned())
+    Ok(
+        issues::list_labelled(client, main, "crew:registry", State::Open)?
+            .into_iter()
+            .find(|i| i.title == title),
+    )
 }
 
 /// Finds or creates the registry issue. Returns its number, its node id and whether it is locked.
@@ -430,18 +423,8 @@ fn ensure_registry_issue(
     let title = format!("Crew registry - {}", a.initiative);
     let (number, node, locked) = match find_registry_issue(client, cd, a, main, &title)? {
         Some(i) => {
-            rep.line(format!(
-                "registry issue #{}: exists",
-                i.get("number").and_then(Value::as_u64).unwrap_or(0)
-            ));
-            (
-                i.get("number").and_then(Value::as_u64).unwrap_or(0),
-                i.get("node_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                i.get("locked").and_then(Value::as_bool).unwrap_or(false),
-            )
+            rep.line(format!("registry issue #{}: exists", i.number));
+            (i.number, i.node_id, i.locked)
         }
         None => {
             let r = client.post(
@@ -1056,7 +1039,6 @@ pub fn ensure_views(
     let fields = projects::rest_fields(client, &base, board.number)?;
     let id_of = |n: &str| -> Option<u64> {
         fields
-            .as_array()?
             .iter()
             .find(|f| f.get("name").and_then(Value::as_str) == Some(n))
             .and_then(|f| f.get("id").and_then(Value::as_u64))

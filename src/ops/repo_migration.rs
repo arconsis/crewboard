@@ -12,7 +12,7 @@ use crate::config::BoardConfig;
 use crate::ctx::{Global, fetch_authority_text, new_client};
 use crate::error::CbResult;
 use crate::feed;
-use crate::github::paging::{MAX_PAGES, Paged, paged};
+use crate::github::api::issues::{self, State};
 use crate::github::{Client, GhError};
 use crate::protocol::former::{FormerRepo, under_name, verify_with_former};
 use crate::protocol::header::Message;
@@ -254,31 +254,11 @@ pub fn render(
 
 /// The numbers of the ticket issues of one repo: all open ones, and the newest closed ones.
 fn ticket_issues(client: &Client, repo: &str) -> Result<(Vec<u64>, Vec<u64>), GhError> {
-    let numbers = |paged: &Paged| -> Result<Vec<u64>, GhError> {
-        Ok(paged
-            .items("issue list")?
-            .into_iter()
-            .filter(|i| i.get("pull_request").is_none())
-            .filter_map(|i| i.get("number").and_then(serde_json::Value::as_u64))
-            .collect())
-    };
-    let open = paged(
-        client,
-        &format!("repos/{repo}/issues?labels={WORK_LABEL}&state=open&per_page=100"),
-        MAX_PAGES,
-    )?
-    .complete(&format!("open ticket issues of {repo}"))?;
+    let numbers = |list: Vec<issues::IssueSummary>| list.into_iter().map(|i| i.number).collect();
+    let open = issues::list_labelled(client, repo, WORK_LABEL, State::Open)?;
     // The closed list is a sample: one page, newest change first.
-    let closed = paged(
-        client,
-        &format!(
-            "repos/{repo}/issues?labels={WORK_LABEL}&state=closed&sort=updated&direction=desc&per_page={CLOSED_SAMPLE}"
-        ),
-        1,
-    )?;
-    let mut closed = numbers(&closed)?;
-    closed.truncate(CLOSED_SAMPLE);
-    Ok((numbers(&open)?, closed))
+    let closed = issues::newest_closed(client, repo, WORK_LABEL, CLOSED_SAMPLE)?;
+    Ok((numbers(open), numbers(closed)))
 }
 
 /// Read the board config, AUTHORITY.md and the issues, and print the table.

@@ -18,6 +18,7 @@ use super::new::{adopt_info, check_new_ticket, precheck_assign};
 use super::{Me, load_world_cached, me_of, post, to_agent};
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
+use crate::github::api::issues::{self, State};
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::{Kind, Re};
@@ -312,25 +313,13 @@ fn find_split_issue(
     old_key: &str,
     title: &str,
 ) -> CbResult<Option<u64>> {
-    let r = ac.ctx.client.get(&format!(
-        "repos/{repo}/issues?state=open&labels=crew%3Awork&per_page=100"
-    ))?;
-    let list = r.body.as_array().ok_or_else(|| {
-        CbError::config(
-            "the issue list of GitHub is not a JSON array; cannot look for an earlier split",
-        )
-    })?;
+    let list = issues::list_labelled(&ac.ctx.client, repo, WORK_LABEL, State::Open)?;
     let back = format!("Split from: {old_key}");
     Ok(list
         .iter()
-        .filter(|i| i.get("pull_request").is_none())
-        .filter(|i| i["title"].as_str().map(str::trim) == Some(title.trim()))
-        .filter(|i| {
-            i["body"]
-                .as_str()
-                .is_some_and(|b| b.lines().any(|l| l.trim() == back))
-        })
-        .filter_map(|i| i["number"].as_u64())
+        .filter(|i| i.title.trim() == title.trim())
+        .filter(|i| i.body.lines().any(|l| l.trim() == back))
+        .map(|i| i.number)
         .min())
 }
 
