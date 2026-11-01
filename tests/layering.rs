@@ -504,6 +504,72 @@ fn allow_list_is_sorted() {
     );
 }
 
+/// The paths in the code of the binary (`src/`) that name a lower crate (`host_lock`,
+/// `crewboard_protocol`) directly. The edge check reads `crate::<module>` only, so such a path
+/// would pass by the layer rules. The re-exports in `src/lib.rs` and `src/base.rs` are the only
+/// places that may name these crates; everything else goes through `crate::lock`,
+/// `crate::clock`, `crate::protocol` and so on. Comment lines are skipped. A field or variable
+/// named `host_lock` is no path (no `::` follows it).
+fn lower_crate_paths(file: &str, text: &str) -> Vec<String> {
+    let path = Regex::new(
+        r"(?:^|[^.\w])(?:host_lock|crewboard_protocol)\s*::|\buse\s+(?:::)?(?:host_lock|crewboard_protocol)\b",
+    )
+    .unwrap();
+    let reexport = ["src/lib.rs", "src/base.rs"].contains(&file);
+    text.lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim_start().starts_with("//"))
+        .filter(|(_, l)| path.is_match(l))
+        .filter(|(_, l)| {
+            let l = l.trim_start();
+            !(reexport && (l.starts_with("pub use ") || l.starts_with("pub(crate) use ")))
+        })
+        .map(|(i, l)| format!("{file}:{}: {}", i + 1, l.trim()))
+        .collect()
+}
+
+#[test]
+fn the_binary_names_the_lower_crates_only_through_the_re_exports() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut scanned = 0;
+    let mut bad = Vec::new();
+    for file in source_files().into_iter().filter(|f| f.tree.root.is_none()) {
+        let rel = file
+            .path
+            .strip_prefix(base)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        scanned += 1;
+        bad.extend(lower_crate_paths(
+            &rel,
+            &fs::read_to_string(&file.path).unwrap(),
+        ));
+    }
+    assert!(scanned > 100, "too few files of src/ scanned: {scanned}");
+    assert!(
+        bad.is_empty(),
+        "name the module through the re-export (crate::clock, crate::lock, crate::protocol, ...):\n{}",
+        bad.join("\n")
+    );
+}
+
+#[test]
+fn the_crate_name_check_sees_a_planted_path() {
+    let planted = "use crewboard_protocol::names::Kind;\n\
+                   fn f() -> i64 { host_lock::clock::now_epoch() }\n\
+                   use ::host_lock as hl;\n\
+                   // host_lock::clock in a comment\n\
+                   pub host_lock: Vec<PathBuf>,\n\
+                   let n = a.host_lock.iter().count();\n";
+    let hits = lower_crate_paths("src/domain/planted.rs", planted);
+    assert_eq!(hits.len(), 3, "{hits:?}");
+    // The re-exports of lib.rs and base.rs pass; the same line elsewhere does not.
+    let reexport = "pub use host_lock::clock;\npub(crate) use host_lock as lock;\n";
+    assert!(lower_crate_paths("src/lib.rs", reexport).is_empty());
+    assert_eq!(lower_crate_paths("src/ops/x.rs", reexport).len(), 2);
+}
+
 #[test]
 fn no_new_module_edges() {
     let allowed: BTreeSet<(String, String)> = ALLOWED
