@@ -200,8 +200,9 @@ impl fmt::Display for Re {
 
 /// Is `y-mo-d h:mi:se` a time that exists on the calendar (UTC)? A leap second (`se` 60) does not
 /// count: the clocks of GitHub and of crewboard never show one, and `2026-02-31` must not roll
-/// over to 3 March. The one check behind both timestamp parsers (`clock::parse_ts`,
-/// `protocol::names::Timestamp`).
+/// over to 3 March. The check behind [`Timestamp::parse`]. The clock of the crate `host-lock`
+/// keeps a copy for `clock::parse_ts`, because neither crate depends on the other;
+/// `tests/calendar_copies.rs` of the binary keeps the two equal.
 pub fn valid_civil_time(y: u32, mo: u32, d: u32, h: u32, mi: u32, se: u32) -> bool {
     let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let days = match mo {
