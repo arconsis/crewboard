@@ -8,8 +8,8 @@ use super::fsmeta::mtime_epoch;
 use super::judge::{self, Judgement};
 use super::owner::sibling;
 use super::snapshot::Snapshot;
-use crate::base::ignore::best_effort_cleanup;
 use crate::clock::Clock;
+use crate::ignore::best_effort_cleanup;
 use std::path::{Path, PathBuf};
 
 /// A guard older than this belongs to a dead taker.

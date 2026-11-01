@@ -6,7 +6,7 @@
 use super::fsmeta::mtime_epoch;
 use super::owner::{field, sibling};
 use super::procs::Procs;
-use crate::base::ignore::best_effort_cleanup;
+use crate::ignore::best_effort_cleanup;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -115,7 +115,7 @@ pub fn unregister(dir: &Path, owner: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lock::procs::FakeProcs;
+    use crate::procs::FakeProcs;
     use std::time::{Duration, UNIX_EPOCH};
 
     const NOW: i64 = 1_792_836_000;

@@ -37,8 +37,8 @@ This checks types, names and lints. It does not link or run anything. The C buil
 needs no object code. Set `CC_x86_64_pc_windows_msvc` to a shell script that writes an empty file
 for its `-o` argument and exits 0. Set `AR_x86_64_pc_windows_msvc` to one that writes an empty file
 for its `-out:` argument. Or install a real MinGW toolchain and use `x86_64-pc-windows-gnu`.
-The `dead_code` lint is off on non-Unix hosts (`src/lib.rs`), because the wake and lock engines have
-no command there.
+The `dead_code` lint is off on non-Unix hosts (`src/lib.rs`, `crates/host-lock/src/lib.rs`),
+because the wake and lock engines have no command there.
 
 The shell tests (see "Test tiers", item 3) need no built binary. Run them when you change
 `install.sh` or anything under `scripts/`:

@@ -1,7 +1,7 @@
 //! The board check in process, end to end against a fake GitHub: a lock whose owner agent the board
 //! says is dead or has left is stale. The probe is `ops::status::agent_rows`, the same rows that
 //! `crewboard status --json` prints. The scripted
-//! probe cases are unit tests in `src/lock/board.rs`.
+//! probe cases are unit tests in `crates/host-lock/src/board.rs`.
 #![cfg(unix)]
 
 use crate::support::cli::crew;

@@ -1,13 +1,31 @@
 # Architecture
 
-This page maps the code in `src/` and shows how data moves in one cycle. The behaviour is defined in
+This page maps the code in `src/` and `crates/` and shows how data moves in one cycle. The behaviour is defined in
 the [specification](spec/README.md). The module comments in each file name the spec section they
 implement, in the short form `spec/<file>#<anchor>` (for `docs/design/spec/<file>.md#<anchor>`).
 
-crewboard is one binary (`src/main.rs`) on top of a library (`src/lib.rs`). The library holds all
-modules, so the integration tests in `tests/` can reach them. Only `cli` and `exit` (used by the
-binary) and the modules that the integration tests need are `pub`, and those are `#[doc(hidden)]`:
-they are not a supported API. The others are `pub(crate)`, so rustc reports dead code in them.
+crewboard is one binary (`src/main.rs`) on top of a library (`src/lib.rs`), in a Cargo workspace
+with two library crates below it:
+
+```text
+  crewboard (src/: main, lib, every module below that is not in a crate)
+     |                         \
+  crewboard-protocol           host-lock
+  (crates/crewboard-protocol:  (crates/host-lock: the lock, and the host seams
+   the wire; sha2, ssh-key)     clock, spawn, fsutil, ignore; libc)
+```
+
+The two crates depend on no crate of the workspace (`tests/layering.rs` checks their manifests),
+so they build in parallel and Cargo stops them from importing the rest. `src/lib.rs` re-exports
+them under the module names they had (`protocol`, `lock`, `clock`, `fsutil`, `spawn`,
+`base::ignore`), so the code and the tests name them as before.
+
+The library holds the other modules, so the integration tests in `tests/` can reach them. Only
+`cli` and `exit` (used by the binary) and the modules that the integration tests need are `pub`,
+and those are `#[doc(hidden)]`: they are not a supported API. The others are `pub(crate)`, so
+rustc reports dead code in them. In the two crates, everything that the binary uses is `pub`, and
+rustc does not report an unused `pub` item there; the modules that only the crate uses stay
+private.
 
 ## Layers
 
@@ -67,9 +85,9 @@ refusal ids.
 - `crates/crewboard-protocol/src/former.rs`: former names of the main repo with a cutoff, so old signatures still verify after a move.
 - `crates/crewboard-protocol/src/replay.rs`: the replay window inside one issue.
 - `src/base/ids.rs`: the catalog of refusal ids. A `Refusal` names its rule with a `RuleId` of this catalog, so a misspelt id does not compile. The [refusal ids](../reference/refusals.md) page is generated from it.
-- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`, and `TicketRef`: one ticket as repo and number, printed `owner/repo#n`, compared with the repo in lower case), and `base/ignore.rs` with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
+- `src/base.rs`: base types (`Role`, `Actor`, `Refusal`, `Verdict`, `GhError`, and `TicketRef`: one ticket as repo and number, printed `owner/repo#n`, compared with the repo in lower case), and `base::ignore` (`crates/host-lock/src/ignore.rs`) with the named reasons to drop a result on purpose (`best_effort_output`, `best_effort_cleanup`, `child_may_have_ended`). Every module may import it. It imports nothing.
 - `src/secrets.rs`: secret scan for every signed post and `ticket new`. It reports the kind and the line, never the secret.
-- `src/clock.rs`: UTC time as `YYYY-MM-DDTHH:MM:SSZ`, without a time crate.
+- `crates/host-lock/src/clock.rs` (`clock`): UTC time as `YYYY-MM-DDTHH:MM:SSZ`, without a time crate. It keeps its own copy of the calendar rule of `protocol::names`; `tests/calendar_copies.rs` keeps the two equal.
 
 ### Rules
 
@@ -110,11 +128,11 @@ modules on the `ops` list of `tests/layering.rs`.
 - Board config refresh: `board_refresh.rs` (`start` re-reads `.crewboard.toml` from the default branch).
 - Agent and crew admin: `lifecycle.rs` (`pause`, `resume`, `stop`), `force_stop.rs` (`stop --force`), `profile.rs`, `prune.rs`, `report_status.rs`.
 - Local checks: `doctor.rs` (`doctor`: the headless scope and the branch protection), `repo_migration.rs` (`doctor --repo-move`, a read-only dry run).
-- Host tools: `lock_cmd.rs` (`crewboard lock`: the environment and the board probe for `src/lock/`), `repeat_cmd.rs` (`crewboard repeat`: runs a command N times, `src/repeat/` judges), `skill_cmd.rs` (`skill install`, `skill path`), `update_cmd.rs` (`crewboard update`: replace the binary, then `skill install`).
+- Host tools: `lock_cmd.rs` (`crewboard lock`: the environment and the board probe for `crates/host-lock/`), `repeat_cmd.rs` (`crewboard repeat`: runs a command N times, `src/repeat/` judges), `skill_cmd.rs` (`skill install`, `skill path`), `update_cmd.rs` (`crewboard update`: replace the binary, then `skill install`).
 
 ### Host lock and repeat
 
-- `src/lock/`: the host lock, a directory with an owner file that a dead agent cannot hold. It imports only `base`, `clock`, `fsutil` and `spawn`.
+- `crates/host-lock/` (`lock`): the host lock, a directory with an owner file that a dead agent cannot hold. Inside the crate it imports only `clock`, `fsutil`, `ignore` and `spawn`.
   - `mod.rs` (the lock), `run.rs` (the dispatch, `--pid runner`, `run`), `args.rs` (the command line, exit 64), `help.rs`, `log.rs` (log and answer lines).
   - `owner.rs` (the owner file, a public contract), `snapshot.rs` (all disk reads), `fsmeta.rs` (change time), `judge.rs` (is the lock stale; pure), `takeover.rs` (one atomic winner).
   - `procs.rs` (process facts behind a trait), `board.rs` (the board probe trait: owner dead or gone), `ci.rs` (CI first), `sys.rs` (signals, new session).
@@ -150,7 +168,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/items.rs`: the type and parser of project items read by id. It imports only `base`.
 - `src/feed.rs`: comment IO. The per-repo feed, one issue's comments, posting (`post_once_safely`) and deleting.
 - `src/comments.rs`: the comment type as read from the REST feed.
-- `src/spawn.rs`: start a child process and retry on "Text file busy".
+- `crates/host-lock/src/spawn.rs` (`spawn`): start a child process and retry on "Text file busy".
 
 ### Events, state and liveness
 
@@ -176,7 +194,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/config/` (`board.rs`, `agent.rs`, `dir.rs`, `keys.rs`): `.crewboard.toml` (board config), `<config-dir>/<initiative>.toml` (agent config) and the key folder.
 - `src/agent_env.rs`: the env file of an agent (`agent.env`) and the agent token in it. It imports `base`, `error` and `fsutil`.
 - `src/state.rs`: the local state file `<config-dir>/state/<initiative>.<agent>.json`. It imports `base`, `clock`, `comments`, `error`, `events` and `fsutil`.
-- `src/fsutil.rs`: private-mode check, atomic writes, executable checks. It imports `base` and `clock`.
+- `crates/host-lock/src/fsutil.rs` (`fsutil`): private-mode check, atomic writes, executable checks. It imports `ignore` and `clock`.
 - `src/skill_embed.rs`: the skill files that `build.rs` embeds, with their SHA-256 and version line. It imports no crate module.
 - `src/toolchain.rs`, `src/agent_gh.rs`: checks of `start` for build tools and for the identity of the agent's own `gh`.
 - `src/error.rs`, `src/exit.rs`: one error type, mapped to the exit codes.

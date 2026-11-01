@@ -49,7 +49,7 @@ The command needs a Unix host (macOS or Linux); on another platform it refuses w
    (exit 2). A `crewboard ...` command line of the model cannot set the variables, because the
    allowlist matches only commands that start with `crewboard`. The other subcommands (`take`,
    `release`, `status`, `break`, `ci-*`) stay allowed.
-8. Proof: the Rust tests in `src/lock/` (the stale rules on fake time and processes) and
+8. Proof: the Rust tests in `crates/host-lock/src/` (the stale rules on fake time and processes) and
    `tests/component/lock_*.rs` (the binary on a temp dir; the test names start with the case id, for
    example `h3b_a_live_pid_of_another_user_is_alive`), both directions, including 8 concurrent
    takers on a free and on a stale lock.
@@ -87,7 +87,7 @@ is a process, so its descendants can be told that the lock is held for them.
    the lock with `crewboard lock`, or it treats `CREWBOARD_HOST_LOCK` equal to its own lock dir
    as "already held by my caller".
 6. Proof: the re-entrancy tests (`tests/component/lock_reentry.rs`, real process chains, and the
-   fake process table in `src/lock/run.rs`).
+   fake process table in `crates/host-lock/src/run.rs`).
    Each check was broken by hand once to see its test fail.
 
 ## Repeated runs of a Gate
@@ -144,7 +144,7 @@ the agent's load.
 4. **repeat.** Before each run `crewboard repeat` checks CI like `ci-status`. It pauses with a log line and
    goes on when CI is gone (`--ci-poll`, default 10 s). After `--ci-max-wait` (default 3600 s)
    it stops with exit 3. The evidence block notes each pause. `--no-ci-check` turns it off.
-5. Proof: tests H11 to H16 (`src/lock/`, `tests/component/lock_ci.rs`,
+5. Proof: tests H11 to H16 (`crates/host-lock/src/`, `tests/component/lock_ci.rs`,
    `tests/component/lock_judge.rs`), G9 (`tests/repeat_cli.rs`), and P5c and P5d of the wake lock
    (`src/wake/lockdir.rs`, `tests/component/wake_lock.rs`).
 
@@ -176,7 +176,7 @@ the lock was still held. With `pid=0` no taker can prove the holder dead, so the
    unavailable: no agent config dir ...`. `take` and `run` print nothing for this case, so a poll
    loop does not repeat it. No state file keeps the "once": one `status` call is one process and
    prints the line once.
-6. Proof: tests E1 to E6f (`src/lock/`, `src/ops/lock_cmd.rs`, `tests/component/lock_cli.rs`,
+6. Proof: tests E1 to E6f (`crates/host-lock/src/`, `src/ops/lock_cmd.rs`, `tests/component/lock_cli.rs`,
    `tests/component/lock_judge.rs`, `tests/component/lock_board.rs`).
 
 ## Foreign holder: a lock without an owner file
@@ -207,7 +207,7 @@ jobs then ran together.
    name order. Control characters are removed and the text is cut to 120 characters. A directory
    entry instead of a file is shown as `foreign holder: <name> (not a regular file)`.
 4. **Release.** `release` refuses a foreign holder (exit 3), as for any lock of another owner.
-5. Proof: tests F1 to F6b (`src/lock/judge.rs`, `src/lock/snapshot.rs`, `tests/component/lock_cli.rs`,
+5. Proof: tests F1 to F6b (`crates/host-lock/src/judge.rs`, `crates/host-lock/src/snapshot.rs`, `tests/component/lock_cli.rs`,
    `tests/component/lock_judge.rs`). `crewboard wake` keeps its own
    lock dir rule (pid file); this change does not touch it.
 
@@ -241,7 +241,7 @@ every taker for 5.5 hours, and a CI job waited its full 20 minutes and then went
    names the same agent and host. Only a stale takeover removes it.
 5. **Valid files keep their rules.** For a valid owner file the clock is `started_epoch`, never the
    file mtime, and all rules of the sections above hold.
-6. Proof: tests O1 to O6 (`src/lock/judge.rs`, `src/lock/owner.rs`, `tests/component/lock_cli.rs`,
+6. Proof: tests O1 to O6 (`crates/host-lock/src/judge.rs`, `crates/host-lock/src/owner.rs`, `tests/component/lock_cli.rs`,
    `tests/component/lock_judge.rs`), both directions. Each check was broken by hand once to see its
    test fail.
 

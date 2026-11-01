@@ -5,31 +5,54 @@
 //! Layout on disk (the public contract for CI steps, docs/guides/ci-and-host-lock.md):
 //! `<dir>`, `<dir>/owner`, `<dir>.takeover`, `<dir>.waiting/<name>`, `<dir>.stale.*`, `<dir>.rel.*`.
 //!
-//! The logic imports nothing from the rest of the crate but `clock`. The board check is a trait
-//! (`board::BoardProbe`); `ops::lock_cmd` builds the real one. Time and processes sit behind
-//! `Clock` and `procs::Procs`, so the rules run in a test without a sleep.
+//! This crate depends on no other crate of the workspace. The board check is a trait
+//! (`board::BoardProbe`); `ops::lock_cmd` of the binary builds the real one. Time and processes
+//! sit behind `Clock` and `procs::Procs`, so the rules run in a test without a sleep.
+//!
+//! The crate also holds the host seams that the lock needs and that the binary shares with it:
+//! `clock` (the wall clock and UTC time), `spawn` (child processes), `fsutil` (atomic writes,
+//! modes) and `ignore` (named reasons to drop a result). The binary re-exports them under the
+//! same names, and this crate as `lock`.
+
+// The test code of the crate: a test fails by panic and may wait for real processes.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        clippy::disallowed_methods,
+    )
+)]
+// A host without Unix process control builds the lock but has no command that reaches it
+// (`lock` refuses there), so its items look unused. Dead code stays a hard error on Unix.
+#![cfg_attr(not(unix), allow(dead_code))]
 
 pub mod args;
 pub mod board;
 pub mod ci;
+pub mod clock;
 #[cfg(unix)]
-pub mod detach;
+mod detach;
 mod exit;
 pub mod fsmeta;
+pub mod fsutil;
 pub mod help;
-pub mod judge;
+pub mod ignore;
+mod judge;
 pub mod log;
 pub mod owner;
 pub mod procs;
 pub mod result;
 pub mod run;
-pub mod snapshot;
+mod snapshot;
+pub mod spawn;
 #[cfg(unix)]
 pub mod sys;
 pub mod takeover;
 
-use crate::base::ignore::best_effort_cleanup;
 use crate::clock::{Clock, format_ts};
+use crate::ignore::best_effort_cleanup;
 use board::BoardCheck;
 pub use exit::LockExit;
 use judge::{Judgement, Rules};
@@ -357,7 +380,7 @@ impl<'a> Session<'a> {
 
     /// Is the lock held by this agent on this host, with a valid owner file? Never an invalid
     /// owner file.
-    pub(super) fn owns(&self, snap: &Snapshot) -> bool {
+    pub(crate) fn owns(&self, snap: &Snapshot) -> bool {
         snap.is_valid()
             && snap.owner_field("agent") == Some(self.opts.owner.as_str())
             && snap.owner_field("host") == Some(self.host.as_str())

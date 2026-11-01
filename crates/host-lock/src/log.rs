@@ -2,8 +2,8 @@
 //! `--log FILE`: `<UTC ts> host-lock: <text>`. The prefix `host-lock:` stays (the CI steps and the
 //! wake wrapper grep for it). An answer line goes to stdout. A test collects both in memory.
 
-use crate::base::ignore::best_effort_output;
 use crate::clock::{Clock, format_ts};
+use crate::ignore::best_effort_output;
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;

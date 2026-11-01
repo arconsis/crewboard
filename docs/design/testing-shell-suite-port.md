@@ -18,15 +18,16 @@ Status:
   which).
 - **obsolete**: the case tested a driver script or the fake of the suite, not the binary.
 
-A note **unit level** means that only unit tests (`src/...`) make the assertions: the shell case
+A note **unit level** means that only unit tests (`src/...`, `crates/.../src/...`) make the assertions: the shell case
 ran the binary, the Rust tests run the same code in process with fakes (a scripted board, a fake
 clock or process table). The status says whether those tests make every assertion of the case.
 
 Count by case id (a case that ran once per runtime or per value is one id): `test-loops.sh` 152
 ids, `test-locks.sh` 144 ids. Of the 296: 200 existing, 70 new, 16 new assertion, 10 obsolete.
 
-Paths: `component/x` is `tests/component/x.rs`, `tests/x` is `tests/x.rs`, `src/...` is the unit
-test module of that file (`src/wake/cmd_tests/*` are the tests of `src/wake/cmd.rs`).
+Paths: `component/x` is `tests/component/x.rs`, `tests/x` is `tests/x.rs`, `src/...` and
+`crates/<crate>/src/...` are the unit test module of that file (`src/wake/cmd_tests/*` are the
+tests of `src/wake/cmd.rs`).
 
 The fake `crewboard` of the suites reached the binary through the hidden test option
 `--crewboard BIN` (`wake`, `hook`, `lock`, `monitor`, `agent add`) and the variables
@@ -214,67 +215,67 @@ GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock an
 |---|---|---|---|---|
 | H1 | free lock is taken, owner file complete | existing | `component/lock_cli::h1_a_free_lock_is_taken_and_the_owner_file_is_complete` |  |
 | H2 | held live lock refuses the second taker (75) | existing | `component/lock_cli::h2_a_live_lock_refuses_the_second_taker_with_75` |  |
-| H2b | --wait takes the lock after the owner releases | new | `component/lock_cli::h2b_wait_takes_the_lock_once_the_owner_releases_it`<br>`src/lock/run::h2b_wait_takes_the_lock_after_the_owner_releases` |  |
-| H3 | dead pid is taken over, one log line with owner and reason | existing | `src/lock/run::h3_a_dead_pid_is_taken_over_with_one_log_line`<br>`component/lock_cli::h3_a_dead_pid_is_taken_over_with_one_log_line` |  |
-| H3b | a live pid of another user is not stale (kill -0 EPERM) | existing | `component/lock_cli::h3b_a_live_pid_of_another_user_is_alive`<br>`src/lock/procs::eperm_a_live_pid_of_another_user_is_alive_for_the_real_procs` |  |
+| H2b | --wait takes the lock after the owner releases | new | `component/lock_cli::h2b_wait_takes_the_lock_once_the_owner_releases_it`<br>`crates/host-lock/src/run::h2b_wait_takes_the_lock_after_the_owner_releases` |  |
+| H3 | dead pid is taken over, one log line with owner and reason | existing | `crates/host-lock/src/run::h3_a_dead_pid_is_taken_over_with_one_log_line`<br>`component/lock_cli::h3_a_dead_pid_is_taken_over_with_one_log_line` |  |
+| H3b | a live pid of another user is not stale (kill -0 EPERM) | existing | `component/lock_cli::h3b_a_live_pid_of_another_user_is_alive`<br>`crates/host-lock/src/procs::eperm_a_live_pid_of_another_user_is_alive_for_the_real_procs` |  |
 | H4 | live pid but older than --max-age is taken over | new | `component/lock_judge::h4_a_live_pid_older_than_max_age_is_taken_over` |  |
-| H4b | live pid and young lock is NOT taken over | new | `component/lock_judge::h4_a_live_pid_older_than_max_age_is_taken_over`<br>`src/lock/judge::h4b_a_young_lock_with_a_live_pid_is_held` |  |
-| H5 | other host: a dead pid number is not judged (refused) | new | `component/lock_judge::h5_another_host_is_not_judged_by_its_pid_h5b_but_by_the_age_limit`<br>`src/lock/judge::h5_another_host_a_dead_looking_pid_is_not_judged` |  |
+| H4b | live pid and young lock is NOT taken over | new | `component/lock_judge::h4_a_live_pid_older_than_max_age_is_taken_over`<br>`crates/host-lock/src/judge::h4b_a_young_lock_with_a_live_pid_is_held` |  |
+| H5 | other host: a dead pid number is not judged (refused) | new | `component/lock_judge::h5_another_host_is_not_judged_by_its_pid_h5b_but_by_the_age_limit`<br>`crates/host-lock/src/judge::h5_another_host_a_dead_looking_pid_is_not_judged` |  |
 | H5b | other host: too old is taken over by the age limit | new | `component/lock_judge::h5_another_host_is_not_judged_by_its_pid_h5b_but_by_the_age_limit` |  |
-| H6 | release by a non-owner is refused (3), lock stays | existing | `component/lock_cli::h6_release_by_a_non_owner_other_host_and_owner`<br>`src/lock/run::h6_release_by_a_stranger_is_refused_by_the_owner_it_works` |  |
+| H6 | release by a non-owner is refused (3), lock stays | existing | `component/lock_cli::h6_release_by_a_non_owner_other_host_and_owner`<br>`crates/host-lock/src/run::h6_release_by_a_stranger_is_refused_by_the_owner_it_works` |  |
 | H6b | release from another host is refused (3) | existing | `component/lock_cli::h6_release_by_a_non_owner_other_host_and_owner` |  |
 | H6c | release by the owner removes the lock | existing | `component/lock_cli::h6_release_by_a_non_owner_other_host_and_owner` |  |
 | H7 | 8 concurrent takers on a free lock: exactly one wins | existing | `component/lock_cli::h7_eight_concurrent_takers_on_a_free_lock_exactly_one_wins` |  |
-| H7b | 8 takers on a stale lock: one holder, one takeover line | existing | `component/lock_cli::h7b_eight_takers_on_a_stale_lock_one_holder_one_takeover_line`<br>`src/lock/run::h7_a_takeover_guard_held_by_another_taker_stops_this_one_and_a_dead_taker_guard_goes` |  |
-| H8 | owner agent dead on the board: taken over | existing | `component/lock_board::h8_e2e_a_dead_owner_agent_on_the_board_is_taken_over_an_alive_one_is_not`<br>`src/lock/board::h8_dead_left_alive_and_unlisted` |  |
+| H7b | 8 takers on a stale lock: one holder, one takeover line | existing | `component/lock_cli::h7b_eight_takers_on_a_stale_lock_one_holder_one_takeover_line`<br>`crates/host-lock/src/run::h7_a_takeover_guard_held_by_another_taker_stops_this_one_and_a_dead_taker_guard_goes` |  |
+| H8 | owner agent dead on the board: taken over | existing | `component/lock_board::h8_e2e_a_dead_owner_agent_on_the_board_is_taken_over_an_alive_one_is_not`<br>`crates/host-lock/src/board::h8_dead_left_alive_and_unlisted` |  |
 | H8b | owner agent has left the board: taken over | existing | `component/lock_board::h8b_e2e_an_owner_agent_that_has_left_the_board_is_taken_over` |  |
 | H8c | owner agent alive on the board: NOT taken over | existing | `component/lock_board::h8_e2e_a_dead_owner_agent_on_the_board_is_taken_over_an_alive_one_is_not` |  |
 | H8d | owner agent not listed on the board: not judged | existing | `component/lock_board::h8d_e2e_an_owner_agent_that_the_board_does_not_list_is_not_judged` |  |
-| H8e | --no-board skips the board check | existing | `component/lock_board::h8_e2e_the_same_dead_owner_is_not_judged_with_no_board`<br>`src/lock/board::h8e_no_board_never_asks` |  |
-| H8f | board unreachable: skipped with a note, lock not stale | existing | `src/lock/board::h8f_an_unreachable_board_is_skipped_with_one_note`<br>`src/lock/board::a_failure_without_text_names_the_exit_code`<br>`src/lock/judge::h8_the_board_says_dead_or_left_is_stale_and_the_texts_are_the_old_ones` | unit level |
-| H8g | board cache: 5 or more polls, one status call | new | `src/lock/run::h8g_a_wait_of_many_polls_asks_the_board_once`<br>`src/lock/board::h8g_the_cache_gives_one_call_for_many_polls` | unit level |
-| H8h | 3 failures then ok: 1 skip note with cause, 1 works again | new | `src/lock/run::h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again`<br>`src/lock/board::h8h_three_failures_then_ok_give_one_skip_note_and_one_works_again` | unit level; the wait with a cache of 0 s runs on `Session`; `HOST_LOCK_BOARD_TTL` is removed |
-| H8h2 | board check failing: pid-dead takeover still works | existing | `src/lock/judge::h3_a_dead_pid_on_this_host_is_stale_a_live_one_is_held`<br>`src/lock/judge::the_pid_rule_comes_before_the_board` | unit level |
-| H8i | dead owner: taken over as board-dead, one status call | new | `src/lock/run::h8i_a_dead_owner_is_taken_over_as_board_dead_with_one_board_call` | unit level |
+| H8e | --no-board skips the board check | existing | `component/lock_board::h8_e2e_the_same_dead_owner_is_not_judged_with_no_board`<br>`crates/host-lock/src/board::h8e_no_board_never_asks` |  |
+| H8f | board unreachable: skipped with a note, lock not stale | existing | `crates/host-lock/src/board::h8f_an_unreachable_board_is_skipped_with_one_note`<br>`crates/host-lock/src/board::a_failure_without_text_names_the_exit_code`<br>`crates/host-lock/src/judge::h8_the_board_says_dead_or_left_is_stale_and_the_texts_are_the_old_ones` | unit level |
+| H8g | board cache: 5 or more polls, one status call | new | `crates/host-lock/src/run::h8g_a_wait_of_many_polls_asks_the_board_once`<br>`crates/host-lock/src/board::h8g_the_cache_gives_one_call_for_many_polls` | unit level |
+| H8h | 3 failures then ok: 1 skip note with cause, 1 works again | new | `crates/host-lock/src/run::h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again`<br>`crates/host-lock/src/board::h8h_three_failures_then_ok_give_one_skip_note_and_one_works_again` | unit level; the wait with a cache of 0 s runs on `Session`; `HOST_LOCK_BOARD_TTL` is removed |
+| H8h2 | board check failing: pid-dead takeover still works | existing | `crates/host-lock/src/judge::h3_a_dead_pid_on_this_host_is_stale_a_live_one_is_held`<br>`crates/host-lock/src/judge::the_pid_rule_comes_before_the_board` | unit level |
+| H8i | dead owner: taken over as board-dead, one status call | new | `crates/host-lock/src/run::h8i_a_dead_owner_is_taken_over_as_board_dead_with_one_board_call` | unit level |
 | H9 | run holds the lock, releases it, returns the exit code | existing | `component/lock_cli::h9_run_holds_the_lock_while_the_command_runs_releases_and_returns_its_code` |  |
 | H9b | run on a held live lock: CMD does not start (75) | existing | `component/lock_cli::h9b_run_on_a_held_live_lock_does_not_start_the_command_75` |  |
-| H10 | status: free=1, held=0, stale=2 | existing | `component/lock_cli::h10_status_free_is_1_held_is_0_stale_is_2`<br>`src/lock/run::h10_status_free_held_stale` |  |
-| H10b | status on a live lock: alive=yes and age= | existing | `component/lock_cli::h10b_status_on_a_live_lock_says_alive_and_age_a_dead_pid_is_stale_pid_dead`<br>`src/lock/judge::h10b_held_facts_say_alive_and_age` |  |
+| H10 | status: free=1, held=0, stale=2 | existing | `component/lock_cli::h10_status_free_is_1_held_is_0_stale_is_2`<br>`crates/host-lock/src/run::h10_status_free_held_stale` |  |
+| H10b | status on a live lock: alive=yes and age= | existing | `component/lock_cli::h10b_status_on_a_live_lock_says_alive_and_age_a_dead_pid_is_stale_pid_dead`<br>`crates/host-lock/src/judge::h10b_held_facts_say_alive_and_age` |  |
 | H10c | status on a dead-pid lock: exit 2, pid-dead | existing | `component/lock_cli::h10b_status_on_a_live_lock_says_alive_and_age_a_dead_pid_is_stale_pid_dead` |  |
 | H10d | break --if-dead on a live lock: exit 3, owner file unchanged | existing | `component/lock_cli::h10d_break_if_dead_on_a_live_lock_is_refused_3_and_the_owner_file_stays` |  |
 | H10e | break --if-dead on a dead-pid lock: removed, exit 0 | existing | `component/lock_cli::h10e_break_if_dead_on_a_dead_pid_removes_it_with_one_log_line_in_the_log_file` |  |
 | H10f | break --if-dead on a free dir: free, exit 0 | existing | `component/lock_cli::h10f_break_if_dead_on_a_free_dir_prints_free_0_h10g_without_if_dead_is_64` |  |
-| H10g | break without --if-dead: exit 64, lock stays | existing | `component/lock_cli::h10f_break_if_dead_on_a_free_dir_prints_free_0_h10g_without_if_dead_is_64`<br>`src/lock/args::h10g_break_needs_if_dead_and_if_dead_is_for_break_only` |  |
+| H10g | break without --if-dead: exit 64, lock stays | existing | `component/lock_cli::h10f_break_if_dead_on_a_free_dir_prints_free_0_h10g_without_if_dead_is_64`<br>`crates/host-lock/src/args::h10g_break_needs_if_dead_and_if_dead_is_for_break_only` |  |
 | H11 | FRESH empty lock dir is NOT taken over | new | `component/lock_judge::h11_a_fresh_empty_dir_is_not_taken_h11b_one_older_than_the_grace_is` |  |
 | H11b | empty lock dir older than the grace: taken, empty-after-grace | new | `component/lock_judge::h11_a_fresh_empty_dir_is_not_taken_h11b_one_older_than_the_grace_is` |  |
-| H12 | every takeover line names a reason from the list | new | `component/lock_cli::h7b_eight_takers_on_a_stale_lock_one_holder_one_takeover_line`<br>`component/lock_judge::h4_a_live_pid_older_than_max_age_is_taken_over`<br>`src/lock/judge::h12_every_reason_has_a_distinct_old_name` | the H3 and H7b lines in `component/lock_cli`; `one_takeover` in `component/lock_judge` checks the reason list on every takeover line there |
+| H12 | every takeover line names a reason from the list | new | `component/lock_cli::h7b_eight_takers_on_a_stale_lock_one_holder_one_takeover_line`<br>`component/lock_judge::h4_a_live_pid_older_than_max_age_is_taken_over`<br>`crates/host-lock/src/judge::h12_every_reason_has_a_distinct_old_name` | the H3 and H7b lines in `component/lock_cli`; `one_takeover` in `component/lock_judge` checks the reason list on every takeover line there |
 | H13 | Runner.Worker runs: agent does not take a free lock (76) | existing | `component/lock_ci::h13_a_running_runner_worker_keeps_an_agent_from_a_free_lock_76_without_ci_it_takes` |  |
 | H13b | no CI: the same take succeeds | existing | `component/lock_ci::h13_a_running_runner_worker_keeps_an_agent_from_a_free_lock_76_without_ci_it_takes` |  |
-| H13c | agent waits for Runner.Worker, then takes the lock | existing | `component/lock_ci::h13c_the_agent_waits_while_runner_worker_runs_and_goes_on_when_it_is_gone`<br>`src/lock/run::h13c_an_agent_waits_for_ci_and_then_takes` |  |
+| H13c | agent waits for Runner.Worker, then takes the lock | existing | `component/lock_ci::h13c_the_agent_waits_while_runner_worker_runs_and_goes_on_when_it_is_gone`<br>`crates/host-lock/src/run::h13c_an_agent_waits_for_ci_and_then_takes` |  |
 | H14 | waiting-list entry: agent refused (76) | existing | `component/lock_ci::h14_a_waiting_list_entry_blocks_an_agent_76_and_ci_status_says_so` |  |
 | H14b | ci-done: ci-status 0 then 1, agent takes the lock | existing | `component/lock_ci::h14b_ci_done_frees_it_ci_status_is_1_then_the_agent_takes_and_the_list_is_gone` |  |
 | H14c | old waiting-list entry is ignored | new | `component/lock_judge::h14c_an_entry_older_than_ci_max_age_is_ignored` |  |
 | H15 | CI take proceeds past waiting CI and Runner.Worker | new | `component/lock_judge::h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker_h15b_but_not_a_held_lock` |  |
-| H15b | CI take is blocked by a HELD lock (75), entry removed | new | `component/lock_judge::h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker_h15b_but_not_a_held_lock`<br>`src/lock/run::h15_a_ci_take_passes_waiting_ci_and_a_runner_but_a_held_lock_blocks_it` |  |
-| H15c | waiting CI take is on the list while it waits, then gets the lock | existing | `src/lock/run::h15c_a_waiting_ci_take_is_on_the_list_while_it_waits_then_gets_the_lock` | unit level |
-| H16 | no takeover of a stale lock while CI waits (76) | existing | `src/lock/run::h16_no_takeover_of_a_stale_lock_while_ci_waits_after_it_the_takeover_works` | unit level |
-| H16b | CI gone: the stale lock is taken over | existing | `src/lock/run::h16_no_takeover_of_a_stale_lock_while_ci_waits_after_it_the_takeover_works` | unit level |
+| H15b | CI take is blocked by a HELD lock (75), entry removed | new | `component/lock_judge::h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker_h15b_but_not_a_held_lock`<br>`crates/host-lock/src/run::h15_a_ci_take_passes_waiting_ci_and_a_runner_but_a_held_lock_blocks_it` |  |
+| H15c | waiting CI take is on the list while it waits, then gets the lock | existing | `crates/host-lock/src/run::h15c_a_waiting_ci_take_is_on_the_list_while_it_waits_then_gets_the_lock` | unit level |
+| H16 | no takeover of a stale lock while CI waits (76) | existing | `crates/host-lock/src/run::h16_no_takeover_of_a_stale_lock_while_ci_waits_after_it_the_takeover_works` | unit level |
+| H16b | CI gone: the stale lock is taken over | existing | `crates/host-lock/src/run::h16_no_takeover_of_a_stale_lock_while_ci_waits_after_it_the_takeover_works` | unit level |
 | H17 | --pid runner records the Runner.Worker pid | existing | `component/lock_cli::h17_pid_runner_records_the_worker_alive_blocks_killed_frees` |  |
 | H17b | Runner.Worker alive: an agent does not take the lock (75) | existing | `component/lock_cli::h17_pid_runner_records_the_worker_alive_blocks_killed_frees` |  |
 | H17c | Runner.Worker killed: the agent takes over (pid-dead) | new assertion | `component/lock_cli::h17_pid_runner_records_the_worker_alive_blocks_killed_frees` | the new owner after the takeover |
-| H17d | walk finds Runner.Worker behind a full-path comm | existing | `component/lock_cli::h17d_the_walk_finds_runner_worker_behind_a_full_path_comm_with_the_hook`<br>`src/lock/run::h17d_the_runner_walk_finds_the_worker_behind_a_full_path_comm`<br>`src/lock/procs::h17d_the_walk_line_gives_parent_and_name_with_a_full_path` |  |
-| H18 | --pid runner without a Runner.Worker ancestor: 64, nothing written | existing | `component/lock_cli::h18_pid_runner_without_a_runner_ancestor_is_64_and_writes_nothing_pid_0_works`<br>`src/lock/run::dispatch_take_without_a_runner_is_64_and_writes_nothing` |  |
+| H17d | walk finds Runner.Worker behind a full-path comm | existing | `component/lock_cli::h17d_the_walk_finds_runner_worker_behind_a_full_path_comm_with_the_hook`<br>`crates/host-lock/src/run::h17d_the_runner_walk_finds_the_worker_behind_a_full_path_comm`<br>`crates/host-lock/src/procs::h17d_the_walk_line_gives_parent_and_name_with_a_full_path` |  |
+| H18 | --pid runner without a Runner.Worker ancestor: 64, nothing written | existing | `component/lock_cli::h18_pid_runner_without_a_runner_ancestor_is_64_and_writes_nothing_pid_0_works`<br>`crates/host-lock/src/run::dispatch_take_without_a_runner_is_64_and_writes_nothing` |  |
 | H18b | --pid 0 still works as before | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid` |  |
 | R1 | nested run in run passes at once; the outer lock stays until the outer ends | existing | `component/lock_reentry::r1_a_nested_run_in_run_passes_at_once_and_the_outer_lock_stays` |  |
-| R2 | nested take under run: no second owner file; its release (any name) leaves the outer lock | existing | `component/lock_reentry::r2_a_nested_take_writes_no_second_owner_file_and_its_release_leaves_the_outer_lock`<br>`src/lock/run::r_re_entry_a_granted_ancestor_gets_the_lock_at_once_without_a_second_owner_file` |  |
-| R3 | a non-ancestor holder still blocks take (75) and release (3), env or not | existing | `component/lock_reentry::r3_a_holder_that_is_not_an_ancestor_still_blocks_take_75_and_release_3`<br>`src/lock/run::r3_a_non_ancestor_holder_blocks_even_when_the_environment_names_its_pid` |  |
+| R2 | nested take under run: no second owner file; its release (any name) leaves the outer lock | existing | `component/lock_reentry::r2_a_nested_take_writes_no_second_owner_file_and_its_release_leaves_the_outer_lock`<br>`crates/host-lock/src/run::r_re_entry_a_granted_ancestor_gets_the_lock_at_once_without_a_second_owner_file` |  |
+| R3 | a non-ancestor holder still blocks take (75) and release (3), env or not | existing | `component/lock_reentry::r3_a_holder_that_is_not_an_ancestor_still_blocks_take_75_and_release_3`<br>`crates/host-lock/src/run::r3_a_non_ancestor_holder_blocks_even_when_the_environment_names_its_pid` |  |
 | R4 | ancestor holder without a grant: 77 at once (take and run), message names the parent | existing | `component/lock_reentry::r4_an_ancestor_holder_without_a_grant_is_77_at_once_take_and_run_and_the_message_names_the_parent` |  |
 | R4b | release by the owner under an ancestor pid without a grant still frees the lock | existing | `component/lock_reentry::r4_an_ancestor_holder_without_a_grant_is_77_at_once_take_and_run_and_the_message_names_the_parent` |  |
 | R5 | run exports CREWBOARD_HOST_LOCK (resolved dir) and _PID (holder) to the child, not outside | existing | `component/lock_reentry::r5_run_exports_the_resolved_dir_and_the_holder_pid_to_its_child_and_only_there` |  |
 | R5b | take sets no variable in its caller | existing | `component/lock_reentry::r5_run_exports_the_resolved_dir_and_the_holder_pid_to_its_child_and_only_there` |  |
-| R6 | symlink and ../ spellings of the dir are the same lock (re-entry and nested release) | existing | `component/lock_reentry::r6_a_symlink_and_a_dotdot_spelling_of_the_dir_are_the_same_lock`<br>`src/lock/run::r6_a_symlink_spelling_of_the_dir_is_the_same_lock` |  |
+| R6 | symlink and ../ spellings of the dir are the same lock (re-entry and nested release) | existing | `component/lock_reentry::r6_a_symlink_and_a_dotdot_spelling_of_the_dir_are_the_same_lock`<br>`crates/host-lock/src/run::r6_a_symlink_spelling_of_the_dir_is_the_same_lock` |  |
 | R7 | run in run on two dirs: the inner child is granted its own dir (take under it passes) | existing | `component/lock_reentry::r7_the_grant_is_for_one_dir_the_inner_child_gets_its_own_dir_another_dir_held_by_an_ancestor_is_77` |  |
-| R7b | a lock of a DIFFERENT dir held by an ancestor is not covered by the outer grant (77) | existing | `src/lock/run::r7_the_grant_is_for_one_dir_another_dir_is_not_covered` | unit level |
+| R7b | a lock of a DIFFERENT dir held by an ancestor is not covered by the outer grant (77) | existing | `crates/host-lock/src/run::r7_the_grant_is_for_one_dir_another_dir_is_not_covered` | unit level |
 | H19 | ci-wait records the pid in the entry | new | `component/lock_judge::h19_an_entry_records_its_pid_a_dead_one_is_removed_a_live_one_blocks` |  |
 | H19b | entry with a dead pid does not block an agent, is removed | new | `component/lock_judge::h19_an_entry_records_its_pid_a_dead_one_is_removed_a_live_one_blocks` |  |
 | H19c | entry with a live pid blocks an agent (76) | new | `component/lock_judge::h19_an_entry_records_its_pid_a_dead_one_is_removed_a_live_one_blocks` |  |
@@ -319,9 +320,9 @@ GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock an
 | G9c | waiting-list entry pauses the loop; ci-done resumes it | existing | `tests/repeat_cli::a_waiting_list_entry_next_to_the_lock_pauses_the_gate` |  |
 | G9d | no CI: no pause | existing | `tests/repeat_cli::a_waiting_list_entry_next_to_the_lock_pauses_the_gate` |  |
 | G8 | bad --runs / missing --cmd -> 64 | existing | `tests/repeat_cli::bad_runs_and_missing_cmd_exit_64` |  |
-| E1 | take --pid 0 without --expect: 64, names run, no lock | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`src/lock/args::e1_pid_zero_needs_expect_on_take` |  |
-| E1b | take --pid 0 --expect 1: taken, expect=1 in the owner file | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`src/lock/args::e1_pid_zero_needs_expect_on_take` |  |
-| E1c | take with a pid needs no --expect (no expect= line) | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`src/lock/args::e1_pid_zero_needs_expect_on_take` |  |
+| E1 | take --pid 0 without --expect: 64, names run, no lock | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`crates/host-lock/src/args::e1_pid_zero_needs_expect_on_take` |  |
+| E1b | take --pid 0 --expect 1: taken, expect=1 in the owner file | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`crates/host-lock/src/args::e1_pid_zero_needs_expect_on_take` |  |
+| E1c | take with a pid needs no --expect (no expect= line) | existing | `component/lock_cli::e1_pid_0_needs_expect_names_run_and_writes_no_lock_recorded_with_it_not_needed_with_a_pid`<br>`crates/host-lock/src/args::e1_pid_zero_needs_expect_on_take` |  |
 | E2 | expect 1, 290 s old: still held (status 0, take 75) | new | `component/lock_judge::e2_expect_1_is_held_for_290_s_and_overdue_after_310_s` |  |
 | E2b | expect 1, 310 s old: stale (overdue), taken over | new | `component/lock_judge::e2_expect_1_is_held_for_290_s_and_overdue_after_310_s` |  |
 | E3 | pid=0 without expect=, 2000 s old: held (old rule) | new | `component/lock_judge::e3_pid_0_without_expect_keeps_the_age_rule_and_a_judged_pid_is_never_overdue` |  |
@@ -329,30 +330,30 @@ GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock an
 | E3c | live pid with expect=1, 5000 s old: not overdue (pid judged) | new | `component/lock_judge::e3_pid_0_without_expect_keeps_the_age_rule_and_a_judged_pid_is_never_overdue` |  |
 | E3d | other host with expect=1, 5000 s old: overdue | new | `component/lock_judge::e3_pid_0_without_expect_keeps_the_age_rule_and_a_judged_pid_is_never_overdue` |  |
 | E4 | status: pid=0 note and overdue by 5 min | new | `component/lock_judge::e4_status_names_pid_0_and_how_late_the_job_is` |  |
-| E4b | wait message: both warnings | existing | `src/lock/run::e4b_the_wait_message_carries_the_pid0_and_overdue_notes` | unit level |
+| E4b | wait message: both warnings | existing | `crates/host-lock/src/run::e4b_the_wait_message_carries_the_pid0_and_overdue_notes` | unit level |
 | E4c | before expect: the pid=0 note, no overdue | new | `component/lock_judge::e4_status_names_pid_0_and_how_late_the_job_is` |  |
 | E4d | a real pid: no pid=0 note | new | `component/lock_judge::e4_status_names_pid_0_and_how_late_the_job_is` |  |
 | E5 | --expect 90, 90s, 30m, 2h records expect=the seconds | existing | `component/lock_cli::e5b_bad_durations_are_64_and_leave_nothing_behind` |  |
-| E5b | bad durations (2d, soon, m): 64 | existing | `component/lock_cli::e5b_bad_durations_are_64_and_leave_nothing_behind`<br>`src/lock/args::e5b_bad_durations_are_usage_errors` |  |
+| E5b | bad durations (2d, soon, m): 64 | existing | `component/lock_cli::e5b_bad_durations_are_64_and_leave_nothing_behind`<br>`crates/host-lock/src/args::e5b_bad_durations_are_usage_errors` |  |
 | E6 | CREWBOARD_CONFIG_DIR: crewboard --config-dir <dir> status | new | `component/lock_board::e6_the_config_dir_variable_reaches_the_board_check` |  |
 | E6b | --config-dir beats the variable; --initiative is passed | new | `component/lock_board::e6b_the_config_dir_option_beats_the_variable_and_the_initiative_is_used` |  |
 | E6c | neither set: no --config-dir argument | existing | `component/lock_board::e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavailable_once`<br>`src/ops/lock_cmd::e6c_neither_set_gives_no_config_dir_argument` | the argument line of the stub is the shape of the `lock --crewboard` seam |
-| E6d | no config: status says 'unavailable' once, no failure note | existing | `component/lock_board::e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavailable_once`<br>`src/lock/board::e6d_no_config_status_says_unavailable_once_and_no_failure_note` |  |
-| E6e | no config: take and wait stay silent about it | existing | `src/lock/board::e6e_no_config_take_and_wait_stay_silent` | unit level |
+| E6d | no config: status says 'unavailable' once, no failure note | existing | `component/lock_board::e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavailable_once`<br>`crates/host-lock/src/board::e6d_no_config_status_says_unavailable_once_and_no_failure_note` |  |
+| E6e | no config: take and wait stay silent about it | existing | `crates/host-lock/src/board::e6e_no_config_take_and_wait_stay_silent` | unit level |
 | E6f | with the config dir the board check works: board-dead takeover | new | `component/lock_board::e6_the_config_dir_variable_reaches_the_board_check`<br>`component/lock_board::e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavailable_once` |  |
 | DT1 | detach: returns at once, job holds the lock, owner has its pid | existing | `component/lock_detach::dt1_detach_returns_at_once_the_job_holds_the_lock_with_its_pid_and_detached_1` |  |
 | DT1b | detached lock: another taker gets 75, status says detached | existing | `component/lock_detach::dt1_detach_returns_at_once_the_job_holds_the_lock_with_its_pid_and_detached_1` |  |
 | DT2 | detach: result file rc=5 end= log=, lock released | existing | `component/lock_detach::dt1_detach_returns_at_once_the_job_holds_the_lock_with_its_pid_and_detached_1` |  |
 | DT2b | detach --ticket --sha: result file has ticket= and sha= | existing | `component/lock_detach::dt2b_ticket_and_sha_add_their_lines_the_first_line_stays` |  |
-| DT2c | --ticket needs digits and --detach | existing | `component/lock_detach::dt2c_ticket_needs_digits_and_detach`<br>`src/lock/args::dt2c_ticket_needs_digits_and_detach_sha_needs_alphanumerics` |  |
+| DT2c | --ticket needs digits and --detach | existing | `component/lock_detach::dt2c_ticket_needs_digits_and_detach`<br>`crates/host-lock/src/args::dt2c_ticket_needs_digits_and_detach_sha_needs_alphanumerics` |  |
 | DT3 | killed wake: detached job and its lock stay | existing | `component/lock_detach::dt3_a_kill_of_the_caller_group_leaves_the_job_and_its_lock_the_job_ends_later` |  |
 | DT3b | the job finishes after the wake: result rc=0, lock released | existing | `component/lock_detach::dt3_a_kill_of_the_caller_group_leaves_the_job_and_its_lock_the_job_ends_later` |  |
-| DT4 | --detach without --result / --result without --detach -> 64 | existing | `component/lock_cli::dt4_detach_and_result_go_together_64`<br>`src/lock/args::dt4_detach_and_result_go_together_and_only_with_run` |  |
+| DT4 | --detach without --result / --result without --detach -> 64 | existing | `component/lock_cli::dt4_detach_and_result_go_together_64`<br>`crates/host-lock/src/args::dt4_detach_and_result_go_together_and_only_with_run` |  |
 | DT6 | release by a stranger: exit 3, lock complete | existing | `component/lock_cli::dt6_release_by_a_stranger_is_3_and_the_lock_is_complete` |  |
-| GT1 | CI job runs: plain run -> 76, run --gate runs the job | existing | `component/lock_ci::gt1_a_ci_job_runs_plain_run_is_76_run_gate_runs_the_job`<br>`src/lock/run::gt1_a_gate_skips_the_ci_wait_but_a_held_lock_still_blocks_it` |  |
+| GT1 | CI job runs: plain run -> 76, run --gate runs the job | existing | `component/lock_ci::gt1_a_ci_job_runs_plain_run_is_76_run_gate_runs_the_job`<br>`crates/host-lock/src/run::gt1_a_gate_skips_the_ci_wait_but_a_held_lock_still_blocks_it` |  |
 | GT2 | --gate still waits for a held lock (75) | existing | `component/lock_ci::gt2_gate_still_waits_for_a_held_lock_75` |  |
 | GT3 | --gate --detach skips the CI wait | existing | `component/lock_ci::gt3_gate_with_detach_skips_the_ci_wait` |  |
 | GT4 | --detach without --gate waits for CI first (76) | existing | `component/lock_ci::gt4_detach_without_gate_waits_for_ci_first_76_nothing_started` |  |
 | OP1 | release --wait: exit 64, the lock stays | existing | `component/lock_cli::op1_to_op3_an_option_that_does_not_apply_is_64_the_lock_stays` |  |
 | OP2 | status --pid: exit 64 | existing | `component/lock_cli::op1_to_op3_an_option_that_does_not_apply_is_64_the_lock_stays` |  |
-| OP3 | break --reason: exit 64, the lock stays | existing | `src/lock/args::op1_to_op3_an_option_that_does_not_apply_is_refused_with_its_name` | unit level |
+| OP3 | break --reason: exit 64, the lock stays | existing | `crates/host-lock/src/args::op1_to_op3_an_option_that_does_not_apply_is_refused_with_its_name` | unit level |

@@ -2,8 +2,8 @@
 # A plain `cargo test`, `cargo clippy` or `cargo doc` at the root covers every member
 # (`default-members`); CI also passes `--workspace`.
 [workspace]
-members = [".", "crates/crewboard-protocol"]
-default-members = [".", "crates/crewboard-protocol"]
+members = [".", "crates/crewboard-protocol", "crates/host-lock"]
+default-members = [".", "crates/crewboard-protocol", "crates/host-lock"]
 resolver = "3"
 
 # Every crate shares this version. `build.yml` and `scripts/maintainer/release-macos.sh` read the
@@ -19,6 +19,7 @@ authors = ["arconsis IT-Solutions GmbH"]
 
 [workspace.dependencies]
 crewboard-protocol = { path = "crates/crewboard-protocol" }
+host-lock = { path = "crates/host-lock" }
 base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"] }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
@@ -61,6 +62,7 @@ categories = ["command-line-utilities", "development-tools"]
 base64.workspace = true
 clap.workspace = true
 crewboard-protocol.workspace = true
+host-lock.workspace = true
 flate2.workspace = true
 regex.workspace = true
 reqwest.workspace = true
@@ -71,11 +73,14 @@ ssh-key.workspace = true
 tar.workspace = true
 toml.workspace = true
 
-# kill(2), getppid and the signal handlers of `crewboard lock run`; std has no call for them.
+# Signals, process groups and the terminal of the wake, `repeat` and `agent token`; std has no
+# call for them.
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]
+# `clock::FakeClock` for the unit tests of ops and wake.
+host-lock = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 
 [profile.release]

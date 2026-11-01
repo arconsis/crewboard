@@ -4,7 +4,7 @@
 use super::args::{Cmd, Parsed, PidArg, RunCtx};
 use super::{LockExit, Session};
 #[cfg(unix)]
-use crate::base::ignore::best_effort_output;
+use crate::ignore::best_effort_output;
 
 /// The nearest `Runner.Worker` process among this process and its parents.
 pub fn runner_pid(s: &Session) -> Option<u32> {
@@ -190,11 +190,11 @@ fn spawn_error_text(e: &std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::BoardCheck;
     use crate::clock::{Clock, FakeClock};
-    use crate::lock::board::BoardCheck;
-    use crate::lock::log::Log;
-    use crate::lock::procs::FakeProcs;
-    use crate::lock::{Grant, Opts};
+    use crate::log::Log;
+    use crate::procs::FakeProcs;
+    use crate::{Grant, Opts};
     use std::path::Path;
     use std::time::Duration;
 
@@ -469,7 +469,7 @@ mod tests {
         dir: &Path,
         o: Opts,
         rig: &Rig<'a>,
-        script: &'a crate::lock::board::tests::Script,
+        script: &'a crate::board::tests::Script,
         ttl: i64,
     ) -> Session<'a> {
         let mut s = session(dir, o, rig);
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn h8g_a_wait_of_many_polls_asks_the_board_once() {
-        use crate::lock::board::tests::{Script, agent};
+        use crate::board::tests::{Script, agent};
         let d = tempfile::tempdir().unwrap();
         let lock = d.path().join("l");
         plant(&lock, "alive@x", "hostA", "111", NOW);
@@ -502,8 +502,8 @@ mod tests {
 
     #[test]
     fn h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again() {
-        use crate::lock::board::ProbeError;
-        use crate::lock::board::tests::{Script, agent};
+        use crate::board::ProbeError;
+        use crate::board::tests::{Script, agent};
         let d = tempfile::tempdir().unwrap();
         let lock = d.path().join("l");
         plant(&lock, "alive@x", "hostA", "111", NOW);
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn h8i_a_dead_owner_is_taken_over_as_board_dead_with_one_board_call() {
-        use crate::lock::board::tests::{Script, agent};
+        use crate::board::tests::{Script, agent};
         let d = tempfile::tempdir().unwrap();
         let lock = d.path().join("l");
         plant(&lock, "own@x", "hostA", "111", NOW);
@@ -1267,7 +1267,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let lock = d.path().join("l");
         let mut s = session(&lock, opts("ci-n"), &rig);
-        let parsed = match crate::lock::args::parse(
+        let parsed = match crate::args::parse(
             &[
                 "take".into(),
                 lock.to_string_lossy().to_string(),
@@ -1278,7 +1278,7 @@ mod tests {
             ],
             &Default::default(),
         ) {
-            Ok(crate::lock::args::Parse::Run(p)) => *p,
+            Ok(crate::args::Parse::Run(p)) => *p,
             _ => panic!(),
         };
         assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 64);
