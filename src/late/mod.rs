@@ -671,8 +671,8 @@ pub trait Probe {
     fn branch_prefix(&self) -> String;
     /// Does a branch `<prefix><agent>/<issue>-...` exist?
     fn has_branch(&self, repo: &str, prefix: &str, agent: &str, issue: u64) -> Option<bool>;
-    /// The open PRs of the repo.
-    fn open_prs(&self, repo: &str) -> Option<Vec<OpenPr>>;
+    /// The open PR of the repo whose branch starts with `head_prefix`. `Some(None)`: none.
+    fn open_pr(&self, repo: &str, head_prefix: &str) -> Option<Option<OpenPr>>;
     /// The CI of the head (the judgement of 8.3 and 27). `None`: could not be read.
     fn ci_state(&self, repo: &str, pr: &OpenPr) -> Option<CiState>;
     /// `Some(Some(t))`: CI is green on the head since `t`. `Some(None)`: not green.
@@ -780,9 +780,7 @@ fn review_verdict(probe: &dyn Probe, r: &TicketRow, prefix: &mut Option<String>)
     };
     let prefix = prefix.get_or_insert_with(|| probe.branch_prefix());
     let want = format!("{prefix}{agent}/{}-", r.issue);
-    let current = probe
-        .open_prs(&r.repo)
-        .and_then(|prs| prs.into_iter().find(|p| p.head_ref.starts_with(&want)));
+    let current = probe.open_pr(&r.repo, &want).flatten();
     match current {
         Some(pr) if same_head(&head, &pr.head_sha) => Verdict::Verified(since),
         _ => Verdict::Unverified,
@@ -914,10 +912,10 @@ impl Scanner<'_> {
             return;
         }
         let want = format!("{prefix}{agent}/{}-", r.issue);
-        let Some(prs) = probe.open_prs(&r.repo) else {
+        let Some(found) = probe.open_pr(&r.repo, &want) else {
             return;
         };
-        let Some(pr) = prs.into_iter().find(|p| p.head_ref.starts_with(&want)) else {
+        let Some(pr) = found else {
             self.clear(r, Wait::Done);
             return;
         };
@@ -1200,10 +1198,7 @@ pub fn ci_scan(inp: &Inputs<'_>, probe: &dyn Probe) -> CiScan {
         let prefix = probe.branch_prefix();
         let want = format!("{prefix}{me}/{}-", r.issue);
         out.read = true;
-        let Some(pr) = probe
-            .open_prs(&r.repo)
-            .and_then(|v| v.into_iter().find(|p| p.head_ref.starts_with(&want)))
-        else {
+        let Some(pr) = probe.open_pr(&r.repo, &want).flatten() else {
             continue;
         };
         let seen = |case: &str| {

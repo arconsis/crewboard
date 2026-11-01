@@ -1407,6 +1407,35 @@ fn tick_tells_the_owner_nothing_of_a_passing_verify_it_cannot_compare_with_the_h
 }
 
 #[test]
+fn a_crew_pr_on_the_first_page_costs_one_list_read_however_many_pages_follow() {
+    let s = LateBoard::new("In Progress");
+    push_times(&s);
+    s.scene(|sc| {
+        sc.branch = true;
+        sc.pr_head = Some(SHA1.to_string());
+        sc.green_at = now_epoch();
+        sc.pr_list_has_page_2 = true;
+    });
+    let (v, o) = s.poll(&s.dev);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let finished = v["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "ci-finished")
+        .count();
+    assert_eq!(finished, 1, "{}", o.all());
+    let lists: Vec<String> = s
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "GET" && r.path.split('?').next().unwrap().ends_with("/pulls"))
+        .map(|r| r.path)
+        .collect();
+    assert_eq!(lists.len(), 1, "{lists:?}");
+    assert!(!lists[0].contains("page=2"), "{lists:?}");
+}
+
+#[test]
 fn the_ci_of_a_crew_pr_on_a_later_page_of_the_open_pr_list_is_seen() {
     let s = LateBoard::new("In Progress");
     push_times(&s);

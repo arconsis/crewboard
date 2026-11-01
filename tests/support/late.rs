@@ -34,6 +34,8 @@ pub struct Scene {
     pub fail: bool,
     /// The open PR list has two pages: another PR on page 1, the PR of the ticket on page 2.
     pub pr_on_page_2: bool,
+    /// The open PR list has two pages: the PR of the ticket on page 1, another PR on page 2.
+    pub pr_list_has_page_2: bool,
     /// The workflow runs of every head: `(status, conclusion)`. Empty: no CI at all.
     pub runs: Vec<(String, Option<String>)>,
 }
@@ -104,6 +106,14 @@ fn route(s: &Scene, base: &str, r: &Req) -> Option<Resp> {
             ));
             Some(resp)
         }
+        ("GET", ["", "repos", _, _, "pulls"])
+            if s.pr_list_has_page_2 && query.contains("page=2") =>
+        {
+            ok(
+                json!([{"number": 6, "head": {"ref": "feature/other", "sha": SHA2},
+                       "base": {"ref": "main"}}]),
+            )
+        }
         ("GET", ["", "repos", _, _, "pulls"]) => {
             let list: Vec<Value> = s
                 .pr_head
@@ -113,7 +123,14 @@ fn route(s: &Scene, base: &str, r: &Req) -> Option<Resp> {
                            "base": {"ref": "main"}})
                 })
                 .collect();
-            ok(json!(list))
+            let mut resp = Resp::json(200, &json!(list).to_string());
+            if s.pr_list_has_page_2 {
+                resp.headers.push((
+                    "link".into(),
+                    format!("<{base}{path}?{query}&page=2>; rel=\"next\""),
+                ));
+            }
+            Some(resp)
         }
         ("GET", ["", "repos", _, _, "contents", "AUTHORITY.md"]) => {
             Some(Resp::json(404, r#"{"message":"Not Found"}"#))
@@ -201,6 +218,7 @@ impl LateBoard {
             green_at: now_epoch() - 3600,
             fail: false,
             pr_on_page_2: false,
+            pr_list_has_page_2: false,
             runs: vec![("completed".into(), Some("success".into()))],
         }));
         let (board_base, sc) = (board.base(), scene.clone());
