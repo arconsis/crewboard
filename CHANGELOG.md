@@ -11,6 +11,9 @@ Fixed:
   a word. They now read every page (at most 50); a longer list is an error or a note, never a
   silent cut. The mark `(by GitHub automation)` now also works on a timeline of more than 100
   events.
+- **CI of a commit with more than 100 runs, check runs or statuses.** The CI judgement read one
+  page of each source, so a failure on a later page could be judged green. It now reads every
+  page; a source of more than 50 pages is unreadable, never green.
 
 Other:
 
