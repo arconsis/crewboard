@@ -320,14 +320,14 @@ fn find_pr(
     let mut repos: Vec<&String> = ac.ctx.cfg.repos.iter().collect();
     repos.sort_by_key(|x| **x != r.repo);
     for repo in repos {
-        for p in pulls::list_open(&ac.ctx.client, repo, Order::Created)? {
-            if is_ticket_branch(&p.head_ref, me, r.issue) {
-                return Ok(Some((
-                    format!("{repo}#{}", p.number),
-                    p.head_sha,
-                    p.base_ref,
-                )));
-            }
+        if let Some(p) = pulls::find_open(&ac.ctx.client, repo, Order::Created, |p| {
+            is_ticket_branch(&p.head_ref, me, r.issue)
+        })? {
+            return Ok(Some((
+                format!("{repo}#{}", p.number),
+                p.head_sha,
+                p.base_ref,
+            )));
         }
     }
     Ok(None)

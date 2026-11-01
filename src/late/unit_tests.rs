@@ -65,8 +65,13 @@ impl Probe for Fake {
         self.calls.set(self.calls.get() + 1);
         self.branch
     }
-    fn open_prs(&self, _: &str) -> Option<Vec<OpenPr>> {
-        Some(self.prs.clone())
+    fn open_pr(&self, _: &str, head_prefix: &str) -> Option<Option<OpenPr>> {
+        Some(
+            self.prs
+                .iter()
+                .find(|p| p.head_ref.starts_with(head_prefix))
+                .cloned(),
+        )
     }
     fn ci_state(&self, _: &str, _: &OpenPr) -> Option<CiState> {
         self.calls.set(self.calls.get() + 1);

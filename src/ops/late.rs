@@ -77,7 +77,8 @@ pub struct GhProbe<'a> {
     /// `AUTHORITY.md`, read once per run (`None` inside: missing or unreadable).
     authority: RefCell<Option<Option<crate::authority::Authority>>>,
     prefix: RefCell<Option<String>>,
-    prs: RefCell<BTreeMap<String, Option<Vec<OpenPr>>>>,
+    /// The open PR pages read in this run, per repo (`None`: the first page could not be read).
+    prs: RefCell<BTreeMap<String, Option<pulls::OpenPrPages>>>,
     green: RefCell<BTreeMap<String, i64>>,
     /// The CI state of the heads read in this run.
     states: RefCell<BTreeMap<String, Option<CiState>>>,
@@ -204,25 +205,24 @@ impl Probe for GhProbe<'_> {
         Some(!r.body.as_array()?.is_empty())
     }
 
-    fn open_prs(&self, repo: &str) -> Option<Vec<OpenPr>> {
-        if let Some(c) = self.prs.borrow().get(repo) {
-            return c.clone();
-        }
-        self.calls.set(self.calls.get() + 1);
-        let got = pulls::list_open(&self.ctx.client, repo, Order::Updated)
-            .ok()
-            .map(|list| {
-                list.into_iter()
-                    .map(|p| OpenPr {
-                        number: p.number,
-                        head_ref: p.head_ref,
-                        head_sha: p.head_sha,
-                        base_ref: p.base_ref,
-                    })
-                    .collect()
-            });
-        self.prs.borrow_mut().insert(repo.to_string(), got.clone());
-        got
+    fn open_pr(&self, repo: &str, head_prefix: &str) -> Option<Option<OpenPr>> {
+        let client = &self.ctx.client;
+        let mut prs = self.prs.borrow_mut();
+        let pages = prs.entry(repo.to_string()).or_insert_with(|| {
+            self.calls.set(self.calls.get() + 1);
+            pulls::OpenPrPages::first(client, repo, Order::Updated).ok()
+        });
+        let pages = pages.as_mut()?;
+        let before = pages.pages();
+        let found = pages.find(client, repo, |p| p.head_ref.starts_with(head_prefix));
+        let more = (pages.pages() - before) as u32;
+        self.calls.set(self.calls.get() + more);
+        Some(found.ok()?.map(|p| OpenPr {
+            number: p.number,
+            head_ref: p.head_ref,
+            head_sha: p.head_sha,
+            base_ref: p.base_ref,
+        }))
     }
 
     fn ci_state(&self, repo: &str, pr: &OpenPr) -> Option<CiState> {
