@@ -131,6 +131,13 @@ impl BoardProbe for SubprocessProbe {
     }
 }
 
+/// The seconds that one read of the board counts: `$HOST_LOCK_BOARD_TTL` when it is a number,
+/// else 60.
+#[cfg(unix)]
+fn board_ttl(var: Option<&str>) -> i64 {
+    var.and_then(|v| v.parse::<i64>().ok()).unwrap_or(60)
+}
+
 /// Is `bin` the binary that is running now? Then the work (the board check of `lock`, the
 /// `watch` of `monitor`) goes in process. A name without a directory is looked up on the PATH
 /// as a shell does (the first executable match).
@@ -311,9 +318,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
             })),
         }
     };
-    let ttl = env_nonempty("HOST_LOCK_BOARD_TTL")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(60);
+    let ttl = board_ttl(env_nonempty("HOST_LOCK_BOARD_TTL").as_deref());
     let host = lock_host_name();
     let board = BoardCheck::new(
         probe,
@@ -511,6 +516,14 @@ mod tests {
             argv_of(&argv),
             "--config-dir /x/optdir status --json --initiative i1"
         );
+    }
+
+    #[test]
+    fn h8h_the_board_ttl_variable_is_a_number_of_seconds_else_60() {
+        assert_eq!(board_ttl(Some("0")), 0);
+        assert_eq!(board_ttl(Some("5")), 5);
+        assert_eq!(board_ttl(Some("soon")), 60);
+        assert_eq!(board_ttl(None), 60);
     }
 
     #[test]

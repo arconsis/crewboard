@@ -108,11 +108,21 @@ fn h4_a_live_pid_older_than_max_age_is_taken_over() {
     );
     one_takeover(&o, "too-old");
     assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("new@x"));
+    // H4b: the same live pid with a young lock is held
+    r.plant("m", "old@x", HOST, r.live(), now());
+    let o = take(&r, "m", "new@x", &["--max-age", "3600"]);
+    assert_eq!(o.code, 75, "{}", o.all());
+    assert_eq!(owner_field(&r.p("m"), "agent").as_deref(), Some("old@x"));
 }
 
 #[test]
-fn h5b_another_host_that_is_too_old_is_taken_over_by_the_age_limit() {
+fn h5_another_host_is_not_judged_by_its_pid_h5b_but_by_the_age_limit() {
     let r = Rig::new();
+    // H5: a young lock of another host: its dead-looking pid is not judged
+    r.plant("m", "far@y", "hostB", dead_pid(), now());
+    let o = take(&r, "m", "new@x", &[]);
+    assert_eq!(o.code, 75, "{}", o.all());
+    assert_eq!(owner_field(&r.p("m"), "agent").as_deref(), Some("far@y"));
     r.plant("l", "far@y", "hostB", dead_pid(), now() - 100_000);
     let o = take(&r, "l", "new@x", &["--max-age", "3600"]);
     assert_eq!(o.code, 0, "{}", o.all());
@@ -153,7 +163,7 @@ fn h14c_an_entry_older_than_ci_max_age_is_ignored() {
 }
 
 #[test]
-fn h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker() {
+fn h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker_h15b_but_not_a_held_lock() {
     let r = Rig::new();
     let l = r.s("l");
     r.set_runner(true);
@@ -164,6 +174,11 @@ fn h15_a_ci_take_passes_a_waiting_entry_and_a_running_worker() {
     assert_eq!(o.code, 0, "{}", o.all());
     assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("ci-1"));
     assert!(!r.p("l.waiting/ci-1").exists());
+    // H15b: a second CI take waits for the held lock, gives 75 and leaves no entry
+    let o = take(&r, "l", "ci-2", &["--ci", "--wait", "1", "--poll", "0.3"]);
+    assert_eq!(o.code, 75, "{}", o.all());
+    assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("ci-1"));
+    assert!(!r.p("l.waiting/ci-2").exists());
 }
 
 #[test]

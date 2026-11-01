@@ -514,6 +514,44 @@ fn a_detached_job_that_ended_wakes_a_quiet_board_once() {
 }
 
 #[test]
+fn rs4_a_script_in_the_results_dir_is_no_result_and_a_real_result_still_wakes() {
+    let (fake, _c, b) = crew();
+    let st = tempfile::tempdir().unwrap();
+    let s = st.path();
+    let events = s.join("events.txt");
+    let _ = fake.poll_json(&b);
+    let results = s.join("results");
+    std::fs::create_dir_all(&results).unwrap();
+    std::fs::write(
+        results.join("239-chain.sh"),
+        "#!/bin/bash\nrun-chain 2>&1 | tee chain.log\nrc=${PIPESTATUS[0]}\nexit \"$rc\"\n",
+    )
+    .unwrap();
+    let wakes = s.join("wakes");
+    let cmd = format!("echo w >> '{}'", wakes.display());
+    let count = || {
+        std::fs::read_to_string(&wakes)
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    };
+    let o = events_wake(&fake, &b, s, &events, &cmd);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(count(), 0, "the script woke the agent: {}", o.all());
+    std::fs::write(
+        results.join("12.result"),
+        "rc=0 end=2026-10-21T10:00:00Z log=z.log\nticket=12\n",
+    )
+    .unwrap();
+    let o = events_wake(&fake, &b, s, &events, &cmd);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(count(), 1, "{}", o.all());
+    let text = std::fs::read_to_string(&events).unwrap();
+    assert!(text.contains("ticket 12 rc=0"), "{text}");
+    assert!(!text.contains("239-chain"), "{text}");
+    assert!(!results.join("239-chain.sh.seen").exists());
+}
+
+#[test]
 fn print_cmd_prints_the_command_and_starts_nothing() {
     let (fake, _c, b) = crew();
     let st = tempfile::tempdir().unwrap();

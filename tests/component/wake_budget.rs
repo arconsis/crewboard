@@ -355,10 +355,13 @@ fn tb10_a_budget_stop_of_a_lock_run_leaves_no_lock_dir() {
     let st = tempfile::tempdir().unwrap();
     let s = st.path();
     let hl = s.join("heavy.lock.d");
+    let started = s.join("started");
+    // the job leaves a marker only once it runs under the lock
     let cmd = format!(
-        "'{BIN}' lock run '{}' --holder '{}' --no-board -- sh -c 'sleep 300' & wait",
+        "'{BIN}' lock run '{}' --holder '{}' --no-board -- sh -c 'touch \"$1\"; sleep 300' sh '{}' & wait",
         hl.display(),
-        b.name
+        b.name,
+        started.display()
     );
     let o = wake_with_lock(&fake, &b, s, &hl, &["--wake-cmd", &cmd, "--max-wake", "3s"])
         // time for the run to pass the TERM on to its job and to release
@@ -366,6 +369,11 @@ fn tb10_a_budget_stop_of_a_lock_run_leaves_no_lock_dir() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(
+        started.exists(),
+        "the job ran under the lock: {}",
+        wake_log(s)
+    );
     assert!(
         !hl.exists(),
         "no lock dir is left, not even an empty one: {}",

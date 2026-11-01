@@ -835,7 +835,7 @@ fn b5f_a_changed_git_email_is_set_again_by_step_6() {
 }
 
 #[test]
-fn b6_usage_errors_exit_4_and_write_nothing() {
+fn b6_usage_errors_exit_64_and_write_nothing() {
     let s = Setup::new();
     let run = |args: &[&str]| {
         let a: Vec<String> = args.iter().map(|x| x.to_string()).collect();
