@@ -19,6 +19,13 @@ tests and the skill embed of `build.rs` all need it there.
 The two lower crates depend on no crate of the workspace. `tests/layering.rs` checks their
 manifests, and Cargo stops them from importing the rest. `src/lib.rs` re-exports them under their
 old module names, so `crate::protocol::...`, `crate::lock::...` and `crewboard::clock` stay valid.
+The code of the binary names the two crates only through these re-exports (`tests/layering.rs`),
+so the module rules of `ALLOWED` still see every edge.
+
+The lock and its seams are now `pub` items of a library crate. rustc does not report an unused
+`pub` item, so the dead-code check is gone for the public modules of `host-lock` (the protocol
+was `pub` before). Only the modules that the crate alone uses (`judge`, `snapshot`, `detach`,
+`exit`) are private and keep the check.
 
 The seams are in `host-lock` because the lock takes the clock of its caller
 (`Session.clock: &dyn Clock`), so the trait must exist once, below both. A dependency of

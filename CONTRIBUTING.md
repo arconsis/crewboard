@@ -235,4 +235,4 @@ green. The word check and the structure checks need no list and always run.
 
 On a host that several agents share, a heavy job (a build, a full test run) takes the host lock first,
 so it does not starve the others. See [docs/guides/ci-and-host-lock.md](docs/guides/ci-and-host-lock.md).
-The command is `crewboard lock` (`src/lock/`); It has no shell wrapper.
+The command is `crewboard lock` (`crates/host-lock/`); It has no shell wrapper.
