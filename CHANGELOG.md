@@ -2,6 +2,23 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Changed:
+
+- A release build ignores the two hidden test variables `CREWBOARD_TEST_GH_AUTH_TOKEN` (the
+  owner token of the component tests) and `CREWBOARD_TEST_HEARTBEAT_INTERVAL` (the heartbeat
+  interval of the sandbox and component tests). Only a build with debug assertions, as
+  `cargo test` makes, reads them. Neither was a user setting; only someone who ran these test
+  suites against a release binary relied on them.
+
+Other:
+
+- Internal: no behaviour change. The PR calls of the wake (`Steps::pr_head`,
+  `Steps::open_prs`) take and give typed values (`PrHead`, `OpenPrRef`, the PR number as a
+  number) instead of string tuples, and the tests of `wake/cmd.rs` are one file per topic in
+  `src/wake/cmd_tests/`.
+
 ## v0.8.2 (2026-11-01)
 
 Upgrade: run `crewboard update` on each host. A coordinator that stopped its watch because of
