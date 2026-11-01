@@ -3,7 +3,7 @@
 //! subcommand. It returns the raw exit code (0, 1, 2, 3, 64, 75, 76, 77, or that of CMD).
 //!
 //! The board check asks the board in process. The hidden test seam `--crewboard BIN` asks a stub
-//! binary through `BIN status --json` instead.
+//! binary through `BIN status --json` instead; only a build with debug assertions reads it.
 
 #[cfg(unix)]
 use crate::base::ignore::best_effort_output;
@@ -138,6 +138,13 @@ fn board_ttl(var: Option<&str>) -> i64 {
     var.and_then(|v| v.parse::<i64>().ok()).unwrap_or(60)
 }
 
+/// The binary of the hidden test option `--crewboard BIN` of `lock`, `monitor` and `agent add`:
+/// `bin` when it is another binary than this one, and only in a build with debug assertions (the
+/// builds of `cargo test`). A release build ignores the option and does the work in process.
+pub(crate) fn test_seam(bin: Option<&str>) -> Option<&str> {
+    bin.filter(|b| cfg!(debug_assertions) && !is_this_binary(b))
+}
+
 /// Is `bin` the binary that is running now? Then the work (the board check of `lock`, the
 /// `watch` of `monitor`) goes in process. A name without a directory is looked up on the PATH
 /// as a shell does (the first executable match).
@@ -213,12 +220,22 @@ pub fn ci_present(dir: &Path) -> Option<String> {
     }
 }
 
-/// The name of this host as the lock files record it (`$HOST_LOCK_HOST` for a test).
+/// The name of this host as the lock files record it. A test sets it with `$HOST_LOCK_HOST`,
+/// which only a build with debug assertions reads: the name decides which pids are judged.
 #[cfg(unix)]
 fn lock_host_name() -> String {
-    env_nonempty("HOST_LOCK_HOST")
+    test_host_name()
         .or_else(crate::lock::sys::short_hostname)
         .unwrap_or_else(|| "host".to_string())
+}
+
+/// `$HOST_LOCK_HOST` in a build with debug assertions; always `None` in a release build.
+#[cfg(unix)]
+fn test_host_name() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    env_nonempty("HOST_LOCK_HOST")
 }
 
 /// `lock run` starts a command. Under a scope (a headless config, the system scope file, or a wake
@@ -303,7 +320,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
     let probe: Option<Box<dyn BoardProbe>> = if p.no_board {
         None
     } else {
-        match p.crewboard.as_deref().filter(|b| !is_this_binary(b)) {
+        match test_seam(p.crewboard.as_deref()) {
             Some(bin) => Some(Box::new(SubprocessProbe {
                 bin: bin.to_string(),
                 config_dir: p.config_dir.clone(),
@@ -394,7 +411,7 @@ pub fn release_for(dir: &str, owner: &str) -> (i32, String) {
     use crate::lock::board::BoardCheck;
     use crate::lock::log::Log;
     use crate::lock::procs::SystemProcs;
-    use crate::lock::{Grant, Opts, Session, sys};
+    use crate::lock::{Grant, Opts, Session};
 
     let clock = SystemClock;
     let env = ArgEnv {
@@ -420,9 +437,7 @@ pub fn release_for(dir: &str, owner: &str) -> (i32, String) {
     };
     let log = Log::memory(&clock);
     let procs = SystemProcs;
-    let host = env_nonempty("HOST_LOCK_HOST")
-        .or_else(sys::short_hostname)
-        .unwrap_or_else(|| "host".to_string());
+    let host = lock_host_name();
     let board = BoardCheck::new(None, 60, false, false, &log);
     let mut s = Session {
         dir: p.dir.clone().into(),

@@ -13,7 +13,7 @@
 //! The loop takes a [`Cycle`], so a test scripts the cycles with no process and no sleep. The
 //! cycle of the command runs `watch` in process ([`InProcess`]). The hidden test seam
 //! `--crewboard BIN` runs another binary's `watch` instead ([`Subprocess`]) and reads its output,
-//! its stderr and its exit code.
+//! its stderr and its exit code; only a build with debug assertions reads it.
 
 use super::AgentCtx;
 use super::watch::{PollOpts, watch};
