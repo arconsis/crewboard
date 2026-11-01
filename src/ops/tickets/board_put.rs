@@ -7,10 +7,10 @@ use crate::clock::now_ts;
 use crate::ctx::AgentCtx;
 use crate::error::CbResult;
 use crate::ops::say::send_signed;
+use crate::protocol::acts::{info_body, info_body_adopting};
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::fields::Field;
 use crate::services::ticket_loader::IssueInfo;
-use crate::ticket::{info_body, info_body_adopting};
 
 /// An open PR that a new ticket adopts, after the checks of [`check_adoption`].
 pub(super) struct Adoption {

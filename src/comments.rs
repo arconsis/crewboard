@@ -10,6 +10,15 @@ use crate::protocol::replay::{Replay, check_window};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// The signed issue of a ticket. A repo without `/` gives an empty name, which no signature
+/// matches.
+impl From<&TicketRef> for IssueRef {
+    fn from(t: &TicketRef) -> Self {
+        let (owner, repo) = t.owner_and_name().unwrap_or((&t.repo, ""));
+        IssueRef::new(owner, repo, t.issue)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Comment {
     pub id: u64,

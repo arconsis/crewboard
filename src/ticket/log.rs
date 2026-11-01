@@ -7,11 +7,12 @@
 //! Pure: no reads, no writes.
 
 use crate::owner_cmd::{self, OwnerCommand};
+use crate::protocol::acts::parse_evidence;
 use crate::protocol::names::Kind;
 use crate::registry::{Registry, fingerprint};
 use crate::rules::Role;
 use crate::rules::status::Status;
-use crate::ticket::{Act, Sender, VMsg, parse_evidence};
+use crate::ticket::{Act, Sender, VMsg};
 
 /// The status that the log allows for a ticket.
 #[derive(Debug, Clone, PartialEq, Eq)]

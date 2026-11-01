@@ -198,6 +198,22 @@ impl fmt::Display for Re {
     }
 }
 
+/// Is `y-mo-d h:mi:se` a time that exists on the calendar (UTC)? A leap second (`se` 60) does not
+/// count: the clocks of GitHub and of crewboard never show one, and `2026-02-31` must not roll
+/// over to 3 March. The one check behind both timestamp parsers (`clock::parse_ts`,
+/// `protocol::names::Timestamp`).
+pub fn valid_civil_time(y: u32, mo: u32, d: u32, h: u32, mi: u32, se: u32) -> bool {
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+    let days = match mo {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&d) && h <= 23 && mi <= 59 && se <= 59
+}
+
 /// UTC timestamp in the exact form `YYYY-MM-DDTHH:MM:SSZ`. Stored as text because
 /// it is part of the signed canonical form and must round-trip byte for byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,7 +235,7 @@ impl Timestamp {
         }
         let n = |r: std::ops::Range<usize>| s[r].parse::<u32>().unwrap_or(99);
         let (y, mo, d, h, mi, se) = (n(0..4), n(5..7), n(8..10), n(11..13), n(14..16), n(17..19));
-        if !crate::base::valid_civil_time(y, mo, d, h, mi, se) {
+        if !valid_civil_time(y, mo, d, h, mi, se) {
             return bad(format!("timestamp '{s}' is out of range"));
         }
         Ok(Timestamp(s.to_string()))
@@ -283,7 +299,7 @@ mod tests {
             too_long.as_str(),
         ] {
             let e = AgentName::parse(bad).expect_err(bad);
-            assert_eq!(e.rule(), "malformed-message");
+            assert!(matches!(e, ProtocolError::Malformed(_)), "{e:?}");
         }
     }
 

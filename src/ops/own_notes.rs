@@ -632,7 +632,7 @@ mod tests {
             ),
             (
                 Kind::Info,
-                format!("{}x", merged_head("u", "s", "squash")),
+                merged_body("u", "s", "squash", "x", "b", None),
                 Some(NoteKind::Close),
             ),
             (

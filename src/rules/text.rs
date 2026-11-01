@@ -1,12 +1,8 @@
-//! Text helpers of the rules that other modules also need: the reference to an issue in a PR
-//! text and the `ci:` value of a local gate. They live here so that `rules` imports no module
-//! above it.
+//! Text helpers of the rules that other modules also need, such as the reference to an issue in
+//! a PR text. They live here so that `rules` imports no module above it.
 
 use regex::Regex;
 use std::sync::OnceLock;
-
-/// The `ci:` value of evidence that holds a local gate instead of a CI run.
-pub const LOCAL_GATE_CI: &str = "local-gate";
 
 /// A word for a POSIX shell: in single quotes; a single quote inside ends the quotes, adds
 /// an escaped quote and opens the quotes again. Every command line that crewboard prints for a

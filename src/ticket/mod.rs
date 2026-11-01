@@ -21,7 +21,7 @@ mod queue_order;
 mod rows;
 
 pub use crate::protocol::acts::{Act, kv};
-pub use crate::rules::text::{LOCAL_GATE_CI, body_field, body_fields};
+pub use crate::rules::text::{body_field, body_fields};
 pub use evidence::*;
 pub use messages::*;
 pub use queue_order::*;

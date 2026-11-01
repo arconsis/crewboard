@@ -19,12 +19,13 @@ use super::pr_read::{MergedPr, read_pr};
 use crate::error::CbResult;
 use crate::ops::AgentCtx;
 use crate::ops::Ctx;
+use crate::protocol::acts::{is_local_gate, parse_evidence};
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::evidence::parse_pr_url;
 use crate::rules::status::Status;
 use crate::services::ticket_loader::Ticket;
-use crate::ticket::{Act, Sender, kv, parse_evidence};
-use crate::ticket::{VMsg, is_local_gate, latest_done};
+use crate::ticket::{Act, Sender, kv};
+use crate::ticket::{VMsg, latest_done};
 
 /// The short marker that `crewboard status` prints.
 pub const MARKER: &str = "merged without verify";

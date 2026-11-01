@@ -5,6 +5,7 @@
 //! (`clippy.toml` disallows them everywhere else). `Instant::now` stays allowed where code
 //! measures the real elapsed time of a child process or of a poll loop; each such site says so.
 
+use crate::protocol::names::valid_civil_time;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn now_epoch() -> i64 {
@@ -195,7 +196,7 @@ pub fn parse_ts(s: &str) -> Option<i64> {
         n(17..19)?,
     );
     let small = |v: i64| u32::try_from(v).ok();
-    if !crate::base::valid_civil_time(
+    if !valid_civil_time(
         small(y)?,
         small(mo)?,
         small(d)?,

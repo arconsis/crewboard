@@ -18,7 +18,6 @@
 
 use crate::base::TicketRef;
 use crate::config::BoardConfig;
-use crate::protocol::acts::{LATE_KEY, LATE_PREFIX};
 use crate::rules::status::Status;
 use crate::ticket::TicketRow;
 use liveness::{DEAD_INTERVALS, LATE_INTERVALS, Liveness};
@@ -576,10 +575,12 @@ impl Late {
             Wait::Take | Wait::Push | Wait::Done => return None,
         };
         Some(format!(
-            "{LATE_PREFIX}{} {}\n{LATE_KEY}: {}\nsince: {since}\nnext: {next}\n{text}{detail}",
-            self.wait.word(),
-            self.subject_name(),
-            self.report_key(coordinator_since),
+            "{}since: {since}\nnext: {next}\n{text}{detail}",
+            crate::protocol::acts::late_head(
+                self.wait.word(),
+                &self.subject_name(),
+                &self.report_key(coordinator_since),
+            ),
         ))
     }
 

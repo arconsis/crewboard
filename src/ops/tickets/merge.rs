@@ -24,6 +24,7 @@ use crate::domain::ci::evaluate::CiRuns;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
 use crate::ops::{AgentCtx, parse_issue_arg};
+use crate::protocol::acts::{EvidenceMsg, is_local_gate};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Refusal;
 use crate::rules::evidence::{CiFacts, PrFacts, PrUrl, branch_ticket, parse_pr_url};
@@ -32,8 +33,7 @@ use crate::rules::status::{DoneReason, Status, Transition, check_status_transiti
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::ticket::{
-    EvidenceMsg, ci_none_declared, is_local_gate, latest_done, passed_coordinator_local_gate,
-    question_open, verify_result,
+    ci_none_declared, latest_done, passed_coordinator_local_gate, question_open, verify_result,
 };
 use serde_json::Value;
 use serde_json::json;
@@ -657,14 +657,24 @@ struct MergeSteps {
     branch: BranchStep,
     /// The label `needs-owner` goes with the close.
     clear_needs_owner: bool,
-    /// The notice to the dev agent, up to the merge commit and from it on.
-    notice: (String, String),
+    /// The local gates of the dev and of the coordinator that stood in for CI: the notice names
+    /// them (spec/ci#local-run-ci_mode-local).
+    local_gates: Option<(String, String)>,
 }
 
 impl MergeSteps {
     /// The text of the notice to the dev agent, once the merge commit is known.
     fn notice_body(&self, merge_sha: &str) -> String {
-        format!("{}{merge_sha}{}", self.notice.0, self.notice.1)
+        crate::protocol::acts::merged_body(
+            &self.pr_url,
+            &self.sha,
+            self.method,
+            merge_sha,
+            &self.head_ref,
+            self.local_gates
+                .as_ref()
+                .map(|(dev, coordinator)| (dev.as_str(), coordinator.as_str())),
+        )
     }
 }
 
@@ -679,15 +689,12 @@ fn merge_steps(f: &StepFacts<'_>) -> MergeSteps {
         )),
     };
     // spec/ci#local-run-ci_mode-local: the notice names the gates that stood in for CI.
-    let local_lines = if f.ev_local {
-        format!(
-            "\nci-mode: local\nlocal-gate: {}\ncoordinator-local-gate: {}",
-            f.ev.local_gate.as_deref().unwrap_or(""),
-            f.coordinator_gate.unwrap_or("")
+    let local_gates = f.ev_local.then(|| {
+        (
+            f.ev.local_gate.clone().unwrap_or_default(),
+            f.coordinator_gate.unwrap_or("").to_string(),
         )
-    } else {
-        String::new()
-    };
+    });
     MergeSteps {
         ticket_key: f.ticket_key.clone(),
         assignee: f.assignee.to_string(),
@@ -699,10 +706,7 @@ fn merge_steps(f: &StepFacts<'_>) -> MergeSteps {
         head_ref: f.head_ref.to_string(),
         branch,
         clear_needs_owner: f.labelled_needs_owner && !f.question_open,
-        notice: (
-            crate::protocol::acts::merged_head(&f.ev.pr, &f.ev.sha, f.method),
-            format!("\nbranch: {}{local_lines}", f.head_ref),
-        ),
+        local_gates,
     }
 }
 

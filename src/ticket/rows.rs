@@ -6,27 +6,6 @@ use crate::rules::fields::Field;
 use crate::rules::status::{BoardStatus, Status};
 use std::collections::BTreeMap;
 
-/// A ticket's item id from the signed `kind=info` comment of the coordinator
-/// (spec/board#item-ids-are-the-source-of-truth).
-pub fn info_body(item_id: &str, project: u64) -> String {
-    format!(
-        "{}\nitem={item_id}\nproject={project}\n",
-        crate::protocol::acts::board_announce_head()
-    )
-}
-
-/// The line of the creation info that records the PR a new ticket adopts:
-/// `adopts-pr: <url> branch: <branch>`.
-pub const ADOPTS_PR: &str = "adopts-pr:";
-
-/// [`info_body`] of a ticket that adopts an open PR of an older, Done ticket.
-pub fn info_body_adopting(item_id: &str, project: u64, pr_url: &str, branch: &str) -> String {
-    format!(
-        "{}{ADOPTS_PR} {pr_url} branch: {branch}\n",
-        info_body(item_id, project)
-    )
-}
-
 /// The head branch that the creation info of a ticket allows for PR `repo#number`.
 /// Only a signed `info` of a coordinator counts: a dev agent, or the owner without a header,
 /// cannot widen the branch rule of a ticket. The branch is the text after ` branch: `.
@@ -45,8 +24,7 @@ pub fn adopted_branch(msgs: &[VMsg], repo: &str, number: u64) -> Option<String> 
         .filter(|m| m.sender.actor().is_coordinator() && m.kind == Some(Kind::Info))
         .flat_map(|m| m.body.lines())
         .find_map(|l| {
-            let rest = l.strip_prefix(ADOPTS_PR)?.trim();
-            let (url, branch) = rest.split_once(" branch: ")?;
+            let (url, branch) = crate::protocol::acts::adopted_pr_of(l)?;
             of(url, branch)
         })
         .or_else(|| {
@@ -71,12 +49,7 @@ pub fn find_item_id(msgs: &[VMsg]) -> Option<String> {
     msgs.iter()
         .rev()
         .filter(|m| m.sender.actor().is_coordinator() && m.kind == Some(Kind::Info))
-        .find_map(|m| {
-            m.body.lines().find_map(|l| {
-                let v = l.strip_prefix("item=")?.trim();
-                v.starts_with("PVTI_").then(|| v.to_string())
-            })
-        })
+        .find_map(|m| crate::protocol::acts::item_id_of(&m.body))
 }
 
 /// One ticket as the board shows it.

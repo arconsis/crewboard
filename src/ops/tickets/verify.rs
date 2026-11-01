@@ -18,6 +18,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
+use crate::protocol::acts::{EvidenceMsg, is_local_gate, verify_body};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Actor;
 use crate::rules::Refusal;
@@ -27,9 +28,7 @@ use crate::rules::protected::PrFileList;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_loader::{Ticket, load_ticket};
-use crate::ticket::{
-    EvidenceMsg, ci_none_declared, is_local_gate, latest_done, question_open, verify_body,
-};
+use crate::ticket::{ci_none_declared, latest_done, question_open};
 
 /// `verify <issue> [--body ...]` (coordinator): spec/tickets#verification-by-the-coordinator steps
 /// 1 and 2; the gate itself (step 3) is the model's work, and `--body` records what it found.

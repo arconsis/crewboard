@@ -12,11 +12,8 @@ pub mod replay;
 pub mod signature;
 
 #[cfg(test)]
-mod acts_golden_tests;
-#[cfg(test)]
 mod interop_tests;
 
-use crate::base::ids::{self, RuleId};
 use std::fmt;
 
 /// Namespace of every `sshsig` signature made by crewboard (spec/identity#author-and-signature).
@@ -28,7 +25,10 @@ pub const PROTOCOL_VERSION: &str = "1";
 /// First line of the canonical form (spec/messages#signature).
 pub const CANONICAL_TAG: &str = "crewboard-v1";
 
-/// Why a protocol operation failed. Each variant has a stable rule name.
+/// A message body has at most this many characters (spec/messages#format).
+pub const MAX_BODY_CHARS: usize = 65_536;
+
+/// Why a protocol operation failed. Each variant has a stable rule id (`CbError` maps it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtocolError {
     /// A header, name, kind, ref or timestamp is malformed.
@@ -43,18 +43,6 @@ pub enum ProtocolError {
     BodyTooLong(usize),
 }
 
-impl ProtocolError {
-    pub fn rule(&self) -> RuleId {
-        match self {
-            ProtocolError::Malformed(_) => ids::MALFORMED_MESSAGE,
-            ProtocolError::VisibleLineMismatch => ids::VISIBLE_LINE_MISMATCH,
-            ProtocolError::BadSignature(_) => ids::BAD_SIGNATURE,
-            ProtocolError::BadKey(_) => ids::BAD_KEY,
-            ProtocolError::BodyTooLong(_) => ids::BODY_TOO_LONG,
-        }
-    }
-}
-
 impl fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -66,8 +54,7 @@ impl fmt::Display for ProtocolError {
             ProtocolError::BadKey(m) => write!(f, "bad key: {m}"),
             ProtocolError::BodyTooLong(n) => write!(
                 f,
-                "message body is {n} characters; the limit is {}",
-                crate::rules::limits::MAX_BODY_CHARS
+                "message body is {n} characters; the limit is {MAX_BODY_CHARS}"
             ),
         }
     }

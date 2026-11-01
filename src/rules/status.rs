@@ -3,6 +3,7 @@
 //! Pure. The ticket commands in `ops/tickets*` ask it before they write the Status field.
 
 use super::{Actor, Refusal, Verdict, ids, require};
+use crate::protocol::acts::CloseKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -67,6 +68,16 @@ impl Status {
             return Some(Status::Blocked);
         }
         Status::parse(s)
+    }
+}
+
+impl CloseKind {
+    /// The status that the close ends the ticket in: Dropped for a drop, Done for all others.
+    pub fn status(self) -> Status {
+        match self {
+            CloseKind::Dropped => Status::Dropped,
+            _ => Status::Done,
+        }
     }
 }
 
@@ -714,6 +725,20 @@ mod tests {
         ctx: &TicketCtx,
     ) -> Verdict {
         check(ctx, from, to, actor)
+    }
+
+    #[test]
+    fn a_close_ends_in_done_and_a_drop_in_dropped() {
+        assert_eq!(CloseKind::Dropped.status(), Dropped);
+        // the text of a close by judgment of an older build keeps its meaning: Done
+        for k in [
+            CloseKind::Verified,
+            CloseKind::Merged,
+            CloseKind::OwnerMerged,
+            CloseKind::Judgment,
+        ] {
+            assert_eq!(k.status(), Done, "{k:?}");
+        }
     }
 
     #[test]
