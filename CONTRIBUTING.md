@@ -11,13 +11,15 @@ the TLS library (`aws-lc-sys`) builds C code. On some targets it also needs `cma
 Rust is the language of crewboard itself, to build and test it. The projects that use crewboard
 can be written in any stack; crewboard runs whatever their `.crewboard.toml` and tickets say.
 
-The gate: run these before you push. CI runs the same commands.
+The gate: run these before you push. CI runs the same commands. The repo is a Cargo workspace:
+the binary `crewboard` at the root and the library crates under `crates/`. A plain command at the
+root covers all of them (`default-members` in `Cargo.toml`); `--workspace` says so explicitly.
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets --locked -- -D warnings
-cargo test --locked
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
 CI also runs clippy on Windows. Code that is `#[cfg(unix)]` on one side only can pass on a Mac
@@ -26,7 +28,7 @@ change:
 
 ```sh
 rustup target add x86_64-pc-windows-msvc
-cargo clippy --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings
 ```
 
 This checks types, names and lints. It does not link or run anything. The C build of
@@ -161,7 +163,8 @@ issue first and describe the failure it prevents and the workaround with the cur
 
 ## Release process
 
-A release is a tag `vX.Y.Z` on a commit of `main`. The version in `Cargo.toml` must be `X.Y.Z`;
+A release is a tag `vX.Y.Z` on a commit of `main`. The version in `Cargo.toml` (one line in
+`[workspace.package]`, which every crate of the workspace shares) must be `X.Y.Z`;
 `tests/skill_version.rs` keeps the skill version equal to it.
 
 1. Update `CHANGELOG.md`, set the version in `Cargo.toml`, run `scripts/third-party-licenses.sh`
