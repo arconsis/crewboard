@@ -15,7 +15,10 @@ Changed:
   `agent add` (it ran another binary in place of the board check, the watch, or `join` and
   `start`) and the hidden test variables `HOST_LOCK_HOST` (the host name of the lock files) and
   `CREWBOARD_WAKE_OS` (the operating system of `wake install`). Only a build with debug
-  assertions, as `cargo test` makes, reads them; only test setups used them.
+  assertions, as `cargo test` makes, reads them; only test setups used them. A host that
+  exported `HOST_LOCK_HOST` records its real short host name after the upgrade, so a lock that
+  was taken before it looks like a lock of another host: its pid is not judged, and only the age
+  rules (`--max-age`, `expect=`) and the board check free it.
 - Through the hidden test option `wake --crewboard BIN` the wake no longer asks `gh` for the PR
   of a ticket at a budget stop; its message names no PR. Only test setups used this path.
 
