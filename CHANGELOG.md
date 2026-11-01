@@ -2,6 +2,14 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Other:
+
+- Internal: no behaviour change. Every writer of a message act lives next to the one parser
+  (`protocol::acts`), golden tests pin the bytes of each text, and `protocol` imports nothing
+  from the rest of the crate. The wire stays protocol v1, byte for byte.
+
 ## v0.8.1 (2026-11-01)
 
 Upgrade: run `crewboard update` on each host. It also installs the new skill, so a headless
@@ -33,12 +41,6 @@ Changed:
   sections: [Give an account access](docs/guides/owner.md#give-an-account-access),
   [The agent token](docs/guides/owner.md#the-agent-token) and
   [A shared agent account](docs/guides/owner.md#a-shared-agent-account).
-
-Other:
-
-- Internal: no behaviour change. Every writer of a message act lives next to the one parser
-  (`protocol::acts`), golden tests pin the bytes of each text, and `protocol` imports nothing
-  from the rest of the crate. The wire stays protocol v1, byte for byte.
 
 ## v0.8.0 (2026-10-31)
 
