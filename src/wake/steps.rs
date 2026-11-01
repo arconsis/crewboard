@@ -11,6 +11,8 @@ use crate::ops;
 use crate::protocol::names::{Kind, To};
 use std::path::{Path, PathBuf};
 
+pub use crate::ops::mine::{OpenPrRef, PrHead};
+
 /// The result of one call: the exit code (0 to 4, or the code of the other binary) and the first
 /// line of its stderr (at most 200 characters, no control characters, `(no stderr)` if none).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,10 +63,10 @@ pub trait Steps {
     ) -> StepRc;
     /// `heartbeat`: one heartbeat now.
     fn heartbeat(&mut self) -> StepRc;
-    /// The head of a PR: its branch and head SHA. `None` when the PR cannot be found.
-    fn pr_head(&mut self, repo: &str, number: &str) -> Result<Option<(String, String)>, StepRc>;
-    /// The open PRs of a repo (up to 100): number, branch, head SHA.
-    fn open_prs(&mut self, repo: &str) -> Result<Vec<(String, String, String)>, StepRc>;
+    /// The head of a PR. `None` when the PR cannot be found.
+    fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc>;
+    /// The open PRs of a repo (up to 100).
+    fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc>;
 }
 
 /// The refusal of `say` in a headless config dir (the first line of what the command prints).
@@ -223,11 +225,11 @@ impl Steps for InProcess {
         }
     }
 
-    fn pr_head(&mut self, repo: &str, number: &str) -> Result<Option<(String, String)>, StepRc> {
+    fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc> {
         self.with(|ac| plain(ops::mine::pr_head(ac, repo, number)))
     }
 
-    fn open_prs(&mut self, repo: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+    fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
         self.with(|ac| plain(ops::mine::open_prs(ac, repo)))
     }
 }
@@ -361,13 +363,14 @@ impl Steps for Subprocess {
     }
 
     // The test seam asks `gh`: the other binary has no PR calls.
-    fn pr_head(&mut self, repo: &str, number: &str) -> Result<Option<(String, String)>, StepRc> {
+    fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc> {
+        let number = number.to_string();
         let mut out = Vec::new();
         let rc = gh(
             &[
                 "pr",
                 "view",
-                number,
+                &number,
                 "--repo",
                 repo,
                 "--json",
@@ -385,10 +388,13 @@ impl Steps for Subprocess {
             .lines()
             .next()
             .and_then(|l| l.split_once(' '))
-            .map(|(b, h)| (b.to_string(), h.to_string())))
+            .map(|(b, h)| PrHead {
+                head_ref: b.to_string(),
+                head_sha: h.to_string(),
+            }))
     }
 
-    fn open_prs(&mut self, repo: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+    fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
         let mut out = Vec::new();
         let rc = gh(
             &[
@@ -414,7 +420,11 @@ impl Steps for Subprocess {
             .lines()
             .filter_map(|l| {
                 let mut w = l.split_whitespace();
-                Some((w.next()?.into(), w.next()?.into(), w.next()?.into()))
+                Some(OpenPrRef {
+                    number: w.next()?.parse().ok()?,
+                    head_ref: w.next()?.into(),
+                    head_sha: w.next()?.into(),
+                })
             })
             .collect())
     }

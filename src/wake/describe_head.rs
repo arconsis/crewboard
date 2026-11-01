@@ -235,18 +235,19 @@ pub fn describe(
     let (mut pr, mut prb, mut prh) = (String::new(), String::new(), String::new());
     if let Some(r) = pr_ref(mine, key)
         && let Some((rr, rn)) = r.rsplit_once('#')
-        && let Ok(Some((b, h))) = steps.pr_head(rr, rn)
-        && !b.is_empty()
-        && !h.is_empty()
+        && let Ok(rn) = rn.parse::<u64>()
+        && let Ok(Some(h)) = steps.pr_head(rr, rn)
+        && !h.head_ref.is_empty()
+        && !h.head_sha.is_empty()
     {
-        (pr, prb, prh) = (r.clone(), b, h);
+        (pr, prb, prh) = (r.clone(), h.head_ref, h.head_sha);
     }
     if pr.is_empty()
         && agent.is_some()
         && let Ok(list) = steps.open_prs(repo)
-        && let Some((pn, b, h)) = list.into_iter().find(|(_, b, _)| on_ticket(b))
+        && let Some(p) = list.into_iter().find(|p| on_ticket(&p.head_ref))
     {
-        (pr, prb, prh) = (format!("{repo}#{pn}"), b, h);
+        (pr, prb, prh) = (format!("{repo}#{}", p.number), p.head_ref, p.head_sha);
     }
     let on_branch = !hd.is_empty() && (on_ticket(&br) || (agent.is_none() && br != "HEAD"));
     let wd = work_dir.display();
@@ -272,23 +273,38 @@ pub fn describe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wake::steps::StepRc;
+    use crate::wake::steps::{OpenPrRef, PrHead, StepRc};
     use std::collections::HashMap;
 
     /// A board that knows the heads of some PRs and the open PRs of every repo.
     #[derive(Default)]
     struct Prs {
-        heads: HashMap<String, (String, String)>,
-        open: Vec<(String, String, String)>,
+        heads: HashMap<String, PrHead>,
+        open: Vec<OpenPrRef>,
         calls: Vec<String>,
     }
 
+    fn head_of_pr(head_ref: &str, head_sha: &str) -> PrHead {
+        PrHead {
+            head_ref: head_ref.into(),
+            head_sha: head_sha.into(),
+        }
+    }
+
+    fn open_pr(number: u64, head_ref: &str, head_sha: &str) -> OpenPrRef {
+        OpenPrRef {
+            number,
+            head_ref: head_ref.into(),
+            head_sha: head_sha.into(),
+        }
+    }
+
     impl Steps for Prs {
-        fn pr_head(&mut self, repo: &str, n: &str) -> Result<Option<(String, String)>, StepRc> {
+        fn pr_head(&mut self, repo: &str, n: u64) -> Result<Option<PrHead>, StepRc> {
             self.calls.push(format!("pr_head {repo}#{n}"));
             Ok(self.heads.get(&format!("{repo}#{n}")).cloned())
         }
-        fn open_prs(&mut self, repo: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+        fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
             self.calls.push(format!("open_prs {repo}"));
             Ok(self.open.clone())
         }
@@ -389,7 +405,7 @@ mod tests {
         let mut prs = Prs::default();
         prs.heads.insert(
             "demo/app#45".into(),
-            ("crew/dev@host-a/12-fix".into(), head.clone()),
+            head_of_pr("crew/dev@host-a/12-fix", &head),
         );
         let (t, _) = describe_at(d.path(), MINE_PR, Some("dev@host-a"), &mut prs);
         assert_eq!(
@@ -400,7 +416,7 @@ mod tests {
         // twin: the PR has another head: not pushed
         prs.heads.insert(
             "demo/app#45".into(),
-            ("crew/dev@host-a/12-fix".into(), "1111111".into()),
+            head_of_pr("crew/dev@host-a/12-fix", "1111111"),
         );
         let (t, _) = describe_at(d.path(), MINE_PR, Some("dev@host-a"), &mut prs);
         assert_eq!(
@@ -418,16 +434,8 @@ mod tests {
         std::fs::create_dir_all(&nogit).unwrap();
         let mut prs = Prs {
             open: vec![
-                (
-                    "46".into(),
-                    "crew/other@host-b/12-fix".into(),
-                    "1111111".into(),
-                ),
-                (
-                    "45".into(),
-                    "crew/dev@host-a/12-fix".into(),
-                    "2222222".into(),
-                ),
+                open_pr(46, "crew/other@host-b/12-fix", "1111111"),
+                open_pr(45, "crew/dev@host-a/12-fix", "2222222"),
             ],
             ..Prs::default()
         };

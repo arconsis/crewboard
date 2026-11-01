@@ -272,9 +272,24 @@ pub fn is_ticket_branch(head_ref: &str, agent: &str, issue: u64) -> bool {
     })
 }
 
-/// The branch and the head SHA of a PR, for the message of a wake that ended at its time budget.
-/// `None` when the PR does not exist.
-pub fn pr_head(ac: &AgentCtx, repo: &str, number: &str) -> CbResult<Option<(String, String)>> {
+/// The head of a PR: its branch and its head SHA.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrHead {
+    pub head_ref: String,
+    pub head_sha: String,
+}
+
+/// One open PR: its number, its branch and its head SHA.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenPrRef {
+    pub number: u64,
+    pub head_ref: String,
+    pub head_sha: String,
+}
+
+/// The head of a PR, for the message of a wake that ended at its time budget. `None` when the
+/// PR does not exist.
+pub fn pr_head(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<Option<PrHead>> {
     match ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")) {
         Ok(r) => Ok(head_of(&r.body)),
         Err(crate::github::GhError::Http { status: 404, .. }) => Ok(None),
@@ -282,18 +297,25 @@ pub fn pr_head(ac: &AgentCtx, repo: &str, number: &str) -> CbResult<Option<(Stri
     }
 }
 
-/// The open PRs of a repo, every page: number, branch, head SHA.
-pub fn open_prs(ac: &AgentCtx, repo: &str) -> CbResult<Vec<(String, String, String)>> {
+/// The open PRs of a repo, every page.
+pub fn open_prs(ac: &AgentCtx, repo: &str) -> CbResult<Vec<OpenPrRef>> {
     Ok(pulls::list_open(&ac.ctx.client, repo, Order::Created)?
         .into_iter()
-        .map(|p| (p.number.to_string(), p.head_ref, p.head_sha))
+        .map(|p| OpenPrRef {
+            number: p.number,
+            head_ref: p.head_ref,
+            head_sha: p.head_sha,
+        })
         .collect())
 }
 
-/// The branch and the head SHA of a PR object.
-fn head_of(pr: &Value) -> Option<(String, String)> {
-    let s = |p: &str| pr.pointer(p).and_then(Value::as_str);
-    Some((s("/head/ref")?.to_string(), s("/head/sha")?.to_string()))
+/// The head of a PR object.
+fn head_of(pr: &Value) -> Option<PrHead> {
+    let s = |p: &str| pr.pointer(p).and_then(Value::as_str).map(str::to_string);
+    Some(PrHead {
+        head_ref: s("/head/ref")?,
+        head_sha: s("/head/sha")?,
+    })
 }
 
 /// The PR of an In Progress ticket: `(owner/repo#n, head sha, base ref)`. The PR of the latest

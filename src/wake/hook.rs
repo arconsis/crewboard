@@ -179,7 +179,7 @@ pub fn run(input: &Input, steps: &mut dyn Steps, clock: &dyn Clock) -> Option<St
 mod tests {
     use super::*;
     use crate::clock::FakeClock;
-    use crate::wake::steps::StepRc;
+    use crate::wake::steps::{OpenPrRef, PrHead, StepRc};
 
     /// A board that answers each `poll` with the next scripted result; other calls do not happen.
     struct Board {
@@ -228,10 +228,10 @@ mod tests {
         fn heartbeat(&mut self) -> StepRc {
             unreachable!()
         }
-        fn pr_head(&mut self, _: &str, _: &str) -> Result<Option<(String, String)>, StepRc> {
+        fn pr_head(&mut self, _: &str, _: u64) -> Result<Option<PrHead>, StepRc> {
             unreachable!()
         }
-        fn open_prs(&mut self, _: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+        fn open_prs(&mut self, _: &str) -> Result<Vec<OpenPrRef>, StepRc> {
             unreachable!()
         }
     }
