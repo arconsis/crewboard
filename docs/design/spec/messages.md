@@ -123,7 +123,10 @@ is gone from its ticket is the security event `deleted-message`; only that coord
 `!! SECURITY EVENT` in the output of `watch` (and of `poll` without `--quiet`). The coordinator posts ONE signed `info`
 to the owner in the registry issue per event. Without a coordinator on the board, the agent
 that sees the event posts it. The `event=` line of that `info` keeps a second agent from
-posting the same event again.
+posting the same event again. A signed `info` to the owner that fails only the replay window
+(below) still counts for this: valid signature, approved sender, its bound account. Its own
+`replayed-message` event is shown but not reported, so a wrong clock cannot start a chain of
+reports about reports.
 
 Replay window: the canonical form has no nonce, so a copy of an old valid message would verify.
 Two rules close this.

@@ -3,8 +3,8 @@ use crate::comments::Comment;
 use crate::config::BoardConfig;
 use crate::protocol::header::Message;
 use crate::protocol::names::{Kind, Re};
-use crate::protocol::replay::Seen;
-use crate::registry::{CREW_PREFIX, Trust};
+use crate::protocol::replay::{Replay, Seen};
+use crate::registry::{CREW_PREFIX, Trust, TrustSpan};
 use crate::rules::status::{BlockReason, Status};
 use crate::rules::{Actor, Role};
 
@@ -81,19 +81,7 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
             {
                 continue;
             }
-            out.push(VMsg {
-                comment_id: c.id,
-                created: c.created_epoch,
-                ts: msg.header.ts.to_string(),
-                sender: Sender::Agent {
-                    name: sender.name.to_string(),
-                    role: sender.role,
-                },
-                to: msg.header.to.to_string(),
-                kind: Some(msg.header.kind),
-                re: msg.header.re,
-                body: msg.body,
-            });
+            out.push(agent_msg(c, msg, sender));
         } else if c.by(&cfg.owner_login) {
             // An owner comment that anyone else edited is not the owner's word
             // (spec/security-details#edited-owner-comments); `watch` reports it.
@@ -113,6 +101,60 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
         }
     }
     out
+}
+
+/// Signed messages that are valid in every way but the replay window (`TooOld` or `FromFuture`):
+/// not edited, from an agent trusted at that comment, by the account that the approval bound to
+/// it, with a signature that verifies. They answer one question only: did an agent report an
+/// event to the owner already ([`crate::audit::reported_events`])? A signed report with a wrong
+/// time was still posted by its sender, or it repeats an earlier report of the same keys. Such a
+/// message is never a ticket act: everything else reads [`verified_messages`].
+pub fn out_of_window_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) -> Vec<VMsg> {
+    let mut sorted: Vec<&Comment> = comments
+        .iter()
+        .filter(|c| c.body.starts_with(CREW_PREFIX) && !c.edited())
+        .collect();
+    sorted.sort_by_key(|c| c.id);
+    let mut out = Vec::new();
+    for c in sorted {
+        let Ok(msg) = Message::parse(&c.body) else {
+            continue;
+        };
+        if !matches!(
+            c.check_ts(&msg),
+            Err(Replay::TooOld { .. } | Replay::FromFuture { .. })
+        ) {
+            continue;
+        }
+        let Some(sender) = trust.at(msg.header.from.as_str(), c.id) else {
+            continue;
+        };
+        if !sender.by_agent(c)
+            || c.verify(&msg, &sender.key, cfg.former_for(&c.repo))
+                .is_err()
+        {
+            continue;
+        }
+        out.push(agent_msg(c, msg, sender));
+    }
+    out
+}
+
+/// The [`VMsg`] of a signed message that `sender` sent in the comment `c`.
+fn agent_msg(c: &Comment, msg: Message, sender: &TrustSpan) -> VMsg {
+    VMsg {
+        comment_id: c.id,
+        created: c.created_epoch,
+        ts: msg.header.ts.to_string(),
+        sender: Sender::Agent {
+            name: sender.name.to_string(),
+            role: sender.role,
+        },
+        to: msg.header.to.to_string(),
+        kind: Some(msg.header.kind),
+        re: msg.header.re,
+        body: msg.body,
+    }
 }
 
 impl VMsg {

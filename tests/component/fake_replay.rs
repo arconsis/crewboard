@@ -2,9 +2,10 @@
 //! `[created_at - 15 min, created_at + 5 min]` (spec/messages#signature). A copy of an old
 //! valid message gets a new `created_at` and keeps its old `ts`.
 
-use crate::support::board::{Agent, FakeBoard, OWNER, THREAD};
+use crate::support::board::{Agent, FakeBoard, OWNER, REGISTRY, REPO, THREAD};
 use crate::support::cli::{crew, run_ok};
 use crewboard::protocol::names::Kind;
+use crewboard::protocol::signature::generate_key;
 use serde_json::Value;
 
 fn ticket(fake: &FakeBoard, title: &str) -> u64 {
@@ -190,5 +191,90 @@ fn a_copy_of_a_signed_answer_inside_the_window_is_refused_and_reported() {
             .contains("earlier comment"),
         "{v}"
     );
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+/// The owner reports (`to=owner kind=info`) in the registry issue whose text has `needle`, by id.
+fn owner_reports(fake: &FakeBoard, needle: &str) -> Vec<u64> {
+    fake.comments_of(REGISTRY)
+        .into_iter()
+        .filter(|(_, _, b)| b.contains("to=owner kind=info") && b.contains(needle))
+        .map(|(id, _, _)| id)
+        .collect()
+}
+
+/// Move the cursor of `who` ten minutes back: the next poll reads the recent comments again,
+/// as after a restart.
+fn cursor_back(fake: &FakeBoard, who: &Agent) {
+    let back = format!(
+        "c1 ts={} seen=",
+        crewboard::clock::format_ts(crewboard::clock::now_epoch() - 600)
+    );
+    fake.set_item(&who.item_id, "Cursor", &back);
+}
+
+#[test]
+fn a_report_that_github_stamps_an_hour_late_is_not_repeated_and_not_reported_itself() {
+    let (fake, c, b) = crew();
+    let wrong = generate_key().unwrap();
+    let (forged, _) = fake.signed(&wrong, &b.name, &c.name, Kind::Report, THREAD, "forged");
+    let key = format!("event={REPO}#{THREAD}/c-{forged}:bad-signature");
+    // from now on GitHub stamps every new comment an hour late: the report fails the window
+    fake.post_late(3600);
+    let (v, code) = fake.poll_json(&c);
+    assert_eq!(code, 0, "{v}");
+    let first = owner_reports(&fake, &key);
+    assert_eq!(first.len(), 1, "one report of the event: {v}");
+
+    // the coordinator sees its late report as a security event, and tells the owner nothing
+    let (v, _) = fake.poll_json(&c);
+    assert_eq!(reasons(&v, first[0]), vec!["replayed"], "{v}");
+    for _ in 0..2 {
+        let _ = fake.poll_json(&c);
+    }
+    cursor_back(&fake, &c);
+    let _ = fake.poll_json(&c);
+    let _ = fake.poll_json(&c);
+    // (reports of the event, reports about a report)
+    assert_eq!(
+        (
+            owner_reports(&fake, &key),
+            owner_reports(&fake, "Security event: replayed-message")
+        ),
+        (first, Vec::new())
+    );
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+#[test]
+fn a_late_report_with_a_bad_signature_is_reported_and_hides_no_event() {
+    let (fake, c, b) = crew();
+    let wrong = generate_key().unwrap();
+    let (forged, _) = fake.signed(&wrong, &b.name, &c.name, Kind::Report, THREAD, "forged");
+    let key = format!("event={REPO}#{THREAD}/c-{forged}:bad-signature");
+    // a report of that event in the name of the coordinator, an hour old, signed with a key
+    // that is not the coordinator's
+    let hour_old = crewboard::clock::now_epoch() - 3600;
+    let fake_report = fake.signed_with_ts(
+        &wrong,
+        &c.name,
+        "owner",
+        Kind::Info,
+        REGISTRY,
+        &format!("Security event: bad-signature\n{key}\n"),
+        hour_old,
+    );
+    let (v, code) = fake.poll_json(&c);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(reasons(&v, fake_report), vec!["bad_signature"], "{v}");
+    // its key does not count: the coordinator reports the event itself
+    let real: Vec<u64> = owner_reports(&fake, &key)
+        .into_iter()
+        .filter(|id| *id != fake_report)
+        .collect();
+    assert_eq!(real.len(), 1, "{v}");
+    // and the forged report is an event of its own
+    let of_report = format!("event={REPO}#{REGISTRY}/c-{fake_report}:bad-signature");
+    assert_eq!(owner_reports(&fake, &of_report).len(), 1, "{v}");
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }

@@ -6,6 +6,13 @@ This file lists the changes of crewboard, one section for each release.
 
 Fixed:
 
+- **A loop of security reports.** When GitHub stamped new comments an hour late (or any clock
+  was wrong), every signed message failed the replay window, also the coordinator's own report
+  of a security event. That report did not count as a report, so the coordinator reported the
+  event again, and reported the late report as a new `replayed-message` event, cycle after
+  cycle. An owner report that fails only the window (valid signature, approved sender, bound
+  account) now counts as a report of its `event=` keys, and its own window failure goes to the
+  output of the agent, not to the owner. Such a message still counts for nothing else.
 - **Lists of more than 100 PRs or issues.** `mine`, `resume`, `reassign`, the late waits, the
   `needs-owner` duty, `split`, `close` and `init` read one page of 100 and lost the rest without
   a word. They now read every page (at most 50); a longer list is an error or a note, never a

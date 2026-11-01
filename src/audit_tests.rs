@@ -404,13 +404,51 @@ fn reported_events_come_from_info_messages_to_the_owner_only() {
             "event=a/b#2/c-12:bad-signature",
         ),
     ];
-    let got = reported_events(&msgs);
+    let got = reported_events(&msgs, &[]);
     assert_eq!(got.len(), 3, "{got:?}");
     assert!(got.contains("a/b#2/c-9:bad-signature"));
     // the key of the other spelling matches the key that is built now
     assert!(got.contains(&event_key("a/b", 2, 13, "bad-signature")));
     // a key without a repo stays as it is
     assert!(got.contains("claude@a/state:left"));
+}
+
+#[test]
+fn reported_events_count_owner_reports_that_fail_only_the_window() {
+    let m = |id: u64, to: &str, body: &str| VMsg {
+        ts: String::new(),
+        comment_id: id,
+        created: 0,
+        sender: Sender::Agent {
+            name: "c@x".into(),
+            role: Role::Coordinator,
+        },
+        to: to.into(),
+        kind: Some(Kind::Info),
+        re: crate::protocol::names::Re::None,
+        body: body.into(),
+    };
+    let valid = [m(
+        1,
+        "owner",
+        "Security event\nevent=a/b#2/c-9:bad-signature\n",
+    )];
+    let late = [
+        m(
+            2,
+            "owner",
+            "Security event\nevent=a/b#2/c-10:edited-message\n",
+        ),
+        m(3, "coordinator", "event=a/b#2/c-11:bad-signature"),
+    ];
+    let got = reported_events(&valid, &late);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got.contains("a/b#2/c-10:edited-message"));
+    assert!(!got.contains("a/b#2/c-11:bad-signature"));
+    // only a message with an `event=` line is a report
+    assert!(is_owner_report(&late[0]));
+    assert!(!is_owner_report(&late[1]));
+    assert!(!is_owner_report(&m(4, "owner", "Security event\n")));
 }
 
 #[test]

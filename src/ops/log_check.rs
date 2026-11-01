@@ -27,14 +27,13 @@
 use super::own_notes::{NotChecked, ReadResult};
 use super::registry_post::{liveness_event, post_registry};
 use super::{AgentCtx, World};
-use crate::audit::reported_events;
 use crate::base::TicketRef;
 use crate::events::{Event, SecurityEvent};
 use crate::feed;
 use crate::protocol::names::{Kind, Re, To};
 use crate::state::{StateCache, TOO_LARGE_RECHECK_SECS, TicketSnap};
 use crate::ticket::log::{fold_ticket, status_contradicts, status_mismatch_text};
-use crate::ticket::{TicketRow, VMsg, verified_messages};
+use crate::ticket::{TicketRow, verified_messages};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 /// A mismatch counts only when the item has not changed for this long (seconds).
@@ -143,13 +142,14 @@ pub(super) struct LogCheck {
 
 /// Check the tickets that changed. Never fails the cycle: an unreadable ticket is looked at
 /// again next time. `own`: the tickets that this cycle changed itself. The comment list that it
-/// reads goes through the note check too (`own_notes::check_read`).
+/// reads goes through the note check too (`own_notes::check_read`). `reported`: the `event=` keys
+/// that the registry issue reported already (`audit::reported_events`).
 pub(super) fn status_log_duty(
     ac: &AgentCtx,
     world: &World,
     rows: &[TicketRow],
     own: &[(String, TicketSnap)],
-    reg_msgs: &[VMsg],
+    mut reported: HashSet<String>,
     cache: &mut StateCache,
     now: i64,
 ) -> LogCheck {
@@ -175,7 +175,6 @@ pub(super) fn status_log_duty(
         .liveness
         .status_pending
         .retain(|i| rows.iter().any(|r| r.item_id == *i));
-    let mut reported = reported_events(reg_msgs);
     let mut out = LogCheck::default();
     for row in todo {
         let quiet = row.updated.is_none_or(|u| now - u >= QUIET_SECS);
@@ -288,6 +287,8 @@ pub(super) fn status_log_duty(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::reported_events;
+    use crate::ticket::VMsg;
 
     fn row(item: &str, status: &str) -> TicketRow {
         TicketRow {
@@ -459,6 +460,6 @@ mod tests {
             re: Re::None,
             body,
         };
-        assert!(reported_events(&[m]).contains("o/r#7/status@c-1234"));
+        assert!(reported_events(&[m], &[]).contains("o/r#7/status@c-1234"));
     }
 }
