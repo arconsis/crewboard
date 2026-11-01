@@ -57,7 +57,7 @@ impl Control {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wake::steps::StepRc;
+    use crate::wake::steps::{OpenPrRef, PrHead, StepRc};
     use std::path::Path;
 
     /// Counts the heartbeats; answers with the scripted codes.
@@ -100,10 +100,10 @@ mod tests {
         fn acted_check(&mut self, _: &Path, _: &str, _: &Path, _: &mut Vec<u8>) -> StepRc {
             unreachable!()
         }
-        fn pr_head(&mut self, _: &str, _: &str) -> Result<Option<(String, String)>, StepRc> {
+        fn pr_head(&mut self, _: &str, _: u64) -> Result<Option<PrHead>, StepRc> {
             unreachable!()
         }
-        fn open_prs(&mut self, _: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+        fn open_prs(&mut self, _: &str) -> Result<Vec<OpenPrRef>, StepRc> {
             unreachable!()
         }
     }

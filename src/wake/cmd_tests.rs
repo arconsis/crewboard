@@ -8,7 +8,7 @@ use crate::wake::policy::{NetBackoff, Quiet, WorkBackoff};
 use crate::wake::preflight::config_dir_of_command;
 use crate::wake::procs::{Os, Proc, descendant_procs, procs_of, same_processes, stop_group_with};
 use crate::wake::state;
-use crate::wake::steps::StepRc;
+use crate::wake::steps::{OpenPrRef, PrHead, StepRc};
 use crate::wake::wake_events::with_budget_header;
 use clap::Parser;
 use std::cell::RefCell;
@@ -47,9 +47,9 @@ struct Scripted {
     acted_check: Vec<String>,
     acted_rc: u8,
     acted_calls: Vec<String>,
-    /// The heads of PRs by `<repo>#<n>`, and the open PRs of every repo: number, branch, SHA.
-    heads: std::collections::HashMap<String, (String, String)>,
-    open: Vec<(String, String, String)>,
+    /// The heads of PRs by `<repo>#<n>`, and the open PRs of every repo.
+    heads: std::collections::HashMap<String, PrHead>,
+    open: Vec<OpenPrRef>,
 }
 
 impl Scripted {
@@ -175,11 +175,11 @@ impl Steps for Scripted {
         self.calls.push("heartbeat".into());
         StepRc::ok()
     }
-    fn pr_head(&mut self, repo: &str, number: &str) -> Result<Option<(String, String)>, StepRc> {
+    fn pr_head(&mut self, repo: &str, number: u64) -> Result<Option<PrHead>, StepRc> {
         self.calls.push(format!("pr_head {repo}#{number}"));
         Ok(self.heads.get(&format!("{repo}#{number}")).cloned())
     }
-    fn open_prs(&mut self, repo: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+    fn open_prs(&mut self, repo: &str) -> Result<Vec<OpenPrRef>, StepRc> {
         self.calls.push(format!("open_prs {repo}"));
         Ok(self.open.clone())
     }
@@ -2639,10 +2639,10 @@ impl Steps for Beats {
     fn acted_check(&mut self, _: &Path, _: &str, _: &Path, _: &mut Vec<u8>) -> StepRc {
         unreachable!()
     }
-    fn pr_head(&mut self, _: &str, _: &str) -> Result<Option<(String, String)>, StepRc> {
+    fn pr_head(&mut self, _: &str, _: u64) -> Result<Option<PrHead>, StepRc> {
         unreachable!()
     }
-    fn open_prs(&mut self, _: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+    fn open_prs(&mut self, _: &str) -> Result<Vec<OpenPrRef>, StepRc> {
         unreachable!()
     }
 }
@@ -3361,10 +3361,10 @@ impl Steps for FourOnCheck {
     fn heartbeat(&mut self) -> StepRc {
         self.inner.heartbeat()
     }
-    fn pr_head(&mut self, r: &str, n: &str) -> Result<Option<(String, String)>, StepRc> {
+    fn pr_head(&mut self, r: &str, n: u64) -> Result<Option<PrHead>, StepRc> {
         self.inner.pr_head(r, n)
     }
-    fn open_prs(&mut self, r: &str) -> Result<Vec<(String, String, String)>, StepRc> {
+    fn open_prs(&mut self, r: &str) -> Result<Vec<OpenPrRef>, StepRc> {
         self.inner.open_prs(r)
     }
 }
