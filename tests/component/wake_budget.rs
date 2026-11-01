@@ -250,3 +250,169 @@ fn a_wake_that_ignores_term_is_killed_after_the_grace_with_its_session_grandchil
         .any(|r| r.method == "POST" && r.body.contains("stopped at the time budget (2s)"));
     assert!(said, "the coordinator heard of it");
 }
+
+const BIN: &str = env!("CARGO_BIN_EXE_crewboard");
+
+/// `crewboard lock take` of `dir` for `holder`, as a job without a pid (`--pid 0 --expect 600`).
+fn take_host_lock(dir: &Path, holder: &str) {
+    let o = Command::new(BIN)
+        .args(["lock", "take"])
+        .arg(dir)
+        .args([
+            "--holder",
+            holder,
+            "--no-board",
+            "--pid",
+            "0",
+            "--expect",
+            "600",
+        ])
+        .env("HOST_LOCK_PS_CMD", "true")
+        .env_remove("HOST_LOCK_HOST")
+        .env_remove("CREWBOARD_HOST_LOCK")
+        .env_remove("CREWBOARD_HOST_LOCK_PID")
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(dir.join("owner").is_file());
+}
+
+/// A wake of `b` with the host lock `hl`; no CI on this host for the locks of the wake command.
+fn wake_with_lock(fake: &FakeBoard, b: &Agent, s: &Path, hl: &Path, extra: &[&str]) -> Command {
+    let hl = hl.to_str().unwrap();
+    let mut args = vec!["--agent", b.name.as_str(), "--host-lock", hl];
+    args.extend_from_slice(&["--heartbeat-every", "0"]);
+    args.extend_from_slice(extra);
+    let mut c = wake_cmd(fake, b, s, &args);
+    c.env("HOST_LOCK_PS_CMD", "true")
+        .env_remove("HOST_LOCK_HOST")
+        .env_remove("CREWBOARD_HOST_LOCK")
+        .env_remove("CREWBOARD_HOST_LOCK_PID");
+    c
+}
+
+fn wake_log(s: &Path) -> String {
+    std::fs::read_to_string(s.join("wake.log")).unwrap_or_default()
+}
+
+#[test]
+fn tb1_a_budget_stop_releases_the_host_lock_of_the_agent_tb2_a_wake_inside_its_budget_keeps_it() {
+    let (fake, c, b) = crew();
+    let _t = working(&fake, &c, &b);
+    let st = tempfile::tempdir().unwrap();
+    let s = st.path();
+    let hl = s.join("heavy.lock.d");
+    take_host_lock(&hl, &b.name);
+    let child = s.join("child.pid");
+    let cmd = format!("sleep 300 & echo $! > '{}'; wait", child.display());
+    let o = wake_with_lock(&fake, &b, s, &hl, &["--wake-cmd", &cmd, "--max-wake", "2s"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let pid = std::fs::read_to_string(&child).unwrap().trim().to_string();
+    assert!(until(5, || !alive(&pid)), "process {pid} is still alive");
+    assert!(!hl.exists(), "the host lock is released: {}", wake_log(s));
+    assert!(
+        wake_log(s).contains(&format!(
+            "host lock {}: released for {}",
+            hl.display(),
+            b.name
+        )),
+        "{}",
+        wake_log(s)
+    );
+    assert!(!s.join("wake.lock").exists());
+    // TB2: a wake that ends inside its budget says nothing and keeps the host lock
+    take_host_lock(&hl, &b.name);
+    let before = fake.requests().len();
+    let ran = s.join("ran");
+    let cmd = format!("touch '{}'", ran.display());
+    let o = wake_with_lock(
+        &fake,
+        &b,
+        s,
+        &hl,
+        &["--wake-cmd", &cmd, "--max-wake", "20s"],
+    )
+    .output()
+    .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(ran.exists(), "the wake ran");
+    assert!(hl.join("owner").is_file(), "the host lock stays");
+    assert!(wake_log(s).contains("wake finished OK"), "{}", wake_log(s));
+    let new: Vec<_> = fake.requests().into_iter().skip(before).collect();
+    assert!(
+        !new.iter()
+            .any(|r| r.method == "POST" && r.body.contains("time budget")),
+        "{new:?}"
+    );
+}
+
+#[test]
+fn tb10_a_budget_stop_of_a_lock_run_leaves_no_lock_dir() {
+    let (fake, c, b) = crew();
+    let _t = working(&fake, &c, &b);
+    let st = tempfile::tempdir().unwrap();
+    let s = st.path();
+    let hl = s.join("heavy.lock.d");
+    let cmd = format!(
+        "'{BIN}' lock run '{}' --holder '{}' --no-board -- sh -c 'sleep 300' & wait",
+        hl.display(),
+        b.name
+    );
+    let o = wake_with_lock(&fake, &b, s, &hl, &["--wake-cmd", &cmd, "--max-wake", "3s"])
+        // time for the run to pass the TERM on to its job and to release
+        .env("CREWBOARD_KILL_GRACE", "6")
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(
+        !hl.exists(),
+        "no lock dir is left, not even an empty one: {}",
+        wake_log(s)
+    );
+}
+
+#[test]
+fn tb11_a_budget_stop_keeps_a_detached_job_and_its_lock_tb11b_the_job_releases_it_later() {
+    let (fake, c, b) = crew();
+    let _t = working(&fake, &c, &b);
+    let st = tempfile::tempdir().unwrap();
+    let s = st.path();
+    let hl = s.join("heavy.lock.d");
+    let res = s.join("res");
+    // the job outlives the budget (3 s) and the grace (2 s) by a wide margin
+    let cmd = format!(
+        "'{BIN}' lock run '{}' --holder '{}' --no-board --detach --result '{}' -- sh -c 'sleep 12; echo jobdone'; sleep 300",
+        hl.display(),
+        b.name,
+        res.display()
+    );
+    let o = wake_with_lock(&fake, &b, s, &hl, &["--wake-cmd", &cmd, "--max-wake", "3s"])
+        .env("CREWBOARD_KILL_GRACE", "2")
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    let owner = std::fs::read_to_string(hl.join("owner")).unwrap_or_default();
+    let job = owner
+        .lines()
+        .find_map(|l| l.strip_prefix("pid="))
+        .unwrap_or_default()
+        .to_string();
+    assert!(!job.is_empty() && alive(&job), "the job lives: {owner}");
+    assert!(owner.lines().any(|l| l == "detached=1"), "{owner}");
+    assert!(!res.exists(), "the job has not ended");
+    assert!(
+        wake_log(s).contains(&format!("host lock {}: kept for {}", hl.display(), b.name)),
+        "{}",
+        wake_log(s)
+    );
+    // TB11b: the job ends after the stop, writes its result and releases the lock
+    assert!(
+        until(30, || std::fs::read_to_string(&res)
+            .is_ok_and(|t| t.starts_with("rc=0 "))),
+        "result: {:?}",
+        std::fs::read_to_string(&res)
+    );
+    assert!(until(5, || !hl.exists()), "the lock is released");
+}

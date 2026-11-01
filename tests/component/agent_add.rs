@@ -274,8 +274,12 @@ fn b1_seven_steps_join_posted_one_next_step() {
         last.contains("then run: crewboard agent add fake-owner/fake-repo "),
         "{last}"
     );
-    // the effects
     let dir = s.path("agents/dev1");
+    assert!(
+        last.contains(&format!("--agent-dir '{}'", dir.display())),
+        "{last}"
+    );
+    // the effects
     assert_eq!(
         std::fs::read_link(dir.join("agent.env")).unwrap(),
         s.env_file
@@ -317,6 +321,23 @@ fn b1_seven_steps_join_posted_one_next_step() {
             &["config", "--get", "url.https://github.com/.insteadOf"]
         ),
         "git@github.com:"
+    );
+    assert_eq!(
+        git(&wd, &["remote", "get-url", "origin"]),
+        format!("https://github.com/{REPO}")
+    );
+    // the join request is posted with the agent token, not with the token of the caller
+    let posts: Vec<_> = s
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "POST" && r.path.contains("/comments"))
+        .collect();
+    assert!(!posts.is_empty());
+    assert!(
+        posts.iter().all(|r| r.bearer.as_deref() == Some(TOKEN)),
+        "{:?}",
+        posts.iter().map(|r| &r.bearer).collect::<Vec<_>>()
     );
     // the join request is on the board, with the label of the runtime claude without a model
     assert!(
@@ -412,6 +433,30 @@ fn b2_rerun_all_already_done_and_no_second_join() {
         writes,
         "the rerun wrote to the board"
     );
+    // `start` runs as the agent: in the work dir, with the agent dir as its config dir, the stub
+    // first on its PATH and no token variable of the caller
+    let ctx = s.path("ctx");
+    let bin = seam(
+        &s,
+        &format!(
+            "printf '%s|%s|%s|%s\\n' \"$(pwd)\" \"${{CREWBOARD_CONFIG_DIR:-unset}}\" \"${{PATH%%:*}}\" \"${{GH_TOKEN:-unset}}\" >>'{}'\n\
+             echo 'refused [rule=sender-not-approved]: x is not an approved agent: the owner has not approved it yet' >&2\nexit 2",
+            ctx.display()
+        ),
+    );
+    let o = s.add("agents/dev1", "work", &["--crewboard", &bin]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let dir = s.path("agents/dev1");
+    assert_eq!(
+        std::fs::read_to_string(&ctx).unwrap(),
+        format!(
+            "{}|{}|{}/bin|unset\n",
+            s.path("work").display(),
+            dir.display(),
+            dir.display()
+        )
+    );
+    assert_eq!(next_steps(&o), 1, "{}", o.stdout);
 }
 
 #[test]
@@ -448,6 +493,16 @@ fn b3_rerun_after_approval_start_is_done_and_the_next_step_runs_the_runtime() {
         lines[n - 1].starts_with(
             "agent add: optional: an unattended agent: crewboard wake install --scheduler "
         ),
+        "{}",
+        lines[n - 1]
+    );
+    assert!(
+        lines[n - 1].contains(&format!(
+            "--runtime claude --agent-dir '{d}' --initiative fake --env-file '{e}' --work-dir '{w}' --shim-dir '{d}/bin'",
+            d = dir.display(),
+            e = s.env_file.display(),
+            w = s.path("work").display()
+        )),
         "{}",
         lines[n - 1]
     );
@@ -515,7 +570,15 @@ fn b4_start_refused_names_the_step_and_doctor_as_the_fix_and_keeps_its_exit_code
         o.all()
     );
     assert!(o.stderr.contains("agent-gh-not-crew"), "{}", o.all());
-    assert!(o.stderr.contains("doctor --setup"), "{}", o.all());
+    assert!(
+        o.stderr.contains(&format!(
+            "fix: see which setup check fails: cd '{}' && crewboard agent exec --agent-dir '{}' -- crewboard doctor --setup",
+            s.path("work").display(),
+            s.path("agents/dev1").display()
+        )),
+        "{}",
+        o.all()
+    );
     assert!(!o.stdout.contains("next step"), "{}", o.all());
     // twin: the refusal that waits for the owner is no failure (b2)
     let bin = seam(
@@ -951,6 +1014,7 @@ fn b7_coordinator_role_names_its_role_in_the_approve_line_and_the_headless_comma
     let s = Setup::new();
     let o = s.add("agents/coord", "workc", &["--role", "coordinator"]);
     assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stderr.is_empty(), "{}", o.all());
     assert_eq!(steps(&o, "done"), 6, "{}", o.stdout);
     let last = o.stdout.lines().last().unwrap();
     assert!(
@@ -965,6 +1029,7 @@ fn b7_coordinator_role_names_its_role_in_the_approve_line_and_the_headless_comma
     assert_eq!(o.code, 0, "{}", o.all());
     assert_eq!(steps(&o, "already done"), 6, "{}", o.stdout);
     assert!(o.stdout.contains("[7/7] start: done"), "{}", o.all());
+    assert_eq!(next_steps(&o), 1, "{}", o.stdout);
     let last = o.stdout.lines().last().unwrap();
     assert!(
         last.contains(&format!(
@@ -1022,6 +1087,7 @@ fn b8_headless_dir_toml_first_line_key_600_and_no_key_printed() {
     let c = coordinator(&s);
     let key_path = c.dir.join("keys/codex@fake-c");
     let key = std::fs::read_to_string(&key_path).unwrap();
+    let source = std::fs::read_to_string(c.dir.join("fake.toml")).unwrap();
     let o = s.run(&headless_args(&s, &c.dir, "headless"), &[]);
     assert_eq!(o.code, 0, "{}", o.all());
     let n = o
@@ -1033,6 +1099,8 @@ fn b8_headless_dir_toml_first_line_key_600_and_no_key_printed() {
     let h = s.path("headless");
     let toml = std::fs::read_to_string(h.join("fake.toml")).unwrap();
     assert_eq!(toml.lines().next(), Some("headless = true"));
+    // the rest is the interactive config as it was
+    assert_eq!(toml, format!("headless = true\n{source}"));
     assert!(
         toml.lines().any(|l| l == "name = \"codex@fake-c\""),
         "{toml}"
@@ -1061,11 +1129,16 @@ fn b8_headless_dir_toml_first_line_key_600_and_no_key_printed() {
         last.starts_with("agent add: next step: install the tick"),
         "{last}"
     );
+    assert!(
+        last.contains("crewboard wake install --scheduler "),
+        "{last}"
+    );
     assert!(last.contains("--tick --agent-dir "), "{last}");
     assert!(
         last.contains(&format!(
-            "--agent-dir '{}' --initiative fake --env-file",
-            h.display()
+            "--agent-dir '{}' --initiative fake --env-file '{}'",
+            h.display(),
+            s.env_file.display()
         )),
         "{last}"
     );
@@ -1084,6 +1157,7 @@ fn b8c_headless_rerun_is_three_times_already_done_with_one_headless_line() {
         .filter(|l| l.contains("/3] ") && l.contains(": already done"))
         .count();
     assert_eq!(n, 3, "{}", o.stdout);
+    assert_eq!(next_steps(&o), 1, "{}", o.stdout);
     let toml = std::fs::read_to_string(s.path("headless/fake.toml")).unwrap();
     assert_eq!(
         toml.lines().filter(|l| l.starts_with("headless")).count(),

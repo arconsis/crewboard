@@ -130,6 +130,50 @@ fn the_stub_runs_the_real_gh_with_the_crew_token_and_a_bare_gh_has_none() {
 }
 
 #[test]
+fn g1_a_given_real_gh_is_the_one_the_stub_runs_and_the_token_is_never_printed() {
+    let s = Setup::new();
+    let d = agent_dir(&s);
+    let real = s.realgh.join("gh");
+    // no gh on this PATH: only --real-gh names it
+    let o = shim(
+        &s,
+        &[
+            "--agent-dir",
+            &d.display().to_string(),
+            "--real-gh",
+            &real.display().to_string(),
+        ],
+        "/nonexistent",
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("[1/1] gh shim: done "), "{}", o.stdout);
+    let stub = std::fs::read_to_string(d.join("bin/gh")).unwrap();
+    assert!(stub.contains(&format!("-- '{}'", real.display())), "{stub}");
+    // G1e: for <agent-dir>/bin the next step names `agent exec`
+    assert!(
+        o.stdout.contains(&format!(
+            "agent shim: next step: start the runtime with the shim first on its PATH: crewboard agent exec --agent-dir '{}' -- <runtime>",
+            d.display()
+        )),
+        "{}",
+        o.stdout
+    );
+    // G1b: the token is neither in the stub nor in the output
+    assert!(!stub.contains("add-token-SECRET-123456"), "{stub}");
+    assert!(!o.all().contains("add-token-SECRET-123456"), "{}", o.all());
+    let via = Command::new(d.join("bin/gh"))
+        .args(["api", "user"])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&via.stdout),
+        "gh-saw token=add-token-SECRET-123456 args=api user\n"
+    );
+}
+
+#[test]
 fn a_file_that_is_not_a_crewboard_stub_is_refused_and_kept() {
     let s = Setup::new();
     let d = agent_dir(&s);
@@ -366,6 +410,9 @@ fn the_compat_options_of_the_old_script_make_the_stub_in_another_dir_and_only_th
     );
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(bin.join("gh").is_file() && d.join("gh-empty-config").is_dir());
+    assert_eq!(mode(&bin.join("gh")), 0o755);
+    // a stub dir that is not <agent-dir>/bin: `agent exec` would not find it, so no such step
+    assert!(!o.all().contains("agent exec"), "{}", o.all());
     // only the git identity: no stub is written
     let w = checkout(&s, "wd");
     let d2 = s.path("agent6");
@@ -449,6 +496,23 @@ fn a_linked_worktree_gets_the_identity_in_its_own_scope_and_the_main_checkout_ke
         conf(&wt, "url.https://github.com/.insteadOf"),
         "git@github.com:"
     );
+    // the empty entry resets the helpers of the system and the user; the stub comes after it
+    let helpers = |w: &Path| {
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(w)
+            .args(["config", "--get-all", "credential.helper"])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&o.stdout).to_string()
+    };
+    assert_eq!(
+        helpers(&wt),
+        format!("\n!{}/bin/gh auth git-credential\n", d.display())
+    );
+    assert_eq!(helpers(&main), "");
 }
 
 #[test]

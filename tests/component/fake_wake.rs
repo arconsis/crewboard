@@ -566,6 +566,71 @@ fn print_cmd_prints_the_command_and_starts_nothing() {
 }
 
 #[test]
+fn in12_print_cmd_needs_no_env_file_and_without_home_the_message_names_home() {
+    let st = tempfile::tempdir().unwrap();
+    let wd = st.path().join("wd");
+    let cfg = st.path().join("cfg");
+    std::fs::create_dir_all(&wd).unwrap();
+    std::fs::create_dir_all(&cfg).unwrap();
+    let fake_rt = st.path().join("codex");
+    std::fs::write(
+        &fake_rt,
+        "#!/bin/sh
+",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake_rt, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = |home: Option<&Path>, env_file: &Path| {
+        let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_crewboard"));
+        c.args(["--config-dir", cfg.to_str().unwrap(), "wake"])
+            .args(["--runtime", "codex", "--runtime-bin"])
+            .arg(&fake_rt)
+            .args([
+                "--agent",
+                "dev@host-a",
+                "--initiative",
+                "demo",
+                "--work-dir",
+            ])
+            .arg(&wd)
+            .arg("--env-file")
+            .arg(env_file)
+            .arg("--print-cmd")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin");
+        if let Some(h) = home {
+            c.env("HOME", h);
+        }
+        crate::support::lock::out_of(c.output().unwrap())
+    };
+    // an env file that is not there: --print-cmd still prints the command
+    let o = run(Some(st.path()), &st.path().join("no-such.env"));
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.starts_with(&format!(
+            "cd {} && {} exec ",
+            wd.display(),
+            fake_rt.display()
+        )),
+        "{}",
+        o.all()
+    );
+    // no HOME and no XDG_STATE_HOME: no state dir, and the message says why
+    let envf = st.path().join("ok.env");
+    std::fs::write(&envf, "GH_TOKEN=test-not-real\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&envf, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let o = run(None, &envf);
+    assert_eq!(o.code, 4, "{}", o.all());
+    assert!(o.stderr.contains("HOME is not set"), "{}", o.all());
+}
+
+#[test]
 fn the_other_keys_of_the_env_file_reach_the_wake_command_only() {
     use std::os::unix::fs::PermissionsExt;
     let (_fake, _c, b) = crew();
@@ -633,4 +698,75 @@ fn the_other_keys_of_the_env_file_reach_the_wake_command_only() {
             "crewboard's own commands must not get {key}"
         );
     }
+}
+
+#[test]
+fn hk2_a_due_hook_prints_the_new_events_as_json_and_appends_them_hk6_the_variable_sets_the_interval()
+ {
+    let (fake, c, b) = crew();
+    let _ = fake.poll_json(&b);
+    let tmp = tempfile::tempdir().unwrap();
+    let events = tmp.path().join("events.txt");
+    let stamp = tmp.path().join("events.txt.hook-stamp");
+    let log = tmp.path().join("hook.log");
+    let (ev, lg) = (events.to_str().unwrap(), log.to_str().unwrap());
+    let hook = |extra: &[&str], env: &[(&str, &str)]| {
+        let mut args = vec!["hook", "post-tool-use", "--log", lg];
+        args.extend_from_slice(extra);
+        let mut env = env.to_vec();
+        env.push(("CREWBOARD_EVENTS_FILE", ev));
+        fake.run_env(&b.dir, tmp.path(), &args, &env)
+    };
+    let t = ticket(&fake);
+    run_ok(&fake, &c, &["assign", &t.to_string(), "--to", &b.name]);
+    std::fs::write(&events, "== Events:\n").unwrap();
+    // the last poll is long ago: due
+    std::fs::write(&stamp, "0\n").unwrap();
+    let o = hook(&["--initiative", "fake", "--every", "300"], &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let v: serde_json::Value =
+        serde_json::from_str(&o.stdout).unwrap_or_else(|e| panic!("{e}: {}", o.all()));
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+    let ctx = v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut lines = ctx.lines();
+    assert_eq!(
+        lines.next(),
+        Some("crewboard: new events since this wake started:")
+    );
+    let first_event = lines.next().unwrap_or_default().to_string();
+    assert!(!first_event.is_empty(), "{ctx}");
+    let file = std::fs::read_to_string(&events).unwrap();
+    assert!(
+        file.contains("\n== Events delivered during the wake (crewboard poll, "),
+        "{file}"
+    );
+    assert!(file.contains(&first_event), "{file}");
+    let stamped = std::fs::read_to_string(&stamp).unwrap();
+    assert!(
+        !stamped.trim().is_empty() && stamped.trim() != "0",
+        "{stamped}"
+    );
+    // HK2b: the next call within the interval does not poll
+    let before = fake.requests().len();
+    let o = hook(&["--initiative", "fake", "--every", "300"], &[]);
+    assert_eq!((o.code, o.stdout.as_str()), (0, ""), "{}", o.all());
+    assert_eq!(fake.requests().len(), before, "a second poll");
+    // HK6: without --every the variable sets the interval; 0 makes the hook due at once
+    let t2 = ticket(&fake);
+    run_ok(&fake, &c, &["assign", &t2.to_string(), "--to", &b.name]);
+    let o = hook(&["--initiative", "fake"], &[]);
+    assert_eq!(
+        (o.code, o.stdout.as_str()),
+        (0, ""),
+        "the default 300 s: {}",
+        o.all()
+    );
+    let o = hook(&["--initiative", "fake"], &[("CREWBOARD_HOOK_EVERY", "0")]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let v: serde_json::Value =
+        serde_json::from_str(&o.stdout).unwrap_or_else(|e| panic!("{e}: {}", o.all()));
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PostToolUse");
 }

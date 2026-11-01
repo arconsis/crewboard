@@ -174,6 +174,18 @@ fn a1_a_dev_agent_wake_runs_the_runtime_in_the_work_dir_with_its_environment() {
         "{t}"
     );
     assert!(t.contains("arg=--\narg=Use the crewboard skill"), "{t}");
+    // the prompt names the default events file, and the old watch instruction is gone
+    assert!(
+        t.contains(&format!(
+            "Your events are in {}; handle them.",
+            events.display()
+        )),
+        "{t}"
+    );
+    assert!(
+        !t.contains("Run crewboard watch --timeout 1m, handle every event"),
+        "{t}"
+    );
     assert!(
         events.is_file(),
         "the default events file is in the state dir"

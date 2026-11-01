@@ -336,6 +336,11 @@ mod tests {
         assert!(
             t.contains("Bash(echo *)") && t.contains("Bash(test *)") && t.ends_with("Bash(wc *)")
         );
+        let at = |tool: &str| t.find(tool).unwrap_or_else(|| panic!("{tool} in {t}"));
+        assert!(
+            at("Bash(echo *)") < at("Bash(test *)") && at("Bash(test *)") < at("Bash(grep *)"),
+            "{t}"
+        );
     }
 
     #[test]

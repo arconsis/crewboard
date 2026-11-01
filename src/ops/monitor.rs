@@ -754,5 +754,44 @@ mod tests {
             assert_eq!(r.code, 4);
             assert!(r.reason.starts_with("cannot run"), "{}", r.reason);
         }
+
+        #[test]
+        fn w3_w3e_a_stderr_of_one_reason_or_one_status_line_gives_only_that_part() {
+            let dir = tempfile::tempdir().unwrap();
+            let run = |body: &str| {
+                let r = Subprocess {
+                    bin: stub(dir.path(), body),
+                    before: vec![],
+                    after: vec![],
+                }
+                .run();
+                (r.code, r.reason, r.status)
+            };
+            assert_eq!(
+                run("echo 'HTTP 502 from api.github.com' >&2; exit 3"),
+                (3, "HTTP 502 from api.github.com".into(), String::new())
+            );
+            assert_eq!(
+                run(
+                    "echo '' >&2; echo 'cursor=c1 polls=4 last_ok=2026-10-18T10:00:00Z' >&2; exit 3"
+                ),
+                (
+                    3,
+                    String::new(),
+                    "cursor=c1 polls=4 last_ok=2026-10-18T10:00:00Z".into()
+                )
+            );
+            assert_eq!(
+                run(
+                    "echo 'refused [rule=not-approved] claude@host-a is not approved' >&2; \
+                     echo 'ask the owner to run approve' >&2; exit 2"
+                ),
+                (
+                    2,
+                    "refused [rule=not-approved] claude@host-a is not approved".into(),
+                    String::new()
+                )
+            );
+        }
     }
 }

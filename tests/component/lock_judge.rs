@@ -47,18 +47,16 @@ fn append(dir: &Path, line: &str) {
 
 /// `lock take <name> --holder <holder> --no-board --pid <live>` plus `extra`.
 fn take(r: &Rig, name: &str, holder: &str, extra: &[&str]) -> Out {
-    let live = r.live().to_string();
+    let (dir, live) = (r.s(name), r.live().to_string());
     let mut a = vec![
         "take",
-        name,
+        &dir,
         "--holder",
         holder,
         "--no-board",
         "--pid",
         &live,
     ];
-    let p = r.s(name);
-    a[1] = &p;
     a.extend_from_slice(extra);
     r.run(&a)
 }
