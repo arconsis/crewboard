@@ -10,6 +10,7 @@ use crate::domain::ci::evaluate::{
 };
 use crate::error::CbResult;
 use crate::github::Rest;
+use crate::github::paging::MAX_PAGES;
 use crate::rules::evidence::CiFacts;
 use serde_json::Value;
 
@@ -87,18 +88,66 @@ enum Got {
     Unreadable(String),
 }
 
+/// Read one CI source, every page. The items of a later page join the list of the first
+/// answer ([`list_mut`]). A list longer than
+/// `MAX_PAGES` pages is unreadable: a part of the CI is never judged as the whole.
 fn read_source(
     get: &dyn Fn(&str) -> Result<Rest, GhError>,
     path: &str,
     declared: bool,
 ) -> CbResult<Got> {
-    match get(path) {
-        Ok(r) => Ok(Got::Body(r.body)),
-        Err(GhError::Http {
+    let first = match get(path) {
+        Ok(r) => r,
+        Err(e) => return refused(e, declared),
+    };
+    let mut body = first.body;
+    let mut next = first.link_next;
+    let mut pages = 1;
+    while let Some(url) = next.take() {
+        if pages >= MAX_PAGES {
+            return Ok(Got::Unreadable(format!(
+                "more than {MAX_PAGES} pages of 100"
+            )));
+        }
+        let page = match get(&url) {
+            Ok(r) => r,
+            Err(e) => return refused(e, declared),
+        };
+        pages += 1;
+        next = page.link_next;
+        let (Some(all), Some(more)) = (list_mut(&mut body), list_of(page.body)) else {
+            return Ok(Got::Unreadable(format!("page {pages} is not a list")));
+        };
+        all.extend(more);
+    }
+    Ok(Got::Body(body))
+}
+
+/// The list of a CI answer: the answer itself, or its `workflow_runs`, `check_runs` or
+/// `statuses` (the combined status).
+fn list_mut(body: &mut Value) -> Option<&mut Vec<Value>> {
+    if body.is_array() {
+        return body.as_array_mut();
+    }
+    let key = ["workflow_runs", "check_runs", "statuses"]
+        .into_iter()
+        .find(|k| body.get(k).is_some_and(Value::is_array))?;
+    body.get_mut(key)?.as_array_mut()
+}
+
+fn list_of(mut body: Value) -> Option<Vec<Value>> {
+    list_mut(&mut body).map(std::mem::take)
+}
+
+/// A failed read of a CI source: a 403 (not a rate limit), and a 404 of a declared source, make
+/// the source unreadable; any other error stops the judgement.
+fn refused(e: GhError, declared: bool) -> CbResult<Got> {
+    match e {
+        GhError::Http {
             status,
             message,
             accepted_permissions,
-        }) if (status == 403 && !message.starts_with("rate limited"))
+        } if (status == 403 && !message.starts_with("rate limited"))
             || (declared && status == 404) =>
         {
             Ok(Got::Unreadable(unreadable_why(
@@ -107,7 +156,7 @@ fn read_source(
                 accepted_permissions.as_deref(),
             )))
         }
-        Err(e) => Err(e.into()),
+        e => Err(e.into()),
     }
 }
 
@@ -515,6 +564,65 @@ mod tests {
         // control: the same wiring without a 403 gives NoCi, so evidence-ci-missing stays.
         let f = fetch(Ok(rest(fx("checks-empty.json"))), false).unwrap();
         assert_eq!(f, CiFacts::NoCi(vec!["statuses".into()]));
+    }
+
+    // ---- every page of a source ----
+
+    /// Runs of `SHA` in two pages: page 1 green, page 2 `second`. The other sources are empty.
+    fn two_pages(second: &'static str) -> impl Fn(&str) -> Result<Rest, GhError> {
+        move |p: &str| -> Result<Rest, GhError> {
+            if p.contains("/actions/runs") && p.ends_with("&page=2") {
+                Ok(rest(fx(second)))
+            } else if p.contains("/actions/runs") {
+                let mut r = rest(fx("runs-success.json"));
+                r.link_next = Some(format!("https://api.github.com/{p}&page=2"));
+                Ok(r)
+            } else if p.contains("/check-runs") {
+                Ok(rest(fx("checks-empty.json")))
+            } else if p.ends_with("/statuses?per_page=100") {
+                Ok(rest(fx("statuses-empty.json")))
+            } else if p.ends_with("/status") {
+                let mut c = fx("status-empty.json");
+                c["sha"] = json!(SHA);
+                Ok(rest(c))
+            } else {
+                Err(http(404, "Branch not protected", None))
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_run_on_the_second_page_makes_the_ci_not_green() {
+        assert!(matches!(
+            facts_of(&two_pages("runs-failure.json"), "example-org/app", false).unwrap(),
+            CiFacts::NotGreen(_)
+        ));
+        // control: the same two pages with a green second page are green
+        assert!(matches!(
+            facts_of(&two_pages("runs-success.json"), "example-org/app", false).unwrap(),
+            CiFacts::Green { .. }
+        ));
+    }
+
+    #[test]
+    fn a_source_longer_than_the_page_bound_is_unreadable_never_green() {
+        let pages = std::cell::Cell::new(0);
+        let get = |p: &str| -> Result<Rest, GhError> {
+            if p.contains("/actions/runs") {
+                pages.set(pages.get() + 1);
+                let mut r = rest(fx("runs-success.json"));
+                r.link_next = Some(format!(
+                    "https://api.github.com/repos/example-org/app/actions/runs?page={}",
+                    pages.get() + 1
+                ));
+                Ok(r)
+            } else {
+                two_pages("runs-success.json")(p)
+            }
+        };
+        let f = facts_of(&get, "example-org/app", false).unwrap();
+        assert!(!matches!(f, CiFacts::Green { .. }), "{f:?}");
+        assert_eq!(pages.get(), MAX_PAGES);
     }
 
     // ---- commit statuses --------------------------------------------------------
