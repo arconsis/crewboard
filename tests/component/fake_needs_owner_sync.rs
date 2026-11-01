@@ -99,3 +99,18 @@ fn a_quiet_poll_and_a_headless_cycle_send_no_list() {
     assert_eq!(lists(&fake), 0);
     assert!(needs_owner(&fake, t));
 }
+
+#[test]
+fn a_stale_label_on_a_later_page_of_the_issue_list_goes_too() {
+    let (fake, c, b) = crew();
+    // another issue with the label comes first; the ticket is on page 2
+    fake.issue(900, &["needs-owner"]);
+    let (t, item) = delivered(&fake, &c, &b, "IT sync pages");
+    fake.set_item(&item, "Status", "Done");
+    fake.touch_item(&item);
+    fake.add_label(t, "needs-owner");
+    fake.page_lists(1);
+    let _ = fake.poll_json(&c);
+    assert!(!needs_owner(&fake, t), "{:?}", fake.labels_of(t));
+    assert_eq!(lists(&fake), 2, "one list, two pages");
+}

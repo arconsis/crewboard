@@ -9,6 +9,7 @@
 //! owner. The comments are read only for the few labelled tickets. Only the real poll or watch cycle of the interactive coordinator runs it.
 
 use super::{AgentCtx, World};
+use crate::github::api::issues::{self, State};
 use crate::late::CHECK_EVERY_S;
 use crate::services::ticket_loader::read_messages;
 use crate::state::StateCache;
@@ -48,20 +49,9 @@ fn sync_repo(
     repo: &str,
     warnings: &mut Vec<String>,
 ) -> Result<(), crate::error::CbError> {
-    let path = format!(
-        "repos/{repo}/issues?labels={}&state=all&per_page=100",
-        crate::labels::NEEDS_OWNER
-    );
-    let page = ac.ctx.client.get(&path)?;
-    let list = page
-        .body
-        .as_array()
-        .ok_or_else(|| crate::github::GhError::Shape("issue list is not an array".into()))?;
-    for i in list.iter().filter(|i| i.get("pull_request").is_none()) {
-        let Some(n) = i.get("number").and_then(serde_json::Value::as_u64) else {
-            continue;
-        };
-        let closed = i.get("state").and_then(serde_json::Value::as_str) == Some("closed");
+    let list = issues::list_labelled(&ac.ctx.client, repo, crate::labels::NEEDS_OWNER, State::All)?;
+    for i in list {
+        let (n, closed) = (i.number, !i.open);
         let row = rows.iter().find(|r| r.repo == repo && r.issue == n);
         let stale = if closed {
             true

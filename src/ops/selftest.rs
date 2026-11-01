@@ -41,18 +41,7 @@ pub const SELFTEST_LABEL: &str = "crew:selftest";
 
 /// Find the open selftest issue of the main repo, or create it (and its label).
 pub fn ensure_selftest_issue(client: &Client, repo: &str, initiative: &str) -> CbResult<u64> {
-    let path = format!("repos/{repo}/issues?labels={SELFTEST_LABEL}&state=open&per_page=10");
-    let r = client.get(&path)?;
-    let list = r.body.as_array().ok_or_else(|| {
-        CbError::from(crate::github::GhError::Shape(
-            "issue list is not an array".into(),
-        ))
-    })?;
-    if let Some(n) = list
-        .iter()
-        .filter(|i| i.get("pull_request").is_none())
-        .find_map(|i| i.get("number").and_then(Value::as_u64))
-    {
+    if let Some(n) = crate::github::api::issues::any_open(client, repo, SELFTEST_LABEL)? {
         return Ok(n);
     }
     match client.post(

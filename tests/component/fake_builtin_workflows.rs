@@ -230,3 +230,22 @@ fn a_status_change_that_a_crewboard_message_explains_reads_no_timeline() {
     );
     assert_eq!(fake.timeline_reads(), 0);
 }
+
+#[test]
+fn the_newest_status_change_on_a_later_page_of_the_timeline_is_marked() {
+    let (fake, c, _b, t, item) = assigned();
+    fake.set_item(&item, "Status", "In Progress");
+    fake.touch_item(&item);
+    // an older change by the agent account is on page 1; the newest, by the automation, on page 2
+    fake.status_changed_by(t, "fake-crew");
+    fake.status_changed_by(t, AUTOMATION);
+    fake.page_lists(1);
+    let (v, code) = fake.poll_json(&c);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(
+        status_changes(&v, t),
+        vec![format!("status Ready -> In Progress {MARK}")],
+        "{v}"
+    );
+    assert_eq!(fake.timeline_reads(), 2, "one timeline, two pages");
+}

@@ -471,3 +471,17 @@ fn a_ready_or_done_ticket_is_still_not_split() {
         s.refused(&s.c, "split-not-in-progress");
     }
 }
+
+#[test]
+fn a_repair_finds_the_new_ticket_on_a_later_page_of_the_issue_list() {
+    // the old ticket comes first in the list of open tickets; the new one is on page 2
+    let s = in_progress();
+    s.fake.page_lists(1);
+    broken_split_is_repaired(
+        s,
+        "In Progress",
+        "PATCH",
+        |old| format!("/issues/{old}"),
+        "",
+    );
+}

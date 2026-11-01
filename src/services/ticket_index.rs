@@ -11,7 +11,7 @@ use crate::config::BoardConfig;
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::github::GhError;
-use crate::github::paging::{MAX_PAGES, paged};
+use crate::github::api::issues::{self, State};
 use crate::items::ItemSnapshot;
 use crate::registry::{Registry, Trust};
 use crate::state::TicketIndex;
@@ -41,19 +41,8 @@ enum Listing {
     All,
 }
 
-impl Listing {
-    fn query(self) -> &'static str {
-        match self {
-            Listing::Open => "state=open&per_page=100",
-            Listing::Closed => "state=closed&sort=updated&direction=desc&per_page=30",
-            Listing::All => "state=all&per_page=100",
-        }
-    }
-
-    fn all_pages(self) -> bool {
-        !matches!(self, Listing::Closed)
-    }
-}
+/// The size of the closed sample of [`Listing::Closed`].
+const CLOSED_SAMPLE: usize = 30;
 
 /// Call `f` for every issue of the listing, in every repo of the initiative, that is not a pull
 /// request, is not skipped by `skip(key)` (decided before any comment is read) and has a signed
@@ -66,29 +55,13 @@ fn each_ticket_issue(
     mut f: impl FnMut(TicketLog),
 ) -> CbResult<()> {
     for repo in &r.cfg.repos {
-        let path = format!(
-            "repos/{repo}/issues?labels={WORK_LABEL}&{}",
-            listing.query()
-        );
-        let pages = paged(
-            r.client,
-            &path,
-            if listing.all_pages() { MAX_PAGES } else { 1 },
-        )?;
         // The closed listing is a sample of one page; every other listing must be whole.
-        let pages = if listing.all_pages() {
-            pages.complete(&format!("issues of {repo}"))?
-        } else {
-            pages
+        let list = match listing {
+            Listing::Open => issues::list_labelled(r.client, repo, WORK_LABEL, State::Open)?,
+            Listing::All => issues::list_labelled(r.client, repo, WORK_LABEL, State::All)?,
+            Listing::Closed => issues::newest_closed(r.client, repo, WORK_LABEL, CLOSED_SAMPLE)?,
         };
-        for i in pages
-            .items("issue list")?
-            .into_iter()
-            .filter(|i| i.get("pull_request").is_none())
-        {
-            let Some(n) = i.get("number").and_then(serde_json::Value::as_u64) else {
-                continue;
-            };
+        for n in list.into_iter().map(|i| i.number) {
             let key = format!("{repo}#{n}");
             if skip(&key) {
                 continue;

@@ -33,15 +33,15 @@ crewboard command made it.
    `assign`). A crewboard write without one costs one timeline read and gets no mark. The
    agent's own writes give no event at all.
 3. For an event that is not explained, `poll` and `watch` read the timeline of that one issue:
-   one REST call per event, at most 100 timeline events. If the last
+   one timeline read per event, one REST call for each 100 timeline events. If the last
    `project_v2_item_status_changed` names the automation, the event text ends with
    `(by GitHub automation)`. Example: `status Blocked -> In Progress (by GitHub automation)`.
-4. No mark when the actor is another account, when the page has no status event, or when the
-   timeline has more than 100 events (the newest are on a later page). A read error leaves the
-   event as it is and prints one line on stderr. The cycle does not fail.
+4. No mark when the actor is another account, when the timeline has no status event, or when the
+   timeline has more than 50 pages (the newest events are on the pages that are not read). A
+   read error leaves the event as it is and prints one line on stderr. The cycle does not fail.
 5. Call cost: no call in a cycle without a status change, no call for an explained event, no
    call in a peek (`poll --quiet`) and in `resume`, which compute the same events again at each
-   call. One REST call for each other `status-changed` event, once: the next cycle has the new
+   call. One timeline read for each other `status-changed` event, once: the next cycle has the new
    snapshot and gives no event.
 
 ## Status against the signed log

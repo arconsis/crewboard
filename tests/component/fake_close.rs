@@ -853,3 +853,25 @@ fn assign_and_verify_on_a_dropped_ticket_are_refused() {
         Some("Dropped")
     );
 }
+
+#[test]
+fn close_finds_the_owner_merged_pr_on_a_later_page_of_the_timeline() {
+    let fake = FakeBoard::new();
+    let c = fake.agent("codex@fake-c", Role::Coordinator);
+    let b = fake.agent("hermes@fake-b", Role::Dev);
+    let body = format!("Goal: integration test ticket.\n\n{GATE}CI: none\n");
+    let t = fake.ticket_issue("IT close pages", &body, &["crew:work"]);
+    let ts = t.to_string();
+    run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]);
+    run_ok(&fake, &b, &["take", &ts]);
+    let pr = fake.pr_for(t, &b.name);
+    // another event is on page 1 of the timeline; the cross-reference of the PR on page 2
+    fake.status_changed_by(t, "fake-crew");
+    fake.cross_reference(t, pr.number);
+    fake.merge_pr(pr.number);
+    fake.close_issue(t);
+    fake.page_lists(1);
+    let o = run_ok(&fake, &c, &["close", &ts]);
+    assert!(o.stdout.contains("closed: Status Done"), "{}", o.all());
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}

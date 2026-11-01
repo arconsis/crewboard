@@ -47,6 +47,8 @@ use super::pr_read::{MergedPr, read_pr};
 use super::{Me, load_world_cached, me_of, needs_owner_lines, post, remember, to_agent};
 use crate::base::ids;
 use crate::error::CbResult;
+use crate::github::api::issues;
+use crate::github::paging::MAX_PAGES;
 use crate::ops::say::check_body_text;
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::names::{Kind, Re, To};
@@ -177,12 +179,9 @@ fn judge_pr_with(
 
 /// The PRs that the cross-references of an issue timeline name, in order, without repeats.
 /// A cross-reference from an issue (not a PR) is skipped.
-pub fn timeline_prs(timeline: &Value) -> Vec<(String, u64)> {
+pub fn timeline_prs(timeline: &[Value]) -> Vec<(String, u64)> {
     let mut out: Vec<(String, u64)> = Vec::new();
-    let Some(events) = timeline.as_array() else {
-        return out;
-    };
-    for e in events {
+    for e in timeline {
         if e.get("event").and_then(Value::as_str) != Some("cross-referenced") {
             continue;
         }
@@ -236,11 +235,15 @@ fn find_merged_pr(ac: &AgentCtx, t: &Ticket, owner: &str) -> CbResult<Result<Mer
     for round in 0..2 {
         if round == 1 {
             // 2. the cross-references on the issue timeline
-            candidates = match ac.ctx.client.get(&format!(
-                "repos/{}/issues/{}/timeline?per_page=100",
-                t.repo, t.issue
-            )) {
-                Ok(r) => timeline_prs(&r.body),
+            candidates = match issues::timeline(&ac.ctx.client, &t.repo, t.issue) {
+                Ok(tl) => {
+                    if tl.truncated {
+                        why.push(format!(
+                            "the timeline of the issue has more than {MAX_PAGES} pages; the newest events were not read"
+                        ));
+                    }
+                    timeline_prs(&tl.items)
+                }
                 Err(e) => {
                     why.push(format!("the timeline of the issue cannot be read ({e})"));
                     Vec::new()
@@ -716,9 +719,9 @@ mod tests {
                 "number": 12, "pull_request": {}}}},
         ]);
         assert_eq!(
-            timeline_prs(&t),
+            timeline_prs(t.as_array().unwrap()),
             vec![("o/r".to_string(), 9), ("o/r2".to_string(), 11)]
         );
-        assert!(timeline_prs(&json!({"message": "x"})).is_empty());
+        assert!(timeline_prs(&[]).is_empty());
     }
 }

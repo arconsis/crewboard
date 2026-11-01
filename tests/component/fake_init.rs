@@ -842,3 +842,47 @@ fn no_branch_rule_skips_the_step_and_makes_no_request_for_it() {
         fake.requests()
     );
 }
+
+#[test]
+fn init_reads_every_page_of_the_project_fields_for_the_views() {
+    let fake = FakeBoard::new();
+    fake.page_lists(1);
+    let owner = tempfile::tempdir().unwrap();
+    let o = init(&fake, owner.path(), "fake", &["--no-pr"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("view Board: created"), "{}", o.stdout);
+    assert_eq!(fake.views().len(), 4);
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+#[test]
+fn init_finds_the_registry_issue_on_a_later_page_of_the_issue_list() {
+    let fake = FakeBoard::new();
+    // another issue with the registry label comes first in the list
+    fake.issue(900, &["crew:registry"]);
+    let owner = tempfile::tempdir().unwrap();
+    let o = init(&fake, owner.path(), "fake", &["--no-pr"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let reg: u64 = o
+        .stdout
+        .split("registry issue #")
+        .nth(1)
+        .and_then(|r| r.split(':').next())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("{}", o.stdout));
+    // without the board config of the first run, the list is the only way to the issue
+    std::fs::remove_file(owner.path().join("fake.board.toml")).unwrap();
+    fake.page_lists(1);
+    let o = init(&fake, owner.path(), "fake", &["--no-pr"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains(&format!("registry issue #{reg}: exists")),
+        "{}",
+        o.stdout
+    );
+    assert_eq!(
+        fake.open_titles("crew:registry").len(),
+        2,
+        "no second registry"
+    );
+}

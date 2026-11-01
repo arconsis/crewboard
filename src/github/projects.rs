@@ -3,6 +3,7 @@
 //! is missing and what to create.
 
 use super::Client;
+use super::paging::{MAX_PAGES, paged};
 use crate::base::GhError;
 use serde_json::{Value, json};
 
@@ -162,11 +163,12 @@ pub(crate) fn view_names(client: &Client, project_id: &str) -> Result<Vec<String
 }
 
 /// The fields of the project as the REST API lists them (they carry the numeric ids that the
-/// views need). `base` is the REST path of the owner (see `board::rest_base`).
-pub(crate) fn rest_fields(client: &Client, base: &str, number: u64) -> Result<Value, GhError> {
-    Ok(client
-        .get(&format!("{base}/projectsV2/{number}/fields?per_page=100"))?
-        .body)
+/// views need), every page. `base` is the REST path of the owner (see `board::rest_base`).
+pub(crate) fn rest_fields(client: &Client, base: &str, number: u64) -> Result<Vec<Value>, GhError> {
+    let what = "project fields";
+    let path = format!("{base}/projectsV2/{number}/fields?per_page=100");
+    let pages = paged(client, &path, MAX_PAGES)?.complete(what)?;
+    Ok(pages.items(what)?.into_iter().cloned().collect())
 }
 
 /// Create a view; `body` holds its name, layout, filter and columns.
