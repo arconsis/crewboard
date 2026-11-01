@@ -14,6 +14,7 @@ use super::{AgentCtx, load_world};
 use crate::config::LoopConfig;
 use crate::cursor::Cursor;
 use crate::error::CbResult;
+use crate::github::api::pulls::{self, Order};
 use crate::rules::Role;
 use crate::rules::evidence::CiFacts;
 use crate::rules::fields::Field;
@@ -23,7 +24,6 @@ use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_index::discover_tickets;
 use crate::services::ticket_loader::read_messages;
 use crate::ticket::{TicketRow, needs_verify};
-use serde_json::Value;
 
 /// First words of the role brief that `start` prints last (see `start::brief`).
 const BRIEF_MARK: &str = "role brief for ";
@@ -236,30 +236,14 @@ pub fn dev_block(rows: &[TicketRow], me: &str, events: usize, rearm: &str) -> St
 fn open_crew_prs(ac: &AgentCtx, prefix: &str) -> CbResult<Vec<PrLine>> {
     let mut out = Vec::new();
     for repo in &ac.ctx.cfg.repos {
-        let r = ac
-            .ctx
-            .client
-            .get(&format!("repos/{repo}/pulls?state=open&per_page=100"))?;
-        let Some(list) = r.body.as_array() else {
-            continue;
-        };
-        for pr in list {
-            let s = |p: &str| pr.pointer(p).and_then(Value::as_str);
-            let (Some(branch), Some(sha), Some(base), Some(n)) = (
-                s("/head/ref"),
-                s("/head/sha"),
-                s("/base/ref"),
-                pr.get("number").and_then(Value::as_u64),
-            ) else {
-                continue;
-            };
-            if !branch.starts_with(prefix) || out.len() >= 30 {
+        for pr in pulls::list_open(&ac.ctx.client, repo, Order::Created)? {
+            if !pr.head_ref.starts_with(prefix) || out.len() >= 30 {
                 continue;
             }
             let q = CiQuery {
                 repo,
-                sha,
-                base,
+                sha: &pr.head_sha,
+                base: &pr.base_ref,
                 ..CiQuery::default()
             };
             let ci = match fetch_ci(&|p| ac.ctx.client.get(p), &q) {
@@ -268,8 +252,8 @@ fn open_crew_prs(ac: &AgentCtx, prefix: &str) -> CbResult<Vec<PrLine>> {
             };
             out.push(PrLine {
                 repo: repo.clone(),
-                number: n,
-                branch: branch.to_string(),
+                number: pr.number,
+                branch: pr.head_ref,
                 ci,
             });
         }

@@ -38,12 +38,13 @@ use crate::comments::Comment;
 use crate::ctx::is_coordinator;
 use crate::domain::ci::evaluate::not_green_is_pending;
 use crate::events::{Event, EventClass};
+use crate::github::api::pulls::{self, Order};
 use crate::late::liveness::derive;
 use crate::late::{
     AgentLate, CHECK_EVERY_S, CI_CHECK_EVERY_S, CI_FINISHED, CI_NONE_SEEN, CiFinished, CiState,
     Expect, Inputs, Late, OpenPr, OpenWait, Probe, Scope, Subject, VerifyState, Wait, Who,
-    agent_late, ci_scan, coordinator_hears_again, expect, green_since_of, parse_open_prs,
-    prune_seen, scan, tells, told_up_key,
+    agent_late, ci_scan, coordinator_hears_again, expect, green_since_of, prune_seen, scan, tells,
+    told_up_key,
 };
 use crate::protocol::names::{Kind, Re, To};
 use crate::registry::Trust;
@@ -207,12 +208,19 @@ impl Probe for GhProbe<'_> {
         if let Some(c) = self.prs.borrow().get(repo) {
             return c.clone();
         }
-        let got = self
-            .get(&format!(
-                "repos/{repo}/pulls?state=open&per_page=100&sort=updated&direction=desc"
-            ))
+        self.calls.set(self.calls.get() + 1);
+        let got = pulls::list_open(&self.ctx.client, repo, Order::Updated)
             .ok()
-            .and_then(|r| parse_open_prs(&r.body));
+            .map(|list| {
+                list.into_iter()
+                    .map(|p| OpenPr {
+                        number: p.number,
+                        head_ref: p.head_ref,
+                        head_sha: p.head_sha,
+                        base_ref: p.base_ref,
+                    })
+                    .collect()
+            });
         self.prs.borrow_mut().insert(repo.to_string(), got.clone());
         got
     }

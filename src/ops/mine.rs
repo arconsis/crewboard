@@ -12,6 +12,7 @@ use super::lifecycle::my_rows;
 use super::tickets::load_world_cached;
 use crate::domain::ci::evaluate::not_green_is_pending;
 use crate::error::CbResult;
+use crate::github::api::pulls::{self, Order};
 use crate::rules::evidence::{CiFacts, parse_pr_url};
 use crate::rules::status::Status;
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
@@ -281,20 +282,11 @@ pub fn pr_head(ac: &AgentCtx, repo: &str, number: &str) -> CbResult<Option<(Stri
     }
 }
 
-/// The open PRs of a repo (up to 100): number, branch, head SHA.
+/// The open PRs of a repo, every page: number, branch, head SHA.
 pub fn open_prs(ac: &AgentCtx, repo: &str) -> CbResult<Vec<(String, String, String)>> {
-    let r = ac
-        .ctx
-        .client
-        .get(&format!("repos/{repo}/pulls?state=open&per_page=100"))?;
-    Ok(r.body
-        .as_array()
+    Ok(pulls::list_open(&ac.ctx.client, repo, Order::Created)?
         .into_iter()
-        .flatten()
-        .filter_map(|p| {
-            let (b, h) = head_of(p)?;
-            Some((p.get("number")?.as_u64()?.to_string(), b, h))
-        })
+        .map(|p| (p.number.to_string(), p.head_ref, p.head_sha))
         .collect())
 }
 
@@ -328,21 +320,13 @@ fn find_pr(
     let mut repos: Vec<&String> = ac.ctx.cfg.repos.iter().collect();
     repos.sort_by_key(|x| **x != r.repo);
     for repo in repos {
-        let list = ac
-            .ctx
-            .client
-            .get(&format!("repos/{repo}/pulls?state=open&per_page=100"))?;
-        for p in list.body.as_array().into_iter().flatten() {
-            let (Some(branch), Some(head), Some(base), Some(n)) = (
-                s(p, "/head/ref"),
-                s(p, "/head/sha"),
-                s(p, "/base/ref"),
-                p.get("number").and_then(Value::as_u64),
-            ) else {
-                continue;
-            };
-            if is_ticket_branch(&branch, me, r.issue) {
-                return Ok(Some((format!("{repo}#{n}"), head, base)));
+        for p in pulls::list_open(&ac.ctx.client, repo, Order::Created)? {
+            if is_ticket_branch(&p.head_ref, me, r.issue) {
+                return Ok(Some((
+                    format!("{repo}#{}", p.number),
+                    p.head_sha,
+                    p.base_ref,
+                )));
             }
         }
     }

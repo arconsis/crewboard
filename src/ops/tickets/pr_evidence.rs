@@ -3,6 +3,7 @@
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
+use crate::github::api::pulls;
 use crate::ops::AgentCtx;
 use crate::protocol::acts::EvidenceMsg;
 use crate::rules::Refusal;
@@ -138,7 +139,7 @@ pub(super) fn fetch_pr_files(ac: &AgentCtx, repo: &str, number: u64) -> CbResult
 pub(crate) struct PrFiles {
     pub names: Vec<String>,
     pub previous: Vec<String>,
-    /// True when the read stopped at a full page: the PR may have more files than it lists.
+    /// True when the read stopped with a next page left: the PR has more files than it lists.
     pub truncated: bool,
 }
 
@@ -169,36 +170,16 @@ pub(super) fn fetch_pr_files_upto(
     number: u64,
     max: usize,
 ) -> CbResult<PrFiles> {
-    let mut out = PrFiles {
-        names: Vec::new(),
-        previous: Vec::new(),
-        truncated: false,
-    };
-    for page in 1..=max.div_ceil(100).max(1) {
-        let r = ac.ctx.client.get(&format!(
-            "repos/{repo}/pulls/{number}/files?per_page=100&page={page}"
-        ))?;
-        let arr = r.body.as_array().ok_or_else(|| {
-            GhError::Shape(format!(
-                "the files answer of {repo}#{number} is not a list: {}",
-                r.body.to_string().chars().take(80).collect::<String>()
-            ))
-        })?;
-        for f in arr {
-            if let Some(p) = f.get("filename").and_then(Value::as_str) {
-                out.names.push(p.to_string());
-            }
-            if let Some(p) = f.get("previous_filename").and_then(Value::as_str) {
-                out.previous.push(p.to_string());
-            }
-        }
-        if arr.len() < 100 {
-            break;
-        }
-        // a full last page that the cap allows no more of: there may be more files
-        out.truncated = page == max.div_ceil(100).max(1);
-    }
-    Ok(out)
+    let listed = pulls::files(&ac.ctx.client, repo, number, max.div_ceil(100).max(1))?;
+    Ok(PrFiles {
+        previous: listed
+            .items
+            .iter()
+            .filter_map(|f| f.previous_filename.clone())
+            .collect(),
+        names: listed.items.into_iter().map(|f| f.filename).collect(),
+        truncated: listed.truncated,
+    })
 }
 
 /// The files of a PR for the rule `protected-path-owner-merge`: up to one file more than

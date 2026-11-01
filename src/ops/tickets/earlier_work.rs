@@ -14,6 +14,7 @@
 use super::pr_evidence::fetch_pr;
 use crate::base::ids::{self, RuleId};
 use crate::error::{CbError, CbResult};
+use crate::github::api::pulls::{self, Order, PullSummary};
 use crate::ops::AgentCtx;
 use crate::protocol::acts::EarlierWork;
 use crate::rules::evidence::{branch_ticket, parse_pr_url};
@@ -23,20 +24,18 @@ use crate::services::ticket_loader::{Ticket, check_repo};
 use serde_json::Value;
 
 /// The PR that `agent` left for ticket `issue`: an open PR whose head branch is
-/// `<prefix><agent>/<issue>-<slug>`, from the PR list answer. Pure.
+/// `<prefix><agent>/<issue>-<slug>`, from the open PR list. Pure.
 fn pr_in_list(
-    list: &Value,
+    list: &[PullSummary],
     repo: &str,
     prefix: &str,
     agent: &str,
     issue: u64,
 ) -> Option<EarlierWork> {
-    list.as_array()?.iter().find_map(|p| {
-        let head = p.pointer("/head/ref")?.as_str()?;
-        let number = p.get("number")?.as_u64()?;
-        (branch_ticket(prefix, head) == Some((agent, issue))).then(|| EarlierWork {
-            pr: Some(format!("https://github.com/{repo}/pull/{number}")),
-            branch: head.to_string(),
+    list.iter().find_map(|p| {
+        (branch_ticket(prefix, &p.head_ref) == Some((agent, issue))).then(|| EarlierWork {
+            pr: Some(format!("https://github.com/{repo}/pull/{}", p.number)),
+            branch: p.head_ref.clone(),
         })
     })
 }
@@ -61,25 +60,26 @@ pub(crate) fn find(ac: &AgentCtx, repo: &str, issue: u64, agent: &str) -> Option
     let prefix = crate::ctx::load_authority_quiet(&ac.ctx)
         .unwrap_or_default()
         .branch_prefix();
-    let read = |path: String| match ac.ctx.client.get(&path) {
-        Ok(r) => Some(r.body),
-        Err(e) => {
-            eprintln!(
-                "crewboard: warning: the work of {agent} on {repo}#{issue} was not read ({e}); the notice names no PR"
-            );
-            None
-        }
+    let warn = |e: crate::github::GhError| {
+        eprintln!(
+            "crewboard: warning: the work of {agent} on {repo}#{issue} was not read ({e}); the notice names no PR"
+        );
     };
-    let prs = read(format!(
-        "repos/{repo}/pulls?state=open&per_page=100&sort=updated&direction=desc"
-    ))?;
+    let prs = pulls::list_open(&ac.ctx.client, repo, Order::Updated)
+        .map_err(warn)
+        .ok()?;
     if let Some(found) = pr_in_list(&prs, repo, &prefix, agent, issue) {
         return Some(found);
     }
-    let refs = read(format!(
-        "repos/{repo}/git/matching-refs/heads/{prefix}{agent}/{issue}-"
-    ))?;
-    branch_in_refs(&refs)
+    let refs = ac
+        .ctx
+        .client
+        .get(&format!(
+            "repos/{repo}/git/matching-refs/heads/{prefix}{agent}/{issue}-"
+        ))
+        .map_err(warn)
+        .ok()?;
+    branch_in_refs(&refs.body)
 }
 
 /// `key`, with the earlier PR or branch when there is one: for the lists of a report.
@@ -244,16 +244,22 @@ mod tests {
 
     #[test]
     fn the_pr_of_the_old_agent_is_found_by_its_branch_name_only() {
-        let list = json!([
-            {"number": 3, "head": {"ref": "crew/other@h/5-x"}},
-            {"number": 4, "head": {"ref": "crew/old@h/6-x"}},
-            {"number": 7, "head": {"ref": "crew/old@h/5-fix-it"}},
-        ]);
+        let pr = |number: u64, head: &str| PullSummary {
+            number,
+            head_ref: head.into(),
+            head_sha: "abc".into(),
+            base_ref: "main".into(),
+        };
+        let list = [
+            pr(3, "crew/other@h/5-x"),
+            pr(4, "crew/old@h/6-x"),
+            pr(7, "crew/old@h/5-fix-it"),
+        ];
         let e = pr_in_list(&list, "o/r", "crew/", "old@h", 5).unwrap();
         assert_eq!(e.pr.as_deref(), Some("https://github.com/o/r/pull/7"));
         assert_eq!(e.branch, "crew/old@h/5-fix-it");
         assert!(pr_in_list(&list, "o/r", "crew/", "old@h", 9).is_none());
-        assert!(pr_in_list(&json!({"message": "x"}), "o/r", "crew/", "old@h", 5).is_none());
+        assert!(pr_in_list(&[], "o/r", "crew/", "old@h", 5).is_none());
     }
 
     #[test]
