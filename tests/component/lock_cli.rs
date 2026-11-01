@@ -1,8 +1,8 @@
 //! `crewboard lock` as the real binary, on a temp dir: the basic cycle, refusals, status, break,
 //! usage errors, and the exit codes (0, 1, 2, 3, 64, 75, 76, 77, or that of CMD). The rules are
 //! proved on fake time and processes in `src/lock/*`; these tests prove what only the binary
-//! shows: the exit codes, the files, and real concurrency. Ids are those of the shell suite
-//! (`skill/loops/tests/test-locks.sh`).
+//! shows: the exit codes, the files, and real concurrency. Ids are those of
+//! `docs/design/testing-shell-suite-port.md`.
 #![cfg(unix)]
 
 use crate::support::lock::*;
@@ -58,6 +58,43 @@ fn h2_a_live_lock_refuses_the_second_taker_with_75() {
         "the log prefix stays: {}",
         o.stderr
     );
+}
+
+#[test]
+fn h2b_wait_takes_the_lock_once_the_owner_releases_it() {
+    let r = Rig::new();
+    r.plant("l", "a@x", HOST, r.live(), now());
+    let err = r.p("taker.err");
+    let mut taker = r
+        .cmd(&[
+            "take",
+            &r.s("l"),
+            "--holder",
+            "b@x",
+            "--no-board",
+            "--wait",
+            "10",
+            "--poll",
+            "0.3",
+            "--pid",
+            &r.live().to_string(),
+        ])
+        .stderr(std::fs::File::create(&err).unwrap())
+        .spawn()
+        .unwrap();
+    // the taker waits for the live owner before the owner releases
+    assert!(wait_for(10, || std::fs::read_to_string(&err)
+        .unwrap_or_default()
+        .contains("waiting for lock")));
+    assert_eq!(r.run(&["release", &r.s("l"), "--holder", "a@x"]).code, 0);
+    let status = taker.wait().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "{}",
+        std::fs::read_to_string(&err).unwrap_or_default()
+    );
+    assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("b@x"));
 }
 
 #[test]
@@ -602,6 +639,7 @@ fn h17_pid_runner_records_the_worker_alive_blocks_killed_frees() {
     ]);
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(o.stderr.contains("reason=pid-dead"), "{}", o.stderr);
+    assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("a@x"));
 }
 
 fn write_table(r: &Rig, name: &str, text: &str) -> String {
@@ -815,8 +853,8 @@ fn o4_release_of_an_invalid_owner_file_is_refused_3_once_valid_it_is_released() 
     assert_eq!(o.code, 3, "{}", o.all());
     assert!(r.p("l/owner").exists());
     assert!(
-        o.stderr
-            .contains("held by foreign holder: owner (no numeric started_epoch=)"),
+        o.stderr.lines().any(|l| l.contains("refused: ")
+            && l.contains("held by foreign holder: owner (no numeric started_epoch=)")),
         "{}",
         o.stderr
     );
