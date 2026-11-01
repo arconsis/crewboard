@@ -1276,3 +1276,30 @@ fn an_owner_route_ticket_has_no_verify_wait() {
     assert!(got.verified.is_empty());
     assert!(got.read);
 }
+
+#[test]
+fn golden_owner_note_of_a_dead_agent() {
+    let l = Late {
+        wait: Wait::Dead,
+        subject: Subject::Agent {
+            name: "c@h".into(),
+            coordinator: false,
+        },
+        since: 100,
+        age: 4000,
+        expected: 600,
+        sha: None,
+        pr: None,
+    };
+    let body = l
+        .owner_info("owner-login", "detail: x\n", None)
+        .expect("a dead agent is told");
+    assert_eq!(
+        body,
+        "late: dead c@h\nlate-key: dead:c@h:100\nsince: 1970-01-01T00:01:40Z\nnext: restart the agent session; its open tickets are back in Ready\n@owner-login: the agent c@h is dead (no sign of life since 1970-01-01T00:01:40Z).\ndetail: x\n"
+    );
+    match crate::protocol::acts::parse(Some(crate::protocol::names::Kind::Info), &body) {
+        crate::protocol::acts::Act::Late { key: Some(k) } => assert_eq!(k, l.report_key(None)),
+        other => panic!("{other:?}"),
+    }
+}
