@@ -4,11 +4,22 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Fixed:
+
+- **Lists of more than 100 PRs or issues.** `mine`, `resume`, `reassign`, the late waits, the
+  `needs-owner` duty, `split`, `close` and `init` read one page of 100 and lost the rest without
+  a word. They now read every page (at most 50); a longer list is an error or a note, never a
+  silent cut. The mark `(by GitHub automation)` now also works on a timeline of more than 100
+  events.
+
 Other:
 
 - Internal: no behaviour change. Every writer of a message act lives next to the one parser
   (`protocol::acts`), golden tests pin the bytes of each text, and `protocol` imports nothing
   from the rest of the crate. The wire stays protocol v1, byte for byte.
+- Internal: the commands read PRs and issues through typed calls in `github::api`, every list
+  through `github::paging`, and the client takes its token as a value from `ctx`; nothing in
+  `github` reads the token from the loaded env.
 
 ## v0.8.1 (2026-11-01)
 
