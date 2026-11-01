@@ -79,9 +79,9 @@ jobs:
         with:
           command: check
 
-  # The loop scripts and the host lock (skill/loops) run on macOS and Linux agent hosts. GNU and
-  # BSD tools differ (for example `stat -f`). CI runs them on Linux. The BSD side runs in the
-  # maintainer's local run of the full gate on a Mac before a release.
+  # install.sh runs on macOS and Linux hosts. GNU and BSD tools differ (for example `stat -f`).
+  # CI runs its tests on Linux. The BSD side runs in the maintainer's local run of the full gate on
+  # a Mac before a release.
   shell:
     name: shell ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -92,25 +92,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tools
-        run: bash --version | head -1; jq --version
-      # host-lock.sh is a shim for `crewboard lock`: the suites run the host lock through it and
-      # need the built binary (CREWBOARD_REAL).
-      - name: Install stable toolchain
-        run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build crewboard
-        run: |
-          cargo build --locked
-          echo "CREWBOARD_REAL=$PWD/target/debug/crewboard" >> "$GITHUB_ENV"
-      - name: Loop tests
-        run: bash skill/loops/tests/test-loops.sh
-      # the same cases against `crewboard wake` and `crewboard hook` instead of the shell drivers
-      # (the cases that are not ported yet are skipped)
-      - name: Loop tests, Rust wake
-        run: CB_IMPL=rust bash skill/loops/tests/test-loops.sh
-      - name: Lock tests
-        run: bash skill/loops/tests/test-locks.sh
+        run: bash --version | head -1
       - name: Release install script tests
         run: bash scripts/tests/test-install-release.sh

@@ -90,5 +90,5 @@ git -C <work-dir> config user.email   # the crew noreply address
 ```
 
 Do not write "your token is in the environment" in a wake prompt for a runtime that strips it.
-Tests: `cargo test --test component agent_shim`, and `bash skill/loops/tests/test-loops.sh` (cases G1 to G3 for
-`agent shim`, A4 for `--shim-dir`).
+Tests: `cargo test --test component agent_shim` (cases G1 to G3 for `agent shim`), and the unit
+tests of `src/wake/job.rs` (A4 for `--shim-dir`).

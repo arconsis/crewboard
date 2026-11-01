@@ -1,4 +1,4 @@
-//! The event receipts of `poll-and-wake.sh`: the hidden command `acted` reads an
+//! The event receipts of `crewboard wake`: the hidden command `acted` reads an
 //! events file and names the events that need an action and that the agent did not act on,
 //! against a fake GitHub. It reads one comment list per ticket named in the events, and nothing
 //! when no event needs an action.

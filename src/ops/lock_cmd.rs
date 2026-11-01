@@ -3,8 +3,7 @@
 //! subcommand. It returns the raw exit code (0, 1, 2, 3, 64, 75, 76, 77, or that of CMD).
 //!
 //! The board check asks the board in process. The hidden test seam `--crewboard BIN` asks a stub
-//! binary through `BIN status --json` instead, so that the shell suite in `skill/loops/tests`
-//! runs unchanged against this code.
+//! binary through `BIN status --json` instead.
 
 #[cfg(unix)]
 use crate::base::ignore::best_effort_output;

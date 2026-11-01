@@ -68,7 +68,7 @@ Options (all subcommands that take a lock):
                    ends (written to a temp file, then renamed). Removed at the start of the run.
                    The job output goes to FILE.log.
   --ticket N       with --detach: the result file gets a second line `ticket=N`. The wake
-                   wrapper (poll-and-wake.sh) names it in the events file when the job has ended.
+                   (`crewboard wake`) names it in the events file when the job has ended.
   --sha HEAD       with --detach: the result file gets a line `sha=HEAD` (the PR head; optional).
 
 Stale lock: any ONE of these named reasons. There is no other way to take a lock over.

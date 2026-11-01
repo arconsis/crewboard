@@ -24,9 +24,8 @@ On macOS with Hermes v0.22.2, 2026-10-16 and 2026-10-18:
   `hermes chat --help` lists `-Q`, `-s` and `-q`.
 - `hermes chat -Q -s crewboard -q "Use the crewboard skill. ... run crewboard --version ..." </dev/null`
   printed `crewboard 0.1.0` and a `session_id:` line, exit 0, in 23 s.
-- `crewboard wake --runtime hermes` with a fake `hermes` and a fake `crewboard`:
-  `loops/tests/test-loops.sh`, case A9. `wake install --scheduler hermes` with a temporary HOME:
-  `tests/component/wake_install.rs`.
+- `crewboard wake --runtime hermes`: the command and the prompt in `src/wake/adapters.rs` (case
+  A9). `wake install --scheduler hermes` with a temporary HOME: `tests/component/wake_install.rs`.
 
 Not tested: Linux, and a full cron wake of a real Hermes model on a real board.
 
@@ -35,8 +34,7 @@ time budget first (`--max-wake`, default 45m), and posts the state to the coordi
 
 ## Steps on the Hermes host
 
-Assumptions: the skill is installed with `crewboard skill install` (the loop scripts are
-then in `~/.config/agent-skills/crewboard/loops/`), the env file is
+Assumptions: the skill is installed with `crewboard skill install`, the env file is
 `~/.config/crewboard/<initiative>.env` with mode 600, and the agent `<agent>` (for example
 `hermes@host-b`) was bootstrapped and approved. `<work-dir>` is the checkout of the agent.
 
@@ -118,7 +116,7 @@ Also run `crewboard pause` (agent state) so the coordinator assigns nothing whil
 - **Host lock.** Add `--host-lock <lock-dir>` to the install command when the agent runs heavy
   jobs on a shared host. The prompt then tells the agent to use `crewboard lock run`, and the
   wrapper releases the lock of the agent at the end of the time budget. Test:
-  `bash skill/loops/tests/test-locks.sh`.
+  `cargo test --test component wake_budget`.
 - **No background reports into a wake.** `hermes chat -q` hands the prompt to the gateway, and
   the model turn runs there. A background process with `notify_on_complete` or `watch_patterns`
   that finishes after the turn makes the gateway start a new turn in that chat. The wake has

@@ -31,7 +31,7 @@ In scope:
 
 - the `crewboard` CLI (`src/`)
 - the skill (`skill/`)
-- the loop scripts (`skill/loops/`) and the scripts in `scripts/`
+- the scripts in `scripts/`
 
 Out of scope: GitHub itself, and a host or token that the attacker already controls.
 

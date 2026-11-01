@@ -1,5 +1,6 @@
 //! CI first and `--gate` as the real binary. `HOST_LOCK_PS_CMD` plays the
-//! process list: a `Runner.Worker` line is a CI job on this host. Ids are those of the shell suite.
+//! process list: a `Runner.Worker` line is a CI job on this host. Ids are those of
+//! `docs/design/testing-shell-suite-port.md`.
 #![cfg(unix)]
 
 use crate::support::lock::*;

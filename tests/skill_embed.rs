@@ -1,6 +1,6 @@
 //! Guard test: the skill files embedded in the binary are the files of `skill/` on disk.
 //!
-//! `build.rs` embeds every file of `skill/` except `loops/tests/` and dot files and directories.
+//! `build.rs` embeds every file of `skill/` except dot files and directories.
 //! The table must hold exactly those files with equal bytes. The skill has no script.
 
 #![allow(
@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 fn excluded(rel: &str) -> bool {
-    rel.starts_with("loops/tests/") || rel.split('/').any(|c| c.starts_with('.'))
+    rel.split('/').any(|c| c.starts_with('.'))
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
@@ -59,14 +59,14 @@ fn the_embedded_table_has_exactly_the_files_of_skill_with_equal_bytes() {
 
 #[test]
 fn what_is_left_out_is_not_in_the_table() {
-    // The red direction of the test above: the files that must be absent exist on disk.
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("skill");
-    assert!(root.join("loops/tests/test-loops.sh").is_file());
+    // The red direction of the test above: the rule fires on a dot file and a dot dir, and on
+    // nothing else.
+    assert!(excluded(".DS_Store") && excluded("references/.cache/x.md"));
+    assert!(!excluded("references/dev.md"));
     for (path, _, _) in FILES {
         assert!(!excluded(path), "{path} must not be embedded");
     }
     assert!(embedded("SKILL.md").is_some());
-    assert!(embedded("loops/tests/test-loops.sh").is_none());
 }
 
 #[test]

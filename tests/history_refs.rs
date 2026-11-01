@@ -11,7 +11,8 @@
 //! under `src/` and `tests/` must not use the phrases of `history_pattern`, and a script `<name>.sh`
 //! that a Rust comment or a Markdown file of `skill/` or `docs/` names must be a tracked file (a
 //! name with a `/` must end a tracked path). `SH_ALLOWED` lists the few names that are not files
-//! of this repository, each with its reason.
+//! of this repository, each with its reason; `SH_HISTORY` lists the docs about scripts that are
+//! gone.
 
 #![allow(
     clippy::unwrap_used,
@@ -29,6 +30,10 @@ const SCANNED: &[&str] = &["src/", "tests/", "skill/", "docs/"];
 /// Path prefixes that may hold such a reference as data. Keep it empty if you can.
 const ALLOWED: &[&str] = &[];
 
+/// Docs whose subject is scripts that are gone, so they name them on purpose: the map of the
+/// retired shell suites to their Rust tests. The script check skips them.
+const SH_HISTORY: &[&str] = &["docs/design/testing-shell-suite-port.md"];
+
 /// Script names that are not files of this repository, with the reason.
 const SH_ALLOWED: &[(&str, &str)] = &[
     (
@@ -38,6 +43,10 @@ const SH_ALLOWED: &[(&str, &str)] = &[
     (
         "wake.sh",
         "a hand-made wake script of a user that `wake install` finds",
+    ),
+    (
+        "agent-wake.sh",
+        "the wake script of an earlier version: `wake install` finds its units and replaces them",
     ),
 ];
 
@@ -148,7 +157,7 @@ fn comments_name_no_missing_script_and_tell_no_history() {
         let rust =
             (file.starts_with("src/") || file.starts_with("tests/")) && file.ends_with(".rs");
         let md = (file.starts_with("skill/") || file.starts_with("docs/")) && file.ends_with(".md");
-        if !rust && !md {
+        if (!rust && !md) || SH_HISTORY.contains(&file.as_str()) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(root.join(file)) else {
@@ -164,7 +173,7 @@ fn comments_name_no_missing_script_and_tell_no_history() {
 #[test]
 fn the_comment_scan_fires_on_each_form_and_spares_code_and_data() {
     let files = vec![
-        "skill/loops/tests/test-locks.sh".to_string(),
+        "scripts/tests/test-install-release.sh".to_string(),
         "install.sh".to_string(),
     ];
     // the phrases are split so that this file does not hit itself
@@ -186,8 +195,8 @@ fn the_comment_scan_fires_on_each_form_and_spares_code_and_data() {
         1
     );
     for good in [
-        "//! the shell suite (`skill/loops/tests/test-locks.sh`)",
-        "// `tests/test-locks.sh` and install.sh",
+        "//! the installer tests (`scripts/tests/test-install-release.sh`)",
+        "// `tests/test-install-release.sh` and install.sh",
         "// a `<name>-wake.sh`, a `{name}-wake.sh` and `scripts/ci-*.sh`",
         "// https://example.com/gone.sh",
         "// a hand-made poll.sh",

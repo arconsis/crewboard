@@ -38,15 +38,10 @@ for its `-out:` argument. Or install a real MinGW toolchain and use `x86_64-pc-w
 The `dead_code` lint is off on non-Unix hosts (`src/lib.rs`), because the wake and lock engines have
 no command there.
 
-The shell suites (see "Test tiers", item 3) need a built binary. Run them when you change
-anything under `skill/`, `install.sh` or `scripts/`:
+The shell tests (see "Test tiers", item 3) need no built binary. Run them when you change
+`install.sh` or anything under `scripts/`:
 
 ```sh
-cargo build --locked
-export CREWBOARD_REAL="$PWD/target/debug/crewboard"
-bash skill/loops/tests/test-loops.sh
-CB_IMPL=rust bash skill/loops/tests/test-loops.sh
-bash skill/loops/tests/test-locks.sh
 bash scripts/tests/test-install-release.sh
 scripts/shellcheck.sh
 ```
@@ -123,15 +118,12 @@ Use the lowest tier that can prove your change.
      when the field is full. If `approve` still refuses with `agent-field-full`, run
      `crewboard status --initiative sandbox` as the owner, retire the agents it lists as running,
      or clear the `Agent` field of the leftover items.
-3. **Shell tests.** `skill/loops/tests/test-loops.sh` and `skill/loops/tests/test-locks.sh` test
-   `crewboard monitor`, `wake`, `lock` and the agent commands against a fake board. They need a
-   built `crewboard` (on the `PATH`, or `CREWBOARD_REAL=target/debug/crewboard`). The drivers in
-   `skill/loops/tests/drivers/` are thin wrappers that the suites use to run `crewboard wake`,
-   `lock` and `repeat`; they are not part of the skill. The skill has no script. `crewboard skill
-   install` is tested by `tests/skill_install.rs`.
-   `scripts/tests/test-install-release.sh` tests the release installer with fakes.
-   They run on macOS bash 3.2, so use no `declare -A` and no `mapfile`. `test-loops.sh` proves that a
-   quiet board prints nothing and starts no model.
+3. **Shell tests.** `scripts/tests/test-install-release.sh` tests the release installer
+   (`install.sh`) with fakes. It runs on macOS bash 3.2, so use no `declare -A` and no `mapfile`.
+   The commands of the binary (`monitor`, `wake`, `hook`, `lock`, `repeat`, the agent commands)
+   are tested in Rust only; [the port of the shell suites](docs/design/testing-shell-suite-port.md)
+   maps the cases of the retired bash suites to those tests. The skill has no script.
+   `crewboard skill install` is tested by `tests/skill_install.rs`.
 
 Every rule needs two tests: one that passes and one that is refused. A check that can never fire is
 worse than no check.
@@ -143,7 +135,7 @@ worse than no check.
    says "step k of #n" and does not close the issue.
 3. Run the gate (see "Build") before you push.
 4. Wait for CI. The workflow `.github/workflows/ci.yml` runs format, clippy, the tests and the
-   docs build on Ubuntu and the same tests on Windows, and the shell suites on Ubuntu. These checks
+   docs build on Ubuntu and the same tests on Windows, and the shell tests on Ubuntu. These checks
    must be green. macOS is covered by `.github/workflows/build.yml`, which builds the release
    binaries, and by a local run of the gate on a Mac.
 5. A maintainer reviews the PR. The maintainer merges with the full head SHA of the reviewed

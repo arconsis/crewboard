@@ -33,7 +33,8 @@ run was tested end to end**. Marked below:
   `--dangerously-bypass-approvals-and-sandbox` exist in `codex exec --help` (the parser
   accepts them). `codex exec` has **no** `--ask-for-approval` flag.
 - Tested on macOS: `crewboard wake --runtime codex` builds the right command for a fake `codex`
-  (`loops/tests/test-loops.sh`, cases A2, A6, A8, IN1 and IN3).
+  (`src/wake/adapters.rs` and `src/wake/job.rs`, cases A2, A6 and A8;
+  `tests/component/wake_install.rs` for the install and uninstall).
 - **Untested** (from the Codex docs and `--help` text): that `codex exec` runs without approval
   prompts by default, that `workspace-write` blocks the network until
   `sandbox_workspace_write.network_access=true` is set, that `--add-dir <config-dir>` lets
