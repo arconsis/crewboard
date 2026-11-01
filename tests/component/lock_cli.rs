@@ -119,6 +119,8 @@ fn h3_a_dead_pid_is_taken_over_with_one_log_line() {
     );
     assert!(o.stderr.contains("old owner old@x@hostA"));
     assert!(o.stderr.contains("is gone on host hostA"));
+    // H12: the takeover line names its reason from the list
+    assert!(o.stderr.contains("reason=pid-dead ("), "{}", o.stderr);
     assert_eq!(owner_field(&r.p("l"), "agent").as_deref(), Some("new@x"));
     assert!(!r.p("l.takeover").exists());
 }
@@ -226,6 +228,16 @@ fn h7b_eight_takers_on_a_stale_lock_one_holder_one_takeover_line() {
         })
         .sum();
     assert_eq!((wins, lines), (1, 1));
+    // H12: the one takeover line names its reason from the list
+    let all: String = outs
+        .iter()
+        .map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+        .collect();
+    let line = all
+        .lines()
+        .find(|l| l.contains("took over stale lock"))
+        .unwrap();
+    assert!(line.contains("reason=pid-dead ("), "{line}");
     assert!(owner_field(&r.p("l"), "agent").is_some());
     assert!(!r.p("l.takeover").exists());
 }
