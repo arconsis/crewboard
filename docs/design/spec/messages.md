@@ -124,9 +124,9 @@ is gone from its ticket is the security event `deleted-message`; only that coord
 to the owner in the registry issue per event. Without a coordinator on the board, the agent
 that sees the event posts it. The `event=` line of that `info` keeps a second agent from
 posting the same event again. A signed `info` to the owner that fails only the replay window
-(below) still counts for this: valid signature, approved sender, its bound account. Its own
-`replayed-message` event is shown but not reported, so a wrong clock cannot start a chain of
-reports about reports.
+(below, and no copy) still counts for this. Its own `replayed-message` event is shown but not
+reported, so a wrong clock cannot start a chain of reports about reports; `audit` lists that
+event as not reported to the owner.
 
 Replay window: the canonical form has no nonce, so a copy of an old valid message would verify.
 Two rules close this.
@@ -142,7 +142,12 @@ Two rules close this.
 
 A message that breaks one of the rules is refused like a bad signature, with the security event
 `replayed-message`. It is not delivered, it counts for nothing in the ticket log or the
-registry, and `audit` lists it. The window is one pure function
+registry, and `audit` lists it. One exception: a message that fails only the window (valid
+signature, approved sender, its bound account) and repeats no signature of an earlier comment
+of the issue was posted by its sender with a wrong time. It counts as posted for the checks
+that post a message once: an owner report (`event=`), a late note (`late-key:`), the report of a
+dead agent, the ack of an owner command and the notes on a merged PR. It is never a ticket act
+or an owner command. The window is one pure function
 (`protocol::replay::check_window`), the copy rule is one pure type (`protocol::replay::Seen`).
 `watch` and `poll` read the feed 20 minutes before the cursor, so that a fresh copy finds its
 original. Every command signs at the moment of posting, so a posted message passes; a transient

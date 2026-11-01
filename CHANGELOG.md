@@ -10,9 +10,14 @@ Fixed:
   was wrong), every signed message failed the replay window, also the coordinator's own report
   of a security event. That report did not count as a report, so the coordinator reported the
   event again, and reported the late report as a new `replayed-message` event, cycle after
-  cycle. An owner report that fails only the window (valid signature, approved sender, bound
-  account) now counts as a report of its `event=` keys, and its own window failure goes to the
-  output of the agent, not to the owner. Such a message still counts for nothing else.
+  cycle. A signed message that fails only the window (valid signature, approved sender, bound
+  account, no copy of an earlier signature) now counts as posted for the checks that post once:
+  the owner reports of security events and other `event=` keys, the late notes to the owner
+  (registry and ticket), the report of a dead agent, the ack of an owner command (before, the
+  agent applied and acked the command again in every cycle), and the tick's notes on a merged
+  PR (to the assignee, and the merged-without-verify note). The window failure of such an owner
+  report is shown to the agent, not reported to the owner; `audit` lists it as not reported. A
+  replay of an old report is still reported. Such a message still counts for nothing else.
 - **Lists of more than 100 PRs or issues.** `mine`, `resume`, `reassign`, the late waits, the
   `needs-owner` duty, `split`, `close` and `init` read one page of 100 and lost the rest without
   a word. They now read every page (at most 50); a longer list is an error or a note, never a
