@@ -189,6 +189,7 @@ The unattended wake for a scheduler. It imports `agent_env`, `base`, `clock`, `c
 - Events: `events.rs` (the text of the events file), `wake_events.rs` (the file, the receipts, the `.unhandled` copy), `receipts.rs`, `results.rs` (result files of detached jobs), `hook.rs` and `hook_cmd.rs` (`crewboard hook post-tool-use`).
 - State and rules: `settings.rs` (flags and `Settings`), `policy.rs` (pure rules, time as an argument), `state.rs` (the state dir), `lockdir.rs` (the wake lock), `steps.rs` (the board calls behind a trait: in process or as a subprocess).
 - `install/`: `wake install`, `uninstall` and `status`. `plan.rs` makes the plan, `apply.rs` writes it, `units.rs` has the unit texts, `sys.rs` is the host behind a trait, `foreign.rs` finds jobs under other names.
+- Tests of a whole run: `cmd_tests/`, one file per topic. `fakes.rs` scripts the board calls (`Scripted`), `rig.rs` runs the flow in a temp dir with a fake clock.
 
 ## Data flow of one cycle
 

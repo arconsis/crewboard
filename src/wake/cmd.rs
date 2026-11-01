@@ -173,5 +173,5 @@ pub fn run(a: &WakeArgs, g: &GlobalFlags) -> u8 {
 }
 
 #[cfg(all(test, unix))]
-#[path = "cmd_tests.rs"]
+#[path = "cmd_tests/mod.rs"]
 mod tests;
