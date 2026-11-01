@@ -329,6 +329,7 @@ dependencies = [
  "clap",
  "crewboard-protocol",
  "flate2",
+ "host-lock",
  "libc",
  "regex",
  "reqwest",
@@ -707,6 +708,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "host-lock"
+version = "0.8.2"
+dependencies = [
+ "libc",
+ "tempfile",
 ]
 
 [[package]]

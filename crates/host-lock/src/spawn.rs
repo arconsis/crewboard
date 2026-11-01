@@ -6,7 +6,7 @@
 //! state clears in a few milliseconds, so a short retry is the right answer. Every other
 //! error returns at once. On other systems the helper starts the program once.
 
-use crate::base::ignore::child_may_have_ended;
+use crate::ignore::child_may_have_ended;
 use std::io;
 use std::process::{Child, Command};
 use std::time::Duration;

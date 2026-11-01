@@ -1,0 +1,26 @@
+[package]
+name = "host-lock"
+description = "The host lock of crewboard: a lock directory that a dead owner cannot hold, and the host seams it needs (clock, child processes, atomic files)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[features]
+# `clock::FakeClock` for the tests of other crates. Only a dev-dependency enables it, so a
+# release build does not contain it.
+test-support = []
+
+# The host lock depends on no crate of the workspace (tests/layering.rs checks this manifest).
+# kill(2), getppid and the signal handlers of `lock run`; std has no call for them.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

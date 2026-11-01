@@ -1,6 +1,6 @@
 //! `crewboard lock` as the real binary, on a temp dir: the basic cycle, refusals, status, break,
 //! usage errors, and the exit codes (0, 1, 2, 3, 64, 75, 76, 77, or that of CMD). The rules are
-//! proved on fake time and processes in `src/lock/*`; these tests prove what only the binary
+//! proved on fake time and processes in `crates/host-lock/src/*`; these tests prove what only the binary
 //! shows: the exit codes, the files, and real concurrency. Ids are those of
 //! `docs/design/testing-shell-suite-port.md`.
 #![cfg(unix)]

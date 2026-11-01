@@ -1,7 +1,9 @@
 //! crewboard: a GitHub Project board as the channel for a crew of AI agents.
 //!
 //! The crate has one binary (`src/main.rs`). The modules live in a library target so that
-//! the integration tests in `tests/` can reach them. Only `cli` and `exit` (used by `main.rs`)
+//! the integration tests in `tests/` can reach them. The wire (`protocol`) and the host lock
+//! (`lock`, with the host seams `clock`, `fsutil`, `spawn` and `base::ignore`) are crates of their
+//! own under `crates/`; this file re-exports them under these names, so the paths stay. Only `cli` and `exit` (used by `main.rs`)
 //! and the modules that `tests/` import are `pub`. The test-only ones carry `#[doc(hidden)]`:
 //! they are not a supported API. A module that neither `main.rs` nor `tests/` needs is
 //! `pub(crate)`, so rustc reports dead code in it. `testkit` holds the builders of the unit tests
@@ -33,8 +35,9 @@ pub mod board;
 pub(crate) mod builtin_workflows;
 pub(crate) mod capabilities;
 pub mod cli;
+/// The wall clock and UTC time, from the crate `host-lock` (`crates/host-lock`).
 #[doc(hidden)]
-pub mod clock;
+pub use host_lock::clock;
 #[doc(hidden)]
 pub mod comments;
 #[doc(hidden)]
@@ -47,7 +50,7 @@ pub(crate) mod events;
 pub mod exit;
 #[doc(hidden)]
 pub mod feed;
-pub(crate) mod fsutil;
+pub(crate) use host_lock::fsutil;
 #[doc(hidden)]
 pub mod github;
 pub(crate) mod headless;
@@ -55,7 +58,8 @@ pub(crate) mod items;
 #[doc(hidden)]
 pub mod labels;
 pub(crate) mod late;
-pub(crate) mod lock;
+/// The host lock, a crate of its own (`crates/host-lock`).
+pub(crate) use host_lock as lock;
 #[doc(hidden)]
 pub mod ops;
 #[doc(hidden)]
@@ -75,7 +79,7 @@ pub(crate) mod secrets;
 pub(crate) mod services;
 #[doc(hidden)]
 pub mod skill_embed;
-pub(crate) mod spawn;
+pub(crate) use host_lock::spawn;
 #[doc(hidden)]
 pub mod state;
 #[cfg(test)]

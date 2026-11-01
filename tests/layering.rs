@@ -2,7 +2,8 @@
 //! references in production code (the first inline `#[cfg(test)] mod x {` to the end of a file,
 //! every `*_tests.rs` file and `testkit.rs`, the builders of the unit tests, are skipped;
 //! `ops/tickets/tick.rs` counts as `ops`). An edge that is not in `ALLOWED` fails the test. `base` may be imported by every module and imports nothing itself. Remove an edge
-//! from the list when a refactor removes it, never add one silently.
+//! from the list when a refactor removes it, never add one silently. `ignore` (the named reasons
+//! to drop a result) lives in the crate `host-lock`; the binary reaches it as `base::ignore`.
 //!
 //! `domain` is the pure layer: it imports `base`, and `rules` and `authority` (pure modules that
 //! have not moved under `domain` yet), never `github`, `services`, `ops`, `config` or `clock`.
@@ -77,7 +78,6 @@ const ALLOWED: &[(&str, &str)] = &[
     ("cli", "rules"),
     ("cli", "state"),
     ("cli", "wake"),
-    ("clock", "protocol"),
     ("comments", "base"),
     ("comments", "clock"),
     ("comments", "protocol"),
@@ -124,8 +124,8 @@ const ALLOWED: &[(&str, &str)] = &[
     ("feed", "error"),
     ("feed", "github"),
     ("feed", "state"),
-    ("fsutil", "base"),
     ("fsutil", "clock"),
+    ("fsutil", "ignore"),
     ("github", "agent_env"),
     ("github", "base"),
     ("github", "clock"),
@@ -143,9 +143,9 @@ const ALLOWED: &[(&str, &str)] = &[
     ("late", "protocol"),
     ("late", "rules"),
     ("late", "ticket"),
-    ("lock", "base"),
     ("lock", "clock"),
     ("lock", "fsutil"),
+    ("lock", "ignore"),
     ("lock", "spawn"),
     ("ops", "agent_env"),
     ("ops", "agent_gh"),
@@ -223,8 +223,8 @@ const ALLOWED: &[(&str, &str)] = &[
     ("services", "rules"),
     ("services", "state"),
     ("services", "ticket"),
-    ("spawn", "base"),
     ("spawn", "clock"),
+    ("spawn", "ignore"),
     ("state", "base"),
     ("state", "clock"),
     ("state", "comments"),
@@ -299,6 +299,11 @@ const SOURCES: &[Tree] = &[
         dir: "crates/crewboard-protocol/src",
         root: Some("protocol"),
         own: &[],
+    },
+    Tree {
+        dir: "crates/host-lock/src",
+        root: Some("lock"),
+        own: &["clock", "fsutil", "ignore", "spawn"],
     },
 ];
 
@@ -642,10 +647,16 @@ fn the_core_is_layered() {
 }
 
 /// The crates below the binary: (manifest, why it must not depend on a workspace crate).
-const LOWER_CRATES: &[(&str, &str)] = &[(
-    "crates/crewboard-protocol/Cargo.toml",
-    "protocol is the wire: it imports nothing from the rest of crewboard",
-)];
+const LOWER_CRATES: &[(&str, &str)] = &[
+    (
+        "crates/crewboard-protocol/Cargo.toml",
+        "protocol is the wire: it imports nothing from the rest of crewboard",
+    ),
+    (
+        "crates/host-lock/Cargo.toml",
+        "the host lock and its seams sit below everything else",
+    ),
+];
 
 /// The names of the workspace crates (the root package and every member) that a manifest lists
 /// in a dependency table: `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]` and the

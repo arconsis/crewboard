@@ -5,7 +5,7 @@
 //! the target path: the data goes to a temp file in the same directory, is synced, is renamed
 //! over the target, and the directory is synced (unix).
 
-use crate::base::ignore::best_effort_cleanup;
+use crate::ignore::best_effort_cleanup;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -77,7 +77,8 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: Mode) -> io::Result<()> {
     }
 }
 
-/// The `prepare` step of [`Mode::Keep`]: the permissions of the old file, or 0600 for a new one.
+/// The `prepare` step of [`write_atomic_private`]: the permissions of the old file, or 0600 for a
+/// new one.
 fn keep_permissions(path: &Path) -> impl FnOnce(&File) -> io::Result<()> + use<> {
     let old = std::fs::metadata(path).ok();
     move |f| match &old {
@@ -86,7 +87,8 @@ fn keep_permissions(path: &Path) -> impl FnOnce(&File) -> io::Result<()> + use<>
     }
 }
 
-/// [`write_atomic`] with [`Mode::Keep`] that creates missing parent directories.
+/// [`write_atomic`] that keeps the permissions of the old file (0600 for a new one) and creates
+/// missing parent directories.
 pub fn write_atomic_private(path: &Path, data: &[u8]) -> io::Result<()> {
     write_atomic_with(path, data, keep_permissions(path))
 }

@@ -5,7 +5,6 @@
 //! (`clippy.toml` disallows them everywhere else). `Instant::now` stays allowed where code
 //! measures the real elapsed time of a child process or of a poll loop; each such site says so.
 
-use crate::protocol::names::valid_civil_time;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn now_epoch() -> i64 {
@@ -91,13 +90,15 @@ impl Clock for SystemClock {
     }
 }
 
-/// A clock that a test moves by hand: `sleep` adds the time at once and returns.
-#[cfg(test)]
+/// A clock that a test moves by hand: `sleep` adds the time at once and returns. The tests of
+/// other crates get it through the feature `test-support` (a dev-dependency only), so a release
+/// build does not contain it.
+#[cfg(any(test, feature = "test-support"))]
 pub struct FakeClock {
     millis: std::cell::Cell<i64>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl FakeClock {
     pub fn at(epoch: i64) -> Self {
         FakeClock {
@@ -109,7 +110,7 @@ impl FakeClock {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Clock for FakeClock {
     fn now(&self) -> i64 {
         self.millis.get().div_euclid(1000)
@@ -135,6 +136,23 @@ pub fn fmt_age(secs: i64) -> String {
         7200..=172_799 => format!("{}h", s / 3600),
         _ => format!("{}d", s / 86_400),
     }
+}
+
+/// Is this a real day and time of the calendar (a leap day only in a leap year, hours to 23,
+/// minutes and seconds to 59)? The wire crate has the same rule in
+/// `crewboard_protocol::names::valid_civil_time`; this crate depends on no crate of the
+/// workspace, so it keeps its own copy. `tests/calendar_copies.rs` checks that both agree for
+/// every day from 1899 to 2101.
+pub fn valid_civil_time(y: u32, mo: u32, d: u32, h: u32, mi: u32, se: u32) -> bool {
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+    let days = match mo {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=days).contains(&d) && h <= 23 && mi <= 59 && se <= 59
 }
 
 // Days from civil date (Howard Hinnant's algorithm).

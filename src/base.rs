@@ -1,12 +1,13 @@
 //! Base types that every module may import: who acts ([`Role`], [`Actor`]), a rule said no
 //! ([`Refusal`], [`Verdict`]) and a GitHub failure ([`GhError`]). This module imports nothing
-//! from the crate. [`ignore`] names the reasons for dropping a result on purpose. [`ids`] is the
+//! from the crate. [`ignore`] names the reasons for dropping a result on purpose (it lives in the
+//! crate `host-lock`, which needs it too, and is re-exported here). [`ids`] is the
 //! catalog of the rule ids that a refusal names. [`TicketRef`] names one ticket; [`fields::Field`]
 //! names one field of the board.
 
 pub mod fields;
 pub mod ids;
-pub mod ignore;
+pub use host_lock::ignore;
 mod ticket_ref;
 
 pub use ticket_ref::TicketRef;

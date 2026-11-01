@@ -346,7 +346,7 @@ pub fn judge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lock::procs::FakeProcs;
+    use crate::procs::FakeProcs;
 
     impl StaleReason {
         const ALL: [StaleReason; 6] = [
@@ -602,7 +602,7 @@ mod tests {
         Snapshot {
             exists: true,
             owner: OwnerState::Absent,
-            foreign: vec![crate::lock::snapshot::Foreign {
+            foreign: vec![crate::snapshot::Foreign {
                 name: name.into(),
                 regular: true,
                 head: head.into(),
@@ -693,7 +693,7 @@ mod tests {
             owner: OwnerState::Invalid {
                 content: Some(content.into()),
             },
-            foreign: vec![crate::lock::snapshot::Foreign {
+            foreign: vec![crate::snapshot::Foreign {
                 name: "owner".into(),
                 regular: true,
                 head: content.into(),
@@ -780,7 +780,7 @@ mod tests {
         let s = Snapshot {
             exists: true,
             owner: OwnerState::Invalid { content: None },
-            foreign: vec![crate::lock::snapshot::Foreign {
+            foreign: vec![crate::snapshot::Foreign {
                 name: "owner".into(),
                 regular: false,
                 head: String::new(),

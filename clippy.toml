@@ -9,7 +9,7 @@ allow-expect-in-tests = true
 too-many-lines-threshold = 150
 
 # The clock seam: code takes a `Clock` (or calls `clock::now_epoch`, `clock::pause`), so that a
-# test can run without waiting. `src/clock.rs` is the only module that calls these.
+# test can run without waiting. `crates/host-lock/src/clock.rs` is the only module that calls these.
 disallowed-methods = [
     { path = "std::time::SystemTime::now", reason = "read the wall clock through `clock::now_epoch`, `clock::now_nanos` or a `Clock`" },
     { path = "std::time::Instant::now", reason = "pass a `Clock`; allow it only where real elapsed time of a child process or a poll loop is measured, with a reason" },

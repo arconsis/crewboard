@@ -40,6 +40,11 @@ Other:
   component tests for the lock judgement, the budget stop with host locks, the events hook and
   more); `docs/design/testing-shell-suite-port.md` maps each case id to its test. The shell job
   of CI runs the tests of `install.sh` only.
+- Internal: no behaviour change. The repo is a Cargo workspace. The wire is the crate
+  `crewboard-protocol` and the host lock (with the clock, child-process and file helpers that it
+  shares with the binary) is the crate `host-lock`, both under `crates/`; neither depends on
+  another crate of the workspace. The binary, its path in a release and `cargo install --path .`
+  stay the same.
 
 ## v0.8.2 (2026-11-01)
 

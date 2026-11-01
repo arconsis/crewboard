@@ -1,7 +1,7 @@
 //! How `crewboard lock` judges a held lock, through the real binary on real files and mtimes: the
 //! age limits, empty dirs, foreign holders (a dir without a valid owner file), invalid owner
 //! files, `--expect` and overdue, and the waiting list of CI. The rules are proved on in-memory
-//! snapshots in `src/lock/judge.rs`; these tests prove the exit codes, the status lines, the
+//! snapshots in `crates/host-lock/src/judge.rs`; these tests prove the exit codes, the status lines, the
 //! takeover lines and the files that only the binary shows. Ids are those of
 //! `docs/design/testing-shell-suite-port.md`.
 #![cfg(unix)]
