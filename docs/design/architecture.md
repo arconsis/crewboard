@@ -56,7 +56,7 @@ I/O. `tests/layering.rs` freezes the import graph.
 `src/protocol/` is the wire of protocol v1. It imports nothing from the rest of the crate
 (`tests/layering.rs` checks it); `error.rs` maps its errors to refusal ids.
 
-- `src/protocol/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the text of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back.
+- `src/protocol/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the act lines of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back. Callers still add their own lines to some texts: the assignment's priority, order and reason lines, the full text of a late report, and the `adopts-pr:` line of a `take` ack.
 - `src/protocol/names.rs`: typed header fields (agent names, kinds, addressees, references, timestamps).
 - `src/protocol/header.rs`: parse and print the hidden header, the visible line and the body.
 - `src/protocol/canonical.rs`: the canonical form that is signed.

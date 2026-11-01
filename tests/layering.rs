@@ -557,11 +557,7 @@ fn the_core_is_layered() {
 fn named_paths(module: &[&str], code: &str) -> Vec<Vec<String>> {
     let use_stmt = Regex::new(r"\buse\s+([^;]+);").unwrap();
     let inline = Regex::new(r"\b(?:crate|super|self)(?:::\w+)+").unwrap();
-    let code: String = code
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code = code_only(code);
     let mut paths: Vec<String> = use_stmt
         .captures_iter(&code)
         .flat_map(|c| expand_use_tree(&c[1]))
@@ -572,6 +568,86 @@ fn named_paths(module: &[&str], code: &str) -> Vec<Vec<String>> {
         .iter()
         .filter_map(|p| resolve_path(module, p.trim()))
         .collect()
+}
+
+/// `code` with comments, string literals and char literals blanked out, so that the word `use`
+/// in a text or a comment starts no `use` statement and hides no path. Line breaks stay.
+fn code_only(code: &str) -> String {
+    let c: Vec<char> = code.chars().collect();
+    let mut out = String::with_capacity(code.len());
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] == '/' && c.get(i + 1) == Some(&'/') {
+            while i < c.len() && c[i] != '\n' {
+                i += 1;
+            }
+        } else if c[i] == '/' && c.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                if c[i] == '\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 2;
+        } else if c[i] == 'r' && matches!(c.get(i + 1), Some('"') | Some('#')) {
+            let mut j = i + 1;
+            while c.get(j) == Some(&'#') {
+                j += 1;
+            }
+            if c.get(j) != Some(&'"') {
+                out.push(c[i]);
+                i += 1;
+                continue;
+            }
+            let hashes = j - i - 1;
+            i = j + 1;
+            while i < c.len()
+                && !(c[i] == '"' && (0..hashes).all(|k| c.get(i + 1 + k) == Some(&'#')))
+            {
+                if c[i] == '\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 1 + hashes;
+            out.push_str("\"\"");
+        } else if c[i] == '"' {
+            i += 1;
+            while i < c.len() && c[i] != '"' {
+                if c[i] == '\\' {
+                    i += 1;
+                }
+                if c.get(i) == Some(&'\n') {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i += 1;
+            out.push_str("\"\"");
+        } else if c[i] == '\'' && c.get(i + 1) == Some(&'\\') {
+            i += 2;
+            while i < c.len() && c[i] != '\'' {
+                i += 1;
+            }
+            i += 1;
+        } else if c[i] == '\'' && c.get(i + 2) == Some(&'\'') {
+            i += 3;
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+#[test]
+fn a_use_in_a_text_or_a_comment_hides_no_path() {
+    let code = "fn f() { let s = format!(\"use {}\", crate::ticket::x()); }\nlet a = b; // we use it\nlet c = crate::ticket::f();\n/* use x */ let q = '\"'; let d = crate::rules::g();\nlet r = r#\"use \"crate::x\";\"#; let e = crate::clock::h();\n";
+    assert_eq!(
+        protocol_escapes(&["protocol", "acts"], code),
+        ["ticket::x", "ticket::f", "rules::g", "clock::h"]
+    );
 }
 
 /// The paths of the files under `src/protocol` that lead out of `protocol`.
