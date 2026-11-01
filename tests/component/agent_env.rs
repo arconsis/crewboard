@@ -511,6 +511,42 @@ fn the_monitor_child_gets_the_file_token_and_loses_the_caller_variables() {
 }
 
 #[test]
+fn w4_the_token_of_env_file_reaches_the_monitor_child_and_is_never_printed() {
+    let (fake, _c, b) = crew();
+    let f = b.dir.join("ok.env");
+    write(&f, "GH_TOKEN=tok-PLANTED-123\n", 0o600);
+    let d = tempfile::tempdir().unwrap();
+    let rec = d.path().join("rec");
+    let stub = d.path().join("stub");
+    write(
+        &stub,
+        &format!(
+            "#!/bin/sh\nprintf '%s' \"$GH_TOKEN\" >'{}'\necho EVENT\nexit 0\n",
+            rec.display()
+        ),
+        0o755,
+    );
+    let o = cb(
+        &fake,
+        &b.dir,
+        &[
+            "monitor",
+            "--crewboard",
+            stub.to_str().unwrap(),
+            "--pause",
+            "0",
+            "--env-file",
+            f.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(o.stdout, "EVENT\n", "{}", o.all());
+    assert_eq!(std::fs::read_to_string(&rec).unwrap(), "tok-PLANTED-123");
+    assert!(!o.all().contains("PLANTED"), "{}", o.all());
+}
+
+#[test]
 fn the_lock_probe_child_gets_the_file_token_and_loses_the_caller_variables() {
     use crate::support::lock::{BIN, HOST, Rig, now};
     let (_fake, _c, b) = crew();

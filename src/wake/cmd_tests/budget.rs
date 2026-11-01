@@ -309,6 +309,39 @@ fn budget_stop(rig: &Rig, plan: &[&str], backoff: &str) -> Scripted {
     st
 }
 
+#[test]
+fn ac4_a_budget_stop_runs_no_check_of_the_receipts() {
+    let rig = Rig::new();
+    let evf = ev(&rig);
+    let wd = rig.p("wd");
+    std::fs::create_dir_all(&wd).unwrap();
+    let mut st = Scripted::new(&["0||", "0||", "0||"]).with_mine(&[(0, MINE12), (0, MINE12)]);
+    st.acted_list = "demo/app#12 question\n".into();
+    st.acted_check = vec!["demo/app#12 question".into()];
+    let rc = rig.run(
+        &mut st,
+        &[
+            "--wake-cmd",
+            "sleep 30",
+            "--max-wake",
+            "1s",
+            "--events-file",
+            &evf,
+            "--agent",
+            "dev@host-a",
+            "--work-dir",
+            wd.to_str().unwrap(),
+            "--work-backoff",
+            "off",
+        ],
+    );
+    assert_eq!(rc, 0);
+    assert_eq!(st.acted_calls.len(), 1, "only the receipts, no check");
+    assert!(!rig.log().contains("not acted on"), "{}", rig.log());
+    let kept = std::fs::read_to_string(rig.p("ev.txt.unhandled")).unwrap_or_default();
+    assert!(!kept.contains("REDELIVERED"), "{kept}");
+}
+
 fn said(st: &Scripted) -> String {
     st.calls
         .iter()

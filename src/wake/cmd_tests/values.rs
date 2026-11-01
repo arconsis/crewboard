@@ -79,6 +79,78 @@ fn bad_values_are_refused_with_the_texts_of_the_shell() {
 }
 
 #[test]
+fn a6_a7_hw4_a_wrong_option_of_the_dev_agent_is_a_config_error_exit_4() {
+    let rig = Rig::new();
+    let wd = rig.p("wd");
+    std::fs::create_dir_all(&wd).unwrap();
+    let real = rig.p("real");
+    std::fs::create_dir_all(&real).unwrap();
+    let (wds, reals) = (wd.to_str().unwrap(), real.to_str().unwrap());
+    let nope = rig.p("nope");
+    let dev = |rt: &'static str, more: &[&'static str], wd: &str| -> Vec<String> {
+        let mut v: Vec<String> = [
+            "--runtime",
+            rt,
+            "--agent",
+            "dev@host-a",
+            "--initiative",
+            "demo",
+            "--work-dir",
+            wd,
+            "--runtime-bin",
+            "/bin/sh",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        v.extend(more.iter().map(|s| s.to_string()));
+        v
+    };
+    let code = |argv: Vec<String>| {
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let e = rig.settings(&refs, &[]).unwrap_err();
+        (e.code, e.text)
+    };
+    // A6: an unknown runtime, a missing work dir, a shim dir without a shim
+    let (c, t) = code(dev("copilot", &[], wds));
+    assert_eq!(c, 4, "{t}");
+    assert!(
+        t.contains("--runtime must be claude, codex or hermes"),
+        "{t}"
+    );
+    let (c, t) = code(dev("claude", &[], nope.to_str().unwrap()));
+    assert_eq!(c, 4, "{t}");
+    assert!(
+        t.contains("--work-dir must be an existing directory"),
+        "{t}"
+    );
+    let mut v = dev("claude", &[], wds);
+    v.extend(["--shim-dir".to_string(), reals.to_string()]);
+    let (c, t) = code(v);
+    assert_eq!(c, 4, "{t}");
+    assert!(t.contains("no gh shim in"), "{t}");
+    // A7: --allow is for claude only
+    let (c, t) = code(dev("codex", &["--allow", "Bash(npm *)"], wds));
+    assert_eq!(c, 4, "{t}");
+    assert!(t.contains("--allow"), "{t}");
+    // HW4: --events-every needs whole seconds
+    let (c, t) = code(dev("claude", &["--events-every", "soon"], wds));
+    assert_eq!(c, 4, "{t}");
+    assert!(t.contains("--events-every needs whole seconds"), "{t}");
+    // the control: the same options without the fault are accepted (the hook needs the path of
+    // the running binary, which a unit test does not have)
+    let argv = dev(
+        "claude",
+        &["--allow", "Bash(npm *)", "--no-events-hook"],
+        wds,
+    );
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    if let Err(e) = rig.settings(&refs, &[]) {
+        panic!("{} ({})", e.text, e.code);
+    }
+}
+
+#[test]
 fn flags_that_nothing_reads_are_not_accepted() {
     // nothing in this command reads them, so they must not look as if they worked
     let argv = ["wake", "--wake-cmd", "true", "--role", "x"];

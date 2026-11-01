@@ -265,6 +265,26 @@ fn env_prints_the_three_export_lines_and_no_token() {
 }
 
 #[test]
+fn c3_env_of_the_config_dir_with_an_agent_token_prints_the_three_lines_and_no_token() {
+    let (t, d) = agent_dir();
+    let envf = t.path().join("crew.env");
+    std::fs::write(&envf, "GH_TOKEN=crew-token-value\n").unwrap();
+    std::fs::set_permissions(&envf, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::os::unix::fs::symlink(&envf, d.join("agent.env")).unwrap();
+    let o = env_lines_of(&["--config-dir", d.to_str().unwrap(), "agent", "env"]);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o.stderr));
+    let dir = d.display();
+    assert_eq!(
+        text(&o.stdout),
+        format!(
+            "export PATH='{dir}/bin':\"$PATH\"\nexport GH_CONFIG_DIR='{dir}/gh-empty-config'\nexport CREWBOARD_CONFIG_DIR='{dir}'\n"
+        )
+    );
+    assert!(!text(&o.stdout).contains("crew-token-value"));
+    assert!(!text(&o.stderr).contains("crew-token-value"));
+}
+
+#[test]
 fn env_of_a_bare_dir_prints_the_config_dir_only_and_a_missing_dir_exits_4() {
     let t = tempfile::tempdir().unwrap();
     let o = env_lines_of(&["agent", "env", "--agent-dir", t.path().to_str().unwrap()]);

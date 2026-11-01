@@ -726,6 +726,127 @@ mod tests {
             );
         }
 
+        fn add_dirs(d: &Direct) -> Vec<String> {
+            d.argv
+                .windows(2)
+                .filter(|w| w[0] == "--add-dir")
+                .map(|w| w[1].clone())
+                .collect()
+        }
+
+        /// The command of the events hook in the `--settings` JSON of a Claude job.
+        fn hook_command(d: &Direct) -> String {
+            let j = d.argv.windows(2).find(|w| w[0] == "--settings").unwrap()[1].clone();
+            let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+            assert_eq!(v["hooks"]["PostToolUse"][0]["hooks"][0]["type"], "command");
+            v["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+
+        #[test]
+        fn a8_codex_may_write_the_config_dir_and_the_parent_of_the_host_lock() {
+            let rig = Rig::new();
+            let cfg = rig.p("cfg");
+            std::fs::create_dir_all(&cfg).unwrap();
+            let mut a = rig.args("codex");
+            a.host_lock = vec![rig.p("locks/heavy.lock.d")];
+            let ev = rig.paths.dir.join("events.txt");
+            let d = build(&Inputs {
+                a: &a,
+                tick: false,
+                has_wake_cmd: false,
+                agent: Some("dev@host-a"),
+                initiative: Some("demo"),
+                config_dir: Some(&cfg),
+                paths: &rig.paths,
+                events_file: &ev,
+                crewboard: None,
+                exe: Some(Path::new("/bin/crewboard")),
+                path_env: Some("/usr/bin:/bin"),
+                home: None,
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                add_dirs(&d),
+                [
+                    cfg.display().to_string(),
+                    rig.p("locks").display().to_string()
+                ]
+            );
+            assert!(
+                d.argv.last().unwrap().contains(&format!(
+                    "crewboard lock run {} --holder dev@host-a",
+                    rig.p("locks/heavy.lock.d").display()
+                )),
+                "{:?}",
+                d.argv.last()
+            );
+        }
+
+        #[test]
+        fn a8e_a_claude_job_may_read_the_installed_skill_of_home() {
+            let rig = Rig::new();
+            let home = rig.p("home");
+            let clone = home.join("clone-skill");
+            std::fs::create_dir_all(&clone).unwrap();
+            let shared = home.join(".config/agent-skills/crewboard");
+            std::fs::create_dir_all(shared.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&clone, &shared).unwrap();
+            let link = home.join(".claude/skills/crewboard");
+            std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(&shared, &link).unwrap();
+            let ev = rig.paths.dir.join("events.txt");
+            let d = build(&Inputs {
+                a: &rig.args("claude"),
+                tick: false,
+                has_wake_cmd: false,
+                agent: Some("dev@host-a"),
+                initiative: Some("demo"),
+                config_dir: None,
+                paths: &rig.paths,
+                events_file: &ev,
+                crewboard: None,
+                exe: Some(Path::new("/bin/crewboard")),
+                path_env: Some("/usr/bin:/bin"),
+                home: Some(&home),
+            })
+            .unwrap()
+            .unwrap();
+            let adds = add_dirs(&d);
+            assert_eq!(
+                adds[adds.len() - 2..],
+                [
+                    clone.canonicalize().unwrap().display().to_string(),
+                    link.display().to_string()
+                ]
+            );
+            let p = d.argv.last().unwrap();
+            assert!(
+                p.contains("Never stop because of one refused command"),
+                "{p}"
+            );
+            assert!(
+                p.contains("Never start a background process of your runtime"),
+                "{p}"
+            );
+        }
+
+        #[test]
+        fn hw1_the_hook_of_a_claude_job_polls_at_the_events_every_hw1b_300_s_by_default() {
+            let rig = Rig::new();
+            let mut a = rig.args("claude");
+            let hc = hook_command(&rig.build(&a).unwrap().unwrap());
+            assert!(hc.contains("hook post-tool-use"), "{hc}");
+            assert!(hc.contains("--initiative demo"), "{hc}");
+            assert!(hc.contains("--every 300"), "{hc}");
+            a.events_every = Some("120".into());
+            let hc = hook_command(&rig.build(&a).unwrap().unwrap());
+            assert!(hc.contains("--every 120"), "{hc}");
+        }
+
         #[test]
         fn the_job_has_the_cwd_the_text_and_the_hook_only_for_claude() {
             let rig = Rig::new();

@@ -482,6 +482,20 @@ mod tests {
             )
         );
         assert!(!t.contains("unknown"));
+        // a work dir that is no checkout, an agent with no open PR: the message says so
+        let other = tempfile::tempdir().unwrap();
+        let nogit = other.path().join("nogit");
+        std::fs::create_dir_all(&nogit).unwrap();
+        let mut prs = Prs::default();
+        let (t, _) = describe_at(&nogit, mine, Some("dev@host-a"), &mut prs);
+        assert_eq!(
+            t,
+            format!(
+                "no branch and no PR of the ticket found (work dir {})",
+                nogit.display()
+            )
+        );
+        assert!(!t.contains("unknown"));
         // a ticket branch without a PR: pushed or not by its upstream
         let d2 = tempfile::tempdir().unwrap();
         let head2 = repo(d2.path(), "crew/dev@host-a/12-fix");
