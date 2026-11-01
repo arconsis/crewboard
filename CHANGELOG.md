@@ -12,7 +12,7 @@ Fixed:
   released its lock; the next wake then worked in the same checkout. The wake prompt and the dev
   skill now forbid background processes that report back into the chat (a long job uses
   `crewboard lock run --detach`), and the [Hermes guide](docs/guides/runtimes/hermes-cron.md#notes)
-  names the two gateway settings that turn the reports off.
+  names two gateway settings that stop the reports that Hermes adds by itself.
 - **`ci_mode: local`: no CI verdicts.** `poll` and `watch` gave `ci-finished` and
   `green-not-done` from whatever checks ran on a crew head (for example code scanning), and
   `done` named that state on a `ci-info:` line. In local mode the CI of a head is no proof of the

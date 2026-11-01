@@ -1,13 +1,16 @@
 # crewboard explainer video: storyboard
 
-Status: v1.1, 2026-10-30. Drafted against the docs of commit `8788f9b` (branch `main`); line numbers
+Status: v1.3, 2026-11-01. Drafted against the docs of commit `8788f9b` (branch `main`); line numbers
 below are the line numbers of the files at that commit. v1.1 adds exit 64 to s9-4 from
 `origin/main` at `ca3fb47` (crewboard 0.8.0); that one row cites `ca3fb47`. Between the two commits
 only the exit-code docs changed among the cited files (`git diff --stat 8788f9b ca3fb47`), and
 SK 17-18 and 79-81 keep their lines. v1.2 (2026-10-31) changes s3-2, s4-4, s10-2, s11-1, s12-2 and
 s13-2 for the docs change "agent account": each person brings the GitHub account that they
 already have, never the owner's. The rows of those six segments cite the docs of that change
-(the commit that adds v1.2); the other rows keep the lines of `8788f9b`.
+(the commit that adds v1.2); the other rows keep the lines of `8788f9b`. v1.3 (2026-11-01)
+changes no narration: the owner guide now says the two claims that v1.2 marked as derived ("the
+owner mostly watches" in s4 and "an agent session of the owner" in s9). Those two rows cite the
+owner guide of the commit that adds v1.3.
 
 Files of v1: `script.json` (narration, scenes, order, voice), `scenes.py` (the title card and
 thirteen Manim scenes), `timing.json` (measured segment durations), `build.sh`, `narrate.sh`,
@@ -227,7 +230,7 @@ card from Review to Done with "status: board against signed log".
 | Claim | Source | Status |
 |---|---|---|
 | the views Board, By Agent, Crew and Needs Owner | OG 206-207 | doc |
-| "the owner mostly watches" | OG 3 ("you approve each agent, and you merge what needs your decision") | derived: the owner's listed day-to-day work is seeing, answering, moving, merging (OG 205-225) |
+| "the owner mostly watches" | OG 3-4 at v1.3 ("Between these steps you mostly watch the board and answer the questions of the agents") | doc (derived up to v1.2) |
 | a question to the owner sets the label `needs-owner` | OG 209-210; CLI 929 | doc |
 | the owner answers in a comment on the ticket; a chat answer is not signed and does not count | OG 210-211 | doc |
 | only the owner approves agents | CO 9; OG 180 | doc |
@@ -369,7 +372,7 @@ merge: a person decides".
 | the example refusal `unread-events` and its fix `watch --timeout 1m` | SKD 45-46; GS 203-204 | doc |
 | exit 64: a usage error (a bad option, argument or issue number); fix the command and run it again; 64 for every command | `origin/main` (`ca3fb47`, crewboard 0.8.0): SK 82; EX 16, 23-24 | doc (added in v1.1; at `8788f9b` exit 64 was for `lock`, `repeat` and `wake` only) |
 | owner commands use the owner's own `gh` login, never `GH_TOKEN`; they refuse any account but the board owner | OG 23-26 | doc |
-| the owner can run them from an agent session of their own | OG 23-26 (the login decides, not the terminal); OG 25-26 ("Run them in your own terminal, not in an agent's config dir") | derived: any session with the owner's `gh` login outside an agent's config dir qualifies |
+| the owner can run them from an agent session of their own | OG 27-29 at v1.3 ("A coding-agent session of your own (not a crew agent) can run them too, when it uses your own `gh` login") | doc (derived up to v1.2) |
 | approval and merge stay with a person: only the owner approves agents and merges protected changes; by default every PR | CO 9; OG 140-141, 180-181 | doc |
 
 ### Scene 10: proof before Done (`S10Proof`)
