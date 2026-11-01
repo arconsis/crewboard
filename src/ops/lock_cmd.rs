@@ -131,12 +131,9 @@ impl BoardProbe for SubprocessProbe {
     }
 }
 
-/// The seconds that one read of the board counts: `$HOST_LOCK_BOARD_TTL` when it is a number,
-/// else 60.
+/// The seconds that one read of the board counts, also a failed one.
 #[cfg(unix)]
-fn board_ttl(var: Option<&str>) -> i64 {
-    var.and_then(|v| v.parse::<i64>().ok()).unwrap_or(60)
-}
+const BOARD_TTL: i64 = 60;
 
 /// The binary of the hidden test option `--crewboard BIN` of `lock`, `monitor` and `agent add`:
 /// `bin` when it is another binary than this one, and only in a build with debug assertions (the
@@ -335,11 +332,10 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
             })),
         }
     };
-    let ttl = board_ttl(env_nonempty("HOST_LOCK_BOARD_TTL").as_deref());
     let host = lock_host_name();
     let board = BoardCheck::new(
         probe,
-        ttl,
+        BOARD_TTL,
         p.config_dir.is_some(),
         p.cmd == Cmd::Status,
         &log,
@@ -531,14 +527,6 @@ mod tests {
             argv_of(&argv),
             "--config-dir /x/optdir status --json --initiative i1"
         );
-    }
-
-    #[test]
-    fn h8h_the_board_ttl_variable_is_a_number_of_seconds_else_60() {
-        assert_eq!(board_ttl(Some("0")), 0);
-        assert_eq!(board_ttl(Some("5")), 5);
-        assert_eq!(board_ttl(Some("soon")), 60);
-        assert_eq!(board_ttl(None), 60);
     }
 
     #[test]

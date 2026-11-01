@@ -85,10 +85,9 @@ Stale lock: any ONE of these named reasons. There is no other way to take a lock
                      stderr names the cause (the first line of the error),
                      once per cause; a working check after a failure gives one line "board
                      check works again". A failure never stops a wait: the pid and age
-                     checks go on. The answer is cached for 60 s (also a failed one; set
-                     $HOST_LOCK_BOARD_TTL for tests), so a wait polls the board once a minute,
-                     not at every poll. An agent that the board does
-                     not list is not judged.
+                     checks go on. The answer is cached for 60 s (also a failed one), so a
+                     wait polls the board once a minute, not at every poll. An agent that the
+                     board does not list is not judged.
   empty-after-grace: the lock directory is EMPTY (no owner file, no other file) AND is older
                      than --empty-grace. A fresh empty directory is NEVER taken over.
 Foreign holder: a directory with no owner file but WITH another file is a lock
@@ -126,6 +125,7 @@ In CI use `--pid runner` for `take` and `ci-wait`: Runner.Worker lives as long
 as the job, so a job that dies frees its lock and its waiting entry (same host only).
 The walk uses `ps -o ppid= -p P` and `ps -o comm= -p P`. For tests, $HOST_LOCK_PARENT_CMD
 replaces both: it is run as `sh -c "$HOST_LOCK_PARENT_CMD" sh P` and prints "PPID COMM".
+A release build ignores $HOST_LOCK_PS_CMD and $HOST_LOCK_PARENT_CMD and always runs `ps`.
 A waiting entry (`<dir>.waiting/<name>`, key=value lines) has a `pid=` line when a pid is
 known. An entry whose pid is dead on its own host is ignored and removed. An entry without
 a `pid=` line (an older version wrote it) is judged by its age only.

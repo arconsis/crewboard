@@ -100,7 +100,6 @@ impl Rig {
             .env_remove("CREWBOARD_CONFIG_DIR")
             .env_remove("HOST_LOCK_MAX_AGE")
             .env_remove("HOST_LOCK_EMPTY_GRACE")
-            .env_remove("HOST_LOCK_BOARD_TTL")
             .env_remove("HOST_LOCK_PARENT_CMD")
             .env_remove("HOST_LOCK_SUPERVISE")
             .stdin(Stdio::null());

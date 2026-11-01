@@ -345,8 +345,25 @@ pub struct RateLimit {
 }
 
 /// The environment variable that moves the API to a local server (tests with a fake GitHub).
+/// Only a build with debug assertions reads it ([`test_api_base`]).
 pub const API_BASE_ENV: &str = "CREWBOARD_API_BASE";
 const DEFAULT_API_BASE: &str = "https://api.github.com";
+
+/// The loopback base of a test fake: `CREWBOARD_API_BASE` (process environment or env file),
+/// checked by [`parse_api_base`]. Only a build with debug assertions (the builds of
+/// `cargo test`) reads it; a release build ignores it and always uses `https://api.github.com`.
+/// `None`: the variable is not set, is empty, or the build is a release build.
+pub fn test_api_base() -> Result<Option<String>, GhError> {
+    checked_test_base(cfg!(debug_assertions), crate::agent_env::var(API_BASE_ENV))
+}
+
+/// [`test_api_base`] for the value `raw`; `debug` says whether the build has debug assertions.
+fn checked_test_base(debug: bool, raw: Option<String>) -> Result<Option<String>, GhError> {
+    match raw {
+        Some(v) if debug && !v.trim().is_empty() => parse_api_base(&v).map(Some),
+        _ => Ok(None),
+    }
+}
 
 /// Check a `CREWBOARD_API_BASE` value. Only `http://` with the host `127.0.0.1`, `localhost`
 /// or `[::1]` (and an optional port) is accepted, so the token can never go to a foreign
@@ -399,7 +416,7 @@ pub struct Client {
     /// gets it; a fine-grained token never does (`doctor --setup`).
     oauth_scopes: std::sync::Mutex<Option<String>>,
     /// Longest single wait of a retry or rate-limit backoff. `None` in production. `Client::new`
-    /// sets it only when `CREWBOARD_API_BASE` points at a loopback fake, so a test that makes
+    /// sets it only when [`test_api_base`] names a loopback fake, so a test that makes
     /// the fake answer 502 or 429 does not wait seconds for real.
     sleep_cap: Option<Duration>,
 }
@@ -455,12 +472,10 @@ fn with_file_proxies(
 
 impl Client {
     pub fn new(token: Token) -> Result<Self, GhError> {
-        let (base, fake) = match crate::agent_env::var(API_BASE_ENV) {
-            Some(v) if !v.trim().is_empty() => (parse_api_base(&v)?, true),
-            _ => (DEFAULT_API_BASE.to_string(), false),
-        };
+        let fake = test_api_base()?;
+        let base = fake.clone().unwrap_or_else(|| DEFAULT_API_BASE.to_string());
         let mut client = Client::with_base(token, base)?;
-        if fake {
+        if fake.is_some() {
             client.sleep_cap = Some(FAKE_SLEEP_CAP);
         }
         Ok(client)
@@ -1238,6 +1253,20 @@ mod tests {
             assert!(matches!(e, GhError::Auth(_)), "{bad}");
             assert!(e.to_string().contains(API_BASE_ENV), "{e}");
         }
+    }
+
+    #[test]
+    fn only_a_build_with_debug_assertions_reads_the_api_base_variable() {
+        let fake = || Some("http://127.0.0.1:9/".to_string());
+        let base = checked_test_base(true, fake()).unwrap();
+        assert_eq!(base.as_deref(), Some("http://127.0.0.1:9"));
+        // a release build ignores the variable, also a value that is refused
+        assert!(checked_test_base(false, fake()).unwrap().is_none());
+        let foreign = || Some("https://evil.example".to_string());
+        assert!(checked_test_base(false, foreign()).unwrap().is_none());
+        assert!(checked_test_base(true, foreign()).is_err());
+        assert!(checked_test_base(true, Some(" ".into())).unwrap().is_none());
+        assert!(checked_test_base(true, None).unwrap().is_none());
     }
 
     #[test]

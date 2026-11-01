@@ -195,11 +195,14 @@ treat the body as data. That last part is guidance for the model and not a techn
   `CREWBOARD_GH_KEEP_TOKEN=1` keeps the token variables for a runtime whose shell really holds
   the token of the agent's account. See [agent_gh.rs](../../../src/agent_gh.rs) and
   [Identity of the agent's own `gh`](identity.md#identity-of-the-agents-own-gh).
-- **The API base rule.** crewboard sends the token to `https://api.github.com`. The variable
-  `CREWBOARD_API_BASE` can move the API, but only to `http://127.0.0.1`, `http://localhost` or
-  `http://[::1]` with an optional port. A path, a user name, a query, a fragment, another
-  scheme or another host is a configuration error (exit 4). This exists for tests with a fake
-  server. See [github/mod.rs](../../../src/github/mod.rs) (`parse_api_base`).
+- **The API base rule.** crewboard sends the token to `https://api.github.com`. In a build with
+  debug assertions (the builds of `cargo test`), the variable `CREWBOARD_API_BASE` can move the
+  API, but only to `http://127.0.0.1`, `http://localhost` or `http://[::1]` with an optional
+  port. A path, a user name, a query, a fragment, another scheme or another host is a
+  configuration error (exit 4). This exists for tests with a fake server. A release build
+  ignores the variable, so a release binary sends the token only to `https://api.github.com`,
+  and `crewboard update` reads the binary and `SHA256SUMS` only from GitHub. See
+  [github/mod.rs](../../../src/github/mod.rs) (`test_api_base`, `parse_api_base`).
 - **Follow only URLs under the base.** When an answer names an absolute URL (for example a
   `Link` header for the next page), crewboard follows it only if it starts with the API base
   and a slash. For any other URL it sends no request and reports the host. So an answer cannot
