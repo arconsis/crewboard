@@ -8,6 +8,9 @@
 //! have not moved under `domain` yet), never `github`, `services`, `ops`, `config` or `clock`.
 //! `services` reads from `github` and hands the answers to `domain`.
 //!
+//! `protocol` is the wire and imports nothing from the rest of the crate, in its tests too
+//! (`protocol_imports_nothing_from_the_crate`).
+//!
 //! Inside `ops` and `lock` the same rule holds one level down: the import graph of the files has
 //! no cycle (`the_files_of_ops_and_lock_have_no_cycle`). A helper that two commands share lives
 //! below both: in `ctx`, or in a small module with its own name, never in one of the commands.
@@ -546,6 +549,76 @@ fn the_core_is_layered() {
         })
         .collect();
     assert!(bad.is_empty(), "the core imports upward: {bad:#?}");
+}
+
+/// The paths that a piece of code names with `crate::`, `super::` or `self::`, resolved to
+/// segments without the leading `crate` (see [`resolve_path`]). `module` is the module path of
+/// the file. Comment lines are skipped.
+fn named_paths(module: &[&str], code: &str) -> Vec<Vec<String>> {
+    let use_stmt = Regex::new(r"\buse\s+([^;]+);").unwrap();
+    let inline = Regex::new(r"\b(?:crate|super|self)(?:::\w+)+").unwrap();
+    let code: String = code
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut paths: Vec<String> = use_stmt
+        .captures_iter(&code)
+        .flat_map(|c| expand_use_tree(&c[1]))
+        .collect();
+    let rest = use_stmt.replace_all(&code, "");
+    paths.extend(inline.find_iter(&rest).map(|m| m.as_str().to_string()));
+    paths
+        .iter()
+        .filter_map(|p| resolve_path(module, p.trim()))
+        .collect()
+}
+
+/// The paths of the files under `src/protocol` that lead out of `protocol`.
+fn protocol_escapes(module: &[&str], code: &str) -> Vec<String> {
+    named_paths(module, code)
+        .into_iter()
+        .filter(|p| p.first().map(String::as_str) != Some("protocol"))
+        .map(|p| p.join("::"))
+        .collect()
+}
+
+#[test]
+fn the_protocol_scanner_sees_a_planted_escape() {
+    let planted = "use super::names::Kind;\nuse crate::protocol::acts::kv;\nuse crate::{\n    protocol::header,\n    rules::limits::X,\n};\nfn f() { crate::ticket::info(); super::super::clock::now(); }\n";
+    assert_eq!(
+        protocol_escapes(&["protocol", "acts"], planted),
+        ["rules::limits::X", "ticket::info", "clock::now"]
+    );
+}
+
+/// `protocol` is the wire: it imports nothing from the rest of the crate, in production code and
+/// in its tests. A writer or a test that needs a crate type lives on the caller's side.
+#[test]
+fn protocol_imports_nothing_from_the_crate() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rs_files(&root.join("protocol"), &mut files);
+    assert!(files.len() > 10, "the protocol files are not found");
+    let mut bad = Vec::new();
+    for file in files {
+        let rel = file.strip_prefix(&root).unwrap().with_extension("");
+        let mut module: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        if module.last().is_some_and(|l| l == "mod") {
+            module.pop();
+        }
+        let module: Vec<&str> = module.iter().map(String::as_str).collect();
+        for path in protocol_escapes(&module, &fs::read_to_string(&file).unwrap()) {
+            bad.push(format!("{}: {path}", rel.display()));
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "protocol imports from the rest of the crate: {bad:#?}"
+    );
 }
 
 /// The production files under `src/ops` and `src/lock`, by module path (`ops::tickets::new`; a
