@@ -333,3 +333,20 @@ fn a_ticket_in_backlog_without_a_notice_is_still_no_parent_for_adopt_pr() {
     assert_eq!(o.code, 2, "{}", o.all());
     assert!(o.stderr.contains("adopt-pr-parent-not-done"), "{}", o.all());
 }
+
+#[test]
+fn the_reassign_notice_names_a_pr_on_a_later_page_of_the_open_pr_list() {
+    let (fake, c, _a, b) = crew();
+    // another open PR comes first; the PR of the old agent is on page 2
+    fake.pr_on_branch("feature/other", "IT.");
+    let (t, pr) = in_progress_with_pr(&fake, &c, &b);
+    fake.page_lists(1);
+    let o = run_ok(&fake, &c, &["reassign", &t.to_string(), "--reason", "dead"]);
+    assert!(
+        o.stdout
+            .contains(&format!("earlier PR of the old agent: {}", pr.url)),
+        "{}",
+        o.stdout
+    );
+    no_unhandled(&fake);
+}

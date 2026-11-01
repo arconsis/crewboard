@@ -1265,24 +1265,6 @@ pub fn prune_seen(seen: &mut BTreeMap<String, String>, rows: &[TicketRow]) {
     });
 }
 
-/// The open PRs from the answer of `GET repos/{repo}/pulls?state=open`.
-pub fn parse_open_prs(body: &Value) -> Option<Vec<OpenPr>> {
-    let arr = body.as_array()?;
-    let s = |v: &Value, p: &str| v.pointer(p).and_then(Value::as_str).map(str::to_string);
-    Some(
-        arr.iter()
-            .filter_map(|p| {
-                Some(OpenPr {
-                    number: p.get("number")?.as_u64()?,
-                    head_ref: s(p, "/head/ref")?,
-                    head_sha: s(p, "/head/sha")?,
-                    base_ref: s(p, "/base/ref")?,
-                })
-            })
-            .collect(),
-    )
-}
-
 /// When did the CI of `sha` turn green? The latest completion among the counted workflow
 /// runs, the successful check runs and the successful commit statuses in the answers that
 /// were read for the CI judgement. `None` if no answer names a completion time (nothing is

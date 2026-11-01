@@ -1405,3 +1405,33 @@ fn tick_tells_the_owner_nothing_of_a_passing_verify_it_cannot_compare_with_the_h
         late_notes(&s, TICKET)
     );
 }
+
+#[test]
+fn the_ci_of_a_crew_pr_on_a_later_page_of_the_open_pr_list_is_seen() {
+    let s = LateBoard::new("In Progress");
+    push_times(&s);
+    s.scene(|sc| {
+        sc.branch = true;
+        sc.pr_head = Some(SHA1.to_string());
+        sc.green_at = now_epoch();
+        sc.pr_on_page_2 = true;
+    });
+    let (v, o) = s.poll(&s.dev);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let finished: Vec<&Value> = v["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "ci-finished")
+        .collect();
+    assert_eq!(finished.len(), 1, "{}", o.all());
+    assert!(
+        finished[0]["body"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("pr: {REPO}#7")),
+        "{}",
+        o.all()
+    );
+    assert!(s.board.unhandled().is_empty(), "{:?}", s.board.unhandled());
+}

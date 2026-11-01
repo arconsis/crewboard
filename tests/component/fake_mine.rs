@@ -315,3 +315,19 @@ fn a_token_without_read_project_gives_one_line_with_the_fix_and_exit_4() {
     );
     assert!(err.len() < 300, "{err}");
 }
+
+#[test]
+fn mine_finds_the_pr_of_the_ticket_on_a_later_page_of_the_open_pr_list() {
+    let (fake, c, b) = crew();
+    let t = ticket(&fake, "IT mine pages", "");
+    taken(&fake, &c, &b, t);
+    // another open PR comes first; the PR of the ticket is on page 2
+    fake.pr_on_branch("feature/other", "IT.");
+    let pr = fake.pr_for(t, &b.name);
+    fake.workflow_run_running(9001, &pr.head);
+    fake.page_lists(1);
+    let (code, out) = mine(&fake, &b);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("is still running"), "{out}");
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}

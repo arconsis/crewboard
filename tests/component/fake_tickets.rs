@@ -2518,3 +2518,20 @@ fn a_failed_status_write_of_close_verified_leaves_review_and_a_rerun_finishes() 
     assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Done"));
     no_unhandled(&fake);
 }
+
+#[test]
+fn resume_of_the_coordinator_lists_a_crew_pr_on_a_later_page_of_the_open_pr_list() {
+    let (fake, c, b) = crew();
+    let t = ticket(&fake, "IT resume pages", true, true);
+    // another open PR comes first; the crew PR is on page 2
+    fake.pr_on_branch("feature/other", "IT.");
+    let pr = fake.pr_for(t, &b.name);
+    fake.page_lists(1);
+    let o = run_ok(&fake, &c, &["resume"]);
+    assert!(
+        o.stdout.contains("open PRs of crew branches (1):") && o.stdout.contains(&pr.branch),
+        "{}",
+        o.stdout
+    );
+    no_unhandled(&fake);
+}

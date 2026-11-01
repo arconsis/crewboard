@@ -11,6 +11,7 @@
 //!   `GH_TOKEN` / `GITHUB_TOKEN`, else from `gh auth token` (see `agent_env` for the order). It
 //!   is never stored in a config file, never printed, and `Debug` redacts it.
 
+pub(crate) mod api;
 pub(crate) mod paging;
 pub(crate) mod projects;
 mod token;

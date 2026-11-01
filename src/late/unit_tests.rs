@@ -962,19 +962,6 @@ fn a_throttled_run_reads_nothing_from_github() {
 }
 
 #[test]
-fn the_open_pr_list_is_parsed_and_a_wrong_shape_is_not_a_list() {
-    let body = json!([
-        {"number": 5, "head": {"ref": "crew/a@h/5-x", "sha": SHA1}, "base": {"ref": "main"}},
-        {"number": 6, "head": {"ref": "feature"}, "base": {"ref": "main"}}
-    ]);
-    let v = parse_open_prs(&body).unwrap();
-    assert_eq!(v.len(), 1, "an entry without a head SHA is dropped");
-    assert_eq!(v[0].number, 5);
-    assert_eq!(v[0].base_ref, "main");
-    assert!(parse_open_prs(&json!({"message": "Not Found"})).is_none());
-}
-
-#[test]
 fn green_since_is_the_latest_completion_of_the_counted_green_parts() {
     let runs = json!({"workflow_runs": [
         {"head_sha": SHA1, "event": "push", "conclusion": "success", "updated_at": "2026-10-17T10:00:00Z"},
