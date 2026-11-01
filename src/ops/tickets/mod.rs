@@ -394,6 +394,7 @@ mod tests {
             },
             info: parse_issue(&issue_json()).unwrap(),
             comments: vec![],
+            late: vec![],
             msgs: vec![crate::ticket::VMsg {
                 ts: String::new(),
                 comment_id: 1,

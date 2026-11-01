@@ -108,6 +108,7 @@ fn ticket_on_board(
         None => put_on_board(ac, me, &info, repo, None, out)?,
     };
     let item = ac.ctx.board.read_item(&ac.ctx.client, &item_id)?;
+    let late = crate::ticket::out_of_window_messages(&comments, &ac.ctx.cfg, &world.trust);
     let t = Ticket {
         repo: repo.to_string(),
         issue: n,
@@ -116,6 +117,7 @@ fn ticket_on_board(
         info,
         comments,
         msgs,
+        late,
     };
     let status = match t.item.get(Field::Status) {
         None => {

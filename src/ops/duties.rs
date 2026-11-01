@@ -84,6 +84,7 @@ pub fn agent_duties(ac: &AgentCtx, world: &World, rows: &[TicketRow], now: i64) 
         .and_then(|i| i.get(Field::State))
         .is_some_and(heartbeat_state);
     let msgs = registry_msgs(ac, world);
+    let late = registry_late_msgs(ac, world);
     // 1. owner commands that name this agent
     let (lines, state) = apply_owner_commands(ac, world, duty.state, rows)?;
     duty.state = state;
@@ -100,18 +101,20 @@ pub fn agent_duties(ac: &AgentCtx, world: &World, rows: &[TicketRow], now: i64) 
     //    (spec/agents#coordinator-failure-one-owner-alert). No event; the model is not woken.
     let is_dev = world.trust.get(&me).is_none_or(|t| t.role == Role::Dev);
     if running && is_dev {
-        tell_owner_coordinator_late(ac, world, &msgs, now)?;
+        tell_owner_coordinator_late(ac, world, &msgs, &late, now)?;
     }
     Ok(duty)
 }
 
 /// Judge the coordinator by its heartbeat and, if it is late, post ONE signed `info` to the owner
 /// in the registry issue ([`late_owner_duty`]). The note is no `Event`: it never reaches the
-/// output or the exit code.
+/// output or the exit code. `msgs` and `late`: the verified registry messages and the ones that
+/// fail only the replay window.
 fn tell_owner_coordinator_late(
     ac: &AgentCtx,
     world: &World,
     msgs: &[VMsg],
+    late: &[VMsg],
     now: i64,
 ) -> CbResult<()> {
     let e = crate::late::expect(&ac.ctx.cfg);
@@ -125,7 +128,7 @@ fn tell_owner_coordinator_late(
         now,
         detail: "",
     };
-    if let Some(p) = late_owner_duty(ac, coordinator, &note, msgs)? {
+    if let Some(p) = late_owner_duty(ac, coordinator, &note, msgs, late)? {
         eprintln!(
             "crewboard: the coordinator {} is late ({}); told the owner ({}). You need not act.",
             coordinator.subject_name(),
@@ -381,9 +384,10 @@ fn dead_duty(c: &Cycle, j: &Judged, age: i64, duty: &mut Duty) -> CbResult<()> {
     });
     // The report is posted once per dead episode: the heartbeat value that the agent was last
     // seen with is the episode, and a report of this coordinator that starts with it exists or
-    // it does not. The owner hears through the late path, once per episode (`late-key`).
+    // it does not (also one that GitHub stamped late). The owner hears through the late path,
+    // once per episode (`late-key`).
     let head = dead_report_head(&j.name, seen);
-    let have_report = c.msgs.iter().any(|m| {
+    let have_report = c.msgs.iter().chain(&c.late).any(|m| {
         m.kind == Some(Kind::Report)
             && m.to == "all"
             && matches!(&m.sender, crate::ticket::Sender::Agent { name: n, .. } if *n == me)
@@ -414,7 +418,7 @@ fn dead_duty(c: &Cycle, j: &Judged, age: i64, duty: &mut Duty) -> CbResult<()> {
             now,
             detail: &body,
         };
-        if late_owner_duty(ac, &l, &note, &c.msgs)?.is_some() {
+        if late_owner_duty(ac, &l, &note, &c.msgs, &c.late)?.is_some() {
             first = true;
         }
     }

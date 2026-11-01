@@ -15,7 +15,7 @@ use crate::items::ItemSnapshot;
 use crate::registry::Trust;
 use crate::rules::fields::Field;
 use crate::rules::status::Status;
-use crate::ticket::{VMsg, WORK_LABEL, find_item_id, verified_messages};
+use crate::ticket::{VMsg, WORK_LABEL, find_item_id, out_of_window_messages, verified_messages};
 use serde_json::Value;
 
 /// The issue as GitHub returns it.
@@ -121,6 +121,9 @@ pub(crate) struct Ticket {
     pub(crate) info: IssueInfo,
     pub(crate) comments: Vec<Comment>,
     pub(crate) msgs: Vec<VMsg>,
+    /// The messages that fail only the replay window ([`out_of_window_messages`]): for the
+    /// checks that post a note once, never for an act.
+    pub(crate) late: Vec<VMsg>,
 }
 
 impl Ticket {
@@ -196,6 +199,7 @@ pub(crate) fn load_ticket(r: &Reader, trust: &Trust, t: &TicketRef) -> CbResult<
         )
     })?;
     let item = r.board.read_item(r.client, &item_id)?;
+    let late = out_of_window_messages(&comments, r.cfg, trust);
     Ok(Ticket {
         repo: repo.to_string(),
         issue,
@@ -204,6 +208,7 @@ pub(crate) fn load_ticket(r: &Reader, trust: &Trust, t: &TicketRef) -> CbResult<
         info,
         comments,
         msgs,
+        late,
     })
 }
 

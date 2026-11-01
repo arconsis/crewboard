@@ -170,6 +170,20 @@ fn a_merge_by_someone_else_is_noted_and_the_ticket_stays_in_review() {
 }
 
 #[test]
+fn the_note_is_posted_once_while_github_stamps_comments_late() {
+    let k = case(false);
+    let dir = headless(&k);
+    k.fake.merge_pr_by(k.pr.number, "fake-crew");
+    k.fake.close_issue(k.t);
+    k.fake.post_late(3600);
+    for _ in 0..3 {
+        let o = k.fake.run(dir.path(), &["tick"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+    }
+    assert_eq!(notes(&k).len(), 1);
+}
+
+#[test]
 fn a_merge_after_a_passed_verify_on_the_head_is_not_noted() {
     let k = case(false);
     let ts = k.t.to_string();

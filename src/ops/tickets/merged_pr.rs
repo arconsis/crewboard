@@ -143,7 +143,8 @@ pub(super) fn tick_lines(
         let Some(agent) = t.agent().map(str::to_string) else {
             continue;
         };
-        if !told(&t.msgs, &pr) {
+        // a note that GitHub stamped late was posted all the same
+        if !told(&t.msgs, &pr) && !told(&t.late, &pr) {
             let p = post(
                 ac,
                 &t,
