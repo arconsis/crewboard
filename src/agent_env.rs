@@ -2,7 +2,8 @@
 //!
 //! crewboard reads the agent token itself. It does not source a shell file and it does not call
 //! `std::env::set_var`: the loader runs once, before the command, and keeps the result in a
-//! read-only [`OnceLock`]. The client reads [`token`]; a child process gets [`AgentEnv::apply`].
+//! read-only [`OnceLock`]. `ctx` hands [`AgentEnv::token`] to the client that it builds, as a
+//! value; a child process gets [`AgentEnv::apply`].
 //!
 //! The file format is a small dotenv subset (see [`parse_dotenv`]). Nothing in it is ever run:
 //! `$(...)`, backticks and `$VAR` stay literal text.
@@ -342,9 +343,14 @@ impl AgentEnv {
     }
 
     /// The token of the file. A caller that prints or logs text must keep it out of that text.
-    #[cfg(unix)]
     pub fn token(&self) -> Option<&str> {
         self.token.as_deref()
+    }
+
+    /// The token of `--env-file`, if this env came from that flag. An owner command takes no
+    /// other file.
+    pub fn explicit_token(&self) -> Option<&str> {
+        self.token().filter(|_| self.kind == FileKind::Explicit)
     }
 
     /// The value of every token key of the file (`GH_TOKEN`, `GITHUB_TOKEN`, the two enterprise
@@ -598,18 +604,6 @@ pub fn current() -> Option<&'static AgentEnv> {
 /// The result of [`init`], if it ran. `doctor` reads the error to report it.
 pub fn state() -> Option<&'static Result<AgentEnv, CbError>> {
     LOADED.get()
-}
-
-/// The token of the env file, if one is in force.
-pub fn token() -> Option<&'static str> {
-    current().and_then(|e| e.token.as_deref())
-}
-
-/// The token of `--env-file`, if that file is in force. An owner command takes no other file.
-pub fn explicit_token() -> Option<&'static str> {
-    current()
-        .filter(|e| e.kind == FileKind::Explicit)
-        .and_then(|e| e.token.as_deref())
 }
 
 /// A setting for this process: the variable of the caller, else the key of the env file. Only

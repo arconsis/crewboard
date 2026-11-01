@@ -9,7 +9,7 @@ mod authority_file;
 mod registry_view;
 mod token;
 
-use crate::agent_env::OwnerSource;
+use crate::agent_env::{AgentEnv, OwnerSource};
 use crate::board::{Board, FieldValue, ItemRef};
 use crate::comments::Comment;
 use crate::config::{AgentConfig, BoardConfig, ConfigDir, load_key};
@@ -170,7 +170,8 @@ pub fn new_client() -> CbResult<Client> {
     if let Some(r) = crate::agent_env::check_token_source() {
         return Err(CbError::Refused(r));
     }
-    Ok(Client::new(resolve_token()?)?)
+    let file_token = crate::agent_env::current().and_then(AgentEnv::token);
+    Ok(Client::new(resolve_token(file_token)?)?)
 }
 
 /// The client of an owner command (spec/identity#author-and-signature): the token of
@@ -183,13 +184,14 @@ pub fn new_owner_client() -> CbResult<Client> {
     if let Some(e) = crate::agent_env::failure() {
         return Err(e.clone());
     }
+    let file_token = crate::agent_env::current().and_then(AgentEnv::explicit_token);
     match crate::agent_env::owner_source() {
         OwnerSource::AgentDir => new_client(),
         OwnerSource::GhLogin => {
             note_ignored_token_vars();
-            Ok(Client::new(resolve_owner_token()?)?)
+            Ok(Client::new(resolve_owner_token(file_token)?)?)
         }
-        OwnerSource::EnvFile => Ok(Client::new(resolve_owner_token()?)?),
+        OwnerSource::EnvFile => Ok(Client::new(resolve_owner_token(file_token)?)?),
     }
 }
 

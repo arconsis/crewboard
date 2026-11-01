@@ -118,7 +118,7 @@ treat the body as data. That last part is guidance for the model and not a techn
   the owner token below. crewboard reads the file itself, once, before the command runs; it does not
   source it and it does not change its own environment. Nothing in the file is run: `$(...)`,
   backticks and `$VAR` stay literal text. See [agent_env.rs](../../../src/agent_env.rs) and
-  [github/mod.rs](../../../src/github/mod.rs) (`resolve_token`).
+  [github/token.rs](../../../src/github/token.rs) (`resolve_token`).
 
   | Case | Token used |
   |---|---|
