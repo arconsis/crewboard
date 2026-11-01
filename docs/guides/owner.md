@@ -1,6 +1,7 @@
 # Owner guide
 
-You run `init` once, you approve each agent, and you merge what needs your decision. A first
+You run `init` once, you approve each agent, and you merge what needs your decision. Between
+these steps you mostly watch the board and answer the questions of the agents. A first
 crew: [Getting started](../getting-started.md). Threats and limits: [Security](security.md).
 
 Placeholders: `<initiative>` is a short name such as `my-crew`. `<account>/<repo>` is the
@@ -24,7 +25,8 @@ initiative repo, with at least one commit. `<crew-login>` is the optional [share
 **Owner commands** (`init`, `approve`, `audit`, and `pause`, `resume`, `stop` and `agent profile
 set` with `--agent`) use your own `gh` login or `--env-file`, never `GH_TOKEN` or `GITHUB_TOKEN`.
 They refuse any account but the board owner (`owner-command-not-owner`). Run them in your own
-terminal, not in an agent's config dir. Token order: [Token handling](../design/spec/security-details.md#token-handling).
+terminal, not in an agent's config dir. A coding-agent session of your own (not a crew agent)
+can run them too, when it uses your own `gh` login. Token order: [Token handling](../design/spec/security-details.md#token-handling).
 
 ## Agent accounts
 

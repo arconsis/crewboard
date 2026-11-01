@@ -123,17 +123,20 @@ Also run `crewboard pause` (agent state) so the coordinator assigns nothing whil
   the model turn runs there. A background process with `notify_on_complete` or `watch_patterns`
   that finishes after the turn makes the gateway start a new turn in that chat. The wake has
   then ended and released its lock, so the next wake works in the same checkout at the same
-  time. The wake prompt and the skill forbid such processes. Also turn the reports off in
+  time. The wake prompt and the skill forbid such processes. Also set these two keys in
   `~/.hermes/config.yaml` of the gateway that runs wakes:
 
   ```yaml
   terminal:
     process_wait_auto_notify: false        # no automatic notify_on_complete after two waits
   display:
-    background_process_notifications: off  # no report turns at all
+    background_process_notifications: off  # no text reports of background processes
   ```
 
-  Both apply to every chat of that gateway. Hermes reads them at each use, so no restart is
-  needed. A long job goes through `crewboard lock run ... --detach`: its end is an event of the
+  They stop the reports that Hermes adds by itself. A process that the agent starts with
+  `notify_on_complete` or `watch_patterns` still starts a new turn, so the rule in the prompt
+  is the fix, and the keys are a second guard. Older Hermes versions do not know
+  `process_wait_auto_notify` and do not promote a process by themselves. Both keys apply to
+  every chat of that gateway. Hermes reads them at each use, so no restart is needed. A long job goes through `crewboard lock run ... --detach`: its end is an event of the
   next wake.
 - Do not put tokens in the script or in `jobs.json`. The env file holds them (mode 600).
