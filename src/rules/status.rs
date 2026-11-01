@@ -71,10 +71,11 @@ impl Status {
     }
 }
 
-impl CloseKind {
-    /// The status that the close ends the ticket in: Dropped for a drop, Done for all others.
-    pub fn status(self) -> Status {
-        match self {
+impl Status {
+    /// The status that a close of kind `kind` ends the ticket in: Dropped for a drop, Done for
+    /// all others. (`CloseKind` is a type of the wire crate, so the rule lives on `Status`.)
+    pub fn after_close(kind: CloseKind) -> Status {
+        match kind {
             CloseKind::Dropped => Status::Dropped,
             _ => Status::Done,
         }
@@ -729,7 +730,7 @@ mod tests {
 
     #[test]
     fn a_close_ends_in_done_and_a_drop_in_dropped() {
-        assert_eq!(CloseKind::Dropped.status(), Dropped);
+        assert_eq!(Status::after_close(CloseKind::Dropped), Dropped);
         // the text of a close by judgment of an older build keeps its meaning: Done
         for k in [
             CloseKind::Verified,
@@ -737,7 +738,7 @@ mod tests {
             CloseKind::OwnerMerged,
             CloseKind::Judgment,
         ] {
-            assert_eq!(k.status(), Done, "{k:?}");
+            assert_eq!(Status::after_close(k), Done, "{k:?}");
         }
     }
 

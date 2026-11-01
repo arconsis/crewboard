@@ -125,7 +125,7 @@ pub(super) mod tests {
     use super::*;
 
     /// Convert armored `sshsig` text (for example from `ssh-keygen -Y sign`) to the header form.
-    pub(in crate::protocol) fn armor_to_sig(armor: &str) -> Result<String, ProtocolError> {
+    pub(crate) fn armor_to_sig(armor: &str) -> Result<String, ProtocolError> {
         let normalised = armor.replace("\r\n", "\n");
         let body: String = normalised
             .lines()

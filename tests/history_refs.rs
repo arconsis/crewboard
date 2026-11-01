@@ -25,7 +25,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Directories whose tracked files are scanned.
-const SCANNED: &[&str] = &["src/", "tests/", "skill/", "docs/"];
+const SCANNED: &[&str] = &["src/", "crates/", "tests/", "skill/", "docs/"];
 
 /// Path prefixes that may hold such a reference as data. Keep it empty if you can.
 const ALLOWED: &[&str] = &[];
@@ -151,11 +151,13 @@ fn comment_hits(file: &str, text: &str, files: &[String]) -> Vec<String> {
 fn comments_name_no_missing_script_and_tell_no_history() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let files = tracked();
-    let mut scanned = 0;
+    let (mut scanned, mut crates) = (0, 0);
     let mut hits = Vec::new();
     for file in &files {
-        let rust =
-            (file.starts_with("src/") || file.starts_with("tests/")) && file.ends_with(".rs");
+        let rust = ["src/", "crates/", "tests/"]
+            .iter()
+            .any(|d| file.starts_with(d))
+            && file.ends_with(".rs");
         let md = (file.starts_with("skill/") || file.starts_with("docs/")) && file.ends_with(".md");
         if (!rust && !md) || SH_HISTORY.contains(&file.as_str()) {
             continue;
@@ -164,9 +166,14 @@ fn comments_name_no_missing_script_and_tell_no_history() {
             continue;
         };
         scanned += 1;
+        crates += usize::from(file.starts_with("crates/"));
         hits.extend(comment_hits(file, &text, &files));
     }
     assert!(scanned > 100, "too few scanned files: {scanned}");
+    assert!(
+        crates >= 10,
+        "too few scanned files under crates/: {crates}"
+    );
     assert!(hits.is_empty(), "{}", hits.join("\n"));
 }
 
@@ -215,7 +222,7 @@ fn the_comment_scan_fires_on_each_form_and_spares_code_and_data() {
 fn no_issue_or_pr_numbers_in_code_tests_skill_and_docs() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let re = pattern();
-    let mut files = 0;
+    let (mut files, mut crates) = (0, 0);
     let mut hits = Vec::new();
     for file in &tracked() {
         if !SCANNED.iter().any(|d| file.starts_with(d))
@@ -227,9 +234,14 @@ fn no_issue_or_pr_numbers_in_code_tests_skill_and_docs() {
             continue;
         };
         files += 1;
+        crates += usize::from(file.starts_with("crates/"));
         hits.extend(scan(file, &text, &re));
     }
     assert!(files > 100, "too few scanned files: {files}");
+    assert!(
+        crates >= 10,
+        "too few scanned files under crates/: {crates}"
+    );
     assert!(
         hits.is_empty(),
         "numbers of issues or PRs of another repository (say the rule and the failure instead):\n{}",

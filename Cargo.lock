@@ -327,6 +327,7 @@ version = "0.8.2"
 dependencies = [
  "base64",
  "clap",
+ "crewboard-protocol",
  "flate2",
  "libc",
  "regex",
@@ -338,6 +339,15 @@ dependencies = [
  "tar",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "crewboard-protocol"
+version = "0.8.2"
+dependencies = [
+ "sha2 0.11.1",
+ "ssh-key",
+ "tempfile",
 ]
 
 [[package]]
