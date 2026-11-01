@@ -136,7 +136,7 @@ the agent's load.
    (<text>)`. There is no other path.
 3. **CI first.** An agent `take` (also a takeover) waits (`--wait`) or exits 76 while a CI job runs
    or waits on the host. CI is seen as a `Runner.Worker` process (`$HOST_LOCK_PS_CMD` replaces
-   `ps -axo command=` in tests) or as a file in `<lock-dir>.waiting/<name>` (entries older than
+   `ps -axo command=` in tests; a release build ignores it) or as a file in `<lock-dir>.waiting/<name>` (entries older than
    `--ci-max-age`, default 6 h, are ignored). `ci-wait` and `ci-done` register and leave;
    `ci-status` exits 0 if CI is present. `take --ci` and `run --ci` mark a CI taker: it ignores CI
    presence, is on the list while it waits, and is blocked only by a held lock. A running agent

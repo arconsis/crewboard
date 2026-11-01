@@ -16,7 +16,7 @@
 use crate::base::ids;
 use crate::base::ignore::{best_effort_cleanup, best_effort_output, child_may_have_ended};
 use crate::error::{CbError, CbResult};
-use crate::github::{API_BASE_ENV, GhError, parse_api_base};
+use crate::github::{GhError, test_api_base};
 use crate::skill_embed::sha256_hex;
 use reqwest::blocking::Client as Http;
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
@@ -319,10 +319,7 @@ struct Api {
 
 impl Api {
     fn new(repo: &str) -> CbResult<Self> {
-        let base = match crate::agent_env::var(API_BASE_ENV) {
-            Some(v) if !v.trim().is_empty() => parse_api_base(&v)?,
-            _ => DEFAULT_API_BASE.to_string(),
-        };
+        let base = test_api_base()?.unwrap_or_else(|| DEFAULT_API_BASE.to_string());
         let http = Http::builder()
             .timeout(Duration::from_secs(300))
             // reqwest drops the Authorization header when a redirect leaves the origin (the

@@ -128,7 +128,6 @@ mod unix {
                 .env_remove("CREWBOARD_WAKE")
                 .env_remove("HOST_LOCK_MAX_AGE")
                 .env_remove("HOST_LOCK_EMPTY_GRACE")
-                .env_remove("HOST_LOCK_BOARD_TTL")
                 .env_remove("HOST_LOCK_PARENT_CMD")
                 .stdin(Stdio::null());
             c

@@ -43,11 +43,12 @@ GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock an
 | `agent add --crewboard BIN` | `component/agent_add` | read only by a build with debug assertions |
 | `CREWBOARD_WAKE_OS` | `component/wake_install`, `component/agent_add` | read only by a build with debug assertions |
 | `HOST_LOCK_HOST` | `component/lock_*`, `tests/repeat_cli` | read only by a build with debug assertions |
+| `HOST_LOCK_PS_CMD`, `HOST_LOCK_PARENT_CMD` | `component/lock_*`, `tests/repeat_cli` | read only by a build with debug assertions; `lock --help` and `docs/reference/cli.md` say so |
+| `CREWBOARD_API_BASE` | the component tests with the fake GitHub of `tests/support`, `tests/update_cmd` | read only by a build with debug assertions: a release build sends the token only to `https://api.github.com` |
+| `HOST_LOCK_BOARD_TTL` | none | removed: the board answer is cached for 60 s |
 | the `gh` calls of `wake --crewboard BIN` | none | removed: through the seam the wake knows no PR |
 | `wake --crewboard BIN` (and the `hook --crewboard BIN` that it passes on) | `component/wake_lock`, `component/fake_wake` | unchanged: named in `docs/design/spec/cli.md`; `wake install --crewboard` is the binary of the wrapper |
 | `--wake-cmd`, `CREWBOARD_WAKE_CMD` | `src/wake/cmd_tests`, `component/wake_*`, `component/fake_wake` | unchanged: named in the guide of the unattended Claude wake |
-| `HOST_LOCK_PS_CMD`, `HOST_LOCK_PARENT_CMD` | `component/lock_*`, `tests/repeat_cli` | unchanged: named in `lock --help` and `docs/reference/cli.md` |
-| `HOST_LOCK_BOARD_TTL` | none | unchanged: named in `lock --help` and `docs/reference/cli.md` |
 | `CREWBOARD_RETRY_DELAYS` | `src/wake/cmd_tests/values` | unchanged: the default of `--retry-delays`; it runs nothing |
 
 ## test-loops.sh
@@ -232,7 +233,7 @@ GitHub server of `tests/support` or with fakes of the `Steps`, `Cycle`, clock an
 | H8e | --no-board skips the board check | existing | `component/lock_board::h8_e2e_the_same_dead_owner_is_not_judged_with_no_board`<br>`src/lock/board::h8e_no_board_never_asks` |  |
 | H8f | board unreachable: skipped with a note, lock not stale | existing | `src/lock/board::h8f_an_unreachable_board_is_skipped_with_one_note`<br>`src/lock/board::a_failure_without_text_names_the_exit_code`<br>`src/lock/judge::h8_the_board_says_dead_or_left_is_stale_and_the_texts_are_the_old_ones` | unit level |
 | H8g | board cache: 5 or more polls, one status call | new | `src/lock/run::h8g_a_wait_of_many_polls_asks_the_board_once`<br>`src/lock/board::h8g_the_cache_gives_one_call_for_many_polls` | unit level |
-| H8h | 3 failures then ok: 1 skip note with cause, 1 works again | new | `src/lock/run::h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again`<br>`src/lock/board::h8h_three_failures_then_ok_give_one_skip_note_and_one_works_again`<br>`src/ops/lock_cmd::h8h_the_board_ttl_variable_is_a_number_of_seconds_else_60` | unit level; the wait with a cache of 0 s runs on `Session`; the parse of `HOST_LOCK_BOARD_TTL` is the third test |
+| H8h | 3 failures then ok: 1 skip note with cause, 1 works again | new | `src/lock/run::h8h_three_failed_board_checks_in_a_wait_give_one_note_and_one_works_again`<br>`src/lock/board::h8h_three_failures_then_ok_give_one_skip_note_and_one_works_again` | unit level; the wait with a cache of 0 s runs on `Session`; `HOST_LOCK_BOARD_TTL` is removed |
 | H8h2 | board check failing: pid-dead takeover still works | existing | `src/lock/judge::h3_a_dead_pid_on_this_host_is_stale_a_live_one_is_held`<br>`src/lock/judge::the_pid_rule_comes_before_the_board` | unit level |
 | H8i | dead owner: taken over as board-dead, one status call | new | `src/lock/run::h8i_a_dead_owner_is_taken_over_as_board_dead_with_one_board_call` | unit level |
 | H9 | run holds the lock, releases it, returns the exit code | existing | `component/lock_cli::h9_run_holds_the_lock_while_the_command_runs_releases_and_returns_its_code` |  |

@@ -19,6 +19,13 @@ Changed:
   exported `HOST_LOCK_HOST` records its real short host name after the upgrade, so a lock that
   was taken before it looks like a lock of another host: its pid is not judged, and only the age
   rules (`--max-age`, `expect=`) and the board check free it.
+- A release build ignores the test variables `CREWBOARD_API_BASE` (a loopback fake in place of
+  `https://api.github.com`), `HOST_LOCK_PS_CMD` and `HOST_LOCK_PARENT_CMD` (shell commands in
+  place of the `ps` calls of `lock`). Only a build with debug assertions, as `cargo test` makes,
+  reads them. A release binary now sends the token only to `https://api.github.com`, and
+  `crewboard update` reads the binary and `SHA256SUMS` only from GitHub. Only a setup that used
+  these variables against a release binary sees a change. `HOST_LOCK_BOARD_TTL` no longer
+  exists: the board answer of `lock` is always cached for 60 s, the default it had before.
 - Through the hidden test option `wake --crewboard BIN` the wake no longer asks `gh` for the PR
   of a ticket at a budget stop; its message names no PR. Only test setups used this path.
 

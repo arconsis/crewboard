@@ -1,6 +1,6 @@
 //! Process facts behind one trait, so the stale rules run in a test with a table of fake
 //! processes. `SystemProcs` is the real one (Unix only): `kill(pid, 0)`, `ps`, and the two
-//! test hooks `HOST_LOCK_PS_CMD` and `HOST_LOCK_PARENT_CMD`.
+//! test hooks `HOST_LOCK_PS_CMD` and `HOST_LOCK_PARENT_CMD`, which a release build ignores.
 
 /// Is a process alive?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +77,20 @@ pub fn parse_ps_line(line: &str) -> Option<ProcInfo> {
     })
 }
 
+/// The value of a test hook (`HOST_LOCK_PS_CMD`, `HOST_LOCK_PARENT_CMD`): a shell command that
+/// replaces a `ps` call. Only a build with debug assertions (the builds of `cargo test`) reads
+/// it; a release build ignores it and runs `ps`.
+#[cfg(unix)]
+fn test_hook(name: &str) -> Option<String> {
+    hook_value(cfg!(debug_assertions), std::env::var(name).ok())
+}
+
+/// [`test_hook`] for the value `raw`; `debug` says whether the build has debug assertions.
+#[cfg(any(unix, test))]
+fn hook_value(debug: bool, raw: Option<String>) -> Option<String> {
+    raw.filter(|v| debug && !v.is_empty())
+}
+
 #[cfg(unix)]
 pub use system::{SystemProcs, ps};
 
@@ -138,18 +152,16 @@ mod system {
         }
 
         fn lookup(&self, pid: u32) -> Option<ProcInfo> {
-            let text = match std::env::var("HOST_LOCK_PARENT_CMD") {
-                Ok(cmd) if !cmd.is_empty() => sh_output(&cmd, Some(&pid.to_string()))?,
-                _ => ps(&["-o", "ppid=", "-o", "comm=", "-p", &pid.to_string()]).ok()?,
+            let text = match test_hook("HOST_LOCK_PARENT_CMD") {
+                Some(cmd) => sh_output(&cmd, Some(&pid.to_string()))?,
+                None => ps(&["-o", "ppid=", "-o", "comm=", "-p", &pid.to_string()]).ok()?,
             };
             parse_ps_line(text.lines().next()?)
         }
 
         fn ci_process_line(&self) -> Option<String> {
-            let script = match std::env::var("HOST_LOCK_PS_CMD") {
-                Ok(c) if !c.is_empty() => c,
-                _ => "ps -axo command=".to_string(),
-            };
+            let script =
+                test_hook("HOST_LOCK_PS_CMD").unwrap_or_else(|| "ps -axo command=".to_string());
             sh_output(&script, None)?
                 .lines()
                 .find(|l| is_runner_line(l))
@@ -250,6 +262,16 @@ mod tests {
         assert_eq!(SystemProcs.alive(1), Alive::Yes);
         // a pid that cannot exist is gone
         assert_eq!(SystemProcs.alive(u32::MAX), Alive::No);
+    }
+
+    #[test]
+    fn only_a_build_with_debug_assertions_reads_the_ps_hooks() {
+        let planted = || Some("echo PLANTED".to_string());
+        assert_eq!(hook_value(true, planted()).as_deref(), Some("echo PLANTED"));
+        // a release build ignores the hook and runs ps
+        assert_eq!(hook_value(false, planted()), None);
+        assert_eq!(hook_value(true, Some(String::new())), None);
+        assert_eq!(hook_value(true, None), None);
     }
 
     #[test]

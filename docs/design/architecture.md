@@ -136,9 +136,10 @@ modules on the `ops` list of `tests/layering.rs`.
   - A temporary conflict on a write is retried up to 3 times (`retry_conflict`).
   - A transient network failure is retried a bounded number of times (`retry_transient`).
   - Conditional requests use ETags. A 304 is a result, not an error.
-  - The base URL is `https://api.github.com`. `CREWBOARD_API_BASE` may replace it only with an `http://`
-    loopback host (`parse_api_base`), so the token never leaves the machine. `get` follows only absolute
-    URLs under the base.
+  - The base URL is `https://api.github.com`. In a build with debug assertions (the builds of `cargo test`),
+    `CREWBOARD_API_BASE` may replace it only with an `http://` loopback host (`test_api_base`,
+    `parse_api_base`), so the token never leaves the machine. A release build ignores the variable.
+    `get` follows only absolute URLs under the base.
   - The token of an agent command comes from the env file of the agent, else `GH_TOKEN` or `GITHUB_TOKEN`, else `gh auth token` (`github/token.rs`, `resolve_token`). An owner command takes `--env-file`, else the owner's own `gh auth token` (`resolve_owner_token`, through `ctx::new_owner_client`). `ctx` passes the token of the loaded env file as a value; each `Client` holds its own token, and nothing in `github/` reads it from a process global. `Debug` hides it.
 - `src/github/paging.rs`: bounded paging of REST lists that follows `Link: rel="next"`: at most `MAX_PAGES` pages, and a cut list is an error (`complete`) or a flag that the caller sees (`truncated`). The list reads of `github::api` go through it, except the open PR search (`api::pulls::OpenPrPages`), which reads one page at a time with the same bound and stops at the first page with a hit. The CI reads of a commit (`services/ci_evidence.rs`) follow the same links through their injected getter; a source past `MAX_PAGES` is unreadable, never green. Still one page without a flag: the branch rules (`services/ci_triggers.rs`) and the rulesets (`ops/init_rule.rs`).
 - `src/github/api/`: typed REST calls of the endpoints that the commands use, so a command formats no REST path for them. `pulls.rs`: the open PR list, the files of a PR. `issues.rs`: one issue, the issues by label, the newest closed ones, the timeline. A whole list is read through `paging.rs`; a read that is one page on purpose (a sample of closed issues, any one selftest issue) says so in its name.

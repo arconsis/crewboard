@@ -51,7 +51,9 @@ The code has three lint rules that clippy enforces (`Cargo.toml`, `clippy.toml`)
 `tests/layering.rs` keeps the module layers apart.
 
 Tests that need no real GitHub use a fake GitHub on 127.0.0.1 (`tests/support/mod.rs`). The CLI
-reads `CREWBOARD_API_BASE` and accepts only an `http://` loopback host.
+reads `CREWBOARD_API_BASE` and accepts only an `http://` loopback host. Only a build with debug
+assertions reads it (the builds of `cargo test`); a release build ignores it and always uses
+`https://api.github.com`.
 
 Two tests prove interop with OpenSSH: crewboard signs and `ssh-keygen -Y verify -n crewboard`
 accepts, and `ssh-keygen -Y sign` signs and crewboard accepts. If `ssh-keygen` is not in `PATH`
