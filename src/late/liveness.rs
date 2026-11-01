@@ -31,9 +31,9 @@ fn non_empty(v: Option<&str>) -> Option<&str> {
 }
 
 /// The heartbeat interval in seconds (spec/board#fields): the hidden test variable
-/// (`CREWBOARD_TEST_HEARTBEAT_INTERVAL`) if set, else `heartbeat_interval` of the initiative file
-/// (`cfg`), else the default. The one value judges every agent (late, dead, the late scan) and
-/// sets how often an agent writes its heartbeat.
+/// (`CREWBOARD_TEST_HEARTBEAT_INTERVAL`, read only by a build with debug assertions) if set, else
+/// `heartbeat_interval` of the initiative file (`cfg`), else the default. The one value judges
+/// every agent (late, dead, the late scan) and sets how often an agent writes its heartbeat.
 pub fn resolve_interval(cfg: Option<&str>, test: Option<&str>) -> CbResult<i64> {
     let parse = |v: &str| parse_interval(v).map_err(CbError::config);
     match non_empty(test).or(non_empty(cfg)) {

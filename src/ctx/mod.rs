@@ -160,8 +160,17 @@ impl Ctx {
 }
 
 /// The hidden test variable (for example `20s`): it sets the heartbeat interval of the board.
-/// Not documented for users; the sandbox tests use it.
+/// Not documented for users; the sandbox and component tests use it. Only a build with debug
+/// assertions (the builds of `cargo test`) reads it; a release build ignores it.
 pub const TEST_HEARTBEAT_ENV: &str = "CREWBOARD_TEST_HEARTBEAT_INTERVAL";
+
+/// The value of [`TEST_HEARTBEAT_ENV`]; always `None` in a release build.
+fn test_heartbeat_interval() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    crate::agent_env::var(TEST_HEARTBEAT_ENV)
+}
 
 pub fn new_client() -> CbResult<Client> {
     // a env file that did not load stops every command that talks to GitHub
@@ -211,7 +220,7 @@ impl Ctx {
     pub fn load(client: Client, cfg: BoardConfig, cd: ConfigDir) -> CbResult<Ctx> {
         let hb_interval = crate::late::liveness::resolve_interval(
             cfg.heartbeat_interval.as_deref(),
-            crate::agent_env::var(TEST_HEARTBEAT_ENV).as_deref(),
+            test_heartbeat_interval().as_deref(),
         )?;
         let board = Board::load(&client, &cfg.project_owner, cfg.project_number)?;
         let mut cfg = cfg;

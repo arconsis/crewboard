@@ -86,7 +86,8 @@ of every agent and of the coordinator read only this value. An agent has no inte
 that others judge it by.
 
 The hidden variable `CREWBOARD_TEST_HEARTBEAT_INTERVAL` is for tests (for example `20s` in the
-sandbox suite). It sets the heartbeat interval of the board. It is not a user setting.
+sandbox suite). It sets the heartbeat interval of the board. It is not a user setting: only a
+build with debug assertions (the builds of `cargo test`) reads it, and a release build ignores it.
 
 ### Concurrent writers
 

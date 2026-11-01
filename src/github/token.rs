@@ -35,7 +35,8 @@ pub fn resolve_token(file_token: Option<&str>) -> Result<Token, GhError> {
     Ok(Token::new(t))
 }
 
-/// The hidden test variable: what `gh auth token` would print. It is read only while
+/// The hidden test variable: what `gh auth token` would print. It is read only in a build with
+/// debug assertions (the builds of `cargo test`; a release build ignores it), and only while
 /// `CREWBOARD_API_BASE` names a loopback fake ([`super::parse_api_base`]), so a token from it
 /// never reaches GitHub. Not documented for users; the component tests use it, because a fake
 /// `gh` script does not run on every platform.
@@ -78,8 +79,12 @@ fn own_gh_token() -> Result<String, GhError> {
     Ok(t)
 }
 
-/// The test token of [`TEST_GH_AUTH_TOKEN_ENV`], only with a loopback `CREWBOARD_API_BASE`.
+/// The test token of [`TEST_GH_AUTH_TOKEN_ENV`], only in a build with debug assertions and only
+/// with a loopback `CREWBOARD_API_BASE`.
 fn test_gh_token() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     let base = std::env::var(super::API_BASE_ENV).ok()?;
     super::parse_api_base(&base).ok()?;
     std::env::var(TEST_GH_AUTH_TOKEN_ENV)
