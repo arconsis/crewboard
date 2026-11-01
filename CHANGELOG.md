@@ -2,7 +2,10 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.8.2 (2026-11-01)
+
+Upgrade: run `crewboard update` on each host. A coordinator that stopped its watch because of
+a loop of security reports can start it again after the update.
 
 Fixed:
 
