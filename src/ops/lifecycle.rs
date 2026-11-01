@@ -22,7 +22,7 @@ use crate::base::ids;
 use crate::board::FieldValue;
 use crate::clock::now_ts;
 use crate::comments::Comment;
-use crate::ctx::registry_msgs;
+use crate::ctx::{registry_late_msgs, registry_msgs};
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::late::liveness::reassignable_parsed;
@@ -57,10 +57,13 @@ pub fn owner_paused(cmds: &[(u64, OwnerCommand)], me: &str) -> bool {
     matches!(owner_cmd::latest_verb_for(cmds, me), Some((_, Verb::Pause)))
 }
 
-/// Owner commands for `me` that no valid ack of `me` answers yet.
+/// Owner commands for `me` that no ack of `me` answers yet. The acks are read from the verified
+/// registry messages and from `late`, the ones that fail only the replay window
+/// (`ctx::registry_late_msgs`): an ack that GitHub stamped late was posted all the same.
 pub fn pending_commands(
     cmds: &[(u64, OwnerCommand)],
     registry_msgs: &[VMsg],
+    late: &[VMsg],
     registry_issue: u64,
     me: &str,
 ) -> Vec<(u64, Verb)> {
@@ -70,7 +73,7 @@ pub fn pending_commands(
             (n.as_str() == me).then_some((*id, v))
         })
         .filter(|(id, _)| {
-            !registry_msgs.iter().any(|m| {
+            !registry_msgs.iter().chain(late).any(|m| {
                 m.kind == Some(Kind::Ack)
                     && matches!(&m.sender, Sender::Agent { name, .. } if name == me)
                     && m.re
@@ -377,8 +380,15 @@ pub fn apply_owner_commands(
     rows: &[TicketRow],
 ) -> CbResult<(Vec<String>, Option<State>)> {
     let msgs = registry_msgs(ac, world);
+    let late = registry_late_msgs(ac, world);
     let cmds = owner_commands(&world.registry_comments, &ac.ctx.cfg.owner_login);
-    let pending = pending_commands(&cmds, &msgs, ac.ctx.cfg.registry_issue, ac.name.as_str());
+    let pending = pending_commands(
+        &cmds,
+        &msgs,
+        &late,
+        ac.ctx.cfg.registry_issue,
+        ac.name.as_str(),
+    );
     let mut lines = Vec::new();
     let mut state = state;
     for (id, verb) in pending {
@@ -534,12 +544,12 @@ mod tests {
             },
             body: String::new(),
         };
-        let p = pending_commands(&c, &[], 2, "a@x");
+        let p = pending_commands(&c, &[], &[], 2, "a@x");
         assert_eq!(p, vec![(10, Verb::Pause), (30, Verb::Resume)]);
         // an ack of a@x for 10 leaves 30; an ack of b@x for 30 or in another issue counts for nothing
         let acks = vec![ack(100, "a@x", 10), ack(101, "b@x", 30)];
         assert_eq!(
-            pending_commands(&c, &acks, 2, "a@x"),
+            pending_commands(&c, &acks, &[], 2, "a@x"),
             vec![(30, Verb::Resume)]
         );
         let mut wrong_issue = ack(102, "a@x", 30);
@@ -548,17 +558,22 @@ mod tests {
             comment: 30,
         };
         assert_eq!(
-            pending_commands(&c, &[wrong_issue], 2, "a@x").len(),
+            pending_commands(&c, &[wrong_issue], &[], 2, "a@x").len(),
             2,
             "an ack in another issue answers nothing"
         );
         // both acked: nothing is pending
         let all = vec![ack(100, "a@x", 10), ack(103, "a@x", 30)];
-        assert!(pending_commands(&c, &all, 2, "a@x").is_empty());
+        assert!(pending_commands(&c, &all, &[], 2, "a@x").is_empty());
+        // an ack that fails only the replay window answers its command too
+        assert_eq!(
+            pending_commands(&c, &[ack(100, "a@x", 10)], &[ack(103, "a@x", 30)], 2, "a@x"),
+            Vec::new()
+        );
         // the ack must be from the agent itself and kind=ack
         let mut not_ack = ack(104, "a@x", 10);
         not_ack.kind = Some(Kind::Info);
-        assert_eq!(pending_commands(&c, &[not_ack], 2, "a@x").len(), 2);
+        assert_eq!(pending_commands(&c, &[not_ack], &[], 2, "a@x").len(), 2);
     }
 
     #[test]

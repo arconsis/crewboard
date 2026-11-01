@@ -392,7 +392,7 @@ fn tell_owner_review(
         now,
         detail: &detail,
     };
-    let Some(p) = crate::ops::late::late_owner_duty(ac, l, &note, &t.msgs)? else {
+    let Some(p) = crate::ops::late::late_owner_duty(ac, l, &note, &t.msgs, &t.late)? else {
         return Ok(String::new());
     };
     Ok(format!(

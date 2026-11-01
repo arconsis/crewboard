@@ -449,6 +449,42 @@ fn a_dev_agent_tells_the_owner_once_that_the_coordinator_is_away() {
 }
 
 #[test]
+fn a_dev_agent_tells_the_owner_once_while_github_stamps_comments_late() {
+    let s = LateBoard::new("In Progress");
+    coordinator_away(&s);
+    s.board.post_late(3600);
+    for _ in 0..3 {
+        s.poll(&s.dev);
+    }
+    let n = late_notes(&s, REGISTRY);
+    assert_eq!(n.len(), 1, "{n:?}");
+}
+
+#[test]
+fn a_dead_agent_is_reported_once_while_github_stamps_comments_late() {
+    let s = LateBoard::new("In Progress");
+    s.board.set_item(
+        &s.dev.item_id,
+        "Heartbeat",
+        &format_ts(now_epoch() - 86_400),
+    );
+    s.board.post_late(3600);
+    for _ in 0..3 {
+        s.poll(&s.coord);
+    }
+    let reports = s
+        .board
+        .comments_of(REGISTRY)
+        .into_iter()
+        .filter(|(_, _, b)| {
+            b.contains("to=all kind=report") && b.contains("agent-dead: hermes@fake-b")
+        })
+        .count();
+    // (reports to all, late notes to the owner)
+    assert_eq!((reports, late_notes(&s, REGISTRY).len()), (1, 1));
+}
+
+#[test]
 fn a_dead_agent_gets_its_tickets_back_in_ready_and_the_owner_hears_once() {
     let s = LateBoard::new("In Progress");
     // the dev wrote its last heartbeat a day ago; nobody pinged it: the heartbeat age alone

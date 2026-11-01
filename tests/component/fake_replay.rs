@@ -295,3 +295,21 @@ fn a_replay_of_an_old_valid_report_is_reported_to_the_owner() {
     assert_eq!(owner_reports(&fake, &of_copy).len(), 1, "{v}");
     assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
 }
+
+#[test]
+fn an_owner_command_is_applied_and_acked_once_while_github_stamps_comments_late() {
+    let (fake, _c, b) = crew();
+    fake.owner_comment_now(REGISTRY, &format!("/crew pause {}", b.name));
+    fake.post_late(3600);
+    for _ in 0..4 {
+        let _ = fake.poll_json(&b);
+    }
+    let acks: Vec<u64> = fake
+        .comments_of(REGISTRY)
+        .into_iter()
+        .filter(|(_, _, t)| t.contains(&format!("from={} ", b.name)) && t.contains(" kind=ack "))
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(acks.len(), 1, "{acks:?}");
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}

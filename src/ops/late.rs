@@ -56,7 +56,7 @@ use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::state::StateCache;
 use crate::ticket::{
     Act, Sender, TicketRow, VMsg, answer_after_block, is_owner_route_done, kv, latest_done,
-    question_open, verified_messages, verify_report,
+    out_of_window_messages, question_open, verified_messages, verify_report,
 };
 use serde_json::Value;
 use std::cell::{Cell, RefCell};
@@ -65,8 +65,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The default branch prefix when AUTHORITY.md does not say.
 const DEFAULT_PREFIX: &str = "crew/";
 
-/// The verified messages by ticket (`None`: could not be read).
-type TicketMsgs = BTreeMap<TicketRef, Option<Vec<VMsg>>>;
+/// The verified messages and the ones that fail only the replay window
+/// ([`out_of_window_messages`]) by ticket (`None`: could not be read).
+type TicketMsgs = BTreeMap<TicketRef, Option<(Vec<VMsg>, Vec<VMsg>)>>;
 
 pub struct GhProbe<'a> {
     ctx: &'a Ctx,
@@ -83,7 +84,7 @@ pub struct GhProbe<'a> {
     /// The CI state of the heads read in this run.
     states: RefCell<BTreeMap<String, Option<CiState>>>,
     touched: RefCell<BTreeSet<String>>,
-    /// The verified messages of the tickets read in this run, one read per ticket.
+    /// The messages of the tickets read in this run, one read per ticket.
     msgs: RefCell<TicketMsgs>,
 }
 
@@ -300,7 +301,13 @@ fn open_wait(msgs: &[VMsg], assignee: Option<&str>) -> Option<OpenWait> {
 
 impl GhProbe<'_> {
     /// The verified messages of one ticket: from the comments the caller read, else one read.
+    /// The verified messages of the ticket.
     fn ticket_msgs(&self, t: &TicketRef) -> Option<Vec<VMsg>> {
+        self.ticket_logs(t).map(|(msgs, _)| msgs)
+    }
+
+    /// The verified messages of the ticket and the ones that fail only the replay window.
+    fn ticket_logs(&self, t: &TicketRef) -> Option<(Vec<VMsg>, Vec<VMsg>)> {
         if let Some(m) = self.msgs.borrow().get(t) {
             return m.clone();
         }
@@ -309,7 +316,7 @@ impl GhProbe<'_> {
         got
     }
 
-    fn read_ticket_msgs(&self, t: &TicketRef) -> Option<Vec<VMsg>> {
+    fn read_ticket_msgs(&self, t: &TicketRef) -> Option<(Vec<VMsg>, Vec<VMsg>)> {
         let owned: Vec<Comment>;
         let all: &[Comment] = match self.comments {
             Some(c) => c,
@@ -332,7 +339,10 @@ impl GhProbe<'_> {
             .filter(|c| c.repo == t.repo && c.issue == t.issue)
             .cloned()
             .collect();
-        Some(verified_messages(&mine, &self.ctx.cfg, self.trust))
+        Some((
+            verified_messages(&mine, &self.ctx.cfg, self.trust),
+            out_of_window_messages(&mine, &self.ctx.cfg, self.trust),
+        ))
     }
 }
 
@@ -400,12 +410,15 @@ pub struct Note<'a> {
 
 /// Tell the owner of `l` once: if `tells` names the owner and `msgs` (the log of the registry
 /// issue for an agent, of the ticket for a ticket) holds no `info` with the key of this report,
-/// post it. `Some` is the note that was posted.
+/// post it. `late` are the messages of the same issue that fail only the replay window
+/// ([`out_of_window_messages`]): a note that GitHub stamped late was posted all the same.
+/// `Some` is the note that was posted.
 pub fn late_owner_duty(
     ac: &AgentCtx,
     l: &Late,
     note: &Note<'_>,
     msgs: &[VMsg],
+    late: &[VMsg],
 ) -> CbResult<Option<Posted>> {
     let coordinator_since = note.coordinator.map(|c| c.since);
     if !tells(l, note.expect, note.coordinator.is_some(), note.now).contains(&Who::Owner) {
@@ -415,7 +428,8 @@ pub fn late_owner_duty(
     let Some(body) = l.owner_info(&cfg.owner_login, note.detail, coordinator_since) else {
         return Ok(None);
     };
-    if late_info_exists(msgs, &l.report_key(coordinator_since)) {
+    let key = l.report_key(coordinator_since);
+    if late_info_exists(msgs, &key) || late_info_exists(late, &key) {
         return Ok(None);
     }
     let (repo, issue, re) = match &l.subject {
@@ -632,10 +646,10 @@ fn tell_owner_of_tickets(ac: &AgentCtx, probe: &GhProbe<'_>, found: &[Late], e: 
         if !tells(l, e, false, now).contains(&Who::Owner) {
             continue;
         }
-        let Some(msgs) = probe.ticket_msgs(&TicketRef::new(repo, issue)) else {
+        let Some((msgs, late)) = probe.ticket_logs(&TicketRef::new(repo, issue)) else {
             continue;
         };
-        match late_owner_duty(ac, l, &note, &msgs) {
+        match late_owner_duty(ac, l, &note, &msgs, &late) {
             Ok(Some(p)) => eprintln!(
                 "crewboard: {} is late ({}); told the owner ({}).",
                 l.subject_name(),

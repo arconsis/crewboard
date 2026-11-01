@@ -118,19 +118,21 @@ pub fn note_body(pr: &MergedPr, last_gate: &str) -> String {
     )
 }
 
-/// The note to post, if any: there is a gap and this merge commit is not noted yet.
-pub fn note_to_post(msgs: &[VMsg], pr: &MergedPr) -> Option<String> {
+/// The note to post, if any: there is a gap and this merge commit is not noted yet, neither in
+/// `msgs` nor in `late` (the messages that fail only the replay window: a note that GitHub stamped
+/// late was posted all the same).
+pub fn note_to_post(msgs: &[VMsg], late: &[VMsg], pr: &MergedPr) -> Option<String> {
     if !gap(msgs, pr) {
         return None;
     }
     let commit = pr.merge_commit.as_deref().unwrap_or("unknown");
-    (!noted(msgs, commit)).then(|| note_body(pr, &last_gate(msgs)))
+    (!noted(msgs, commit) && !noted(late, commit)).then(|| note_body(pr, &last_gate(msgs)))
 }
 
 /// Post the note for a PR that the caller has read (the coordinator only). Returns one line, or
 /// nothing when there is no gap or the note exists.
 pub(super) fn note_loaded(ac: &AgentCtx, t: &Ticket, pr: &MergedPr) -> CbResult<String> {
-    let Some(body) = note_to_post(&t.msgs, pr) else {
+    let Some(body) = note_to_post(&t.msgs, &t.late, pr) else {
         return Ok(String::new());
     };
     let p = post(ac, t, To::Coordinator, Kind::Info, Re::None, &body)?;
@@ -298,7 +300,7 @@ mod tests {
     #[test]
     fn the_note_has_the_five_lines_and_is_posted_once_per_merge_commit() {
         let p = pr(Some("aaa"));
-        let body = note_to_post(&[], &p).expect("a gap");
+        let body = note_to_post(&[], &[], &p).expect("a gap");
         assert!(body.starts_with(MARKER), "{body}");
         for l in [
             "pr: https://github.com/o/r/pull/9\n",
@@ -311,15 +313,17 @@ mod tests {
         }
         // the posted note (by a coordinator) stops a repeat for the same merge commit
         let posted = msg(5, coord(), Kind::Info, &body);
-        assert!(note_to_post(std::slice::from_ref(&posted), &p).is_none());
+        assert!(note_to_post(std::slice::from_ref(&posted), &[], &p).is_none());
         assert!(has_note(std::slice::from_ref(&posted)));
+        // so does the note when it fails only the replay window
+        assert!(note_to_post(&[], std::slice::from_ref(&posted), &p).is_none());
         // another merge commit (the ticket was merged again) is noted again
         let mut p2 = p.clone();
         p2.merge_commit = Some("mc2".into());
-        assert!(note_to_post(&[posted], &p2).is_some());
+        assert!(note_to_post(&[], &[posted], &p2).is_some());
         // the same text from a dev agent is no note
         let fake = msg(6, dev(), Kind::Info, &body);
-        assert!(note_to_post(std::slice::from_ref(&fake), &p).is_some());
+        assert!(note_to_post(std::slice::from_ref(&fake), &[], &p).is_some());
         assert!(!has_note(&[fake]));
     }
 }
