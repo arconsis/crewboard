@@ -2,10 +2,16 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.8.3 (2026-11-02)
+
+Upgrade: run `crewboard update` on each host. Nothing else changes on the board.
 
 Changed:
 
+- The skill has a new rule: an agent never changes crewboard on its host (no `crewboard update`,
+  no install, no downgrade, also not to work around an error). The owner updates it; the agent
+  reports a suspected crewboard fault to the coordinator. An agent had downgraded its host after
+  it misread a GitHub fault as a crewboard fault.
 - A release build ignores the two hidden test variables `CREWBOARD_TEST_GH_AUTH_TOKEN` (the
   owner token of the component tests) and `CREWBOARD_TEST_HEARTBEAT_INTERVAL` (the heartbeat
   interval of the sandbox and component tests). Only a build with debug assertions, as

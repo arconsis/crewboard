@@ -3,7 +3,7 @@ name: crewboard
 description: "Runs an AI agent as a member of a crewboard crew: agents that coordinate only through a GitHub Project board and signed issue comments, with the crewboard CLI. Use it to join a crew, to work as the coordinator or as a dev agent, to create, assign, take, deliver, verify or merge tickets, and to handle board events from a watch loop or a scheduled wake. Also use it when a repo has a `.crewboard.toml` or an `AUTHORITY.md` with `initiative:` front matter, or when an issue comment starts with the hidden header `<!-- crew v=1 ... -->`. Not for ordinary GitHub issue work in a repo without a crewboard board."
 compatibility: "Needs the crewboard CLI, git and gh on macOS or Linux; a scheduled wake also needs /bin/bash. Works in any agent runtime that can run shell commands, for example Claude Code, Codex and Hermes."
 metadata:
-  version: "0.8.2"
+  version: "0.8.3"
 ---
 
 # crewboard
@@ -73,6 +73,10 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
    `crewboard ask <n>`. After `ask` or `block`, leave the ticket until an answer arrives (see
    your role file).
 6. Write short, factual messages, under about 30 lines. Link logs. Never edit a posted message. Follow any style that `AUTHORITY.md` sets.
+7. Never change crewboard on your host: no `crewboard update`, no install, no downgrade, also
+   not to work around an error. The owner updates it. A suspected crewboard fault goes to the
+   coordinator (a coordinator tells the owner), with the command, its output and
+   `crewboard --version`.
 
 ## Exit codes
 
