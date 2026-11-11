@@ -83,7 +83,9 @@ const NO_COUNTED_RUN_PREFIX: &str = "no counted CI run for ";
 const NO_RUN_PREFIX: &str = "no CI run for ";
 const CI_OF_PREFIX: &str = "CI of ";
 const NOT_GREEN_INFIX: &str = " is not green: ";
-const CI_UNREADABLE_PREFIX: &str = "CI cannot be read (";
+/// The start of the text in every build. This build goes on with ` (<why>) and ...`; builds
+/// before it wrote `CI cannot be read: <why>`, and their signed results are still on boards.
+const CI_UNREADABLE_PREFIX: &str = "CI cannot be read";
 const GATE_CHECK_PREFIX: &str = "Gate check by the coordinator: ";
 
 /// One failure of a verify result. [`fmt::Display`] gives the text of its `failed:` line.
@@ -188,7 +190,7 @@ impl fmt::Display for VerifyFailure {
             }
             VerifyFailure::CiUnreadable { why } => write!(
                 f,
-                "{CI_UNREADABLE_PREFIX}{why}) and the ticket does not declare 'CI: none' [evidence-ci-unreadable]"
+                "{CI_UNREADABLE_PREFIX} ({why}) and the ticket does not declare 'CI: none' [evidence-ci-unreadable]"
             ),
             VerifyFailure::GateCheck { note } => write!(f, "{GATE_CHECK_PREFIX}{note}"),
         }
@@ -238,7 +240,13 @@ fn ends_with_rule_id(t: &str) -> bool {
 }
 
 /// The key of a failure line of a verify result.
-pub(super) const FAILED_KEY: &str = "failed";
+const FAILED_KEY: &str = "failed";
+
+/// The line `failed: <text>` of one failure, with its line end: the one writer of the line, for
+/// the signed result and for the answer that `verify` prints.
+pub fn failed_line(f: &VerifyFailure) -> String {
+    format!("{FAILED_KEY}: {f}\n")
+}
 
 /// The text of every `failed:` line of a verify result, in order.
 pub fn failed_lines(body: &str) -> Vec<&str> {
@@ -384,6 +392,24 @@ mod tests {
             texts[11],
             "Gate check by the coordinator: Gate part 2 is missing"
         );
+    }
+
+    #[test]
+    fn the_unreadable_ci_text_of_an_older_build_has_the_same_class() {
+        // builds of October wrote this text; their signed results are still on boards
+        assert_eq!(
+            fail_class_of("CI cannot be read: HTTP 403"),
+            FailClass::CiUnreadable
+        );
+        assert_eq!(
+            fail_classes("verify: fail\nfailed: CI cannot be read: HTTP 403\n"),
+            [FailClass::CiUnreadable]
+        );
+        // the writer of the line and its reader agree
+        let f = VerifyFailure::CiUnreadable {
+            why: "HTTP 403".into(),
+        };
+        assert_eq!(failed_lines(&failed_line(&f)), [f.to_string().as_str()]);
     }
 
     #[test]

@@ -18,7 +18,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
-use crate::protocol::acts::{EvidenceMsg, VerifyFailure, is_local_gate, verify_body};
+use crate::protocol::acts::{EvidenceMsg, VerifyFailure, failed_line, is_local_gate, verify_body};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Actor;
 use crate::rules::Refusal;
@@ -431,7 +431,7 @@ fn decide_verify(
         rest.push_str(&format!("local-gate (coordinator): {g}\n"));
     }
     for fail in &findings.failures {
-        rest.push_str(&format!("failed: {fail}\n"));
+        rest.push_str(&failed_line(fail));
     }
     let fail_move = if pass {
         rest.push_str(&format!(
