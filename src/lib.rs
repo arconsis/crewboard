@@ -73,6 +73,7 @@ pub use crewboard_protocol as protocol;
 #[doc(hidden)]
 pub mod registry;
 pub(crate) mod repeat;
+pub(crate) mod retro;
 #[doc(hidden)]
 pub mod rules;
 pub(crate) mod secrets;

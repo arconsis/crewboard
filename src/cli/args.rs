@@ -682,6 +682,26 @@ pub enum ReviewCmd {
         #[command(flatten)]
         sel: Sel,
     },
+    /// Print a retrospective report from the signed log.
+    ///
+    /// Any reader of the board (the owner, the coordinator): count the verified signed messages
+    /// of the tickets and print why work went back (verify fails by class), where it stopped
+    /// (questions, blocks), which refusals the dev agents named and how long the steps took. It
+    /// counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed
+    /// assignment.
+    #[command(display_order = 33)]
+    Retro {
+        /// Print the report as JSON, with the comment URL, the sender and the addressee of
+        /// every listed event.
+        #[arg(long)]
+        json: bool,
+        /// Only the tickets with a signed message since this time (`2026-10-16T08:00:00Z`) or
+        /// this long ago (`36h`, `2h`). The whole log of each of these tickets counts.
+        #[arg(long)]
+        since: Option<String>,
+        #[command(flatten)]
+        sel: Sel,
+    },
     /// Verify and merge CI-only tickets in Review.
     ///
     /// Headless coordinator: verify, and merge when allowed, every Review ticket whose Gate
@@ -701,6 +721,7 @@ impl ReviewCmd {
             ReviewCmd::Merge { .. } => "merge",
             ReviewCmd::Close { .. } => "close",
             ReviewCmd::ReportStatus { .. } => "report-status",
+            ReviewCmd::Retro { .. } => "retro",
             ReviewCmd::Tick { .. } => "tick",
         }
     }
@@ -1526,6 +1547,8 @@ impl Command {
                 | WatchCmd::Poll { .. }
                 | WatchCmd::Mine { .. },
             ) => Family::Watch,
+            // `retro` uses exit 1 for "no ticket in the period"
+            Command::Review(ReviewCmd::Retro { .. }) => Family::Watch,
             Command::Host(HostCmd::Lock { .. }) => Family::Lock,
             Command::Host(HostCmd::Wake { .. }) => Family::Wake,
             Command::Host(HostCmd::Repeat(_)) => Family::Repeat,

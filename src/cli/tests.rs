@@ -69,6 +69,7 @@ const ARGV: &[(&str, &[&str])] = &[
         &["acted", "--events-file", "/nonexistent/events.txt"],
     ),
     ("audit", &["audit"]),
+    ("retro", &["retro", "--since", "24h"]),
     ("move", &["move", "7", "In Progress", "--why", "x"]),
     ("doctor", &["doctor"]),
     ("lock", &["lock", "status", "/nonexistent/lock.d"]),
@@ -274,6 +275,7 @@ fn every_command_of_the_spec_is_built_none_is_left_as_a_stub() {
             "init"
                 | "approve"
                 | "audit"
+                | "retro"
                 | "status"
                 | "say"
                 | "ask"
@@ -307,9 +309,9 @@ fn every_command_of_the_spec_is_built_none_is_left_as_a_stub() {
 fn watch_poll_and_mine_are_the_watch_family() {
     for (name, argv) in ARGV {
         let fam = parse(argv).unwrap().command.family();
-        // `mine` shares the exit code 1 = "nothing"
+        // `mine` shares the exit code 1 = "nothing", `retro` uses it for "no ticket"
         let expect = match *name {
-            "watch" | "monitor" | "poll" | "mine" => Family::Watch,
+            "watch" | "monitor" | "poll" | "mine" | "retro" => Family::Watch,
             "lock" => Family::Lock,
             "wake" => Family::Wake,
             "repeat" => Family::Repeat,

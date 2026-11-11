@@ -47,7 +47,7 @@ pub const GROUPS: &[(&str, &[&str])] = &[
 /// crew needs one of them.
 pub const EXTENSIONS: &[(&str, &[&str])] = &[
     ("Owner tools", &["audit", "move"]),
-    ("Reports and upkeep", &["report-status", "prune"]),
+    ("Reports and upkeep", &["report-status", "retro", "prune"]),
     ("Heavy jobs on a shared host", &["lock", "repeat"]),
 ];
 
@@ -62,7 +62,11 @@ pub const SCHEDULER: &[(&str, &[&str])] = &[
 ];
 
 /// The commands that the overview names for `help extensions` (a subset of `EXTENSIONS`).
+/// The line must fit 80 columns, so it leaves out the commands of `NOT_ON_THE_LINE`.
 const EXTENSIONS_LINE: &str = "audit, move, report-status, prune, lock, repeat";
+/// The extensions that only `help extensions` lists: the overview line has no room for them.
+#[cfg(test)]
+const NOT_ON_THE_LINE: &[&str] = &["retro"];
 /// The commands that the overview names for `help scheduler`.
 const SCHEDULER_LINE: &str = "wake, poll, tick, heartbeat (called by schedulers)";
 
@@ -415,7 +419,7 @@ Options for all commands:
     }
 
     #[test]
-    fn the_extensions_line_names_every_extension() {
+    fn the_extensions_line_names_every_extension_but_the_listed_ones() {
         let on_line: Vec<&str> = EXTENSIONS_LINE.split(", ").collect();
         let mut on_page: Vec<&str> = EXTENSIONS
             .iter()
@@ -424,7 +428,11 @@ Options for all commands:
         for n in &on_line {
             assert!(on_page.contains(n), "{n} is on the line, not on the page");
         }
-        on_page.retain(|n| !on_line.contains(n));
+        for n in NOT_ON_THE_LINE {
+            assert!(on_page.contains(n), "{n} is no extension");
+            assert!(!on_line.contains(n), "{n} is on the line");
+        }
+        on_page.retain(|n| !on_line.contains(n) && !NOT_ON_THE_LINE.contains(n));
         assert!(
             on_page.is_empty(),
             "{on_page:?} are on the page but not on the line"

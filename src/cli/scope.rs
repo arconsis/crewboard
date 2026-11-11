@@ -24,6 +24,7 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         | Command::Watch(WatchCmd::Mine { .. })
         | Command::Watch(WatchCmd::Acted { .. })
         | Command::Crew(CrewCmd::Audit { .. })
+        | Command::Review(ReviewCmd::Retro { .. })
         | Command::Crew(CrewCmd::Heartbeat { .. })
         | Command::Crew(CrewCmd::Start { .. }) => Allow,
         // a local report of the scope; it reads no board and writes nothing
@@ -224,6 +225,7 @@ mod tests {
         (&["heartbeat"], true),
         (&["tick"], true),
         (&["audit"], true),
+        (&["retro", "--since", "24h"], true),
         // the owner moves a ticket by hand; a model must not write the owner's word
         (&["move", "7", "Ready"], false),
         (&["doctor"], true),

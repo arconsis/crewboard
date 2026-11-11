@@ -130,6 +130,8 @@ mod fake_replay;
 mod fake_repo_transfer;
 #[path = "component/fake_request_budget.rs"]
 mod fake_request_budget;
+#[path = "component/fake_retro.rs"]
+mod fake_retro;
 #[path = "component/fake_signed_ci.rs"]
 mod fake_signed_ci;
 #[path = "component/fake_split.rs"]
