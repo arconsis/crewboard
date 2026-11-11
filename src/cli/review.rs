@@ -1,9 +1,10 @@
 //! The commands that verify and end tickets, and report: `verify`, `merge`, `close`,
-//! `report-status` and `tick`.
+//! `report-status`, `retro` and `tick`.
 
 use super::{Cli, Outcome, ReviewCmd, done, fail, global, refused};
 use crate::base::ignore::best_effort_output;
 use crate::error::CbError;
+use crate::exit::Exit;
 use crate::ops::{self, AgentCtx};
 
 #[inline(never)]
@@ -89,6 +90,20 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                 AgentCtx::load(&global(cli, sel, false))
                     .and_then(|ac| ops::report_status::run(&ac, health, &t)),
             )
+        }
+        ReviewCmd::Retro { json, since, sel } => {
+            match ops::retro::run(&global(cli, sel, false), *json, since.as_deref()) {
+                Ok(out) => {
+                    print!("{}", out.text);
+                    Outcome {
+                        // Exit 1 = no ticket in the period, as `mine` exit 1 = nothing to do
+                        exit: if out.empty { Exit::NoEvents } else { Exit::Ok },
+                        code: None,
+                        message: None,
+                    }
+                }
+                Err(e) => fail(e),
+            }
         }
         // The output first, then the reported deleted notes are forgotten (`TickOut::settle`).
         ReviewCmd::Tick { sel } => match AgentCtx::load(&global(cli, sel, false))

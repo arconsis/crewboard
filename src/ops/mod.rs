@@ -39,6 +39,7 @@ pub mod repeat_cmd;
 pub(crate) mod repo_migration;
 pub(crate) mod report_status;
 pub(crate) mod restart;
+pub(crate) mod retro;
 pub(crate) mod review_wait;
 pub(crate) mod say;
 pub mod selftest;

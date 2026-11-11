@@ -7,7 +7,8 @@
 /// The meaning of a code depends on the command family that returns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
-    /// `watch` and `poll`, and `mine` (exit 1: the agent owns no In Progress or Ready ticket).
+    /// `watch` and `poll`, `mine` (exit 1: the agent owns no In Progress or Ready ticket) and
+    /// `retro` (exit 1: no ticket in the period).
     Watch,
     /// `lock`: its own codes (spec/host-lock): 0, 1 (free, no CI), 2, 3, 64, 75, 76, 77, or
     /// the code of the command that `run` ran (`lock::LockExit`).

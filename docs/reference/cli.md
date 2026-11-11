@@ -85,6 +85,7 @@ Owner tools
 
 Reports and upkeep
   report-status  Post a project status update
+  retro          Print a retrospective report from the signed log
   prune          Remove Agent options of agents that left
 
 Heavy jobs on a shared host
@@ -1364,6 +1365,29 @@ Options:
 
       --body-file <BODY_FILE>
           File with the text (`-` reads standard input)
+
+      --initiative <INITIATIVE>
+          Initiative name (default: the only one in the config dir)
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+### `crewboard retro`
+
+```text
+Print a retrospective report from the signed log.
+
+Any reader of the board (the owner, the coordinator): count the verified signed messages of the tickets and print why work went back (verify fails by class), where it stopped (questions, blocks), which refusals the dev agents named and how long the steps took. It counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
+
+Usage: crewboard retro [OPTIONS]
+
+Options:
+      --json
+          Print the report as JSON, with the comment URL, the sender and the addressee of every listed event
+
+      --since <SINCE>
+          Only the tickets with a signed message since this time (`2026-10-16T08:00:00Z`) or this long ago (`36h`, `2h`). The whole log of each of these tickets counts
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
