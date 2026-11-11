@@ -69,7 +69,7 @@ Spec: [Status updates](../design/spec/board.md#status-updates) and
 `retro` reads the signed log of the tickets and prints a report: how many tickets passed
 `verify` at the first try, why the others went back (the verify fails by class), where work
 stopped (questions and blocks), which refusals the dev agents named, and how long the steps
-took. `retro --since 168h` takes the tickets of the last week. `--json` adds the comment URL of
+took. `retro --since 7d` takes the tickets of the last week. `--json` adds the comment URL of
 each event. The report counts classes and ranks no agent. The owner, the coordinator or any
 other reader of the board runs it. It writes nothing.
 

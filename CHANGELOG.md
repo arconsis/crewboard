@@ -13,6 +13,7 @@ Added:
   close). It counts only verified signed messages, ranks no agent and writes nothing. It is an
   extension: no ticket needs it, and the skill does not name it. Exit 1 means that no ticket is
   in the period. Spec: `docs/design/spec/retro.md`.
+- `--since` of `audit` and `retro` takes days, for example `7d`. The other forms stay.
 
 Fixed:
 

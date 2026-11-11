@@ -15,16 +15,27 @@ use crate::ticket::{out_of_window_messages, verified_messages};
 use serde_json::json;
 use std::collections::BTreeMap;
 
-/// `--since` is an ISO time (`2026-10-16T08:00:00Z`) or a duration back from now (`90m`, `2h`).
+/// `--since` is an ISO time (`2026-10-16T08:00:00Z`) or a duration back from now (`90m`, `2h`,
+/// `7d`). The one reader of `--since`, for `audit` and `retro`. The day unit exists only here:
+/// the durations of the other commands (waits, intervals) have none.
 pub fn parse_since(s: &str, now: i64) -> CbResult<i64> {
     if let Some(t) = parse_ts(s) {
         return Ok(t);
+    }
+    let days = s
+        .strip_suffix('d')
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.parse::<i64>().ok())
+        .filter(|n| *n > 0)
+        .and_then(|n| n.checked_mul(86_400));
+    if let Some(back) = days {
+        return Ok(now.saturating_sub(back));
     }
     crate::clock::parse_duration(s)
         .map(|d| now - d.as_secs() as i64)
         .map_err(|_| {
             CbError::usage(format!(
-                "bad --since '{s}' (use 2026-10-16T08:00:00Z or 90m or 2h)"
+                "bad --since '{s}' (use 2026-10-16T08:00:00Z or 90m, 2h or 7d)"
             ))
         })
 }
@@ -208,7 +219,20 @@ mod tests {
         );
         assert_eq!(parse_since("90m", now).unwrap(), now - 5400);
         assert_eq!(parse_since("2h", now).unwrap(), now - 7200);
-        for bad in ["", "yesterday", "0m", "2026-10-16"] {
+        assert_eq!(parse_since("7d", now).unwrap(), now - 7 * 86400);
+        assert_eq!(parse_since("1d", now).unwrap(), now - 86400);
+        for bad in [
+            "",
+            "yesterday",
+            "0m",
+            "2026-10-16",
+            "0d",
+            "d",
+            "-1d",
+            "1.5d",
+            "1 d",
+            "7D",
+        ] {
             assert!(parse_since(bad, now).is_err(), "{bad}");
         }
     }

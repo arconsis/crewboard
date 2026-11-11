@@ -284,7 +284,7 @@ pub enum CrewCmd {
         #[arg(long)]
         json: bool,
         /// Only findings of comments created since this time (`2026-10-16T08:00:00Z`) or
-        /// this long ago (`90m`, `2h`).
+        /// this long ago (`90m`, `2h`, `7d`).
         #[arg(long)]
         since: Option<String>,
         #[command(flatten)]
@@ -696,7 +696,7 @@ pub enum ReviewCmd {
         #[arg(long)]
         json: bool,
         /// Only the tickets with a signed message since this time (`2026-10-16T08:00:00Z`) or
-        /// this long ago (`36h`, `2h`). The whole log of each of these tickets counts.
+        /// this long ago (`2h`, `7d`). The whole log of each of these tickets counts.
         #[arg(long)]
         since: Option<String>,
         #[command(flatten)]
