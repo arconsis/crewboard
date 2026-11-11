@@ -212,6 +212,7 @@ fn verify_counts_the_first_result_and_the_fails() {
         VerifyStats {
             verified: 3,
             first_pass: 1,
+            first_pass_or_accepted: 1,
             tickets_with_fail: 2,
             fails: 3,
             rework_tickets: 2,
@@ -316,21 +317,147 @@ fn each_failure_of_a_fail_gives_its_class_and_a_fail_with_two_classes_is_in_both
     assert_eq!(issues(&class(&r, "other")), [2]);
 }
 
+/// The verdict of the artifact rule for the fails of one ticket, in order: `true` for a fail
+/// that is `accepted-after-head-moved`.
+fn accepted(log: Log) -> Vec<bool> {
+    let r = retro(&[log.build()]);
+    let ok: Vec<u64> = class(&r, ACCEPTED_AFTER_HEAD_MOVED)
+        .iter()
+        .map(|e| e.comment_id)
+        .collect();
+    let mut all: Vec<u64> = r
+        .classes
+        .iter()
+        .flat_map(|c| &c.events)
+        .map(|e| e.comment_id)
+        .collect();
+    all.sort_unstable();
+    all.dedup();
+    // an accepted fail is in no other class row
+    for c in r
+        .classes
+        .iter()
+        .filter(|c| c.class != ACCEPTED_AFTER_HEAD_MOVED)
+    {
+        assert!(c.events.iter().all(|e| !ok.contains(&e.comment_id)));
+    }
+    assert_eq!(r.verify.fails, all.len());
+    assert_eq!(r.verify.rework_fails, all.len() - ok.len());
+    all.iter().map(|id| ok.contains(id)).collect()
+}
+
+const OWNER_MERGED: &str = "The ticket is closed: the owner merged the PR by hand.\n";
+const VERIFIED: &str = "Closed after a passed verify\n";
+
+fn start() -> Log {
+    Log::new(1).assign(1).done(2)
+}
+
 #[test]
-fn a_head_moved_fail_of_a_ticket_that_is_merged_with_no_further_done_is_no_rework() {
-    // accepted: the next step after the fail is a close that says "merged"
-    let accepted = Log::new(1)
-        .assign(1)
-        .done(2)
-        .fail(3, &[head_moved()])
-        .coord(
+fn a_head_moved_fail_is_accepted_when_a_pass_or_a_merge_close_comes_next() {
+    // (b) the next verify is a pass: with a new `done` in between, and without one
+    assert_eq!(
+        accepted(start().fail(3, &[head_moved()]).done(4).pass(5).merged(6)),
+        [true]
+    );
+    assert_eq!(accepted(start().fail(3, &[head_moved()]).pass(4)), [true]);
+    // (b) the ticket closes as merged, by each close that says so, with or without a `done`
+    for close in ["Merged by the coordinator.\n", OWNER_MERGED, VERIFIED] {
+        let log = start().fail(3, &[head_moved()]).coord(4, Kind::Info, close);
+        assert_eq!(accepted(log), [true], "{close}");
+        let log = start()
+            .fail(3, &[head_moved()])
+            .done(4)
+            .coord(5, Kind::Info, close);
+        assert_eq!(accepted(log), [true], "{close}");
+    }
+}
+
+#[test]
+fn a_head_moved_fail_with_a_second_class_stays_rework() {
+    // (a) a review text in the same message
+    assert_eq!(
+        accepted(
+            start()
+                .fail(3, &[head_moved(), review("the doc is wrong")])
+                .done(4)
+                .pass(5)
+        ),
+        [false]
+    );
+    // (a) another machine class in the same message
+    assert_eq!(
+        accepted(start().fail(3, &[head_moved(), red()]).done(4).pass(5)),
+        [false]
+    );
+    // a fail of another class alone is never accepted
+    assert_eq!(accepted(start().fail(3, &[red()]).done(4).pass(5)), [false]);
+    assert_eq!(
+        accepted(start().fail(3, &[review("wrong")]).merged(4)),
+        [false]
+    );
+}
+
+#[test]
+fn a_head_moved_fail_is_rework_when_a_fail_a_drop_or_nothing_comes_next() {
+    // the ticket is still open
+    assert_eq!(accepted(start().fail(3, &[head_moved()])), [false]);
+    assert_eq!(accepted(start().fail(3, &[head_moved()]).done(4)), [false]);
+    // dropped, or closed by the judgment of an older build: no merge
+    for close in ["dropped: not needed\n", "closed: not needed\n"] {
+        let log = start().fail(3, &[head_moved()]).coord(4, Kind::Info, close);
+        assert_eq!(accepted(log), [false], "{close}");
+    }
+    // another fail in between: the first fail is rework, whatever the class of the second is.
+    // The second one is judged by what follows it.
+    assert_eq!(
+        accepted(
+            start()
+                .fail(3, &[head_moved()])
+                .done(4)
+                .fail(5, &[review("wrong")])
+                .done(6)
+                .pass(7)
+        ),
+        [false, false]
+    );
+    assert_eq!(
+        accepted(
+            start()
+                .fail(3, &[head_moved()])
+                .fail(4, &[head_moved()])
+                .done(5)
+                .pass(6)
+        ),
+        [false, true]
+    );
+    // a review fail, then an accepted head-moved fail
+    assert_eq!(
+        accepted(
+            start()
+                .fail(3, &[review("wrong")])
+                .done(4)
+                .fail(5, &[head_moved()])
+                .coord(6, Kind::Info, OWNER_MERGED)
+        ),
+        [false, true]
+    );
+    // a verify text of a dev agent is no pass
+    assert_eq!(
+        accepted(start().fail(3, &[head_moved()]).dev(
             4,
-            Kind::Info,
-            "The ticket is closed: the owner merged the PR by hand.\n",
-        )
-        .build();
-    // rework: the dev agent delivered again
-    let redone = Log::new(2)
+            "coordinator",
+            Kind::Report,
+            "verify: pass\n"
+        )),
+        [false]
+    );
+}
+
+#[test]
+fn the_rework_numbers_and_the_first_verify_leave_the_accepted_fails_out() {
+    // first verify: an accepted fail
+    let a = Log::new(1)
         .assign(1)
         .done(2)
         .fail(3, &[head_moved()])
@@ -338,51 +465,43 @@ fn a_head_moved_fail_of_a_ticket_that_is_merged_with_no_further_done_is_no_rewor
         .pass(5)
         .merged(6)
         .build();
-    // rework: the fail has a second class
-    let two = Log::new(3)
+    // first verify: a pass
+    let b = Log::new(2).assign(1).done(2).pass(3).merged(4).build();
+    // first verify: rework, then an accepted fail
+    let c = Log::new(3)
         .assign(1)
         .done(2)
-        .fail(3, &[head_moved(), red()])
-        .merged(4)
+        .fail(3, &[review("wrong")])
+        .done(4)
+        .fail(5, &[head_moved()])
+        .done(6)
+        .pass(7)
         .build();
-    // not accepted: the ticket was dropped, or is still open
-    let dropped = Log::new(4)
-        .assign(1)
-        .done(2)
-        .fail(3, &[head_moved()])
-        .coord(4, Kind::Info, "dropped: not needed\n")
-        .build();
-    let open = Log::new(5)
-        .assign(1)
-        .done(2)
-        .fail(3, &[head_moved()])
-        .build();
-    // accepted: a second head-moved fail before the merge is accepted too
-    let twice = Log::new(6)
+    // first verify: a head-moved fail that is rework (the ticket is open)
+    let d = Log::new(4)
         .assign(1)
         .done(2)
         .fail(3, &[head_moved()])
-        .fail(4, &[head_moved()])
-        .coord(5, Kind::Info, "Closed after a passed verify\n")
         .build();
-    let r = retro(&[accepted, redone, two, dropped, open, twice]);
-    assert_eq!(issues(&class(&r, ACCEPTED_AFTER_HEAD_MOVED)), [1, 6, 6]);
-    assert_eq!(issues(&class(&r, "head-moved")), [2, 3, 4, 5]);
+    let r = retro(&[a, b, c, d]);
     assert_eq!(
-        (r.verify.tickets_with_fail, r.verify.fails),
-        (6, 7),
-        "all fails"
+        r.verify,
+        VerifyStats {
+            verified: 4,
+            first_pass: 1,
+            first_pass_or_accepted: 2,
+            tickets_with_fail: 3,
+            fails: 4,
+            rework_tickets: 2,
+            rework_fails: 2,
+        }
     );
-    assert_eq!(
-        (r.verify.rework_tickets, r.verify.rework_fails),
-        (4, 4),
-        "without the accepted fails"
-    );
+    assert_eq!(issues(&class(&r, ACCEPTED_AFTER_HEAD_MOVED)), [1, 3]);
+    assert_eq!(issues(&class(&r, "head-moved")), [4]);
+    assert_eq!(issues(&class(&r, "review")), [3]);
     // the rounds leave the accepted fails out
-    assert_eq!(
-        r.rounds.iter().map(|x| x.ticket.issue).collect::<Vec<_>>(),
-        [2, 3, 4, 5]
-    );
+    let got: Vec<(u64, usize)> = r.rounds.iter().map(|x| (x.ticket.issue, x.fails)).collect();
+    assert_eq!(got, [(3, 1), (4, 1)]);
 }
 
 #[test]

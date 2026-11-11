@@ -20,8 +20,9 @@ use crate::ticket::log::{Expected, fold_ticket};
 use crate::ticket::{Act, Sender, VMsg, question_open};
 use std::collections::BTreeMap;
 
-/// The class word of a `PR head moved` fail that was accepted: the ticket was closed as merged
-/// later, with no further `done`. An artifact of the flow, not rework.
+/// The class word of a `PR head moved` fail that was accepted: the next verify result of the
+/// ticket is a pass, or the ticket closes as merged, with no other fail in between. An artifact
+/// of the flow, not rework.
 pub const ACCEPTED_AFTER_HEAD_MOVED: &str = "accepted-after-head-moved";
 
 /// How many tickets the section "rounds" lists.
@@ -61,6 +62,8 @@ pub struct VerifyStats {
     pub verified: usize,
     /// Tickets whose first verify result is a pass.
     pub first_pass: usize,
+    /// Tickets whose first verify result is a pass or a fail that was accepted.
+    pub first_pass_or_accepted: usize,
     pub tickets_with_fail: usize,
     pub fails: usize,
     /// Tickets with at least one fail that is rework.
@@ -238,12 +241,13 @@ struct TicketFacts {
     refusals: Vec<(&'static str, Event)>,
 }
 
-/// One step of a ticket that the artifact rule reads, in comment order.
+/// One step of a ticket that the artifact rule reads, in comment order. A `done` is no step:
+/// the dev agent runs it again for the new head, and that is no rework.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
-    Done,
     /// The index of the verify result in `TicketFacts::verifies`.
     Fail(usize),
+    Pass,
     Close(CloseKind),
 }
 
@@ -283,9 +287,11 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
                 f.reassigns.push(ev());
             }
             (_, Act::Verify { pass }) if coordinator => {
-                if !pass {
-                    steps.push(Step::Fail(f.verifies.len()));
-                }
+                steps.push(if pass {
+                    Step::Pass
+                } else {
+                    Step::Fail(f.verifies.len())
+                });
                 f.verifies.push(Verified {
                     pass,
                     classes: if pass {
@@ -305,7 +311,6 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
             (Some(Kind::Done), _)
                 if assignee == Some(name.as_str()) && parse_evidence(&m.body).is_some() =>
             {
-                steps.push(Step::Done);
                 f.dones.push(m.created);
             }
             (Some(Kind::Question), _) => match m.to.as_str() {
@@ -330,7 +335,9 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
 }
 
 /// The artifact rule: a fail whose only class is `PR head moved` is accepted when the next
-/// `done` or close after it is a close that says the PR is merged.
+/// verify result or close after it is a pass or a close that says the PR is merged. A fail with
+/// a second class (a review text, another machine class) stays rework, and so does a fail that
+/// another fail follows, or whose ticket is dropped or still open.
 fn mark_accepted(verifies: &mut [Verified], steps: &[Step]) {
     for (at, step) in steps.iter().enumerate() {
         let Step::Fail(i) = *step else {
@@ -339,8 +346,11 @@ fn mark_accepted(verifies: &mut [Verified], steps: &[Step]) {
         if verifies[i].classes != [FailClass::HeadMoved] {
             continue;
         }
-        let next = steps[at + 1..].iter().find(|s| !matches!(s, Step::Fail(_)));
-        verifies[i].accepted = matches!(next, Some(Step::Close(k)) if is_merge_close(*k));
+        verifies[i].accepted = match steps.get(at + 1) {
+            Some(Step::Pass) => true,
+            Some(Step::Close(k)) => is_merge_close(*k),
+            Some(Step::Fail(_)) | None => false,
+        };
     }
 }
 
@@ -380,6 +390,7 @@ fn verify_stats(facts: &[TicketFacts]) -> VerifyStats {
         };
         s.verified += 1;
         s.first_pass += usize::from(first.pass);
+        s.first_pass_or_accepted += usize::from(first.pass || first.accepted);
         let fails = f.verifies.iter().filter(|v| !v.pass).count();
         let rework = f.verifies.iter().filter(|v| !v.pass && !v.accepted).count();
         s.fails += fails;

@@ -135,7 +135,7 @@ fn the_report_counts_the_signed_log_of_two_tickets_and_writes_nothing() {
     for want in [
         "retro of initiative fake: 2 ticket(s), ".to_string(),
         "  tickets with an assignment: 2\n  delivered tickets (at least one done): 2\n".to_string(),
-        "  tickets verified: 2\n  first verify passed: 0 of 2 (0%)\n".to_string(),
+        "  tickets verified: 2\n  first verify passed: 0 of 2 (0%); 1 of 2 (50%) when a fail that is accepted-after-head-moved counts as a pass\n".to_string(),
         "  tickets with a verify fail: 2 (1 without accepted-after-head-moved)\n".to_string(),
         "  verify fails: 2 (1 without accepted-after-head-moved)\n".to_string(),
         format!("  review: 1\n    #{t1} http://"),
@@ -161,7 +161,8 @@ fn the_report_counts_the_signed_log_of_two_tickets_and_writes_nothing() {
     );
     assert_eq!(
         r["verify"],
-        serde_json::json!({"verified": 2, "first_pass": 0, "tickets_with_fail": 2, "fails": 2,
+        serde_json::json!({"verified": 2, "first_pass": 0, "first_pass_or_accepted": 1,
+                           "tickets_with_fail": 2, "fails": 2,
                            "rework_tickets": 1, "rework_fails": 1})
     );
     let classes: Vec<(&str, u64)> = r["classes"]
