@@ -4,6 +4,13 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Fixed:
+
+- A reassign notice names the open PR of the ticket also when the old agent had adopted that PR
+  from an agent before it (`take --continue-pr`). Before, the notice named no PR, because the
+  branch carries the name of the first agent, and the next `take --continue-pr` was refused with
+  `adopt-pr-not-recorded`.
+
 Changed:
 
 - `take` on a Backlog ticket says who moves it (the coordinator, with `assign`) and what the dev

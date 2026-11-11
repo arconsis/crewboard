@@ -101,6 +101,38 @@ fn the_reassign_notice_names_the_open_pr_and_the_new_agent_adopts_it_and_done_ac
 }
 
 #[test]
+fn a_second_reassign_still_names_the_pr_that_the_old_agent_had_adopted() {
+    let (fake, c, a, b) = crew();
+    let (t, pr) = in_progress_with_pr(&fake, &c, &b);
+    let ts = t.to_string();
+    // B leaves; A adopts the PR of B
+    run_ok(&fake, &c, &["reassign", &ts, "--reason", "dead"]);
+    run_ok(&fake, &c, &["assign", &ts, "--to", &a.name]);
+    let _ = fake.poll_json(&a);
+    run_ok(&fake, &a, &["take", &ts, "--continue-pr", &pr.url]);
+    // A leaves too. The PR is on the branch of B, and the second notice must name it.
+    let _ = fake.poll_json(&c);
+    let o = run_ok(&fake, &c, &["reassign", &ts, "--reason", "dead"]);
+    assert!(o.stdout.contains(&pr.url), "{}", o.stdout);
+    let line = format!("open-pr: {} branch: {}", pr.url, pr.branch);
+    let n = notices(&fake, t);
+    assert_eq!(n.len(), 2, "{n:?}");
+    assert!(n[1].contains(&line), "{}", n[1]);
+    // the next agent adopts it; here it is B again, the agent that opened the PR
+    run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]);
+    let _ = fake.poll_json(&b);
+    run_ok(&fake, &b, &["take", &ts, "--continue-pr", &pr.url]);
+    assert_eq!(status(&fake, t).as_deref(), Some("In Progress"));
+    let _ = fake.poll_json(&b);
+    let o = run_ok(
+        &fake,
+        &b,
+        &["done", &ts, "--pr", &pr.url, "--sha", &pr.head],
+    );
+    assert!(o.stdout.contains("Review"), "{}", o.stdout);
+}
+
+#[test]
 fn take_without_the_flag_names_the_earlier_pr_and_done_still_accepts_its_branch() {
     let (fake, c, a, b) = crew();
     let (t, pr) = in_progress_with_pr(&fake, &c, &b);
