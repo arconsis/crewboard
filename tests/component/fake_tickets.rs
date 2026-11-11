@@ -1743,6 +1743,28 @@ fn done_on_a_split_blocked_ticket_goes_to_review_and_leaves_the_other_ticket_in_
 }
 
 #[test]
+fn a_take_of_a_backlog_ticket_names_the_coordinator_and_the_assign_command() {
+    let (fake, c, b) = crew();
+    let t = ticket(&fake, "Back in Backlog", true, true);
+    let ts = t.to_string();
+    let item = item_in(&run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]));
+    // the ticket went back to Backlog (a reassign or a hand move); the dev agent tries to take
+    fake.set_item(&item, "Status", "Backlog");
+    let _ = fake.poll_json(&b);
+    let before = writes(&fake);
+    let o = run_refused(&fake, &b, &["take", &ts], "status-unknown-transition");
+    assert!(o.stderr.contains("is in Backlog"), "{}", o.all());
+    assert!(
+        o.stderr.contains(&format!("crewboard assign {t} --to")),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stderr.contains("not in the status table"), "{}", o.all());
+    assert_eq!(before, writes(&fake), "a refusal wrote something");
+    assert_eq!(field(&fake, &item, "Status").as_deref(), Some("Backlog"));
+}
+
+#[test]
 fn done_on_a_blocked_ticket_without_a_split_line_is_refused_with_the_old_rule() {
     let (fake, c, b) = crew();
     let (a, a_item) = stopped_ticket(&fake, &c, &b);
