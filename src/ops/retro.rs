@@ -157,12 +157,23 @@ fn percent(part: usize, of: usize) -> String {
         .map_or(String::new(), |p| format!(" ({p}%)"))
 }
 
-/// One line per event: the ticket and the URL of the comment. Never the agent.
+/// How many events of one list the text prints. `--json` lists all.
+pub const TEXT_EVENTS: usize = 5;
+
+/// One line per event: the ticket and the URL of the comment. Never the agent. The text shows
+/// the latest [`TEXT_EVENTS`] events of a list, the latest first, and then how many it left out.
 fn event_lines(v: &View, events: &[Event]) -> String {
-    events
+    let mut latest: Vec<&Event> = events.iter().collect();
+    latest.sort_by_key(|e| std::cmp::Reverse((e.at, e.comment_id)));
+    let mut s: String = latest
         .iter()
+        .take(TEXT_EVENTS)
         .map(|e| format!("    {} {}\n", v.ticket(&e.ticket), e.url))
-        .collect()
+        .collect();
+    if let Some(more) = events.len().checked_sub(TEXT_EVENTS).filter(|n| *n > 0) {
+        s.push_str(&format!("    ... and {more} more (--json lists all)\n"));
+    }
+    s
 }
 
 fn spread_text(s: Option<Spread>) -> String {
@@ -214,8 +225,20 @@ pub fn render(v: &View, r: &Report) -> String {
         r.tickets, r.delivered
     ));
     let y = &r.verify;
+    // the second figure only when an accepted fail exists
+    let first_accepted = if y.fails == y.rework_fails {
+        String::new()
+    } else {
+        format!(
+            "; {} of {}{} when a fail that is {} counts as a pass",
+            y.first_pass_or_accepted,
+            y.verified,
+            percent(y.first_pass_or_accepted, y.verified),
+            crate::retro::ACCEPTED_AFTER_HEAD_MOVED
+        )
+    };
     s.push_str(&format!(
-        "\nVerify\n  tickets verified: {}\n  first verify passed: {} of {}{}\n  tickets with a verify fail: {} ({} without {a})\n  verify fails: {} ({} without {a})\n",
+        "\nVerify\n  tickets verified: {}\n  first verify passed: {} of {}{}{first_accepted}\n  tickets with a verify fail: {} ({} without {a})\n  verify fails: {} ({} without {a})\n",
         y.verified,
         y.first_pass,
         y.verified,
@@ -331,6 +354,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
             "tickets": r.tickets,
             "delivered": r.delivered,
             "verify": {"verified": y.verified, "first_pass": y.first_pass,
+                       "first_pass_or_accepted": y.first_pass_or_accepted,
                        "tickets_with_fail": y.tickets_with_fail, "fails": y.fails,
                        "rework_tickets": y.rework_tickets, "rework_fails": y.rework_fails},
             "classes": r.classes.iter().map(|c| rows(c.class, &c.events)).collect::<Vec<_>>(),
@@ -392,6 +416,7 @@ mod tests {
             verify: VerifyStats {
                 verified: 3,
                 first_pass: 2,
+                first_pass_or_accepted: 3,
                 tickets_with_fail: 2,
                 fails: 3,
                 rework_tickets: 1,
@@ -442,10 +467,11 @@ mod tests {
         for want in [
             "retro of initiative t: 4 ticket(s), 40 signed message(s), 1970-01-01T00:00:00Z to 1970-01-02T00:00:00Z\n",
             "  tickets with an assignment: 4\n  delivered tickets (at least one done): 3\n",
-            "  first verify passed: 2 of 3 (67%)\n",
+            "  first verify passed: 2 of 3 (67%); 3 of 3 (100%) when a fail that is accepted-after-head-moved counts as a pass\n",
             "  tickets with a verify fail: 2 (1 without accepted-after-head-moved)\n",
             "  verify fails: 3 (2 without accepted-after-head-moved)\n",
-            "  review: 2\n    #7 https://github.com/a/b/issues/7#issuecomment-71\n",
+            // two events of one second: the later comment first
+            "  review: 2\n    #7 https://github.com/a/b/issues/7#issuecomment-72\n    #7 https://github.com/a/b/issues/7#issuecomment-71\n",
             // a ticket of another repo prints with its repo
             "  accepted-after-head-moved: 1\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-21\n",
             "  #7: 2 fail(s) https://github.com/a/b/issues/7#issuecomment-72\n",
@@ -472,6 +498,109 @@ mod tests {
             render(&VIEW, &late)
                 .contains("2 message(s) with a signed time outside the replay window"),
         );
+    }
+
+    #[test]
+    fn the_text_lists_the_latest_five_events_of_a_list_and_counts_the_rest() {
+        // seven fails of one class, at rising times; the list is not in time order
+        let at = |issue: u64, hour: i64| Event {
+            at: hour * 3600,
+            ..event("a/b", issue, issue * 10)
+        };
+        let events = vec![
+            at(3, 3),
+            at(1, 1),
+            at(7, 7),
+            at(5, 5),
+            at(2, 2),
+            at(6, 6),
+            at(4, 4),
+        ];
+        let many = Report {
+            classes: vec![ClassRow {
+                class: "review",
+                events: events.clone(),
+            }],
+            refusals: vec![RefusalRow {
+                rule: "done-needs-pr",
+                events: events[..6].to_vec(),
+            }],
+            andon: Andon::default(),
+            ..report()
+        };
+        let t = render(&VIEW, &many);
+        let link = |n: u64| {
+            format!(
+                "    #{n} https://github.com/a/b/issues/{n}#issuecomment-{}\n",
+                n * 10
+            )
+        };
+        // the count is the full count; the links are the latest five, the latest first
+        let want = format!(
+            "  review: 7\n{}{}{}{}{}    ... and 2 more (--json lists all)\n",
+            link(7),
+            link(6),
+            link(5),
+            link(4),
+            link(3)
+        );
+        assert!(t.contains(&want), "{t}");
+        let want = format!(
+            "  done-needs-pr: 6\n{}{}{}{}{}    ... and 1 more (--json lists all)\n",
+            link(7),
+            link(6),
+            link(5),
+            link(3),
+            link(2)
+        );
+        assert!(t.contains(&want), "{t}");
+        // exactly five: no line about more (the report() fixture has lists of one and two)
+        let five = Report {
+            classes: vec![ClassRow {
+                class: "review",
+                events: events[..5].to_vec(),
+            }],
+            refusals: vec![],
+            ..report()
+        };
+        let t = render(&VIEW, &five);
+        assert!(!t.contains("more (--json lists all)"), "{t}");
+        assert_eq!(t.matches("#issuecomment-").count(), 5 + 1 + 1, "{t}");
+        // the JSON keeps every event
+        let j = render_json(&VIEW, &many);
+        assert_eq!(j["report"]["classes"][0]["count"], 7);
+        assert_eq!(
+            j["report"]["classes"][0]["events"]
+                .as_array()
+                .unwrap()
+                .len(),
+            7
+        );
+        assert_eq!(
+            j["report"]["refusals"][0]["events"]
+                .as_array()
+                .unwrap()
+                .len(),
+            6
+        );
+    }
+
+    #[test]
+    fn a_report_without_an_accepted_fail_prints_one_first_verify_figure() {
+        let plain = Report {
+            verify: VerifyStats {
+                verified: 3,
+                first_pass: 2,
+                first_pass_or_accepted: 2,
+                tickets_with_fail: 1,
+                fails: 2,
+                rework_tickets: 1,
+                rework_fails: 2,
+            },
+            ..report()
+        };
+        let t = render(&VIEW, &plain);
+        assert!(t.contains("  first verify passed: 2 of 3 (67%)\n"), "{t}");
     }
 
     #[test]
@@ -503,7 +632,8 @@ mod tests {
         assert_eq!((&r["tickets"], &r["delivered"]), (&json!(4), &json!(3)));
         assert_eq!(
             r["verify"],
-            json!({"verified": 3, "first_pass": 2, "tickets_with_fail": 2, "fails": 3,
+            json!({"verified": 3, "first_pass": 2, "first_pass_or_accepted": 3,
+                   "tickets_with_fail": 2, "fails": 3,
                    "rework_tickets": 1, "rework_fails": 2})
         );
         assert_eq!(r["classes"][0]["class"], "review");

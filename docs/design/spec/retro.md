@@ -43,7 +43,7 @@ The sender decides who did an act:
 ## The period
 
 Without `--since`, the report covers every ticket. `--since` takes a time
-(`2026-10-16T08:00:00Z`) or a duration back from now (`36h`). It selects tickets, not messages:
+(`2026-10-16T08:00:00Z`) or a duration back from now (`36h`, `7d`). It selects tickets, not messages:
 a ticket is in the report when an agent message on it was created at or after that time. The
 whole log of each selected ticket counts, so the numbers of a ticket stay true.
 
@@ -56,8 +56,8 @@ agent: a retrospective looks for classes of causes, and a ranking of agents hide
 | Section | Content |
 |---|---|
 | Volume | The first and the last message time, the tickets with an assignment, the delivered tickets (at least one `done`). |
-| Verify | The tickets with a verify result. The tickets whose first result is a pass, with their share. The tickets with a fail and the number of fails, each with and without the accepted fails (below). |
-| Verify fails by class | For each class: the count and the fails (ticket and URL). |
+| Verify | The tickets with a verify result. The tickets whose first result is a pass, with their share; when accepted fails exist (below), a second figure counts a ticket whose first result is an accepted fail as passed. The tickets with a fail and the number of fails, each with and without the accepted fails. |
+| Verify fails by class | For each class: the count and the fails (ticket and URL). The text lists the latest 5 fails of a class and then the line `... and N more (--json lists all)`. The same limit holds for every list of the text. `--json` lists all. |
 | Rounds | The 5 tickets with the most fails that are rework. |
 | Andon | The questions to the owner, to the coordinator and to another agent. The `blocked` and the parked messages. The question to the owner that is still open, for each ticket that has not ended. |
 | Refusals mentioned | For each [refusal id](../../reference/refusals.md) that a dev agent names as a whole word in a `question`, `blocked` or `report` message: the count and the messages. A refusal of the CLI is not on the board, so this is its only trace. |
@@ -90,11 +90,19 @@ A new failure of `verify` does not compile without a class.
 
 A fail with failures of two classes is in both classes and counts as one fail.
 
-A fail whose only class is `head-moved` is `accepted-after-head-moved` when the next `done`
-or close after it is a close that says the PR is merged. Then nobody worked on the ticket
-again: the head moved because somebody updated the branch, and the change was accepted as it
-was. This is an artifact of the flow, not rework. The report shows the fails with and without
-these, and the rounds leave them out.
+A fail is `accepted-after-head-moved` when both of these hold:
+
+1. `head-moved` is its only class. A fail that also has a review text or another machine
+   class stays rework.
+2. The next verify result of the ticket is a pass, or the ticket closes as merged
+   (`merge`, `close`, `close --verified`), and no other verify fail comes in between. A `done`
+   in between does not matter: the dev agent runs it again for the new head.
+
+Then nobody had to change the work: the head moved because somebody updated the branch, and
+the change was accepted as it was. This is an artifact of the flow, not rework. A fail that
+another fail follows, and a fail of a ticket that is dropped or still open, stays
+`head-moved`. The report shows the fails with and without the accepted ones, and the rounds
+leave them out.
 
 ## Exit codes
 
