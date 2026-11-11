@@ -23,8 +23,11 @@ use crate::rules::text::mentions_ticket;
 use crate::services::ticket_loader::{Ticket, check_repo};
 use serde_json::Value;
 
-/// The PR that `agent` left for ticket `issue`: an open PR whose head branch is
-/// `<prefix><agent>/<issue>-<slug>`, from the open PR list. Pure.
+/// The PR that `agent` left for ticket `issue`, from the open PR list: an open PR whose head
+/// branch is a crew branch of this ticket, `<prefix><any agent>/<issue>-<slug>`. The branch of
+/// `agent` itself comes first. Else the PR is one that `agent` adopted from an agent before it
+/// (`take --continue-pr`): its branch carries the name of that agent, and the notice must still
+/// name it, or the next agent cannot adopt it. Pure.
 fn pr_in_list(
     list: &[PullSummary],
     repo: &str,
@@ -32,11 +35,14 @@ fn pr_in_list(
     agent: &str,
     issue: u64,
 ) -> Option<EarlierWork> {
-    list.iter().find_map(|p| {
-        (branch_ticket(prefix, &p.head_ref) == Some((agent, issue))).then(|| EarlierWork {
-            pr: Some(format!("https://github.com/{repo}/pull/{}", p.number)),
-            branch: p.head_ref.clone(),
-        })
+    let of_ticket = |p: &&PullSummary| {
+        branch_ticket(prefix, &p.head_ref).map(|(a, n)| (a == agent, n == issue))
+    };
+    let own = list.iter().find(|p| of_ticket(p) == Some((true, true)));
+    let any = || list.iter().find(|p| of_ticket(p).is_some_and(|(_, n)| n));
+    own.or_else(any).map(|p| EarlierWork {
+        pr: Some(format!("https://github.com/{repo}/pull/{}", p.number)),
+        branch: p.head_ref.clone(),
     })
 }
 
@@ -54,8 +60,8 @@ fn branch_in_refs(refs: &Value) -> Option<EarlierWork> {
     })
 }
 
-/// What `agent` left on GitHub for ticket `repo#issue`: the open PR of its crew branch, else the
-/// branch alone, else nothing. A read that fails gives a warning on stderr and `None`.
+/// What `agent` left on GitHub for ticket `repo#issue`: the open PR of its crew branch (or of the
+/// crew branch that it adopted for this ticket), else its branch alone, else nothing. A read that fails gives a warning on stderr and `None`.
 pub(crate) fn find(ac: &AgentCtx, repo: &str, issue: u64, agent: &str) -> Option<EarlierWork> {
     let prefix = crate::ctx::load_authority_quiet(&ac.ctx)
         .unwrap_or_default()
@@ -260,6 +266,29 @@ mod tests {
         assert_eq!(e.branch, "crew/old@h/5-fix-it");
         assert!(pr_in_list(&list, "o/r", "crew/", "old@h", 9).is_none());
         assert!(pr_in_list(&[], "o/r", "crew/", "old@h", 5).is_none());
+    }
+
+    #[test]
+    fn a_pr_that_the_old_agent_adopted_is_found_under_the_branch_of_the_agent_before_it() {
+        let pr = |number: u64, head: &str| PullSummary {
+            number,
+            head_ref: head.into(),
+            head_sha: "abc".into(),
+            base_ref: "main".into(),
+        };
+        // `old@h` has no branch of its own for ticket 5: it adopted the PR of `first@h`
+        let list = [
+            pr(4, "crew/first@h/6-x"),
+            pr(3, "crew/first@h/5-x"),
+            pr(8, "feature/5-x"),
+        ];
+        let e = pr_in_list(&list, "o/r", "crew/", "old@h", 5).unwrap();
+        assert_eq!(e.pr.as_deref(), Some("https://github.com/o/r/pull/3"));
+        assert_eq!(e.branch, "crew/first@h/5-x");
+        // the own branch of the old agent wins over the branch of another agent
+        let list = [pr(3, "crew/first@h/5-x"), pr(7, "crew/old@h/5-y")];
+        let e = pr_in_list(&list, "o/r", "crew/", "old@h", 5).unwrap();
+        assert_eq!(e.pr.as_deref(), Some("https://github.com/o/r/pull/7"));
     }
 
     #[test]
