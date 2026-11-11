@@ -110,8 +110,9 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
 /// same sender and signature. Such a message was posted by its sender with a wrong time (a
 /// replay repeats an older signature). It answers one question only: did the sender post this
 /// already (a report to the owner, [`crate::audit::reported_events`]; a note or an ack that a
-/// duty posts once)? It is never a ticket act or an answer to the owner: everything else reads
-/// [`verified_messages`].
+/// duty posts once)? It is never a ticket act or an answer to the owner: every command that
+/// decides or writes reads [`verified_messages`]. One reader counts such a message as what it
+/// says: `retro` ([`crate::retro`]), which only reports and gives the message no authority.
 pub fn out_of_window_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust) -> Vec<VMsg> {
     let mut sorted: Vec<&Comment> = comments
         .iter()

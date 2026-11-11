@@ -7,12 +7,15 @@
 //! The caller passes only messages that count: the verified messages of each ticket
 //! ([`crate::ticket::verified_messages`]), and the messages that fail only the replay window
 //! ([`crate::ticket::out_of_window_messages`]). An unsigned or foreign comment never gets here.
-//! Who may do an act is checked here, from the verified sender: only a coordinator assigns,
-//! reassigns, verifies and closes, and only the assignee delivers.
+//! Who may do an act is checked here, from the verified sender, with the rules of the ticket log
+//! ([`crate::ticket::log::fold_ticket`]): only a coordinator assigns, reassigns, verifies and
+//! closes; only the assignee of a ticket that has not ended delivers or parks; a late note is a
+//! message to the owner.
 //!
 //! Pure: no reads, no writes, no clock.
 
 use crate::base::{TicketRef, ids};
+use crate::owner_cmd::{self, OwnerCommand};
 use crate::protocol::acts::{CloseKind, FailClass, fail_classes, parse_evidence};
 use crate::protocol::names::Kind;
 use crate::rules::Role;
@@ -270,14 +273,33 @@ fn event_of(log: &TicketLog, m: &VMsg) -> Event {
 fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
     let mut f = TicketFacts::default();
     let mut assignee: Option<&str> = None;
+    // The ticket has ended (Done or Dropped), as `fold_ticket` tracks it: an owner move or a
+    // later coordinator act opens it again.
+    let mut closed = false;
     let mut steps: Vec<Step> = Vec::new();
     for m in &log.msgs {
         let Sender::Agent { name, role } = &m.sender else {
+            if let Ok(Some(OwnerCommand::Move { .. })) = owner_cmd::parse(&m.body) {
+                closed = false;
+            }
             continue;
         };
         let coordinator = *role == Role::Coordinator;
+        let act = m.act();
+        if coordinator {
+            match act {
+                Act::Closed(_) => closed = true,
+                Act::BoardAnnounce
+                | Act::Assignment { .. }
+                | Act::Reassigned
+                | Act::Verify { pass: false } => closed = false,
+                _ => {}
+            }
+        }
+        // the assignee of a ticket that has not ended
+        let by_assignee = !closed && assignee == Some(name.as_str());
         let ev = || event_of(log, m);
-        match (m.kind, m.act()) {
+        match (m.kind, act) {
             (_, Act::Assignment { .. }) if coordinator => {
                 f.assigned.get_or_insert(m.created);
                 assignee = Some(m.to.as_str());
@@ -307,10 +329,10 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
                 steps.push(Step::Close(k));
                 f.closes.push((k, ev()));
             }
-            (_, Act::Late { .. }) => f.late.push(ev()),
-            (Some(Kind::Done), _)
-                if assignee == Some(name.as_str()) && parse_evidence(&m.body).is_some() =>
-            {
+            // a late note is a report to the owner, of the coordinator or of a dev agent
+            // (`ops::late::late_info_exists`)
+            (_, Act::Late { .. }) if m.to == "owner" => f.late.push(ev()),
+            (Some(Kind::Done), _) if by_assignee && parse_evidence(&m.body).is_some() => {
                 f.dones.push(m.created);
             }
             (Some(Kind::Question), _) => match m.to.as_str() {
@@ -318,7 +340,9 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
                 "coordinator" => f.questions_coordinator.push(ev()),
                 _ => f.questions_other.push(ev()),
             },
-            (Some(Kind::Blocked), Act::Parked { .. }) => f.parked.push(ev()),
+            // `take --interrupt` parks the ticket that the agent itself works on
+            (Some(Kind::Blocked), Act::Parked { .. }) if by_assignee => f.parked.push(ev()),
+            // a park text of anyone else is a plain `blocked` message
             (Some(Kind::Blocked), _) => f.blocked.push(ev()),
             _ => {}
         }
