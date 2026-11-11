@@ -201,7 +201,7 @@ limits it. The prompt does not.
 
    | Command | Headless |
    |---|---|
-   | `status`, `mine`, `audit`, `agent profile show` | allowed (read-only) |
+   | `status`, `mine`, `audit`, `retro`, `agent profile show` | allowed (read-only) |
    | `watch`, `poll` | allowed. They are not read-only: each cycle, also with `--quiet`, runs the coordinator duties (item 6) |
    | `start`, `resume` (own), `agent selftest`, `heartbeat` | allowed (liveness of the agent itself) |
    | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8) |

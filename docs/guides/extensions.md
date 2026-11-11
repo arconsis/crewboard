@@ -14,6 +14,7 @@ full text of each command. The commands that only a scheduler or a wrapper scrip
 | [The owner route](#the-owner-route) | `Route:` line | a ticket changes a workflow file |
 | [Ticket split](#ticket-split) | `ticket split` | one ticket has independent causes |
 | [Reports and upkeep](#reports-and-upkeep) | `report-status`, `prune` | you want status updates, or the Agent field is full |
+| [Retrospective](#retrospective) | `retro` | you want to learn from a finished period: why work went back and where it stopped |
 | [Checks](#checks) | `audit`, `move`, `agent selftest` | you review a session, move a ticket by hand, or debug liveness |
 
 ## Profiles and matching
@@ -62,6 +63,17 @@ left, when the field nears its limit.
 
 Spec: [Status updates](../design/spec/board.md#status-updates) and
 [Option limit](../design/spec/board.md#option-limit).
+
+## Retrospective
+
+`retro` reads the signed log of the tickets and prints a report: how many tickets passed
+`verify` at the first try, why the others went back (the verify fails by class), where work
+stopped (questions and blocks), which refusals the dev agents named, and how long the steps
+took. `retro --since 168h` takes the tickets of the last week. `--json` adds the comment URL of
+each event. The report counts classes and ranks no agent. The owner, the coordinator or any
+other reader of the board runs it. It writes nothing.
+
+Spec: [Retrospective report](../design/spec/retro.md).
 
 ## Checks
 

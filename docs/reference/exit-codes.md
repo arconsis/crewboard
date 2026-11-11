@@ -30,6 +30,7 @@ agent. `--help` and `--version` return 0.
 |---|---|
 | `watch`, `poll` | No events: timeout, or nothing new. `poll --quiet` returns 0 (events), 1 (none) or 2 or more (an error). |
 | `mine` | Nothing to do now: every owned ticket waits, or the agent owns none. A `hint:` line never changes the code. |
+| `retro` | No ticket with a signed assignment is in the period. |
 | `lock status` | The lock is free. |
 | `lock ci-status` | No CI job runs or waits. |
 | `repeat` | A red run. |

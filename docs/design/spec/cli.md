@@ -21,7 +21,8 @@ example [Status flow and writers](tickets.md#status-flow-and-writers) and
 `crewboard` (also `-h`, `help`, `--help`) prints one screen: 26 commands in four groups (Set up,
 Agent life cycle, Dev agent tickets, Coordinator tickets), and two lines that name the topics.
 `crewboard help extensions` lists the optional commands (`audit`, `move`, `report-status`,
-`prune`, `lock` and `repeat`).
+`retro`, `prune`, `lock` and `repeat`). The overview line names them all but `retro`, to fit 80
+columns.
 `crewboard help scheduler` lists the commands that a scheduler, a wrapper script or a Monitor tool
 calls: `wake`, `poll`, `tick`, `heartbeat` and `monitor`. They are hidden from the overview and
 never renamed: a rename would break the wrappers and the scheduler units of running crews. Each of
