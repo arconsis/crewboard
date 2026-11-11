@@ -1311,7 +1311,7 @@ Options:
           Print the findings as JSON
 
       --since <SINCE>
-          Only findings of comments created since this time (`2026-10-16T08:00:00Z`) or this long ago (`90m`, `2h`)
+          Only findings of comments created since this time (`2026-10-16T08:00:00Z`) or this long ago (`90m`, `2h`, `7d`)
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
@@ -1387,7 +1387,7 @@ Options:
           Print the report as JSON, with the comment URL, the sender and the addressee of every listed event
 
       --since <SINCE>
-          Only the tickets with a signed message since this time (`2026-10-16T08:00:00Z`) or this long ago (`36h`, `2h`). The whole log of each of these tickets counts
+          Only the tickets with a signed message since this time (`2026-10-16T08:00:00Z`) or this long ago (`2h`, `7d`). The whole log of each of these tickets counts
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
