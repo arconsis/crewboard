@@ -69,7 +69,8 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
    `.github/workflows/` or `.github/actions/`. Never edit them to
    widen your scope.
 5. Work, tooling and refusals go to the coordinator (`crewboard say <n> --to coordinator
-   --kind question`). Owner decisions (`needs_owner` work, scope, product) go to
+   --kind question`). Use `--kind question` only when you need an answer; a status update is
+   `--kind info`. Owner decisions (`needs_owner` work, scope, product) go to
    `crewboard ask <n>`. After `ask` or `block`, leave the ticket until an answer arrives (see
    your role file).
 6. Write short, factual messages, under about 30 lines. Link logs. Never edit a posted message. Follow any style that `AUTHORITY.md` sets.

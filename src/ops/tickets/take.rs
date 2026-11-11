@@ -107,6 +107,9 @@ fn plan_take(
         _ => ctx.plain(),
     };
     if let Err(r) = check_status_transition(Some(from), Status::InProgress, me.actor, &tr) {
+        if from == Status::Backlog && r.rule == ids::STATUS_UNKNOWN_TRANSITION {
+            return Err(backlog_refusal(&t));
+        }
         return Err(explain_unblock_refusal(&t, from, r));
     }
     let resume = from != Status::Ready;
@@ -159,6 +162,18 @@ fn plan_take(
         park,
         adopt,
     })
+}
+
+/// A take of a Backlog ticket: the bare table refusal names no way on, so say who moves it.
+fn backlog_refusal(t: &Ticket) -> CbError {
+    CbError::refused(
+        ids::STATUS_UNKNOWN_TRANSITION,
+        format!(
+            "{} is in Backlog: a dev agent cannot take it. The coordinator makes it Ready with `crewboard assign {} --to <agent>`. Tell the coordinator once, then take your next Ready ticket (`crewboard mine`).",
+            t.key(),
+            t.issue
+        ),
+    )
 }
 
 /// A refusal of the Blocked -> In Progress move, with the case named: a question to the owner

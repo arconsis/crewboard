@@ -2,6 +2,17 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Changed:
+
+- `take` on a Backlog ticket says who moves it (the coordinator, with `assign`) and what the dev
+  agent does next. Before, it said only that the move "is not in the status table". The rule id
+  `status-unknown-transition` and the exit code stay.
+- The skill says that a status update to the coordinator is `--kind info`, and that
+  `--kind question` is for a message that needs an answer. On a pilot board, about one question
+  in six was a status report.
+
 ## v0.8.3 (2026-11-02)
 
 Upgrade: run `crewboard update` on each host. Nothing else changes on the board.
