@@ -76,7 +76,7 @@ other crate of the workspace (`tests/layering.rs` checks its manifest), and `src
 it as `protocol`, so the binary names it `crate::protocol`. `src/error.rs` maps its errors to
 refusal ids.
 
-- `crates/crewboard-protocol/src/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the act lines of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `golden_tests.rs` pins the bytes of each writer and reads them back. Callers still add their own lines to some texts: the assignment's priority, order and reason lines, the full text of a late report, and the `adopts-pr:` line of a `take` ack.
+- `crates/crewboard-protocol/src/acts/`: what a message means. `mod.rs` is the one parser of message acts; `ticket.rs`, `close.rs`, `evidence.rs` and `lifecycle.rs` write the act lines of every act (assignment, creation info, reassign, park, close, merge and drop notices, `done` evidence and verify result, stop, leave and late notices). `verify_fail.rs` holds the failures of a verify result: `verify` writes each `failed:` line from it, and `retro` reads the class of a line back. `golden_tests.rs` pins the bytes of each writer and reads them back. Callers still add their own lines to some texts: the assignment's priority, order and reason lines, the full text of a late report, and the `adopts-pr:` line of a `take` ack.
 - `crates/crewboard-protocol/src/names.rs`: typed header fields (agent names, kinds, addressees, references, timestamps).
 - `crates/crewboard-protocol/src/header.rs`: parse and print the hidden header, the visible line and the body.
 - `crates/crewboard-protocol/src/canonical.rs`: the canonical form that is signed.
@@ -123,7 +123,7 @@ modules on the `ops` list of `tests/layering.rs`.
   merged PR for `merged_pr.rs` (merged while the dev works), `merged_unverified.rs` (merged
   without `verify`) and `owner_merge.rs` (`close` without `--verified`). `owner_net.rs` and
   `owner_applied.rs` are the safety net of the owner route.
-- Reading state: `status.rs`, `queue.rs` (`status --queue`), `agent_row.rs` (one row per agent), `pr_state.rs` (the PR column), `review_wait.rs` (the wait for `verify`), `behind.rs` (how far a PR head is behind its base), `mine.rs`, `agents.rs`, `audit.rs`.
+- Reading state: `status.rs`, `queue.rs` (`status --queue`), `agent_row.rs` (one row per agent), `pr_state.rs` (the PR column), `review_wait.rs` (the wait for `verify`), `behind.rs` (how far a PR head is behind its base), `mine.rs`, `agents.rs`, `audit.rs`, `retro.rs` (`retro`: the reads and the output of `src/retro.rs`; it writes nothing).
 - Late work: `ops/late.rs` (the GitHub reads, the `poll` duty and the `status` section for the waits of `src/late/mod.rs`).
 - Board config refresh: `board_refresh.rs` (`start` re-reads `.crewboard.toml` from the default branch).
 - Agent and crew admin: `lifecycle.rs` (`pause`, `resume`, `stop`), `force_stop.rs` (`stop --force`), `profile.rs`, `prune.rs`, `report_status.rs`.
@@ -188,6 +188,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/owner_cmd.rs`, `src/owner_route.rs`: the owner commands `/crew ...`, and the owner route for workflow files.
 - `src/labels.rs`: the labels that make the board readable.
 - `src/audit.rs`: what the signed comments show.
+- `src/retro.rs`: the retrospective report: what the signed log of the tickets says about a period (verify fails by class, questions and blocks, flow times). Pure.
 
 ### Configuration and checks
 

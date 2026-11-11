@@ -23,6 +23,7 @@ The command list is not here. It is generated from `--help` in the
 | [agents.md](agents.md) | Agent operation: the toolchain check, unattended dev agents, the coordinator alert, `resume`, the headless coordinator, the board config refresh. |
 | [security-details.md](security-details.md) | Detail behind the security guide: the signed data and how to check it by hand, edited owner comments, token handling, the trust roots, `selftest`, `audit` and `status`. |
 | [host-lock.md](host-lock.md) | The host lock helper and repeated Gate runs. |
+| [retro.md](retro.md) | The retrospective report `retro`: what counts, the classes of a verify fail, the cost. |
 
 ## How to refer to a section
 

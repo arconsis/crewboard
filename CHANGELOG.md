@@ -4,6 +4,16 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- `crewboard retro [--since <time|duration>] [--json]`: a retrospective report from the signed
+  log of the tickets. It shows how many tickets passed `verify` at the first try, the verify
+  fails by class, the tickets with the most rounds, the questions and blocks, the refusal ids
+  that dev agents named, and the flow times (assignment to first `done`, first `done` to
+  close). It counts only verified signed messages, ranks no agent and writes nothing. It is an
+  extension: no ticket needs it, and the skill does not name it. Exit 1 means that no ticket is
+  in the period. Spec: `docs/design/spec/retro.md`.
+
 Fixed:
 
 - A reassign notice names the open PR of the ticket also when the old agent had adopted that PR
@@ -19,6 +29,9 @@ Changed:
 - The skill says that a status update to the coordinator is `--kind info`, and that
   `--kind question` is for a message that needs an answer. On a pilot board, about one question
   in six was a status report.
+- `verify` builds each `failed:` line of a result from a typed failure
+  (`crewboard-protocol`, `acts/verify_fail.rs`). The texts are the same as before. `retro`
+  reads the class of a fail from these texts, so the two cannot drift apart.
 
 ## v0.8.3 (2026-11-02)
 
