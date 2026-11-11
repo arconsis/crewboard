@@ -37,7 +37,13 @@ every later one is dropped. The report states how many such messages it counted
 The sender decides who did an act:
 
 - An assignment, a reassign, a verify result and a close count only from a coordinator.
-- A `done` counts only from the assignee at that time, and only with evidence.
+- A `done` counts only from the assignee at that time, only with evidence, and only while the
+  ticket has not ended. This is the rule of the ticket log
+  ([Status flow and writers](tickets.md#status-flow-and-writers)): an owner move or a new
+  assignment opens an ended ticket again.
+- A park (`parked for #<n>:`) counts only from that assignee too. The same text of another
+  agent is a plain `blocked` message.
+- A late note counts only as a message to the owner, from the coordinator or a dev agent.
 - A ticket is an issue with a signed assignment. Any other issue counts nowhere.
 
 ## The period
@@ -69,8 +75,8 @@ a ticket that the log still shows as ended; a ticket that the owner moved back i
 
 ### Classes of a verify fail
 
-`verify` writes each `failed:` line of a result from a fixed text, and `retro` reads the class
-from the same text ([verify_fail.rs](../../../crates/crewboard-protocol/src/acts/verify_fail.rs)).
+`verify` writes each `failed:` line, in the signed result and in its own answer, from a fixed
+text, and `retro` reads the class from the same text ([verify_fail.rs](../../../crates/crewboard-protocol/src/acts/verify_fail.rs)).
 A new failure of `verify` does not compile without a class.
 
 | Class | The failure |
@@ -81,7 +87,7 @@ A new failure of `verify` does not compile without a class.
 | `ci-red` | CI is not green. |
 | `ci-missing` | No CI run counts for the commit. |
 | `ci-evidence` | A finding about a CI run that the evidence names. |
-| `ci-unreadable` | CI cannot be read. |
+| `ci-unreadable` | CI cannot be read. The text of older builds (`CI cannot be read: ...`) has this class too. |
 | `ci-none-undeclared` | The evidence says `ci: none`, the ticket does not. |
 | `local-gate` | A local gate without its line, or on a board that needs CI. |
 | `pr-closed` | The PR is closed without a merge. |
@@ -107,7 +113,8 @@ leave them out.
 ## Exit codes
 
 0 with a report. 1 when no ticket is in the period ([exit codes](../../reference/exit-codes.md)).
-A bad `--since` is a usage error (64), before any request.
+A bad `--since` is a usage error (64), before any request. A comment list over the page limit
+is a usage error too ([Cost](#cost)).
 
 ## Cost
 
@@ -120,3 +127,9 @@ registry issue (one more for each 100 comments after the first 100) and the agen
 
 An edited comment of the owner account costs one more request for its editors, as in every
 command that reads comments.
+
+One list read follows at most 50 pages, that is 5000 comments. When a repo has more comments,
+`retro` without `--since` prints no report: a part of the log would give wrong numbers. It ends
+with a usage error (exit 64) that names `--since`, because the fix is another command line and
+not a retry. The same error tells you to pass a later `--since` when more than 5000 comments
+changed since that time, or when one ticket has more than 5000 comments.

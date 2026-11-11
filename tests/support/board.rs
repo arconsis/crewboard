@@ -157,6 +157,8 @@ struct State {
     /// The page size of the list answers ([`FakeBoard::page_lists`]). Default: none, every
     /// list on one page.
     page_size: Option<usize>,
+    /// The page size of the comment feed of a repo ([`FakeBoard::page_comment_feed`]).
+    feed_page_size: Option<usize>,
     /// Workflow runs (`GET actions/runs`). Default: none, so a commit has no CI.
     runs: Vec<Value>,
     /// Check runs (jobs) of the commits, as `GET commits/{sha}/check-runs` answers them.
@@ -290,6 +292,7 @@ fn new_state(base: &str) -> State {
         fail_workflow_delete: None,
         timelines: BTreeMap::new(),
         page_size: None,
+        feed_page_size: None,
         runs: Vec::new(),
         checks: Vec::new(),
         project: project::ProjectState::default(),
@@ -352,7 +355,10 @@ impl FakeBoard {
                 let mut st = st3.lock().unwrap();
                 let mut resp = route(&mut st, r);
                 if let Some(n) = st.page_size {
-                    resp = one_page(&st.base, r, resp, n);
+                    resp = one_page(&st.base, r, resp, n, pageable);
+                }
+                if let Some(n) = st.feed_page_size {
+                    resp = one_page(&st.base, r, resp, n, is_comment_feed);
                 }
                 if let Some(s) = &st.scopes {
                     resp.headers.push(("x-oauth-scopes".into(), s.clone()));
@@ -447,6 +453,12 @@ impl FakeBoard {
     /// list of more than 100. A test seeds `n + 1` items to put the last one on page 2.
     pub fn page_lists(&self, n: usize) {
         self.st.lock().unwrap().page_size = Some(n.max(1));
+    }
+
+    /// From now on the comment feed of a repo (`GET issues/comments`) comes in pages of `n`
+    /// comments with `Link: rel="next"`, as GitHub sends a feed of more than 100.
+    pub fn page_comment_feed(&self, n: usize) {
+        self.st.lock().unwrap().feed_page_size = Some(n.max(1));
     }
 
     /// A user account that `init --crew-login` accepts: a user with write access to the repos.
@@ -1359,11 +1371,17 @@ fn pageable(path: &str) -> bool {
     )
 }
 
-/// Page `page=` (default 1) of a list answer, `size` items, with the link to the next page
-/// while more are left. Any other answer stays as it is.
-fn one_page(base: &str, r: &Req, resp: Resp, size: usize) -> Resp {
+/// The comment feed of a repo, which [`FakeBoard::page_comment_feed`] cuts into pages.
+fn is_comment_feed(path: &str) -> bool {
+    let seg: Vec<&str> = path.split('/').collect();
+    matches!(seg.as_slice(), ["", "repos", _, _, "issues", "comments"])
+}
+
+/// Page `page=` (default 1) of a list answer of a path that `wanted` names, `size` items, with
+/// the link to the next page while more are left. Any other answer stays as it is.
+fn one_page(base: &str, r: &Req, resp: Resp, size: usize, wanted: fn(&str) -> bool) -> Resp {
     let (path, query) = r.path.split_once('?').unwrap_or((&r.path, ""));
-    if r.method != "GET" || resp.status != 200 || !pageable(path) {
+    if r.method != "GET" || resp.status != 200 || !wanted(path) {
         return resp;
     }
     let Ok(Value::Array(all)) = serde_json::from_str::<Value>(&resp.body) else {

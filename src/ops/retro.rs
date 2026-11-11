@@ -7,14 +7,20 @@
 //! With `--since`, the feed holds only the comments that changed since that time; each issue
 //! that has a crew message among them is then read in full (one request per 100 comments of the
 //! issue), because the report needs the whole log of a ticket.
+//!
+//! One list read follows at most `github::paging::MAX_PAGES` pages (5000 comments). A feed that
+//! is longer ends the command with a usage error that names `--since`; no partial report is
+//! printed, because its numbers would be wrong.
 
 use super::audit::parse_since;
 use super::{AgentCtx, Ctx, Global, load_world, new_client, resolve_board_config};
 use crate::base::TicketRef;
 use crate::clock::{format_ts, now_epoch};
 use crate::comments::Comment;
-use crate::error::CbResult;
+use crate::error::{CbError, CbResult};
 use crate::feed;
+use crate::github::GhError;
+use crate::github::paging::MAX_PAGES;
 use crate::registry::{CREW_PREFIX, Trust};
 use crate::retro::{Event, Report, Spread, TicketLog, retro};
 use crate::state::StateCache;
@@ -40,13 +46,33 @@ fn open(g: &Global) -> CbResult<Ctx> {
     }
 }
 
+/// The error of a comment list that is longer than the page limit: a usage error (exit 64),
+/// because the fix is another command line (`--since`, or a later one), not a retry. Any other
+/// error stays as it is.
+fn too_many_comments(e: CbError, repo: &str, since: Option<i64>) -> CbError {
+    let CbError::Network(GhError::PageLimit(_)) = e else {
+        return e;
+    };
+    let limit = MAX_PAGES * 100;
+    CbError::usage(match since {
+        None => format!(
+            "{repo} has more than {limit} comments, and retro without --since reads them all. Pass --since, for example `crewboard retro --since 30d`"
+        ),
+        Some(t) => format!(
+            "more than {limit} comments of {repo} changed since {}, or one ticket has more than {limit} comments. Pass a later --since",
+            format_ts(t)
+        ),
+    })
+}
+
 /// The comments of the tickets, by issue. Without `since`: the whole feed of every repo. With
 /// `since`: every issue with a crew message that changed since then, read in full.
 fn read_comments(ctx: &Ctx, since: Option<i64>) -> CbResult<BTreeMap<TicketRef, Vec<Comment>>> {
     let owner = &ctx.cfg.owner_login;
     let mut by: BTreeMap<TicketRef, Vec<Comment>> = BTreeMap::new();
     for repo in &ctx.cfg.repos {
-        let feed = feed::feed_since(&ctx.client, repo, since.unwrap_or(0), None, owner)?;
+        let feed = feed::feed_since(&ctx.client, repo, since.unwrap_or(0), None, owner)
+            .map_err(|e| too_many_comments(e, repo, since))?;
         if since.is_none() {
             for c in feed.comments {
                 by.entry(TicketRef::new(repo.as_str(), c.issue))
@@ -64,7 +90,8 @@ fn read_comments(ctx: &Ctx, since: Option<i64>) -> CbResult<BTreeMap<TicketRef, 
         touched.sort_unstable();
         touched.dedup();
         for issue in touched {
-            let (comments, _) = feed::issue_comments(&ctx.client, repo, issue, None, owner)?;
+            let (comments, _) = feed::issue_comments(&ctx.client, repo, issue, None, owner)
+                .map_err(|e| too_many_comments(e, repo, since))?;
             by.insert(TicketRef::new(repo.as_str(), issue), comments);
         }
     }
@@ -662,6 +689,31 @@ mod tests {
             r["flow"]["assign_to_done"],
             json!({"tickets": 3, "median_h": 2.1, "p90_h": 7.9})
         );
+    }
+
+    #[test]
+    fn a_comment_list_over_the_page_limit_is_a_usage_error_that_names_since() {
+        let limit = || CbError::Network(GhError::PageLimit("comments of a/b".into()));
+        let e = too_many_comments(limit(), "a/b", None);
+        assert_eq!(e.exit(), crate::exit::Exit::Usage);
+        let text = e.to_string();
+        assert!(
+            text.contains("a/b has more than 5000 comments")
+                && text.contains("crewboard retro --since 30d"),
+            "{text}"
+        );
+        let e = too_many_comments(limit(), "a/b", Some(3600));
+        assert_eq!(e.exit(), crate::exit::Exit::Usage);
+        let text = e.to_string();
+        assert!(
+            text.contains("changed since 1970-01-01T01:00:00Z") && text.contains("later --since"),
+            "{text}"
+        );
+        // any other error keeps its kind and its exit code
+        let e = too_many_comments(CbError::Network(GhError::Shape("x".into())), "a/b", None);
+        assert_eq!(e.exit(), crate::exit::Exit::Network);
+        let e = too_many_comments(CbError::config("x"), "a/b", None);
+        assert_eq!(e.exit(), crate::exit::Exit::Config);
     }
 
     #[test]

@@ -349,6 +349,142 @@ fn since_reads_the_changed_comments_and_then_the_whole_log_of_each_ticket() {
     no_unhandled(&fake);
 }
 
+/// A ticket whose signed messages are all `ago` seconds old: an assignment, a `done` and a
+/// failed Gate check. Returns the issue.
+fn old_ticket(fake: &FakeBoard, c: &Agent, b: &Agent, title: &str, ago: i64) -> u64 {
+    let t = fake.ticket_issue(title, "Goal: an old ticket.\n", &["crew:work"]);
+    let at = crewboard::clock::now_epoch() - ago;
+    let post = |who: &Agent, to: &str, kind: Kind, body: &str, at: i64| {
+        let text = crate::support::board::sign_ts(&who.key, t, &who.name, to, kind, body, at);
+        fake.comment_at(t, OWNER, &text, at, at);
+    };
+    post(
+        c,
+        &b.name,
+        Kind::Request,
+        "Assigned to you: old\ngate: g\n",
+        at,
+    );
+    post(
+        b,
+        "coordinator",
+        Kind::Done,
+        "Done. Evidence follows.\npr: https://github.com/fake-owner/fake-repo/pull/1\nsha: abc\nci: none\n",
+        at + 1,
+    );
+    post(
+        c,
+        &b.name,
+        Kind::Report,
+        "verify: fail\nfailed: Gate check by the coordinator: an old finding\n",
+        at + 2,
+    );
+    t
+}
+
+fn ticket_numbers(r: &Value) -> Vec<u64> {
+    let mut n: Vec<u64> = r["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|c| c["events"].as_array().unwrap())
+        .map(|e| e["issue"].as_u64().unwrap())
+        .collect();
+    n.sort_unstable();
+    n.dedup();
+    n
+}
+
+#[test]
+fn since_leaves_an_untouched_old_ticket_out_and_brings_the_whole_log_of_a_touched_one() {
+    let (fake, c, b) = crew();
+    let (t1, t2) = two_tickets(&fake, &c, &b);
+    let day = 86400;
+    // two tickets whose messages are three days old; one of them gets a new message now
+    let untouched = old_ticket(&fake, &c, &b, "IT retro old untouched", 3 * day);
+    let touched = old_ticket(&fake, &c, &b, "IT retro old touched", 3 * day);
+    fake.signed_now(
+        &b.key,
+        &b.name,
+        "coordinator",
+        Kind::Question,
+        touched,
+        "still open?",
+    );
+
+    // control: without --since all four tickets are in the report, each with a fail
+    let all = report(&retro(&fake, &c.dir, &["--json"]));
+    assert_eq!(all["tickets"], 4);
+    assert_eq!(ticket_numbers(&all), [t1, t2, untouched, touched]);
+
+    // --since 1d: the untouched old ticket is absent; the touched one is there with its WHOLE
+    // log: the assignment and the fail of three days ago count
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &["--json", "--since", "1d"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let r = report(&o);
+    assert_eq!(r["tickets"], 3);
+    assert_eq!(ticket_numbers(&r), [t1, t2, touched]);
+    assert_eq!(r["verify"]["fails"], 3);
+    assert_eq!(r["delivered"], 3);
+    assert_eq!(r["andon"]["questions_coordinator"]["count"], 1);
+    let first = r["period"]["first"].as_str().unwrap();
+    let first = crewboard::clock::parse_ts(first).unwrap();
+    assert!(
+        first < crewboard::clock::now_epoch() - 2 * day,
+        "the old messages of the touched ticket count: {r}"
+    );
+    // the untouched ticket was not read at all
+    let reqs: Vec<Req> = fake.requests()[from..].to_vec();
+    let read = |n: u64| {
+        reqs.iter()
+            .any(|r| r.path.contains(&format!("/issues/{n}/comments")))
+    };
+    assert!(read(touched) && !read(untouched));
+    no_unhandled(&fake);
+}
+
+#[test]
+fn a_feed_of_more_than_one_page_is_read_whole_and_a_feed_over_the_limit_names_since() {
+    let (fake, c, b) = crew();
+    two_tickets(&fake, &c, &b);
+    let one_page = report(&retro(&fake, &c.dir, &["--json"]));
+
+    // pages of 5 comments: the same report from several pages
+    fake.page_comment_feed(5);
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &["--json"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(report(&o), one_page);
+    let pages = fake.requests()[from..]
+        .iter()
+        .filter(|r| r.path.contains("/issues/comments"))
+        .count();
+    assert!(pages > 1, "{pages} page(s)");
+
+    // pages of 1 comment and more than 50 comments: over the limit of one list read. No
+    // partial report: a usage error that names --since
+    fake.page_comment_feed(1);
+    let now = crewboard::clock::now_epoch();
+    let old = now - 3 * 86400;
+    let other = fake.ticket_issue("IT retro flood", "Goal: none.\n", &["crew:work"]);
+    for n in 0..60 {
+        fake.comment_at(other, "mallory", &format!("noise {n}"), old, old);
+    }
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(o.stdout.is_empty(), "{}", o.all());
+    assert!(
+        o.stderr.contains("has more than 5000 comments") && o.stderr.contains("--since"),
+        "{}",
+        o.all()
+    );
+    // with --since the old comments are not read, and the report is the same
+    let o = retro(&fake, &c.dir, &["--json", "--since", "1d"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(report(&o), one_page);
+}
+
 /// The reads of `retro` without `--since` on a board whose feed fits one page: the login of
 /// the token, the board, AUTHORITY.md, the registry issue, the agent items and the feed.
 const READS: usize = 6;

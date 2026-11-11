@@ -188,6 +188,31 @@ fn a_done_counts_only_from_the_assignee_and_with_evidence() {
 }
 
 #[test]
+fn a_done_after_the_close_counts_only_when_the_ticket_is_open_again() {
+    let merged = || Log::new(1).assign(0).done(2).pass(3).merged(4);
+    let spread_of = |log: Log| retro(&[log.build()]).flow.assign_to_done;
+    // control: one done, two hours after the assignment
+    let one = spread_of(merged()).unwrap();
+    // a done of the old assignee after the close changes nothing
+    let late_done = Log::new(2).assign(0).merged(4).done(9);
+    assert_eq!(retro(&[late_done.build()]).delivered, 0);
+    assert_eq!(spread_of(merged().done(9)), Some(one));
+    // the owner moves the ticket back: the assignee delivers again
+    let moved = Log::new(3)
+        .assign(0)
+        .merged(4)
+        .owner(5, "/crew move Ready")
+        .done(9);
+    assert_eq!(retro(&[moved.build()]).delivered, 1);
+    // a plain owner comment opens nothing
+    let talk = Log::new(4).assign(0).merged(4).owner(5, "thanks").done(9);
+    assert_eq!(retro(&[talk.build()]).delivered, 0);
+    // a new assignment opens it too
+    let again = Log::new(5).assign(0).merged(4).assign(6).done(9);
+    assert_eq!(retro(&[again.build()]).delivered, 1);
+}
+
+#[test]
 fn verify_counts_the_first_result_and_the_fails() {
     let first_pass = Log::new(1).assign(1).done(2).pass(3).merged(4).build();
     let one_round = Log::new(2)
@@ -545,6 +570,18 @@ fn andon_counts_questions_blocks_and_parks_and_lists_the_open_question() {
         .dev(2, "owner", Kind::Question, "too late?")
         .coord(3, Kind::Info, "dropped: not needed\n")
         .build();
+    // a park text counts as a park only from the assignee of a ticket that has not ended:
+    // from another dev agent, from the coordinator and after the close it is a plain block
+    let park = "parked for #9: urgent";
+    let look_alike = Log::new(4)
+        .assign(1)
+        .push(2, OTHER_DEV, Role::Dev, "coordinator", Kind::Blocked, park)
+        .coord(3, Kind::Blocked, park)
+        .merged(4)
+        .dev(5, "coordinator", Kind::Blocked, park)
+        .build();
+    let r = retro(&[look_alike]);
+    assert_eq!((r.andon.parked.len(), r.andon.blocked.len()), (0, 3));
     let r = retro(&[answered, open, ended]);
     let a = &r.andon;
     assert_eq!(
@@ -638,7 +675,14 @@ fn flow_counts_reassigns_drops_closes_and_late_notes() {
         .pass(3)
         .merged(4)
         .owner(5, "/crew move Ready")
-        .coord(6, Kind::Info, "late: verify a/b#4\nlate-key: k1\n")
+        .push(
+            6,
+            COORD,
+            Role::Coordinator,
+            "owner",
+            Kind::Info,
+            "late: verify a/b#4\nlate-key: k1\n",
+        )
         .build();
     let r = retro(&[merged, verified, dropped, reopened]);
     let f = &r.flow;
@@ -649,6 +693,17 @@ fn flow_counts_reassigns_drops_closes_and_late_notes() {
         BTreeMap::from([("merged", 1), ("verified", 1), ("dropped", 1)])
     );
     assert_eq!(f.late_notes.len(), 1);
+    // a late note is a report to the owner: of the coordinator or of a dev agent. The same
+    // text to anyone else is no late note.
+    let late = "late: verify a/b#5\nlate-key: k2\n";
+    let notes = Log::new(5)
+        .assign(1)
+        .push(2, COORD, Role::Coordinator, "owner", Kind::Info, late)
+        .dev(3, "owner", Kind::Info, late)
+        .dev(4, "coordinator", Kind::Info, late)
+        .coord(5, Kind::Info, late)
+        .build();
+    assert_eq!(retro(&[notes]).flow.late_notes.len(), 2);
 }
 
 #[test]
