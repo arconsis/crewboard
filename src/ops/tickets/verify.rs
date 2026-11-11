@@ -18,7 +18,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::CbResult;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
-use crate::protocol::acts::{EvidenceMsg, is_local_gate, verify_body};
+use crate::protocol::acts::{EvidenceMsg, VerifyFailure, is_local_gate, verify_body};
 use crate::protocol::names::{Kind, Re};
 use crate::rules::Actor;
 use crate::rules::Refusal;
@@ -256,7 +256,8 @@ struct VerifyFacts<'a> {
 /// The failures of the evidence and the fresh CI text that a pass keeps.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct VerifyFindings {
-    failures: Vec<String>,
+    /// Typed, so that every `failed:` line has a class (`protocol::acts::verify_fail`).
+    failures: Vec<VerifyFailure>,
     fresh_ci: Option<String>,
     fresh_sources: Option<String>,
     fresh_runs: Option<String>,
@@ -273,25 +274,23 @@ fn verify_failures(f: &VerifyFacts<'_>, prefix: &dyn Fn() -> String) -> VerifyFi
         .iter()
         .any(|r| r.eq_ignore_ascii_case(&pr.repo))
     {
-        failures.push(format!(
-            "PR {}#{} is not in a repo of the initiative",
-            pr.repo, pr.number
-        ));
+        failures.push(VerifyFailure::PrOutsideInitiative {
+            repo: pr.repo.clone(),
+            number: pr.number,
+        });
     }
     if pr.state == "closed" && !pr.merged {
-        failures.push("the PR is closed without a merge".into());
+        failures.push(VerifyFailure::PrClosed);
     }
     if !pr.head_sha.eq_ignore_ascii_case(&ev.sha) {
-        failures.push(format!(
-            "PR head moved: the evidence says {}, the PR head is {} now",
-            ev.sha, pr.head_sha
-        ));
+        failures.push(VerifyFailure::HeadMoved {
+            evidence_sha: ev.sha.clone(),
+            head_now: pr.head_sha.clone(),
+        });
     }
     let ci_none = ev.ci == "none";
     if ci_none && !f.declared {
-        failures.push(
-            "the evidence says 'ci: none' but the ticket body does not declare 'CI: none'".into(),
-        );
+        failures.push(VerifyFailure::CiNoneUndeclared);
     }
     if f.ev_local
         && !ev
@@ -299,19 +298,18 @@ fn verify_failures(f: &VerifyFacts<'_>, prefix: &dyn Fn() -> String) -> VerifyFi
             .as_deref()
             .is_some_and(|t| !t.trim().is_empty())
     {
-        failures.push("the done message has no local-gate line [local-gate-missing]".into());
+        failures.push(VerifyFailure::LocalGateMissing);
     }
     if f.ev_local && !f.local_verify {
-        failures.push(
-            "the evidence is a local gate, but AUTHORITY.md ci_mode is ci: it needs CI. The dev agent runs `crewboard done` again with a CI run of the head [local-gate-not-enabled]".into(),
-        );
+        failures.push(VerifyFailure::LocalGateNotEnabled);
     }
     if let Some(ci) = f.ci.filter(|_| !f.local_verify) {
         ci_failures(f, ci, prefix, &mut out);
     }
     if f.gate_failed {
-        out.failures
-            .push(format!("Gate check by the coordinator: {}", f.note.trim()));
+        out.failures.push(VerifyFailure::GateCheck {
+            note: f.note.trim().to_string(),
+        });
     }
     out
 }
@@ -326,7 +324,10 @@ fn ci_failures(
     let ev = f.ev;
     let ci_none_declared = ev.ci == "none" && f.declared;
     for r in &ci.findings {
-        out.failures.push(format!("{} [{}]", r.message, r.rule));
+        out.failures.push(VerifyFailure::CiFinding {
+            message: r.message.clone(),
+            rule: r.rule.to_string(),
+        });
     }
     match &ci.facts {
         CiFacts::Green { sources, .. } => {
@@ -337,30 +338,29 @@ fn ci_failures(
         }
         CiFacts::NoCi(_) | CiFacts::OnlyInformation { .. } if ci_none_declared => {}
         CiFacts::NotQueried(_) if ci_none_declared => {}
-        CiFacts::OnlyInformation { info, .. } => out.failures.push(format!(
-            "no counted CI run for {}: only runs that are information (not push or pull_request): {}. Name a run that is part of the Gate with `--run <id>`. {}",
-            ev.sha,
-            info.join(", "),
-            crate::rules::evidence::no_ci_cause(&prefix())
-        )),
+        CiFacts::OnlyInformation { info, .. } => out.failures.push(VerifyFailure::NoCountedCiRun {
+            sha: ev.sha.clone(),
+            info: info.clone(),
+            cause: crate::rules::evidence::no_ci_cause(&prefix()),
+        }),
         CiFacts::NoCi(_) => match &ci.no_run {
             Some(Ok(text)) => out.fresh_ci = Some(text.clone()),
-            other => out.failures.push(format!(
-                "no CI run for {}.{} {}",
-                ev.sha,
-                match other {
-                    Some(Err(why)) => format!(" Not accepted as paths-ignored: {why}."),
-                    _ => String::new(),
+            other => out.failures.push(VerifyFailure::NoCiRun {
+                sha: ev.sha.clone(),
+                not_accepted: match other {
+                    Some(Err(why)) => Some(why.clone()),
+                    _ => None,
                 },
-                crate::rules::evidence::no_ci_cause(&prefix())
-            )),
+                cause: crate::rules::evidence::no_ci_cause(&prefix()),
+            }),
         },
-        CiFacts::NotGreen(r) => out
+        CiFacts::NotGreen(r) => out.failures.push(VerifyFailure::CiNotGreen {
+            sha: ev.sha.clone(),
+            red: r.clone(),
+        }),
+        CiFacts::NotQueried(w) => out
             .failures
-            .push(format!("CI of {} is not green: {}", ev.sha, r.join("; "))),
-        CiFacts::NotQueried(w) => out.failures.push(format!(
-            "CI cannot be read ({w}) and the ticket does not declare 'CI: none' [evidence-ci-unreadable]"
-        )),
+            .push(VerifyFailure::CiUnreadable { why: w.clone() }),
     }
 }
 
@@ -711,8 +711,12 @@ mod tests {
         }
     }
 
+    fn texts(f: &[VerifyFailure]) -> Vec<String> {
+        f.iter().map(ToString::to_string).collect()
+    }
+
     fn failures(x: &Fix) -> Vec<String> {
-        verify_failures(&facts_of(x), &|| "crew/".to_string()).failures
+        texts(&verify_failures(&facts_of(x), &|| "crew/".to_string()).failures)
     }
 
     fn msg(kind: Kind, to: &str, body: &str) -> VMsg {
@@ -854,14 +858,14 @@ mod tests {
         f.local_verify = true;
         let r = verify_failures(&f, &|| String::new());
         assert_eq!(r.failures.len(), 1);
-        assert!(r.failures[0].ends_with("[local-gate-missing]"));
+        assert_eq!(r.failures, [VerifyFailure::LocalGateMissing]);
         x.ev.local_gate = Some("host-a: make test rc=0".into());
         let mut f = facts_of(&x);
         f.ev_local = true;
         f.local_verify = false;
         let r = verify_failures(&f, &|| "crew/".to_string());
         assert!(
-            r.failures
+            texts(&r.failures)
                 .iter()
                 .any(|m| m.ends_with("[local-gate-not-enabled]"))
         );
@@ -875,7 +879,7 @@ mod tests {
         f.note = "  Gate part 2 is missing ";
         let r = verify_failures(&f, &|| String::new());
         assert_eq!(
-            r.failures,
+            texts(&r.failures),
             ["Gate check by the coordinator: Gate part 2 is missing"]
         );
     }

@@ -11,6 +11,7 @@
 //!   that takes a question back.
 //! - [`close`]: the notices of a close or a drop.
 //! - [`evidence`]: the evidence of a `done` and the verify result.
+//! - [`verify_fail`]: the failures of a verify result and their classes.
 //! - [`lifecycle`]: the stop and leave notices of an agent, and the late report to the owner.
 //!
 //! A change of wording is then one edit, and the golden tests (`golden_tests.rs`) pin the bytes
@@ -24,6 +25,7 @@ pub mod close;
 pub mod evidence;
 pub mod lifecycle;
 pub mod ticket;
+pub mod verify_fail;
 
 #[cfg(test)]
 mod golden_tests;
@@ -34,6 +36,7 @@ pub use close::*;
 pub use evidence::*;
 pub use lifecycle::*;
 pub use ticket::*;
+pub use verify_fail::*;
 
 use crate::names::Kind;
 

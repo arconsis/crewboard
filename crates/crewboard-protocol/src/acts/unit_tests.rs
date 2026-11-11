@@ -214,7 +214,15 @@ fn golden_verify_result_as_verify_writes_it() {
         local_gate: None,
     };
     let pass = verify_body(true, &ev, "abc", &[], "", None, None);
-    let fail = verify_body(false, &ev, "def", &["ci red".into()], "n", Some("c"), None);
+    let fail = verify_body(
+        false,
+        &ev,
+        "def",
+        &[VerifyFailure::PrClosed],
+        "n",
+        Some("c"),
+        None,
+    );
     assert_eq!(parse(Some(Kind::Report), &pass), Act::Verify { pass: true });
     assert_eq!(
         parse(Some(Kind::Report), &fail),
