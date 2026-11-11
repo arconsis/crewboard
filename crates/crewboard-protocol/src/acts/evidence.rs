@@ -1,6 +1,7 @@
 //! The evidence of a `done` message and the verify result of the coordinator. A `done` carries no
 //! act of its own: [`parse_evidence`] reads its lines.
 
+use super::verify_fail::{FAILED_KEY, VerifyFailure};
 use super::{VERIFY_PREFIX, kv};
 
 /// The `ci:` value of evidence that holds a local gate instead of a CI run.
@@ -72,7 +73,7 @@ pub fn verify_body(
     pass: bool,
     e: &EvidenceMsg,
     head_now: &str,
-    failures: &[String],
+    failures: &[VerifyFailure],
     note: &str,
     case: Option<&str>,
     coordinator_local_gate: Option<&str>,
@@ -99,7 +100,7 @@ pub fn verify_body(
         s.push_str(&format!("coordinator-local-gate: {t}\n"));
     }
     for f in failures {
-        s.push_str(&format!("failed: {f}\n"));
+        s.push_str(&format!("{FAILED_KEY}: {f}\n"));
     }
     if let Some(c) = case {
         s.push_str(&format!("case: {c}\n"));

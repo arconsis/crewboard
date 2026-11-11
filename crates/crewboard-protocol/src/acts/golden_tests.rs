@@ -249,12 +249,21 @@ fn golden_verify_result() {
                 false,
                 &local_evidence(),
                 "def",
-                &["ci red".into(), "head moved".into()],
+                &[
+                    VerifyFailure::CiNotGreen {
+                        sha: "abc".into(),
+                        red: vec!["build".into()],
+                    },
+                    VerifyFailure::HeadMoved {
+                        evidence_sha: "abc".into(),
+                        head_now: "def".into(),
+                    },
+                ],
                 " n \n",
                 Some("c"),
                 Some("host-c: make test rc=0"),
             ),
-            bytes: "verify: fail\npr: https://github.com/o/r/pull/9\nsha: abc\nhead_now: def\nci: local-gate\nci-sources: workflow-runs, statuses\nci-runs: counted: 9 (push, success)\nlocal-gate: host-a: make test rc=0, log /tmp/gate.log\ncoordinator-local-gate: host-c: make test rc=0\nfailed: ci red\nfailed: head moved\ncase: c\nnote: n\n",
+            bytes: "verify: fail\npr: https://github.com/o/r/pull/9\nsha: abc\nhead_now: def\nci: local-gate\nci-sources: workflow-runs, statuses\nci-runs: counted: 9 (push, success)\nlocal-gate: host-a: make test rc=0, log /tmp/gate.log\ncoordinator-local-gate: host-c: make test rc=0\nfailed: CI of abc is not green: build\nfailed: PR head moved: the evidence says abc, the PR head is def now\ncase: c\nnote: n\n",
             kind: Kind::Report,
             act: Act::Verify { pass: false },
         },
