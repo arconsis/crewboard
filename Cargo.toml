@@ -9,7 +9,7 @@ resolver = "3"
 # Every crate shares this version. `build.yml` and `scripts/maintainer/release-macos.sh` read the
 # first line that starts with `version = `, so this line must stay the first one.
 [workspace.package]
-version = "0.8.3"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.89"
 repository = "https://github.com/arconsis/crewboard"
