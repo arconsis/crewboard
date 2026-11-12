@@ -2,7 +2,10 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.9.0 (2026-11-12)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board, and no command
+that a ticket needs changes. The new command `retro` is optional.
 
 Added:
 
