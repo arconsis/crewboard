@@ -2,6 +2,35 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Upgrade: nothing changes on the board. A ticket that an older build dropped keeps its open
+issue. The rule for Done does not change.
+
+Changed:
+
+- `close <n> --why "<text>"` (a drop) also closes the GitHub issue, as "not planned", when the
+  issue is open. Before, the issue stayed open. An issue that is closed already keeps its state
+  and its reason. The answer has the line `<ticket>: the issue is closed as not planned` when
+  the command closed the issue. The write order is: the issue, the signed note, Status Dropped,
+  the label. A rerun after a failed write finds the issue closed and writes the rest.
+- Because a dropped ticket now has a closed issue, `assign` on it is refused with
+  `ticket-closed` (the issue check comes first). When somebody opens the issue again by hand,
+  the refusal is `status-dropped-final` as before. `crewboard move` of the owner out of Dropped
+  opens the issue again, as it does for Done.
+- The drop note records delivered work. A PR that another account than the owner merged,
+  without a passed verify, gives no Done, and the ticket can only be dropped. When the issue is
+  closed and such a PR closes the ticket, the note has the lines `pr: <url>`,
+  `merge-commit: <sha>` and `merged-by: <login>` after `dropped: <reason>`, and the answer names
+  the PR. Every reader takes the note as a drop like any other. A drop without such a PR writes
+  the note as before. The wire version stays `v=1`.
+- `retro` shows the dropped tickets whose drop note records a merged PR as their own number:
+  the line `dropped with a merged PR` in the section Flow, and `flow.dropped_merged` in
+  `--json`. Such a drop note on an issue without a signed assignment is in one new number,
+  `merged work without an assignment` (section Volume; `merged_unassigned` in `--json`), and
+  in no other. No field of the JSON changed its name. A drop note of an older build has no PR
+  lines and is a plain drop. Spec: `docs/design/spec/retro.md`.
+
 ## v0.9.0 (2026-11-12)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board, and no command

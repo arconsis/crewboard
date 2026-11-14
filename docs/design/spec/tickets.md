@@ -39,7 +39,7 @@ headless "CI only" check read these lines, not the body; without a `ci:` line th
 The statuses are Backlog, Ready, In Progress, Review, Blocked, Done and Dropped
 ([Boards of earlier builds](board.md#boards-of-earlier-builds) for older options). Done means a
 PR merged at a verified head, or merged by the owner. Dropped means that the coordinator ended the ticket by judgment,
-without a merged PR. The writers
+without a merge that gives Done. The writers
 are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 `check_status_transition` in `src/rules/status.rs` judges every move. The allowed moves:
 
@@ -359,9 +359,38 @@ The board needs the Status option Dropped. A board that `init` made before the o
 lacks it: `close --why` is refused with `dropped-option-missing` before any write, and the text
 says to run `crewboard init` again. The rerun adds the option and keeps every other option id.
 
-Writes, in order: one signed `info` that starts with `dropped: <reason>`, Status Dropped, the
-label `needs-owner` removed. The issue stays open. The note `closed: <reason>` of an older build
-still reads as Done.
+Writes, in order: the issue closed as "not planned" (`state_reason: not_planned`) when it is
+open; one signed `info` that starts with `dropped: <reason>`; Status Dropped; the label
+`needs-owner` removed. An issue that is closed already keeps its state and its reason. A rerun
+after a failed write finds the issue closed and writes the rest. The answer of the command has
+the line `<ticket>: the issue is closed as not planned` only when the command closed the issue.
+A ticket that an older build dropped keeps its open issue, and a repeat of `close --why` on it
+is `status-no-change`. The note `closed: <reason>` of an older build still reads as Done.
+
+The closed issue comes first for some commands. `assign` on a dropped ticket is refused with
+`ticket-closed`. When somebody opens the issue again by hand, it is `status-dropped-final`. An
+[owner move](#owner-move) out of Dropped opens the issue again.
+
+### A drop that records a merged PR
+
+A PR that another account than the owner merged, without a passed verify, is no proof for Done.
+The ticket can only be dropped. The drop note then records the delivered work. The condition:
+the issue is closed, and a PR of the ticket meets the conditions of an
+[owner merge](#close-after-an-owner-merge) except the last one (GitHub names a merge actor, and
+it is not the owner). The note then has three more lines after `dropped: <reason>`:
+
+```text
+dropped: <reason>
+pr: <url>
+merge-commit: <sha>
+merged-by: <login>
+```
+
+The answer of the command names the PR too. The ticket is Dropped all the same. `status`,
+`mine`, `audit` and the ticket log read the note as any other drop. Only
+[`retro`](retro.md#dropped-with-a-merged-pr) counts it on its own. A drop without such a PR
+writes the note without these lines. A drop note without these lines, as every older build
+wrote it, is a plain drop.
 
 ### A PR merged while the dev works
 

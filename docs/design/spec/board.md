@@ -244,7 +244,8 @@ Two built-ins stay on purpose:
   inert for crewboard, and with the four above gone nothing writes their `Status`.
 - "Auto-close issue" writes no field and no item: it closes the issue when `Status` becomes
   Done. crewboard writes Done only for merged work, so a closed issue is the expected end
-  state. Dropped does not close the issue.
+  state. A drop closes the issue itself, as "not planned"
+  ([Close without a PR](tickets.md#close-without-a-pr)).
 
 Other workflows exist only when the owner added them by hand: "Item reopened", "Code changes
 requested", "Code review approved", "Auto-archive items" and "Auto-add to project". `doctor`

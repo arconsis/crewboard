@@ -1275,7 +1275,7 @@ Options:
 ```text
 Close or drop a ticket (Done and Dropped are final).
 
-Coordinator: close a ticket. Without a flag crewboard looks for the owner's merge of the PR (Done); with `--why` it looks too, and when it finds no owner merge it drops the ticket by your judgment (Dropped; with an owner merge the ticket is Done and the text goes into the note); `--verified` closes a PR that is merged at the head of a passed verify (Done). Done and Dropped are final.
+Coordinator: close a ticket. Without a flag crewboard looks for the owner's merge of the PR (Done); with `--why` it looks too, and when it finds no owner merge it drops the ticket by your judgment (Dropped; with an owner merge the ticket is Done and the text goes into the note); `--verified` closes a PR that is merged at the head of a passed verify (Done). Done and Dropped are final. A drop closes an open issue as "not planned". Its note names a PR of the ticket that another account than the owner merged.
 
 Usage: crewboard close [OPTIONS] <ISSUE>
 
@@ -1288,7 +1288,7 @@ Options:
           Review -> Done after a passed `verify`, for a PR that is merged at the verified head (an open PR: use `merge`)
 
       --why <TEXT>
-          Drop the ticket by your judgment when no owner merge exists (no PR, or the ticket will not be done): Status Dropped. When `close` finds an owner merge, the ticket is Done and the text is a line of the close note. The text goes into the note on the ticket; name a replacing ticket in it
+          Drop the ticket by your judgment when no owner merge exists (no PR, or the ticket will not be done): Status Dropped. When `close` finds an owner merge, the ticket is Done and the text is a line of the close note. The text goes into the note on the ticket; name a replacing ticket in it. A drop also closes the issue as "not planned" when it is open
 
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
@@ -1378,7 +1378,7 @@ Options:
 ```text
 Print a retrospective report from the signed log.
 
-Any reader of the board (the owner, the coordinator): count the verified signed messages of the tickets and print why work went back (verify fails by class), where it stopped (questions, blocks), which refusals the dev agents named and how long the steps took. It counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
+Any reader of the board (the owner, the coordinator): count the verified signed messages of the tickets and print why work went back (verify fails by class), where it stopped (questions, blocks), which refusals the dev agents named and how long the steps took. A dropped ticket whose drop note names a merged PR has its own count. It counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
 
 Usage: crewboard retro [OPTIONS]
 
