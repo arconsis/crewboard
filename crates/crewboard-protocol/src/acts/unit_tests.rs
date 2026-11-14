@@ -189,6 +189,31 @@ fn golden_every_close_notice() {
         Act::Closed(CloseKind::Dropped)
     );
     assert_eq!(dropped_body("not needed"), "dropped: not needed\n");
+    // a drop that records a merged PR is a drop like any other
+    let with_pr = dropped_merged_body("merged without verify", pr, Some("abc"), "crew-account");
+    assert_eq!(close(&with_pr), Act::Closed(CloseKind::Dropped));
+    assert!(with_pr.starts_with(&dropped_body("merged without verify")));
+    assert_eq!(
+        dropped_merged_pr(&with_pr),
+        Some(DroppedPr {
+            pr: pr.to_string(),
+            merge_commit: "abc".into(),
+            merged_by: Some("crew-account".into()),
+        })
+    );
+    // a plain drop records none, also when its reason looks like the lines
+    assert_eq!(dropped_merged_pr(&dropped_body("not needed")), None);
+    assert_eq!(
+        dropped_merged_pr(&dropped_body("pr: x merge-commit: y")),
+        None
+    );
+    // both lines are needed, and only a drop has them
+    assert_eq!(dropped_merged_pr("dropped: x\npr: p\n"), None);
+    assert_eq!(dropped_merged_pr("dropped: x\nmerge-commit: m\n"), None);
+    assert_eq!(
+        dropped_merged_pr(&owner_merged_body(pr, Some("abc"), None)),
+        None
+    );
     // the text of a close by judgment of an older build is still read
     assert_eq!(
         close("closed: superseded by o/r#12\n"),
