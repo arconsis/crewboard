@@ -39,7 +39,8 @@
 //! Writes, in this order: the `merged without verify` note for an owner merge, ONE signed
 //! `info` on the ticket (to the assignee, else to the coordinator) with the line `closed: owner
 //! merged <pr-url>` (Status Done) or `dropped: <reason>` (Status Dropped), the label
-//! `needs-owner` removed.
+//! `needs-owner` removed. A drop first closes the issue as "not planned" when it is open; an
+//! issue that is closed already keeps its state and its reason.
 
 use super::owner_applied::{Proof, names_this_ticket, patch_applied, tied};
 use super::pr_evidence::fetch_pr_files;
@@ -401,14 +402,16 @@ pub(super) fn close_loaded(
     } else {
         None
     };
-    // true: the issue is still open and `close` ends it (the owner route)
-    let mut end_issue = false;
+    // the issue is still open and `close` ends it (the owner route)
+    let mut end_issue = IssueEnd::Keep;
     let found = match (&route, &owner) {
         // The owner route: only its proof counts, also when the PR text closes the issue (a
         // keyword added after the `done` is no proof that the change is live).
         (Some((pr, patch)), Some(owner)) => {
             let r = find_owner_route_merge(ac, t, pr, patch, owner)?;
-            end_issue = t.info.open && r.is_ok();
+            if t.info.open && r.is_ok() {
+                end_issue = IssueEnd::Completed;
+            }
             r.map_err(|w| format!("on the owner route: {w}"))
         }
         (None, Some(owner)) if !t.info.open => find_merged_pr(ac, t, owner)?,
@@ -438,7 +441,7 @@ fn close_after_merge(
     from: Status,
     pr: &MergedPr,
     reason: Option<&str>,
-    end_issue: bool,
+    end_issue: IssueEnd,
 ) -> CbResult<String> {
     let key = t.key();
     let note =
@@ -479,14 +482,46 @@ fn close_by_judgment(
     check_status_transition(Some(from), Status::Dropped, me.actor, &Transition::Drop)?;
     check_dropped_option(&key, ac.ctx.board.has_status_option(Status::Dropped))?;
     let headline = format!("{key} dropped: Status Dropped (dropped: {reason})");
+    // A drop ends the issue too. An issue that is closed already keeps its state and its reason.
+    let end_issue = if t.info.open {
+        IssueEnd::NotPlanned
+    } else {
+        IssueEnd::Keep
+    };
+    let extra = match end_issue {
+        IssueEnd::NotPlanned => format!("{key}: the issue is closed as not planned\n"),
+        _ => String::new(),
+    };
     let end = End {
         to: Status::Dropped,
         note: &note,
         headline: &headline,
-        extra: "",
-        end_issue: false,
+        extra: &extra,
+        end_issue,
     };
     finish_close(ac, t, &end)
+}
+
+/// What a close does with the GitHub issue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IssueEnd {
+    /// No write: GitHub closed the issue already, or it was closed before.
+    Keep,
+    /// Close it as completed: the owner route, where the PR has no closing keyword.
+    Completed,
+    /// Close it as not planned: a drop of a ticket whose issue is open.
+    NotPlanned,
+}
+
+impl IssueEnd {
+    /// `state_reason` of the PATCH; `None`: no PATCH.
+    fn state_reason(self) -> Option<&'static str> {
+        match self {
+            IssueEnd::Keep => None,
+            IssueEnd::Completed => Some("completed"),
+            IssueEnd::NotPlanned => Some("not_planned"),
+        }
+    }
 }
 
 /// How a close ends a ticket.
@@ -498,23 +533,25 @@ struct End<'a> {
     headline: &'a str,
     /// Output that comes after the notice line.
     extra: &'a str,
-    /// Close the open issue first.
-    end_issue: bool,
+    /// Close the open issue first, and with which reason.
+    end_issue: IssueEnd,
 }
 
-/// The writes of every close, in order: the signed `info`, the Status, the label off.
+/// The writes of every close, in order: the issue closed (when the close ends it), the signed
+/// `info`, the Status, the label off.
 fn finish_close(ac: &AgentCtx, t: &Ticket, end: &End<'_>) -> CbResult<String> {
     let (assignee, to) = close_recipient(t)?;
     // The guard runs before the first write: a ticket that moved gets no notice.
     if let Ok(from) = t.status() {
         super::check_status_unchanged(ac, &t.item_id, &t.key(), from, Some(end.to))?;
     }
-    if end.end_issue {
-        // the owner route: GitHub did not close the issue, because the PR has no closing keyword
+    if let Some(state_reason) = end.end_issue.state_reason() {
+        // The owner route (GitHub did not close the issue, because the PR has no closing
+        // keyword), or a drop. A rerun after a failed post finds the issue closed and skips this.
         ac.ctx.client.send(
             "PATCH",
             &format!("repos/{}/issues/{}", t.repo, t.issue),
-            Some(&json!({"state": "closed", "state_reason": "completed"})),
+            Some(&json!({"state": "closed", "state_reason": state_reason})),
         )?;
     }
     let p = post(ac, t, to, Kind::Info, Re::None, end.note)?;
@@ -671,6 +708,13 @@ mod tests {
         let r = check_dropped_option("o/r#12", false).unwrap_err();
         assert_eq!(r.rule, ids::DROPPED_OPTION_MISSING);
         assert!(r.message.contains("crewboard init"), "{}", r.message);
+    }
+
+    #[test]
+    fn only_a_close_that_ends_the_issue_names_a_state_reason() {
+        assert_eq!(IssueEnd::Keep.state_reason(), None);
+        assert_eq!(IssueEnd::Completed.state_reason(), Some("completed"));
+        assert_eq!(IssueEnd::NotPlanned.state_reason(), Some("not_planned"));
     }
 
     #[test]
