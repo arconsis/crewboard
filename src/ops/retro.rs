@@ -224,13 +224,26 @@ fn since_text(v: &View) -> String {
     })
 }
 
+/// The line of the merged work without an assignment.
+fn merged_unassigned_line(r: &Report) -> String {
+    format!(
+        "  merged work without an assignment (a drop note with a merged PR): {}\n",
+        r.merged_unassigned.len()
+    )
+}
+
 pub fn render(v: &View, r: &Report) -> String {
     if r.tickets == 0 {
-        return format!(
+        let mut s = format!(
             "retro of initiative {}: no ticket with a signed assignment\n{}",
             v.initiative,
             since_text(v)
         );
+        // the one number that needs no assignment
+        if !r.merged_unassigned.is_empty() {
+            s.push_str(&merged_unassigned_line(r));
+        }
+        return s;
     }
     let mut s = format!(
         "retro of initiative {}: {} ticket(s), {} signed message(s), {} to {}\nSource: verified signed messages only. The report counts classes and ranks no agent.\n{}",
@@ -248,8 +261,10 @@ pub fn render(v: &View, r: &Report) -> String {
         ));
     }
     s.push_str(&format!(
-        "\nVolume\n  tickets with an assignment: {}\n  delivered tickets (at least one done): {}\n",
-        r.tickets, r.delivered
+        "\nVolume\n  tickets with an assignment: {}\n  delivered tickets (at least one done): {}\n{}",
+        r.tickets,
+        r.delivered,
+        merged_unassigned_line(r)
     ));
     let y = &r.verify;
     // the second figure only when an accepted fail exists
@@ -337,9 +352,10 @@ fn render_flow(r: &Report, s: &mut String) {
             .join(", ")
     };
     s.push_str(&format!(
-        "\nFlow\n  reassigned tickets: {}\n  dropped tickets: {}\n  closes: {closes}\n  late notes: {}\n  assignment to first done: {}\n  first done to close: {}\n",
+        "\nFlow\n  reassigned tickets: {}\n  dropped tickets: {}\n  dropped with a merged PR: {}\n  closes: {closes}\n  late notes: {}\n  assignment to first done: {}\n  first done to close: {}\n",
         f.reassigned_tickets,
         f.dropped.len(),
+        f.dropped_merged.len(),
         f.late_notes.len(),
         spread_text(f.assign_to_done),
         spread_text(f.done_to_close)
@@ -380,6 +396,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                        "messages": r.messages, "outside_window": r.outside_window},
             "tickets": r.tickets,
             "delivered": r.delivered,
+            "merged_unassigned": events_json(&r.merged_unassigned),
             "verify": {"verified": y.verified, "first_pass": y.first_pass,
                        "first_pass_or_accepted": y.first_pass_or_accepted,
                        "tickets_with_fail": y.tickets_with_fail, "fails": y.fails,
@@ -402,6 +419,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
             "flow": {"reassigned_tickets": f.reassigned_tickets,
                      "reassigns": events_json(&f.reassigns),
                      "dropped": events_json(&f.dropped),
+                     "dropped_merged": events_json(&f.dropped_merged),
                      "closes": f.closes,
                      "late_notes": events_json(&f.late_notes),
                      "assign_to_done": spread_json(f.assign_to_done),
@@ -478,6 +496,7 @@ mod tests {
                 reassigns: vec![event("a/b", 9, 91)],
                 closes: BTreeMap::from([("merged", 2), ("dropped", 1)]),
                 dropped: vec![event("a/b", 9, 92)],
+                dropped_merged: vec![event("a/b", 9, 92)],
                 assign_to_done: Some(Spread {
                     tickets: 3,
                     median_s: 7560,
@@ -485,6 +504,7 @@ mod tests {
                 }),
                 ..Flow::default()
             },
+            merged_unassigned: vec![event("a/b", 11, 111), event("a/b", 12, 121)],
         }
     }
 
@@ -493,7 +513,7 @@ mod tests {
         let t = render(&VIEW, &report());
         for want in [
             "retro of initiative t: 4 ticket(s), 40 signed message(s), 1970-01-01T00:00:00Z to 1970-01-02T00:00:00Z\n",
-            "  tickets with an assignment: 4\n  delivered tickets (at least one done): 3\n",
+            "  tickets with an assignment: 4\n  delivered tickets (at least one done): 3\n  merged work without an assignment (a drop note with a merged PR): 2\n\nVerify\n",
             "  first verify passed: 2 of 3 (67%); 3 of 3 (100%) when a fail that is accepted-after-head-moved counts as a pass\n",
             "  tickets with a verify fail: 2 (1 without accepted-after-head-moved)\n",
             "  verify fails: 3 (2 without accepted-after-head-moved)\n",
@@ -505,7 +525,7 @@ mod tests {
             "  questions to the owner: 1\n",
             "  questions to the owner still open: 1\n    #8 https://github.com/a/b/issues/8#issuecomment-81\n",
             "  done-needs-pr: 1\n    #7 https://github.com/a/b/issues/7#issuecomment-73\n",
-            "  reassigned tickets: 1\n  dropped tickets: 1\n  closes: dropped 1, merged 2\n  late notes: 0\n",
+            "  reassigned tickets: 1\n  dropped tickets: 1\n  dropped with a merged PR: 1\n  closes: dropped 1, merged 2\n  late notes: 0\n",
             "  assignment to first done: median 2.1 h, p90 7.9 h (3 ticket(s))\n",
             "  first done to close: no ticket\n",
         ] {
@@ -641,9 +661,20 @@ mod tests {
             t,
             "retro of initiative t: no ticket with a signed assignment\nSince 1970-01-01T01:00:00Z: the tickets with a signed message since then, each with its whole log.\n"
         );
+        // merged work without an assignment needs no ticket: the line stays
+        let only_merged = Report {
+            merged_unassigned: vec![event("a/b", 11, 111)],
+            ..Report::default()
+        };
+        assert_eq!(
+            render(&VIEW, &only_merged),
+            "retro of initiative t: no ticket with a signed assignment\n  merged work without an assignment (a drop note with a merged PR): 1\n"
+        );
         let j = render_json(&v, &Report::default());
         assert_eq!(j["since"], "1970-01-01T01:00:00Z");
         assert_eq!(j["report"]["tickets"], 0);
+        assert_eq!(j["report"]["merged_unassigned"]["count"], 0);
+        assert_eq!(j["report"]["flow"]["dropped_merged"]["count"], 0);
         assert_eq!(j["report"]["period"]["first"], Value::Null);
         assert_eq!(j["report"]["flow"]["assign_to_done"], Value::Null);
     }
@@ -685,6 +716,14 @@ mod tests {
         assert_eq!(r["refusals"][0]["events"][0]["issue"], 7);
         assert_eq!(r["flow"]["closes"], json!({"merged": 2, "dropped": 1}));
         assert_eq!(r["flow"]["dropped"]["events"][0]["issue"], 9);
+        assert_eq!(r["flow"]["dropped"]["count"], 1);
+        assert_eq!(r["flow"]["dropped_merged"]["count"], 1);
+        assert_eq!(r["flow"]["dropped_merged"]["events"][0]["issue"], 9);
+        assert_eq!(r["merged_unassigned"]["count"], 2);
+        assert_eq!(
+            r["merged_unassigned"]["events"][1]["url"],
+            "https://github.com/a/b/issues/12#issuecomment-121"
+        );
         assert_eq!(
             r["flow"]["assign_to_done"],
             json!({"tickets": 3, "median_h": 2.1, "p90_h": 7.9})

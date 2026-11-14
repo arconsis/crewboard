@@ -16,7 +16,9 @@
 
 use crate::base::{TicketRef, ids};
 use crate::owner_cmd::{self, OwnerCommand};
-use crate::protocol::acts::{CloseKind, FailClass, fail_classes, parse_evidence};
+use crate::protocol::acts::{
+    CloseKind, FailClass, dropped_merged_pr, fail_classes, parse_evidence,
+};
 use crate::protocol::names::Kind;
 use crate::rules::Role;
 use crate::ticket::log::{Expected, fold_ticket};
@@ -126,6 +128,9 @@ pub struct Flow {
     pub reassigned_tickets: usize,
     /// The drop notice of each ticket that ended in Dropped.
     pub dropped: Vec<Event>,
+    /// Those of `dropped` whose notice records a merged PR (the lines `pr:` and
+    /// `merge-commit:`): the work was delivered, but the merge gave no Done.
+    pub dropped_merged: Vec<Event>,
     /// The close of each ticket that has ended, by kind ([`close_word`]).
     pub closes: BTreeMap<&'static str, usize>,
     pub late_notes: Vec<Event>,
@@ -156,6 +161,10 @@ pub struct Report {
     /// Only rule ids with a mention, most mentions first.
     pub refusals: Vec<RefusalRow>,
     pub flow: Flow,
+    /// Merged work without an assignment: the drop notice with a merged PR of each issue that
+    /// ended in Dropped and that no coordinator assigned. Such an issue is no ticket, so it
+    /// is in no other number.
+    pub merged_unassigned: Vec<Event>,
 }
 
 /// The word of a close kind in the report.
@@ -234,6 +243,8 @@ struct TicketFacts {
     dones: Vec<i64>,
     verifies: Vec<Verified>,
     closes: Vec<(CloseKind, Event)>,
+    /// The comment ids of the drop notices that record a merged PR.
+    drops_with_pr: Vec<u64>,
     reassigns: Vec<Event>,
     late: Vec<Event>,
     questions_owner: Vec<Event>,
@@ -268,9 +279,9 @@ fn event_of(log: &TicketLog, m: &VMsg) -> Event {
     }
 }
 
-/// Fold the messages of one issue. `None`: no coordinator assigned it, so it is no ticket of
-/// the report.
-fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
+/// Fold the messages of one issue. Without `assigned`, no coordinator assigned it: it is no
+/// ticket of the report.
+fn facts_of(log: &TicketLog) -> TicketFacts {
     let mut f = TicketFacts::default();
     let mut assignee: Option<&str> = None;
     // The ticket has ended (Done or Dropped), as `fold_ticket` tracks it: an owner move or a
@@ -328,6 +339,9 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
             (_, Act::Closed(k)) if coordinator => {
                 steps.push(Step::Close(k));
                 f.closes.push((k, ev()));
+                if k == CloseKind::Dropped && dropped_merged_pr(&m.body).is_some() {
+                    f.drops_with_pr.push(m.comment_id);
+                }
             }
             // a late note is a report to the owner, of the coordinator or of a dev agent
             // (`ops::late::late_info_exists`)
@@ -353,9 +367,21 @@ fn facts_of(log: &TicketLog) -> Option<TicketFacts> {
                 .extend(refusals_mentioned(&m.body).into_iter().map(|id| (id, ev())));
         }
     }
-    f.assigned?;
     mark_accepted(&mut f.verifies, &steps);
-    Some(f)
+    f
+}
+
+/// The end of a ticket: its latest close, when the log still ends there (an owner move or a
+/// new assignment opens a ticket again).
+fn ended_close<'a>(log: &TicketLog, f: &'a TicketFacts) -> Option<&'a (CloseKind, Event)> {
+    let ended = matches!(fold_ticket(&log.msgs).status, Expected::Is(s) if s.ended());
+    f.closes.last().filter(|_| ended)
+}
+
+/// The drop notice that ended the issue, when it records a merged PR.
+fn ended_drop_with_pr<'a>(log: &TicketLog, f: &'a TicketFacts) -> Option<&'a Event> {
+    let (kind, ev) = ended_close(log, f)?;
+    (*kind == CloseKind::Dropped && f.drops_with_pr.contains(&ev.comment_id)).then_some(ev)
 }
 
 /// The artifact rule: a fail whose only class is `PR head moved` is accepted when the next
@@ -470,15 +496,14 @@ fn flow(logs: &[&TicketLog], facts: &[TicketFacts]) -> Flow {
         out.reassigned_tickets += usize::from(!f.reassigns.is_empty());
         out.reassigns.extend(f.reassigns.iter().cloned());
         out.late_notes.extend(f.late.iter().cloned());
-        // The end of a ticket: its latest close, when the log still ends there (an owner move or
-        // a new assignment opens a ticket again).
-        let ended = matches!(fold_ticket(&log.msgs).status, Expected::Is(s) if s.ended());
-        if let (true, Some((kind, ev))) = (ended, f.closes.last()) {
+        if let Some((kind, ev)) = ended_close(log, f) {
             *out.closes.entry(close_word(*kind)).or_default() += 1;
             if *kind == CloseKind::Dropped {
                 out.dropped.push(ev.clone());
             }
         }
+        out.dropped_merged
+            .extend(ended_drop_with_pr(log, f).cloned());
         let (Some(assigned), Some(done)) = (f.assigned, f.dones.first().copied()) else {
             continue;
         };
@@ -515,12 +540,20 @@ fn andon(logs: &[&TicketLog], facts: &[TicketFacts]) -> Andon {
 }
 
 /// The report of `logs`: one entry per issue, each with its counted messages in comment order.
-/// An issue without a signed assignment of a coordinator is no ticket and counts nowhere.
+/// An issue without a signed assignment of a coordinator is no ticket and counts nowhere, with
+/// one exception: its drop notice with a merged PR is in `merged_unassigned`, and only there.
 pub fn retro(logs: &[TicketLog]) -> Report {
-    let (tickets, facts): (Vec<&TicketLog>, Vec<TicketFacts>) = logs
-        .iter()
-        .filter_map(|log| Some((log, facts_of(log)?)))
-        .unzip();
+    let (mut tickets, mut facts): (Vec<&TicketLog>, Vec<TicketFacts>) = (Vec::new(), Vec::new());
+    let mut merged_unassigned = Vec::new();
+    for log in logs {
+        let f = facts_of(log);
+        if f.assigned.is_some() {
+            tickets.push(log);
+            facts.push(f);
+        } else {
+            merged_unassigned.extend(ended_drop_with_pr(log, &f).cloned());
+        }
+    }
     let times = || {
         tickets
             .iter()
@@ -541,6 +574,7 @@ pub fn retro(logs: &[TicketLog]) -> Report {
         andon: andon(&tickets, &facts),
         refusals: refusal_rows(&facts),
         flow: flow(&tickets, &facts),
+        merged_unassigned,
     }
 }
 
