@@ -2,7 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.9.1 (2026-11-14)
 
 Upgrade: nothing changes on the board. A ticket that an older build dropped keeps its open
 issue. The rule for Done does not change.
