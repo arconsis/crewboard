@@ -497,6 +497,16 @@ mod tests {
         let log = fold_ticket(&m);
         assert!(!status_contradicts(&log, Some("Dropped")));
         assert!(status_contradicts(&log, Some("Done")));
+        // a drop that records a merged PR is the same drop: Dropped, never Done
+        let with_pr = crate::protocol::acts::dropped_merged_body(
+            "merged without verify",
+            "https://github.com/o/r/pull/9",
+            Some("abc"),
+            "crew-account",
+        );
+        let mut m = assigned();
+        m.push(coord(3, "agent-b@host-b", Kind::Info, &with_pr));
+        assert_eq!(fold_ticket(&m), log);
     }
 
     #[test]
