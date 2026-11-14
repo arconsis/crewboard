@@ -142,7 +142,7 @@ fn the_report_counts_the_signed_log_of_two_tickets_and_writes_nothing() {
         format!("  accepted-after-head-moved: 1\n    #{t2} http://"),
         format!("  #{t1}: 1 fail(s) http://"),
         "  questions to the owner: 0\n".to_string(),
-        "  reassigned tickets: 0\n  dropped tickets: 0\n  closes: merged 1, owner-merged 1\n"
+        "  reassigned tickets: 0\n  dropped tickets: 0\n  dropped with a merged PR: 0\n  closes: merged 1, owner-merged 1\n"
             .to_string(),
         "  assignment to first done: median 0.0 h, p90 0.0 h (2 ticket(s))\n".to_string(),
         "  first done to close: median 0.0 h, p90 0.0 h (2 ticket(s))\n".to_string(),
@@ -488,3 +488,86 @@ fn a_feed_of_more_than_one_page_is_read_whole_and_a_feed_over_the_limit_names_si
 /// The reads of `retro` without `--since` on a board whose feed fits one page: the login of
 /// the token, the board, AUTHORITY.md, the registry issue, the agent items and the feed.
 const READS: usize = 6;
+
+/// Three drops. Ticket 1 has a PR that the crew account merged without a verify: the drop note
+/// records the PR, and the report counts the ticket as dropped with a merged PR. Ticket 2 is a
+/// plain drop. Issue 3 was never assigned, and its drop note records a merged PR too: it is
+/// merged work without an assignment, and it is in no other number.
+#[test]
+fn the_report_counts_a_drop_with_a_merged_pr_on_its_own() {
+    let (fake, c, b) = crew();
+    let merged_by_crew = |t: u64, pr: &crate::support::board::Pull| {
+        fake.merge_pr_by(pr.number, "fake-crew");
+        fake.close_issue(t);
+        run_ok(
+            &fake,
+            &c,
+            &["close", &t.to_string(), "--why", "merged without verify"],
+        );
+    };
+    let (t1, pr1) = delivered(&fake, &c, &b, "IT retro merged by the crew");
+    merged_by_crew(t1, &pr1);
+
+    let body = format!("Goal: integration test ticket.\n\n{GATE}CI: none\n");
+    let t2 = fake.ticket_issue("IT retro plain drop", &body, &["crew:work"]);
+    run_ok(&fake, &c, &["assign", &t2.to_string(), "--to", &b.name]);
+    run_ok(
+        &fake,
+        &c,
+        &["close", &t2.to_string(), "--why", "not needed"],
+    );
+
+    let t3 = fake.ticket_issue("IT retro no assignment", &body, &["crew:work"]);
+    run_ok(&fake, &c, &["ticket", "adopt", &t3.to_string()]);
+    let pr3 = fake.pr_for(t3, &c.name);
+    fake.cross_reference(t3, pr3.number);
+    merged_by_crew(t3, &pr3);
+
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let text = &o.stdout;
+    for want in [
+        "retro of initiative fake: 2 ticket(s), ",
+        "  tickets with an assignment: 2\n  delivered tickets (at least one done): 1\n  merged work without an assignment (a drop note with a merged PR): 1\n",
+        "  reassigned tickets: 0\n  dropped tickets: 2\n  dropped with a merged PR: 1\n  closes: dropped 2\n",
+        "  first done to close: no ticket\n",
+    ] {
+        assert!(text.contains(want), "missing {want:?} in:\n{text}");
+    }
+
+    let r = report(&retro(&fake, &c.dir, &["--json"]));
+    assert_eq!(r["tickets"], 2);
+    let issues = |v: &Value| -> Vec<u64> {
+        assert_eq!(v["count"], v["events"].as_array().unwrap().len());
+        v["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["issue"].as_u64().unwrap())
+            .collect()
+    };
+    assert_eq!(issues(&r["flow"]["dropped"]), [t1, t2]);
+    assert_eq!(issues(&r["flow"]["dropped_merged"]), [t1]);
+    assert_eq!(issues(&r["merged_unassigned"]), [t3]);
+    assert_eq!(r["flow"]["closes"], serde_json::json!({"dropped": 2}));
+    // the event is the drop note, with the lines of the PR
+    let note = fake
+        .comments_of(t1)
+        .into_iter()
+        .find(|(_, _, body)| body.contains("dropped: merged without verify"))
+        .unwrap();
+    assert!(
+        note.2
+            .contains(&format!("\npr: {}\nmerge-commit: ", pr1.url)),
+        "{}",
+        note.2
+    );
+    assert!(
+        r["flow"]["dropped_merged"]["events"][0]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("#issuecomment-{}", note.0)),
+        "{r}"
+    );
+    no_unhandled(&fake);
+}
