@@ -647,7 +647,8 @@ pub enum ReviewCmd {
     /// (Done); with `--why` it looks too, and when it finds no owner merge it drops the ticket by
     /// your judgment (Dropped; with an owner merge the ticket is Done and the text goes into the
     /// note); `--verified` closes a PR that is merged at the head of a passed verify (Done). Done
-    /// and Dropped are final.
+    /// and Dropped are final. A drop closes an open issue as "not planned". Its note names a PR
+    /// of the ticket that another account than the owner merged.
     #[command(display_order = 19)]
     Close {
         /// The ticket: an issue number, or `<owner>/<repo>#<n>`.
@@ -659,7 +660,8 @@ pub enum ReviewCmd {
         /// Drop the ticket by your judgment when no owner merge exists (no PR, or the ticket will
         /// not be done): Status Dropped. When `close` finds an owner merge, the ticket is Done and
         /// the text is a line of the close note. The text goes into the note on the ticket; name
-        /// a replacing ticket in it.
+        /// a replacing ticket in it. A drop also closes the issue as "not planned" when it is
+        /// open.
         #[arg(long, value_name = "TEXT")]
         why: Option<String>,
         #[command(flatten)]
@@ -686,9 +688,9 @@ pub enum ReviewCmd {
     ///
     /// Any reader of the board (the owner, the coordinator): count the verified signed messages
     /// of the tickets and print why work went back (verify fails by class), where it stopped
-    /// (questions, blocks), which refusals the dev agents named and how long the steps took. It
-    /// counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed
-    /// assignment.
+    /// (questions, blocks), which refusals the dev agents named and how long the steps took. A
+    /// dropped ticket whose drop note names a merged PR has its own count. It counts classes and
+    /// ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
     #[command(display_order = 33)]
     Retro {
         /// Print the report as JSON, with the comment URL, the sender and the addressee of

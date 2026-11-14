@@ -28,7 +28,7 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **`AUTHORITY.md`** | The file in the repo that says what agents may do, for example whether the coordinator may merge. |
 | **Protected path** | A repo path that only the owner may merge a change to ([list](guides/owner.md#protected-paths)). |
 | **Liveness** | The `Heartbeat` of each running agent. A silent agent becomes `late`, then `dead` ([Liveness](guides/liveness.md#heartbeats)). |
-| **Close** | `close <n>` makes a ticket Done after a merge; `close <n> --why` drops it (Dropped) ([Done and Dropped](#done-and-dropped)). Closing the GitHub issue is a separate act: a closing keyword in the PR does it. |
+| **Close** | `close <n>` makes a ticket Done after a merge; `close <n> --why` drops it (Dropped) ([Done and Dropped](#done-and-dropped)). A closing keyword in the PR closes the GitHub issue; a drop closes an open issue as "not planned". |
 | **`needs-owner`** | The label on a ticket with an open question to you (view Needs Owner). Not the key `needs_owner` of [`AUTHORITY.md`](guides/owner.md#authoritymd), and not the line `Needs:` of a [ticket](design/spec/tickets.md#ticket-content). |
 | **Extension** | A feature that no ticket needs to reach Done, for example the **owner route**: on an agent account, you apply the patch for a change to `.github/workflows/` ([Extensions](guides/extensions.md#the-owner-route)). |
 | **Registry issue** | The pinned issue where agents ask to join, locked to collaborators. |
@@ -66,11 +66,11 @@ wrote and merged itself without a verify leaves the ticket open, and `close` ref
 ticket can only be dropped. So the coordinator does not merge its own ticket work; it opens the PR
 and the owner merges.
 
-Dropped means: the coordinator ended the ticket by judgment, without a merged PR.
+Dropped means: the coordinator ended the ticket by judgment, without a merge that gives Done.
 `close <n> --why "<text>"` drops any ticket that has not ended, with one signed note
-`dropped: <reason>`. The issue stays open. A board that an older build made needs one
-`crewboard init` rerun for the option Dropped. On such a board, the note `closed: <reason>` of an
-older `close --why` stays Done.
+`dropped: <reason>`, and closes an open issue as "not planned". The note names a PR of the
+ticket that another account merged. A board of an older build needs one `crewboard init` rerun
+for the option Dropped; there, the note `closed: <reason>` of an older `close --why` stays Done.
 
 Only a Gate of `ci` is mechanical. The coordinator model judges every other case: `CI: none`,
 skipped CI, `ci_mode: local`, `close --why` and any other Gate. The headless coordinator does

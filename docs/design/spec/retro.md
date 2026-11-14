@@ -44,7 +44,8 @@ The sender decides who did an act:
 - A park (`parked for #<n>:`) counts only from that assignee too. The same text of another
   agent is a plain `blocked` message.
 - A late note counts only as a message to the owner, from the coordinator or a dev agent.
-- A ticket is an issue with a signed assignment. Any other issue counts nowhere.
+- A ticket is an issue with a signed assignment. Any other issue counts nowhere, with one
+  exception: [merged work without an assignment](#dropped-with-a-merged-pr).
 
 ## The period
 
@@ -61,17 +62,40 @@ agent: a retrospective looks for classes of causes, and a ranking of agents hide
 
 | Section | Content |
 |---|---|
-| Volume | The first and the last message time, the tickets with an assignment, the delivered tickets (at least one `done`). |
+| Volume | The first and the last message time, the tickets with an assignment, the delivered tickets (at least one `done`), the [merged work without an assignment](#dropped-with-a-merged-pr). |
 | Verify | The tickets with a verify result. The tickets whose first result is a pass, with their share; when accepted fails exist (below), a second figure counts a ticket whose first result is an accepted fail as passed. The tickets with a fail and the number of fails, each with and without the accepted fails. |
 | Verify fails by class | For each class: the count and the fails (ticket and URL). The text lists the latest 5 fails of a class and then the line `... and N more (--json lists all)`. The same limit holds for every list of the text. `--json` lists all. |
 | Rounds | The 5 tickets with the most fails that are rework. |
 | Andon | The questions to the owner, to the coordinator and to another agent. The `blocked` and the parked messages. The question to the owner that is still open, for each ticket that has not ended. |
 | Refusals mentioned | For each [refusal id](../../reference/refusals.md) that a dev agent names as a whole word in a `question`, `blocked` or `report` message: the count and the messages. A refusal of the CLI is not on the board, so this is its only trace. |
-| Flow | The reassigned tickets, the dropped tickets, the closes by kind, the late notes. The median and the 90th percentile of the hours from the first assignment to the first `done`, and from the first `done` to the close. |
+| Flow | The reassigned tickets, the dropped tickets, the tickets [dropped with a merged PR](#dropped-with-a-merged-pr), the closes by kind, the late notes. The median and the 90th percentile of the hours from the first assignment to the first `done`, and from the first `done` to the close. |
 
 The median of an even number of values is the mean of the two middle values. The 90th
 percentile is the value at position `ceil(0.9 n)` of the sorted values. A close is counted for
 a ticket that the log still shows as ended; a ticket that the owner moved back is open.
+
+### Dropped with a merged PR
+
+A PR that another account than the owner merged, without a passed verify, gives no Done. The
+coordinator can only drop such a ticket, and the drop note records the PR
+([a drop that records a merged PR](tickets.md#a-drop-that-records-a-merged-pr)). The work is
+delivered all the same, so the report does not hide it among the drops:
+
+- **Dropped with a merged PR** (text: `dropped with a merged PR`, JSON: `flow.dropped_merged`):
+  the dropped tickets whose drop note has the lines `pr:` and `merge-commit:`. Each of them is
+  also a dropped ticket (`flow.dropped`) and a close of the kind `dropped`. It is no merge close:
+  it accepts no `head-moved` fail and gives no time from `done` to close.
+- **Merged work without an assignment** (text: `merged work without an assignment`, JSON:
+  `merged_unassigned`): the same drop note of a coordinator on an issue without a signed
+  assignment. Such an issue is no ticket. It is in this number and in no other.
+
+Both numbers count only an issue that the log still shows as Dropped, and only the note that
+dropped it. Both read only the signed note; `retro` asks GitHub for no PR. A drop note without
+these lines, as every build before this one wrote it, is a plain drop. Both numbers rank no
+agent.
+
+When the period has no ticket, the text prints the line of the merged work without an
+assignment only when that number is not 0. The exit code stays 1.
 
 ### Classes of a verify fail
 
