@@ -403,6 +403,16 @@ impl FakeBoard {
             .state = "closed";
     }
 
+    /// An issue is opened again.
+    pub fn reopen_issue(&self, issue: u64) {
+        let mut st = self.st.lock().unwrap();
+        st.issues
+            .iter_mut()
+            .find(|i| i.number == issue)
+            .expect("issue")
+            .state = "open";
+    }
+
     /// Is the issue open?
     pub fn issue_is_open(&self, issue: u64) -> bool {
         let st = self.st.lock().unwrap();
