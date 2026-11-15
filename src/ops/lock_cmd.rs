@@ -366,6 +366,7 @@ fn run_unix(config_dir: Option<&Path>, args: &[String], job: &RunCtx) -> i32 {
         nested: false,
         lock_pid: None,
         detached: false,
+        result: None,
     };
     let cfg_dir = p
         .config_dir
@@ -461,6 +462,7 @@ pub fn release_for(dir: &str, owner: &str) -> (i32, String) {
         nested: false,
         lock_pid: None,
         detached: false,
+        result: None,
     };
     let code = s.release();
     let first = log.lines().into_iter().next().unwrap_or_default();

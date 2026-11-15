@@ -18,6 +18,9 @@ pub struct OwnerFile {
     pub reason: String,
     pub expect: Option<u64>,
     pub detached: bool,
+    /// The result file of a detached job (the physical path). A second start of the same job
+    /// reads it. An owner file of an older release has no such line.
+    pub result: Option<String>,
 }
 
 /// The file is line based: a newline in a value becomes a blank.
@@ -27,7 +30,8 @@ pub fn one_line(s: &str) -> String {
 
 impl OwnerFile {
     /// The lines in the fixed order that readers expect: agent, host, pid, started, started_epoch,
-    /// reason, expect (only when given), detached=1 (only for a detached job).
+    /// reason, expect (only when given), detached=1 (only for a detached job), result (only for a
+    /// detached job that knows its result file).
     pub fn render(&self) -> String {
         let mut s = format!(
             "agent={}\nhost={}\npid={}\nstarted={}\nstarted_epoch={}\nreason={}\n",
@@ -38,6 +42,9 @@ impl OwnerFile {
         }
         if self.detached {
             s.push_str("detached=1\n");
+            if let Some(r) = &self.result {
+                s.push_str(&format!("result={}\n", one_line(r)));
+            }
         }
         s
     }
@@ -117,6 +124,7 @@ mod tests {
             reason: "cargo test".into(),
             expect: None,
             detached: false,
+            result: None,
         }
     }
 
@@ -132,6 +140,27 @@ mod tests {
         assert!(
             o.render()
                 .ends_with("reason=cargo test\nexpect=1800\ndetached=1\n")
+        );
+    }
+
+    #[test]
+    fn a_detached_job_names_its_result_file_after_the_old_lines() {
+        let mut o = sample();
+        o.detached = true;
+        o.result = Some("/s/results/7.result".into());
+        let text = o.render();
+        assert!(
+            text.ends_with("reason=cargo test\ndetached=1\nresult=/s/results/7.result\n"),
+            "{text}"
+        );
+        assert_eq!(field(&text, "result"), Some("/s/results/7.result"));
+        assert!(is_valid(&text));
+        // the line belongs to a detached job only, and an owner file of an older release has none
+        o.detached = false;
+        assert_eq!(field(&o.render(), "result"), None);
+        assert_eq!(
+            field("agent=a\nstarted_epoch=5\ndetached=1\n", "result"),
+            None
         );
     }
 

@@ -76,6 +76,11 @@ fn run_job(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
     {
         return detach::supervise(s, p, ctx, parent);
     }
+    if p.detach
+        && let Some(rc) = detach::refuse_start(s, p)
+    {
+        return rc;
+    }
     let own = s.procs.pid().to_string();
     let rc = s.take(&own);
     if rc != 0 {
@@ -262,6 +267,7 @@ mod tests {
             nested: false,
             lock_pid: None,
             detached: false,
+            result: None,
         }
     }
 
@@ -1284,5 +1290,162 @@ mod tests {
         assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 64);
         assert!(!lock.exists() && !d.path().join("l.waiting").exists());
         assert!(log.said()[0].contains("no Runner.Worker"));
+    }
+
+    /// `run <lock> --holder b@x --detach --result <res> [extra] -- true`
+    fn detach_args(lock: &Path, res: &Path, extra: &[&str]) -> Parsed {
+        let mut a: Vec<String> = vec![
+            "run".into(),
+            lock.to_string_lossy().to_string(),
+            "--holder".into(),
+            "b@x".into(),
+            "--detach".into(),
+            "--result".into(),
+            res.to_string_lossy().to_string(),
+        ];
+        a.extend(extra.iter().map(|e| e.to_string()));
+        a.extend(["--".to_string(), "true".to_string()]);
+        match crate::args::parse(&a, &Default::default()) {
+            Ok(crate::args::Parse::Run(p)) => *p,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The owner file of a detached job, with the `result=` line when `result` is given.
+    fn plant_job(dir: &Path, pid: &str, result: Option<&str>) {
+        plant(dir, "a@x", "hostA", pid, NOW);
+        let mut t = std::fs::read_to_string(dir.join("owner")).unwrap();
+        t.push_str("detached=1\n");
+        if let Some(r) = result {
+            t.push_str(&format!("result={r}\n"));
+        }
+        std::fs::write(dir.join("owner"), t).unwrap();
+    }
+
+    #[test]
+    fn dt8_a_second_start_of_a_job_that_still_runs_is_1_at_once_without_a_wait() {
+        let d = tempfile::tempdir().unwrap();
+        let (lock, res) = (d.path().join("l"), d.path().join("7.result"));
+        let phys = crate::phys_dir(&res.to_string_lossy());
+        plant_job(&lock, "111", Some(&phys));
+        let (c, p) = (FakeClock::at(NOW), FakeProcs::new().alive_pids(&[111]));
+        let log = Log::memory(&c);
+        let rig = Rig {
+            clock: &c,
+            procs: &p,
+            log: &log,
+        };
+        let mut o = opts("b@x");
+        o.wait = 3600;
+        let mut s = session(&lock, o, &rig);
+        let parsed = detach_args(&lock, &res, &["--wait", "3600"]);
+        assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 1);
+        assert_eq!(c.now(), NOW, "no wait for the lock");
+        assert_eq!(
+            log.said(),
+            vec![format!(
+                "the detached job pid=111 still runs and writes {phys}; not starting it again. End the wake: the next wake gets the event `detached job finished`"
+            )]
+        );
+        // --again does not change it: the job is the same job
+        let again = detach_args(&lock, &res, &["--wait", "3600", "--again"]);
+        assert_eq!(dispatch(&mut s, &again, &RunCtx::default()), 1);
+        assert!(
+            std::fs::read_to_string(lock.join("owner"))
+                .unwrap()
+                .contains("agent=a@x"),
+            "the lock of the job stays"
+        );
+    }
+
+    #[test]
+    fn dt8b_another_result_file_no_result_line_and_a_dead_job_are_not_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let (lock, res) = (d.path().join("l"), d.path().join("7.result"));
+        let phys = crate::phys_dir(&res.to_string_lossy());
+        let c = FakeClock::at(NOW);
+        let log = Log::memory(&c);
+        let alive = FakeProcs::new().alive_pids(&[111]);
+        let dead = FakeProcs::new();
+        let parsed = detach_args(&lock, &res, &[]);
+        let other = crate::phys_dir(&d.path().join("8.result").to_string_lossy());
+        // (the result line of the owner file, the processes, refused?)
+        let cases: [(Option<&str>, &FakeProcs, bool); 4] = [
+            (Some(&phys), &alive, true), // control: the same file and a live job
+            (Some(&other), &alive, false),
+            (None, &alive, false),       // the owner file of an older release
+            (Some(&phys), &dead, false), // a stale lock: the take handles it
+        ];
+        for (result, procs, refused) in cases {
+            plant_job(&lock, "111", result);
+            let rig = Rig {
+                clock: &c,
+                procs,
+                log: &log,
+            };
+            let mut s = session(&lock, opts("b@x"), &rig);
+            assert_eq!(
+                crate::detach::refuse_start(&mut s, &parsed),
+                refused.then_some(1),
+                "{result:?}"
+            );
+        }
+        // a lock that is no detached job (no detached=1) is waited for as before
+        plant(&lock, "a@x", "hostA", "111", NOW);
+        let rig = Rig {
+            clock: &c,
+            procs: &alive,
+            log: &log,
+        };
+        let mut s = session(&lock, opts("b@x"), &rig);
+        assert_eq!(crate::detach::refuse_start(&mut s, &parsed), None);
+        assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 75);
+    }
+
+    #[test]
+    fn dt9_an_unreported_result_stops_the_start_and_stays_a_reported_one_does_not() {
+        let d = tempfile::tempdir().unwrap();
+        let (lock, res) = (d.path().join("l"), d.path().join("7.result"));
+        let phys = crate::phys_dir(&res.to_string_lossy());
+        let text = "rc=0 end=2026-10-21T10:00:00Z log=/r/7.result.log\nticket=7\n";
+        std::fs::write(&res, text).unwrap();
+        let (c, p) = (FakeClock::at(NOW), FakeProcs::new());
+        let log = Log::memory(&c);
+        let rig = Rig {
+            clock: &c,
+            procs: &p,
+            log: &log,
+        };
+        let mut s = session(&lock, opts("b@x"), &rig);
+        let parsed = detach_args(&lock, &res, &[]);
+        assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 1);
+        assert_eq!(
+            log.said(),
+            vec![format!(
+                "the detached job has finished: {phys} holds `rc=0 end=2026-10-21T10:00:00Z log=/r/7.result.log` and no wake has reported it; not starting the job again. Handle that result first: the next wake reports it as the event `detached job finished` (rc=0: run done; another rc: fix the cause). To start the job again on purpose, add --again"
+            )]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&res).unwrap(),
+            text,
+            "the result stays"
+        );
+        assert!(!lock.exists(), "the lock was not taken");
+        // --again: not refused
+        let again = detach_args(&lock, &res, &["--again"]);
+        assert_eq!(crate::detach::refuse_start(&mut s, &again), None);
+        // a seen file of an older run: still unreported
+        let seen = crate::result::seen_path(&res);
+        std::fs::write(&seen, "rc=1 end=OLD log=l\n").unwrap();
+        assert_eq!(crate::detach::refuse_start(&mut s, &parsed), Some(1));
+        // reported: the start goes on
+        std::fs::write(&seen, "rc=0 end=2026-10-21T10:00:00Z log=/r/7.result.log\n").unwrap();
+        assert_eq!(crate::detach::refuse_start(&mut s, &parsed), None);
+        // a file without an rc line (no finished result) and no file at all: the start goes on
+        std::fs::remove_file(&seen).unwrap();
+        std::fs::write(&res, "ticket=7\n").unwrap();
+        assert_eq!(crate::detach::refuse_start(&mut s, &parsed), None);
+        std::fs::remove_file(&res).unwrap();
+        assert_eq!(crate::detach::refuse_start(&mut s, &parsed), None);
     }
 }

@@ -100,6 +100,8 @@ pub struct Parsed {
     pub log: Option<String>,
     pub detach: bool,
     pub result: Option<String>,
+    /// `--again`: start the detached job although its last result is not reported yet.
+    pub again: bool,
     pub ticket: String,
     pub sha: String,
     pub run_cmd: Vec<String>,
@@ -223,6 +225,7 @@ fn read_options(
             "--if-dead" => raw.if_dead = true,
             "--detach" => p.detach = true,
             "--result" => p.result = Some(value!()),
+            "--again" => p.again = true,
             "--ticket" => p.ticket = value!(),
             "--sha" => p.sha = value!(),
             "--ci-max-age" => raw.ci_max_age = value!(),
@@ -336,6 +339,9 @@ fn check_detach(p: &Parsed) -> Result<(), String> {
     if !p.detach && (!p.ticket.is_empty() || !p.sha.is_empty()) {
         return Err("--ticket and --sha need --detach".to_string());
     }
+    if !p.detach && p.again {
+        return Err("--again needs --detach".to_string());
+    }
     Ok(())
 }
 
@@ -381,6 +387,7 @@ pub fn parse(args: &[String], env: &ArgEnv) -> Result<Parse, String> {
         log: None,
         detach: false,
         result: None,
+        again: false,
         ticket: String::new(),
         sha: String::new(),
         run_cmd: Vec::new(),
@@ -605,6 +612,13 @@ mod tests {
         );
         let p = ok("run /x --holder a --detach --result /r --ticket 42 --sha abc123 -- true");
         assert_eq!((p.ticket.as_str(), p.sha.as_str()), ("42", "abc123"));
+        assert!(!p.again);
+        assert!(ok("run /x --holder a --detach --result /r --again -- true").again);
+        assert_eq!(
+            err("run /x --holder a --again -- true"),
+            "--again needs --detach"
+        );
+        assert_eq!(err("take /x --holder a --again"), "--again needs --detach");
     }
 
     #[test]

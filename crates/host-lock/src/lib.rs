@@ -102,6 +102,8 @@ pub struct Session<'a> {
     pub lock_pid: Option<String>,
     /// The owner file of this process is a detached job.
     pub detached: bool,
+    /// The result file of that detached job, for the owner file.
+    pub result: Option<String>,
 }
 
 /// The physical path (symlinks resolved), also when the last part does not exist yet.
@@ -162,6 +164,7 @@ impl<'a> Session<'a> {
             reason: self.opts.reason.clone(),
             expect: self.opts.expect,
             detached: self.detached,
+            result: self.result.clone(),
         };
         owner::write_owner(&self.dir, &o)
     }
