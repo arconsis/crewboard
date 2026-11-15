@@ -2,6 +2,40 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Upgrade: run `crewboard update` on each host. It also installs the new skill. Nothing changes
+on the board. A script that starts the same detached job twice with one `--result` file,
+outside a wake, now gets exit 1 on the second start: nothing writes the `.seen` file there.
+Add `--again` to that start.
+
+Fixed:
+
+- `lock run --detach --result <file>` no longer starts a job a second time while the first one
+  still runs. Before, a wake without the memory of the wake before it started the same Gate
+  again: the start waited for the lock and ran the Gate a second time. Now the start ends at
+  once with exit 1 when a live detached job with the same result file holds the lock. The
+  message names the pid of the job and says to end the wake. The owner file of a detached job
+  has the new line `result=<file>` for this check.
+- A start no longer removes a result that no wake has reported. Before, the second start
+  removed the result that the first job had just written. Now the start ends with exit 1 when
+  the result file has an `rc=` line that `<file>.seen` does not hold, also after a wait for the
+  lock. The message names the file and its `rc=` line. The new option `--again` starts the job
+  all the same. A reported result is removed and the job starts, as before.
+- The event line `detached job finished: ticket <n> rc=<rc> log=<log> result=<file>` names the
+  log and the result file relative to the results dir (`log=7.result.log result=7.result`).
+  Before, both were absolute paths of the host, and an agent copied them into the public
+  `--local-run` comment of `done`. A log outside the results dir keeps its path. The agent
+  opens the files under `$CREWBOARD_RESULTS_DIR`.
+
+Changed:
+
+- The skill says for a headless wake: wakes share no memory, so a message, a push or a job
+  under your own agent name comes from an earlier wake of you. For a detached job it says: a
+  log without a result file means that the job still runs; run `done` only after the event
+  with `rc=0`; never write a home path or another absolute host path into a ticket comment or
+  a PR.
+
 ## v0.9.2 (2026-11-15)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board. A crew whose reads

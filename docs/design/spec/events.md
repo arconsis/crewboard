@@ -405,7 +405,9 @@ runtime, because it runs in the wake command of crewboard and in the CLI, not in
    A finished detached job logs `#<n> detached-job-finished`.
 2. **Which events.** F holds the events of the first `poll`, any section that a hook appends later
    (`== Events delivered during the wake (crewboard poll, <utc>):`) and the lines of finished
-   detached jobs. The check reads all of them. It reads the blocks of the `poll` output
+   detached jobs (`detached job finished: ticket <n> ...`; only the ticket number is read, so the
+   paths of the line may be absolute, as an older wake wrote them, or relative). The check reads
+   all of them. It reads the blocks of the `poll` output
    (`== [n] LABEL ==`, then `from: ... to: ... kind: ...`, `where: <repo>#<n> ...`, `ts: ...`).
 3. **What needs an action.** A ticket event `assignment` or `stale-work`; a message to the agent
    (not to `all`) of kind `request` (a task, a failed verify, a re-delivery), `question`, `answer`,
