@@ -80,6 +80,8 @@ macro_rules! catalog {
 
 catalog! {
     "Board fields and options" {
+        AGENT_ITEM_MISSING = "agent-item-missing" :
+            "An approved agent with an open registry span has no readable Project item. Check access or have the owner reject the agent in the registry issue.";
         FIELD_NOT_ON_ITEM = "field-not-on-item" :
             "The field is not a field of this kind of item (ticket or agent item).";
         FIELD_TYPE_MISMATCH = "field-type-mismatch" :

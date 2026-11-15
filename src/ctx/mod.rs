@@ -349,7 +349,7 @@ pub fn load_world(ctx: &Ctx, extra_ids: &[String], cache: &mut StateCache) -> Cb
             comments: comments.clone(),
         });
     }
-    let reg = resolve(&ctx.cfg, &comments);
+    let mut reg = resolve(&ctx.cfg, &comments);
     let mut ids: Vec<String> = reg
         .agents
         .values()
@@ -358,7 +358,7 @@ pub fn load_world(ctx: &Ctx, extra_ids: &[String], cache: &mut StateCache) -> Cb
         .collect();
     ids.sort();
     ids.dedup();
-    let read = ctx.board.read_items(&ctx.client, &ids)?;
+    let read = ctx.board.read_items_tolerant(&ctx.client, &ids)?;
     let mut items = HashMap::new();
     let mut unreadable = Vec::new();
     for (id, it) in ids.iter().zip(read) {
@@ -368,6 +368,31 @@ pub fn load_world(ctx: &Ctx, extra_ids: &[String], cache: &mut StateCache) -> Cb
             }
             None => unreadable.push(id.clone()),
         }
+    }
+    for e in reg.agents.values() {
+        let Some(join) = &e.join else { continue };
+        if !unreadable.contains(&join.item_id) {
+            continue;
+        }
+        if e.approved() && !e.departure.is_some_and(|d| d.ended()) {
+            return Err(CbError::refused(
+                crate::base::ids::AGENT_ITEM_MISSING,
+                format!(
+                    "{}: agent item {} is missing or inaccessible. Check Project access. If the item was deleted, the owner must post `/crew reject {}` in the registry issue {}#{} to retire this identity, then join and approve a new agent name. Retrying cannot restore a deleted item",
+                    e.name,
+                    join.item_id,
+                    e.name,
+                    ctx.main_repo(),
+                    ctx.cfg.registry_issue
+                ),
+            ));
+        }
+        reg.notes.push(format!(
+            "{}: agent item {} is missing or inaccessible; {}",
+            e.name,
+            join.item_id,
+            e.departure.map_or("not approved", |d| d.reason())
+        ));
     }
     let trust = build_trust(&reg, &items, ctx.cfg.project_number);
     Ok(World {
