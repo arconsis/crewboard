@@ -1293,6 +1293,7 @@ mod tests {
     }
 
     /// `run <lock> --holder b@x --detach --result <res> [extra] -- true`
+    #[cfg(unix)]
     fn detach_args(lock: &Path, res: &Path, extra: &[&str]) -> Parsed {
         let mut a: Vec<String> = vec![
             "run".into(),
@@ -1312,6 +1313,7 @@ mod tests {
     }
 
     /// The owner file of a detached job, with the `result=` line when `result` is given.
+    #[cfg(unix)]
     fn plant_job(dir: &Path, pid: &str, result: Option<&str>) {
         plant(dir, "a@x", "hostA", pid, NOW);
         let mut t = std::fs::read_to_string(dir.join("owner")).unwrap();
@@ -1322,6 +1324,7 @@ mod tests {
         std::fs::write(dir.join("owner"), t).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn dt8_a_second_start_of_a_job_that_still_runs_is_1_at_once_without_a_wait() {
         let d = tempfile::tempdir().unwrap();
@@ -1358,6 +1361,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn dt8b_another_result_file_no_result_line_and_a_dead_job_are_not_refused() {
         let d = tempfile::tempdir().unwrap();
@@ -1402,6 +1406,7 @@ mod tests {
         assert_eq!(dispatch(&mut s, &parsed, &RunCtx::default()), 75);
     }
 
+    #[cfg(unix)]
     #[test]
     fn dt9_an_unreported_result_stops_the_start_and_stays_a_reported_one_does_not() {
         let d = tempfile::tempdir().unwrap();
