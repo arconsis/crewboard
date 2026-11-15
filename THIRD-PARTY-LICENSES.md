@@ -897,11 +897,11 @@ Used by:
 - clap_builder 4.6.7 (https://github.com/clap-rs/clap)
 - clap_derive 4.6.7 (https://github.com/clap-rs/clap)
 - clap_lex 1.1.1 (https://github.com/clap-rs/clap)
-- serde_spanned 1.1.2 (https://github.com/toml-rs/toml)
-- toml 1.1.8+spec-1.1.0 (https://github.com/toml-rs/toml)
-- toml_datetime 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
+- serde_spanned 1.1.3 (https://github.com/toml-rs/toml)
+- toml 1.2.1+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_datetime 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_parser 1.1.5+spec-1.1.0 (https://github.com/toml-rs/toml)
-- toml_writer 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_writer 1.2.0+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ```text
                                  Apache License
@@ -2827,7 +2827,7 @@ Used by:
 - displaydoc 0.2.7 (https://github.com/yaahc/displaydoc)
 - filetime 0.2.29 (https://github.com/alexcrichton/filetime)
 - find-msvc-tools 0.1.14 (https://github.com/rust-lang/cc-rs)
-- flate2 1.1.10 (https://github.com/rust-lang/flate2-rs)
+- flate2 1.1.11 (https://github.com/rust-lang/flate2-rs)
 - form_urlencoded 1.2.2 (https://github.com/servo/rust-url)
 - heck 0.5.0 (https://github.com/withoutboats/heck)
 - httparse 1.10.1 (https://github.com/seanmonstar/httparse)
