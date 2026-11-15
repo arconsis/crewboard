@@ -18,7 +18,7 @@ The command needs a Unix host (macOS or Linux); on another platform it refuses w
    of a wake, Ctrl-C) reaches it as before, and `run` then waits for CMD, releases the lock and
    exits 143. The lock is a directory;
    its `owner` file has agent, host, pid, started (UTC), started_epoch and reason (and `expect`,
-   `detached=1` when they apply). `crewboard lock --help` prints the full text.
+   `detached=1`, `result` when they apply). `crewboard lock --help` prints the full text.
 2. **Stale lock.** Any one of: the pid is gone (only on the same host; on another host a pid
    is never judged; a pid of another user counts as alive, because the signal check gives EPERM
    for it); the lock is older than `--max-age` (default 14400 s, `HOST_LOCK_MAX_AGE`,
@@ -253,12 +253,14 @@ command with it, and the next wake started it again. A waiter also found a lock 
 after such a stop and took it over 35 s later (`empty-after-grace`).
 
 1. **`run --detach --result <file>`.** The caller waits for and takes the lock as `run` does
-   (`--wait`, CI first, stale takeover), removes the old result file, and starts the job in its own
+   (`--wait`, CI first, stale takeover), removes the old result file when the wake has reported
+   it (item 9), and starts the job in its own
    session. It returns at once with exit 0 and prints `detached: pid=<job pid> log=<file>
    result=<file>`. The job output goes to `<file>.log`. `--detach` needs `--result` and `run`.
 2. **The supervisor.** The new session starts `crewboard lock` again (the same binary and arguments,
    `HOST_LOCK_SUPERVISE=<caller pid>`; the supervisor). It writes its
-   own pid and a line `detached=1` in the owner file, runs the command, and writes
+   own pid, a line `detached=1` and a line `result=<file>` (the physical path of the result file)
+   in the owner file, runs the command, and writes
    `rc=<n> end=<utc> log=<path>` to the result file (temp file, then rename). The command runs in
    its own process group. A job that ends by a signal has `rc=128+<signal>`. The supervisor releases
    the lock after the result is written; a release that fails is logged in `<file>.log`. TERM or
@@ -285,10 +287,29 @@ after such a stop and took it over 35 s later (`empty-after-grace`).
    of an agent are in `<state dir>/results/` (the wake gets the dir as `CREWBOARD_RESULTS_DIR`).
    A file with an `rc=` line that is not reported yet adds the line `detached job finished: ticket
    <n> rc=<rc> log=<log> result=<file>` to the events file and wakes the agent although the board
-   is quiet. `<file>.seen` holds the reported `rc=` line, so a poll does not report it again; a
+   is quiet. `<log>` and `<file>` are relative to the results dir (for the skill form:
+   `log=7.result.log result=7.result`). The agent copies the line into `done --local-run`, which
+   is a public comment, so the line must not hold a path of the host. A log outside the results
+   dir keeps its absolute path. The agent opens the files under `$CREWBOARD_RESULTS_DIR`. `<file>.seen` holds the reported `rc=` line, so a poll does not report it again; a
    new run of the job writes a new line and is reported again. A file without an `rc=` line, a file
    outside the dir and a poll without `--events-file` are not read. So `done` runs once after the
    wake that sees the event, with no cron job of the agent.
-9. Proof: tests DT1 to DT7 and GT1 to GT4 (`tests/component/lock_detach.rs`, `lock_ci.rs`), TB10
-   and TB11 (`tests/component/wake_budget.rs`), and RS1 to RS4 (`src/wake/results.rs`,
-   `src/wake/cmd_tests/results.rs`).
+9. **A second start of the same job is refused.** Each wake is a new session without the memory
+   of the wake before it, so a wake can start a job that an earlier wake started. The job is the
+   same job when the result file is the same. `run --detach` then ends with exit 1, at once and
+   without a wait for the lock, in two cases:
+   - **The job still runs.** The lock is held (not stale) by a detached job whose owner file names
+     the same result file. The message names the pid of the job and says: end the wake, the next
+     wake gets the event `detached job finished`.
+   - **The result is not reported.** The result file has an `rc=` line and `<file>.seen` does not
+     hold that line. The message names the file and its `rc=` line and says: handle that result
+     first. The file stays. This check runs again after the wait for the lock, because the holder
+     can write the result during the wait. `--again` skips this check: the unreported result is
+     removed and the job starts. `--again` does not start a job that still runs.
+
+   A reported result is removed and the job starts. A job with another result file waits for the
+   lock. A stale lock is taken over. An owner file without a `result=` line (an older release)
+   is waited for as before; the check after the wait still keeps its unreported result.
+10. Proof: tests DT1 to DT10 and GT1 to GT4 (`tests/component/lock_detach.rs`, `lock_ci.rs`,
+   `crates/host-lock/src/run.rs`), TB10 and TB11 (`tests/component/wake_budget.rs`), and RS1 to
+   RS5 (`src/wake/results.rs`, `src/wake/cmd_tests/results.rs`).

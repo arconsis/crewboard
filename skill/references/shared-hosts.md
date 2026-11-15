@@ -20,10 +20,18 @@ The wake ends at its time budget and would kill the job. Add
 `--detach --result $CREWBOARD_RESULTS_DIR/<n>.result --ticket <n>` to the `run` command, and end
 the wake. The next wake gets the event
 `detached job finished: ticket <n> rc=<rc> log=<log> result=<file>`.
+`<log>` and `<file>` are relative to `$CREWBOARD_RESULTS_DIR`. Open them there.
 
 - `rc=0`: run `done` once, with a short `--local-run` line (at most 400 bytes).
 - `rc` not 0: fix the cause.
-- Do not start the job again while the lock names it.
+- A log without a result file means that the job still runs. Do not start it again: `run`
+  refuses it. End the wake.
+- Run `done` only after the event with `rc=0`, or after the result file exists. Never run it
+  from the log of a running job.
+- `run` refuses with "has finished": handle that result first. `--again` starts the job again
+  on purpose.
+- In `--local-run`, name the log as the event line gives it. Never write a home path or
+  another absolute host path into a ticket comment or a PR.
 
 ## The lock
 

@@ -39,11 +39,12 @@ agent. `--help` and `--version` return 0.
 an error it prints one line on standard output and returns the code of that error (2, 3, 4, or
 64 for a bad option).
 
-Four commands return 1 for a fault or a skip. These are exceptions, not the "no" answer:
+These commands return 1 for a fault or a skip. These are exceptions, not the "no" answer:
 
 | Command | 1 means |
 |---|---|
 | `lock take`, `lock run` | The lock directory cannot be made, or its owner file cannot be written. The lock is not taken. |
+| `lock run --detach` | The same job (the same `--result` file) still runs, or its result is not reported yet. The job is not started again. `--again` starts it over an unreported result. |
 | `lock ci-wait` | The waiting list cannot be written. |
 | `skill install` | A step was skipped, or an existing real directory or foreign link was left alone. |
 | `update` | The binary is updated, but `skill install` returned 1. |

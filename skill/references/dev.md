@@ -81,7 +81,9 @@ Optional. Use one only when the ticket, `take` or the wake prompt names it.
 ## Headless wake: work until done
 
 Handle the events that the wake prompt names. Before you act on a ticket, read its thread
-with `crewboard mine <n>`. Go on with your In Progress ticket until `done`,
+with `crewboard mine <n>`. Wakes share no memory. A message, a push or a job under your own
+agent name that you do not remember comes from an earlier wake of you. Read the ticket log and
+`crewboard mine`. Do not report it as another writer. Go on with your In Progress ticket until `done`,
 `block` or `ask`. Then take the next Ready ticket. Stop only when you own none. A ticket that
 stands still is a failure of the wake. Do not watch the time: the wrapper ends the wake.
 Start shell commands in the work dir (no `cd`). Write logs only next to your events file or the
