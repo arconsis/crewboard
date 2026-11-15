@@ -256,7 +256,7 @@ pub fn run(g: &Global, name: &str, role: Role) -> CbResult<Approval> {
             .reg
             .agents
             .values()
-            .filter(|e| e.approved())
+            .filter(|e| e.approved() && !e.departure.is_some_and(|d| d.ended()))
             .map(|e| CrewMember {
                 name: e.name.clone(),
                 role: e.approval.as_ref().map(|a| a.role),

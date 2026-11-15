@@ -298,6 +298,32 @@ fn deleted_items_of_ended_agents_do_not_blind_the_crew_or_erase_history() {
 }
 
 #[test]
+fn a_deleted_departed_coordinator_does_not_block_replacement_approval() {
+    let fake = FakeBoard::new();
+    let old = fake.agent("claude@fake-old", Role::Coordinator);
+    let replacement = fake.joined("hermes@fake-new");
+    let o = fake.run(&old.dir, &["stop"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    fake.delete_item(&old.item_id);
+
+    let owner = fake.owner_dir();
+    let o = fake.run(
+        owner.path(),
+        &[
+            "approve",
+            &replacement.name,
+            "--initiative",
+            INITIATIVE,
+            "--role",
+            "coordinator",
+        ],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("approved as coordinator"), "{}", o.all());
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+#[test]
 fn a_missing_live_item_is_a_permanent_refusal_and_owner_reject_recovers() {
     for node_error in [false, true] {
         let fake = FakeBoard::new();
