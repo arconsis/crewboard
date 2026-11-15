@@ -39,12 +39,13 @@ fn rs1_a_finished_result_wakes_a_quiet_poll_once_with_its_event_line() {
     assert_eq!(rsp(&rig, &mut st), 0);
     assert_eq!(rig.wakes(), 1);
     let t = read(&rig.p("ev.txt"));
-    let want = format!(
-        "detached job finished: ticket 7 rc=0 log={} result={}/results/7.result",
-        log.display(),
-        rig.state().display()
-    );
+    // the log and the result are named relative to the results dir: no path of the host
+    let want = "detached job finished: ticket 7 rc=0 log=7.result.log result=7.result";
     assert!(t.lines().any(|l| l == want), "{t}");
+    assert!(
+        !t.contains(&*rig.state().to_string_lossy()),
+        "no state path in the events file: {t}"
+    );
     assert!(
         rig.log()
             .contains("a detached job has finished (result file in ")
