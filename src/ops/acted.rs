@@ -572,6 +572,31 @@ a/b#12                             Ready            P1  order -
     }
 
     #[test]
+    fn the_detached_line_reads_with_absolute_and_with_relative_paths() {
+        // an older wake wrote absolute paths; the paths are now relative to the results dir
+        for paths in [
+            "log=/s/results/5.result.log result=/s/results/5.result",
+            "log=5.result.log result=5.result",
+            "log=sub/5 b.log result=5.result",
+            "log=/var/log/5.log result=5.result",
+        ] {
+            let line = format!("detached job finished: ticket 5 rc=0 {paths}");
+            let ev = parse_events(&format!("{REDELIVERED_MARKER}\n{line}\n{line}\n"));
+            assert_eq!(ev.len(), 2, "{paths}");
+            assert_eq!(
+                (ev[0].issue, ev[0].kind.as_str(), ev[0].text.as_str()),
+                (Some(5), "detached-job-finished", line.as_str())
+            );
+            assert_eq!(ev[0].receipt(), "#5 detached-job-finished");
+            assert!(ev[0].redelivered && !ev[1].redelivered, "{paths}");
+        }
+        // control: a line without a ticket number is no event
+        assert!(
+            parse_events("detached job finished: ticket unknown rc=0 log=l result=r\n").is_empty()
+        );
+    }
+
+    #[test]
     fn a_detached_job_uses_the_main_repo() {
         let repos = vec!["a/b".to_string()];
         let d = parse_detached("detached job finished: ticket 5 rc=0 log=/l result=/r").unwrap();

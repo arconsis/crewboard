@@ -53,14 +53,32 @@ pub fn pending(dir: &Path, has_events_file: bool) -> Vec<Pending> {
         .collect()
 }
 
-/// The line of the events file for a finished job.
+/// `path` as the event line names it: relative to the results dir `dir` when it lies inside it
+/// (the agent copies the line into a public comment, so a path of the host must not be in it), and
+/// unchanged when it lies outside. The supervisor writes the physical path of the log, so the
+/// physical spelling of `dir` counts too.
+fn in_results_dir(path: &Path, dir: &Path) -> String {
+    let phys = std::fs::canonicalize(dir).ok();
+    [Some(dir), phys.as_deref()]
+        .into_iter()
+        .flatten()
+        .find_map(|d| path.strip_prefix(d).ok())
+        .filter(|rel| !rel.as_os_str().is_empty())
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+/// The line of the events file for a finished job. The log and the result file are named relative
+/// to the results dir (`$CREWBOARD_RESULTS_DIR` of the wake); a log outside it keeps its path.
 pub fn event_line(p: &Pending) -> String {
+    let dir = p.file.parent().unwrap_or(Path::new(""));
     format!(
         "detached job finished: ticket {} rc={} log={} result={}",
         p.result.ticket.as_deref().unwrap_or("unknown"),
         p.result.rc,
-        p.result.log,
-        p.file.display()
+        in_results_dir(Path::new(&p.result.log), dir),
+        in_results_dir(&p.file, dir)
     )
 }
 
@@ -99,10 +117,8 @@ mod tests {
         assert_eq!(names(&p), vec!["7.result"]);
         assert_eq!(
             event_line(&p[0]),
-            format!(
-                "detached job finished: ticket 7 rc=0 log=/r/7.log result={}",
-                d.path().join("7.result").display()
-            )
+            "detached job finished: ticket 7 rc=0 log=/r/7.log result=7.result",
+            "a log outside the results dir keeps its path"
         );
         mark_seen(&p[0]).unwrap();
         assert_eq!(
@@ -119,6 +135,40 @@ mod tests {
         let p = pending(d.path(), true);
         assert_eq!(names(&p), vec!["7.result"]);
         assert!(event_line(&p[0]).starts_with("detached job finished: ticket unknown rc=1 "));
+    }
+
+    #[test]
+    fn rs5_the_event_line_names_the_log_and_the_result_relative_to_the_results_dir() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("results");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        // the supervisor writes the physical path of the log (the temp dir may be a symlink)
+        let phys = std::fs::canonicalize(&dir).unwrap();
+        let line = |log: &str| {
+            w(
+                &dir,
+                "7.result",
+                &format!("rc=0 end=T log={log}\nticket=7\n"),
+            );
+            event_line(&pending(&dir, true)[0])
+        };
+        let want = "detached job finished: ticket 7 rc=0 log=7.result.log result=7.result";
+        assert_eq!(line(&phys.join("7.result.log").to_string_lossy()), want);
+        assert_eq!(line(&dir.join("7.result.log").to_string_lossy()), want);
+        assert_eq!(
+            line(&phys.join("sub/7 b.log").to_string_lossy()),
+            "detached job finished: ticket 7 rc=0 log=sub/7 b.log result=7.result"
+        );
+        // outside the dir (also a sibling whose name starts like the dir): the path stays
+        let sibling = format!("{}-old/7.log", phys.display());
+        for outside in ["/var/log/7.log", sibling.as_str(), "a.log", ""] {
+            assert_eq!(
+                line(outside),
+                format!("detached job finished: ticket 7 rc=0 log={outside} result=7.result")
+            );
+        }
+        // the line has no path of the host for a job that the skill form started
+        assert!(!want.contains(&*d.path().to_string_lossy()));
     }
 
     #[test]

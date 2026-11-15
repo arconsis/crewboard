@@ -497,10 +497,14 @@ fn a_detached_job_that_ended_wakes_a_quiet_board_once() {
     let o = events_wake(&fake, &b, s, &events, "true");
     assert_eq!(o.code, 0, "{}", o.all());
     let text = std::fs::read_to_string(&events).unwrap();
+    // the log and the result are named relative to the results dir: the line that the agent
+    // copies into a comment has no path of the host
     assert!(
-        text.contains("detached job finished: ticket 7 rc=0 "),
+        text.lines()
+            .any(|l| l == "detached job finished: ticket 7 rc=0 log=7.result.log result=7.result"),
         "{text}"
     );
+    assert!(s.join("results/7.result.log").is_file(), "the log is there");
     assert!(s.join("results/7.result.seen").is_file());
     // reported once: the result is marked, so the result itself does not wake again. A wake that
     // did not act on the finished job gets it once more from `.unhandled`, then never
