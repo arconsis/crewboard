@@ -1,14 +1,20 @@
 //! `run --detach --result FILE`: the caller takes the lock with its own pid, removes
-//! the old result, and starts a supervisor: this binary again, with the same arguments, in its own
+//! the old (reported) result, and starts a supervisor: this binary again, with the same arguments, in its own
 //! session (`setsid`), with `HOST_LOCK_SUPERVISE=<caller pid>`. The supervisor writes its own pid and
-//! `detached=1` in the owner file (so the stale rules judge the job), runs the command in its own
+//! `detached=1` and `result=<FILE>` in the owner file (so the stale rules judge the job, and a
+//! second start of the same job sees it), runs the command in its own
 //! process group, writes the result file and releases the lock. The caller waits (at most 15 s)
 //! for that owner file and returns. A kill of the caller (the time budget of a wake) reaches
 //! neither the job nor its lock.
+//!
+//! A second start of the same job (the same result file) is refused, with exit 1 and no wait, in two
+//! cases: the first job still runs ([`refuse_running`]), or its result is finished and nobody has
+//! reported it ([`refuse_unread`]; `--again` starts the job all the same).
 
 use super::args::{Parsed, RunCtx};
+use super::judge::Judgement;
 use super::owner::sibling;
-use super::result::ResultFile;
+use super::result::{ResultFile, unreported_rc_line};
 use super::{Session, phys_dir, sys};
 use crate::clock::format_ts;
 use crate::fsutil::Mode;
@@ -29,6 +35,46 @@ fn log_path(result: &str) -> PathBuf {
     sibling(Path::new(result), ".log")
 }
 
+/// Before the wait for the lock: a start that must not happen. `Some(code)` = refused.
+pub fn refuse_start(s: &mut Session, p: &Parsed) -> Option<i32> {
+    let result = result_path(p);
+    if refuse_running(s, &result) || refuse_unread(s, p, &result) {
+        return Some(super::LockExit::No.code());
+    }
+    None
+}
+
+/// A live detached job that writes the same result file holds the lock: the job of an earlier
+/// call is still running. An owner file without `result=` (an older release) says nothing.
+fn refuse_running(s: &mut Session, result: &str) -> bool {
+    let snap = s.snapshot();
+    if snap.owner_field("detached") != Some("1")
+        || snap.owner_field("result") != Some(result)
+        || !matches!(s.judge(&snap), Judgement::Held)
+    {
+        return false;
+    }
+    s.log.say(&format!(
+        "the detached job pid={} still runs and writes {result}; not starting it again. End the wake: the next wake gets the event `detached job finished`",
+        snap.owner_field("pid").unwrap_or("?")
+    ));
+    true
+}
+
+/// The result file holds a finished result that nobody has reported: a start would remove it.
+fn refuse_unread(s: &Session, p: &Parsed, result: &str) -> bool {
+    if p.again {
+        return false;
+    }
+    let Some(rc_line) = unreported_rc_line(Path::new(result)) else {
+        return false;
+    };
+    s.log.say(&format!(
+        "the detached job has finished: {result} holds `{rc_line}` and no wake has reported it; not starting the job again. Handle that result first: the next wake reports it as the event `detached job finished` (rc=0: run done; another rc: fix the cause). To start the job again on purpose, add --again"
+    ));
+    true
+}
+
 /// The caller side. The lock is taken with the pid of this process already.
 pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
     let raw = p.result.as_deref().unwrap_or("");
@@ -39,6 +85,12 @@ pub fn start(s: &mut Session, p: &Parsed, ctx: &RunCtx) -> i32 {
     }
     let result = result_path(p);
     let rpath = PathBuf::from(&result);
+    // again, now with the lock: the job that held the lock while this call waited may have
+    // written its result
+    if refuse_unread(s, p, &result) {
+        let _ = s.release();
+        return super::LockExit::No.code();
+    }
     remove_old_results(&rpath);
     let log = log_path(&result);
     let Ok(out) = std::fs::OpenOptions::new()
@@ -144,6 +196,7 @@ pub fn supervise(s: &mut Session, p: &Parsed, ctx: &RunCtx, parent: &str) -> i32
         return super::LockExit::No.code();
     }
     s.detached = true;
+    s.result = Some(result.clone());
     let own = s.procs.pid();
     if s.write_owner(&own.to_string()).is_err() {
         return super::LockExit::No.code();

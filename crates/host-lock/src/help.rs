@@ -12,7 +12,7 @@ Usage:
   crewboard lock status  <dir>
   crewboard lock break   <dir> --if-dead [--log FILE]   (remove the lock only if it is stale)
   crewboard lock run     <dir> --holder AGENT [--reason TEXT] [--wait S] [--gate] -- CMD...
-  crewboard lock run     <dir> --holder AGENT --detach --result FILE [--ticket N] [--sha HEAD] [--reason TEXT] [--wait S] [--gate] -- CMD...
+  crewboard lock run     <dir> --holder AGENT --detach --result FILE [--again] [--ticket N] [--sha HEAD] [--reason TEXT] [--wait S] [--gate] -- CMD...
   crewboard lock ci-wait <dir> --holder NAME      (a CI step: register in the waiting list)
   crewboard lock ci-done <dir> --holder NAME      (a CI step: leave the waiting list)
   crewboard lock ci-status <dir>                 (exit 0 and a line if CI runs or waits, else 1)
@@ -64,9 +64,17 @@ Options (all subcommands that take a lock):
                    it ends, then writes the result file and releases the lock. A kill of the
                    caller (for example the time budget of a wake) neither stops the job nor
                    releases its lock.
+                   A second start of the same job (the same --result FILE) is refused with exit 1,
+                   at once and without a wait for the lock, in two cases. (1) A live detached job
+                   that writes FILE holds the lock: the job still runs. End the wake; the next
+                   wake gets the event `detached job finished`. (2) FILE holds a finished result
+                   that no wake has reported (FILE.seen does not hold its `rc=` line): handle
+                   that result first. Case 2 is checked again after the wait for the lock.
   --result FILE    with --detach: one line `rc=<n> end=<utc> log=<path>` appears here when the job
-                   ends (written to a temp file, then renamed). Removed at the start of the run.
-                   The job output goes to FILE.log.
+                   ends (written to a temp file, then renamed). A result that the wake has
+                   reported is removed at the start of the run. The job output goes to FILE.log.
+  --again          with --detach: start the job although FILE holds a result that no wake has
+                   reported. That result is removed. It does not start a job that still runs.
   --ticket N       with --detach: the result file gets a second line `ticket=N`. The wake
                    (`crewboard wake`) names it in the events file when the job has ended.
   --sha HEAD       with --detach: the result file gets a line `sha=HEAD` (the PR head; optional).
@@ -138,7 +146,8 @@ agent and host it names: only a stale takeover removes it.
 
 Owner file (`<dir>/owner`, key=value lines): agent, host, pid, started (UTC),
 started_epoch, reason, expect (seconds; only when --expect was given), detached=1 (a detached job;
-its pid is the pid of the job supervisor, which lives as long as the job). It is valid only with a
+its pid is the pid of the job supervisor, which lives as long as the job), result (the result file
+of a detached job; an owner file of an older release has no such line). It is valid only with a
 non-empty `agent=` and an all-digit `started_epoch=` (see "Invalid owner file").
 
 Re-entrancy: `run` exports CREWBOARD_HOST_LOCK=<the lock dir, resolved with
@@ -152,7 +161,8 @@ your own parent process". A tool that takes the lock itself must not be wrapped 
 
 Exit codes: take/run: 0 got the lock (run: the exit code of CMD), 75 held by a live owner
 (and --wait over), 76 CI runs or waits (agents only, and --wait over), 77 held by your own
-ancestor process and no re-entry (no wait), 64 usage. release: 0 released or nothing to release
+ancestor process and no re-entry (no wait), 1 the lock dir or its owner file cannot be made, or
+(run --detach) the same job still runs or its result is not reported yet, 64 usage. release: 0 released or nothing to release
 (also a nested release, which leaves the outer lock), 3 not the owner.
 status: 0 held by a live owner, 1 free, 2 stale (it prints the reason). A held line ends with
 alive=yes|no|unknown (kill -0, only for a pid on this host) and age=<s>.

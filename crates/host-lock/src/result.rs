@@ -10,6 +10,12 @@
 //!
 //! A file counts as a result when one of its lines has the shape `rc=<digits> end=...`. A file that
 //! starts with `#!` is a script and never a result.
+//!
+//! `<file>.seen` holds the `rc=` line that the wake reported. A result whose `rc=` line is not in
+//! its `.seen` file is unreported: nobody has read it yet. The wake and a second start of the same
+//! job (`detach`) use this one rule.
+
+use std::path::{Path, PathBuf};
 
 /// A finished detached job.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +37,26 @@ fn is_rc_line(l: &str) -> bool {
     };
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
     digits > 0 && rest[digits..].starts_with(" end=")
+}
+
+/// `<file>.seen`: the copy of the `rc=` line that was reported.
+pub fn seen_path(file: &Path) -> PathBuf {
+    let mut s = file.as_os_str().to_owned();
+    s.push(".seen");
+    PathBuf::from(s)
+}
+
+/// Does `<file>.seen` hold `rc_line`? Then this result was reported.
+pub fn is_reported(file: &Path, rc_line: &str) -> bool {
+    std::fs::read_to_string(seen_path(file)).is_ok_and(|t| t.trim_end_matches('\n') == rc_line)
+}
+
+/// The `rc=` line of `file` when the file is a finished result that nobody has reported. `None`
+/// for a missing file, a file without an `rc=` line, a script and a reported result.
+pub fn unreported_rc_line(file: &Path) -> Option<String> {
+    let text = String::from_utf8_lossy(&std::fs::read(file).ok()?).into_owned();
+    let line = ResultFile::rc_line(&text)?.to_string();
+    (!is_reported(file, &line)).then_some(line)
 }
 
 impl ResultFile {
@@ -175,5 +201,31 @@ mod tests {
         let t = "ticket=7\nrc=0 end=T log=l\nsha=x\n";
         assert_eq!(ResultFile::rc_line(t), Some("rc=0 end=T log=l"));
         assert_eq!(ResultFile::rc_line("nothing\n"), None);
+    }
+
+    #[test]
+    fn a_result_is_unreported_until_the_seen_file_holds_its_rc_line() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("7.result");
+        assert_eq!(seen_path(&f), d.path().join("7.result.seen"));
+        assert_eq!(unreported_rc_line(&f), None, "no file");
+        std::fs::write(&f, "ticket=7\n").unwrap();
+        assert_eq!(unreported_rc_line(&f), None, "a job that has not finished");
+        std::fs::write(&f, "rc=0 end=T log=l\nticket=7\n").unwrap();
+        assert_eq!(unreported_rc_line(&f).as_deref(), Some("rc=0 end=T log=l"));
+        // the seen file of an older run does not match
+        std::fs::write(seen_path(&f), "rc=1 end=OLD log=l\n").unwrap();
+        assert_eq!(unreported_rc_line(&f).as_deref(), Some("rc=0 end=T log=l"));
+        assert!(!is_reported(&f, "rc=0 end=T log=l"));
+        // reported: the same line, with or without the newline at the end
+        for seen in ["rc=0 end=T log=l\n", "rc=0 end=T log=l"] {
+            std::fs::write(seen_path(&f), seen).unwrap();
+            assert_eq!(unreported_rc_line(&f), None, "{seen:?}");
+            assert!(is_reported(&f, "rc=0 end=T log=l"));
+        }
+        // a script is never a result
+        std::fs::write(&f, "#!/bin/sh\nrc=0 end=T log=l\n").unwrap();
+        std::fs::remove_file(seen_path(&f)).unwrap();
+        assert_eq!(unreported_rc_line(&f), None);
     }
 }

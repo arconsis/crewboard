@@ -1,11 +1,11 @@
 //! The result files of detached jobs in `<state dir>/results/`. A finished result (a line
 //! `rc=<digits> end=...`, see `crate::lock::result`) is reported once: `<file>.seen` keeps a copy
 //! of the `rc=` line that was reported, and a new run of the job (a new line) is reported again.
-//! Only this agent's dir is read. A file that starts with `#!` is a script, not a result.
+//! The rule of the `.seen` file is in `crate::lock::result`: a second start of the same job reads
+//! it too. Only this agent's dir is read. A file that starts with `#!` is a script, not a result.
 
-use super::state::read_text;
 use crate::fsutil::{Mode, write_atomic};
-use crate::lock::result::ResultFile;
+use crate::lock::result::{ResultFile, is_reported, seen_path};
 use std::path::{Path, PathBuf};
 
 /// A finished result that nobody has reported yet.
@@ -15,12 +15,6 @@ pub struct Pending {
     /// The `rc=` line as it stands in the file: what `<file>.seen` will keep.
     pub rc_line: String,
     pub result: ResultFile,
-}
-
-fn seen_path(file: &Path) -> PathBuf {
-    let mut s = file.as_os_str().to_owned();
-    s.push(".seen");
-    PathBuf::from(s)
 }
 
 /// The unreported results of `dir`, in name order. Needs an events file to name them in, so
@@ -47,7 +41,7 @@ pub fn pending(dir: &Path, has_events_file: bool) -> Vec<Pending> {
             let text = String::from_utf8_lossy(&std::fs::read(&file).ok()?).into_owned();
             let rc_line = ResultFile::rc_line(&text)?.to_string();
             let result = ResultFile::parse(&text)?;
-            if read_text(&seen_path(&file)).as_deref() == Some(rc_line.as_str()) {
+            if is_reported(&file, &rc_line) {
                 return None;
             }
             Some(Pending {

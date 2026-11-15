@@ -301,3 +301,138 @@ fn a_detached_run_inside_a_re_entered_lock_is_64() {
             .contains("cannot detach a job inside a lock that your parent process holds")
     );
 }
+
+/// The same start again, with a wait that would be long.
+fn start_again(r: &Rig, name: &str, res: &str, extra: &[&str]) -> (Out, std::time::Duration) {
+    let t0 = Instant::now();
+    let mut e = vec!["--wait", "60"];
+    e.extend_from_slice(extra);
+    let o = detach(r, name, res, &e, &["sh", "-c", "exit 3"]);
+    (o, t0.elapsed())
+}
+
+#[test]
+fn dt8_a_second_start_is_refused_while_the_job_runs_and_while_its_result_is_unread() {
+    let r = Rig::new();
+    let o = detach(&r, "l8", "r8", &[], &["sh", "-c", "sleep 4; exit 0"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let jp = job_pid(o.stdout.trim());
+    // the owner file names the result file of the job
+    let named = owner_field(&r.p("l8"), "result").unwrap_or_default();
+    assert!(named.ends_with("/r8"), "{named}");
+    // 1. the job still runs: exit 1 at once (no wait for the lock), and the job goes on
+    let (o2, took) = start_again(&r, "l8", "r8", &[]);
+    assert_eq!(o2.code, 1, "{}", o2.all());
+    assert!(took.as_secs() < 3, "no wait for the lock: {took:?}");
+    assert!(
+        o2.stderr.contains(&format!(
+            "host-lock: the detached job pid={jp} still runs and writes {named}; not starting it again. End the wake: the next wake gets the event `detached job finished`"
+        )),
+        "{}",
+        o2.stderr
+    );
+    assert!(o2.stdout.is_empty(), "{}", o2.stdout);
+    assert_eq!(owner_field(&r.p("l8"), "pid"), Some(jp.to_string()));
+    // 2. the job has ended and nobody has reported its result: exit 1, the result stays
+    assert!(wait_for(20, || r.p("r8").exists()));
+    assert!(lock_gone(&r, "l8"));
+    let first = std::fs::read_to_string(r.p("r8")).unwrap();
+    let rc_line = first.lines().next().unwrap().to_string();
+    assert!(rc_line.starts_with("rc=0 end="), "{first}");
+    let (o3, _) = start_again(&r, "l8", "r8", &[]);
+    assert_eq!(o3.code, 1, "{}", o3.all());
+    assert!(
+        o3.stderr.contains(&format!(
+            "host-lock: the detached job has finished: {named} holds `{rc_line}` and no wake has reported it; not starting the job again. Handle that result first: the next wake reports it as the event `detached job finished` (rc=0: run done; another rc: fix the cause). To start the job again on purpose, add --again"
+        )),
+        "{}",
+        o3.stderr
+    );
+    assert_eq!(std::fs::read_to_string(r.p("r8")).unwrap(), first);
+    assert!(!r.p("l8").exists(), "the lock is not taken");
+    // 3. the wake reported it (`.seen` holds the rc line): the old result goes and the job starts
+    std::fs::write(r.p("r8.seen"), format!("{rc_line}\n")).unwrap();
+    let (o4, _) = start_again(&r, "l8", "r8", &[]);
+    assert_eq!(o4.code, 0, "{}", o4.all());
+    assert!(o4.stdout.starts_with("detached: pid="), "{}", o4.stdout);
+    assert!(wait_for(20, || {
+        std::fs::read_to_string(r.p("r8")).is_ok_and(|t| t.starts_with("rc=3 "))
+    }));
+    assert!(lock_gone(&r, "l8"));
+}
+
+#[test]
+fn dt9_again_starts_over_an_unread_result_and_another_result_file_waits_for_the_lock() {
+    let r = Rig::new();
+    std::fs::write(r.p("r9"), "rc=1 end=2026-10-21T10:00:00Z log=l\nticket=9\n").unwrap();
+    // control: without --again the unread result stops the start
+    let (no, _) = start_again(&r, "l9", "r9", &[]);
+    assert_eq!(no.code, 1, "{}", no.all());
+    // --again: the unread result goes, the job starts
+    let o = detach(
+        &r,
+        "l9",
+        "r9",
+        &["--again"],
+        &["sh", "-c", "sleep 4; exit 0"],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        !r.p("r9").exists(),
+        "the old result is removed at the start"
+    );
+    // --again does not start a job that still runs
+    let (twice, _) = start_again(&r, "l9", "r9", &["--again"]);
+    assert_eq!(twice.code, 1, "{}", twice.all());
+    assert!(twice.stderr.contains("still runs"), "{}", twice.stderr);
+    // a job under another result file is another job: the lock rules apply as before (no wait
+    // given: 75, held by a live owner)
+    let other = detach(&r, "l9", "r9b", &[], &["true"]);
+    assert_eq!(other.code, 75, "{}", other.all());
+    assert!(other.stderr.contains("held by"), "{}", other.stderr);
+    assert!(!other.stderr.contains("still runs"), "{}", other.stderr);
+    assert!(wait_for(20, || {
+        std::fs::read_to_string(r.p("r9")).is_ok_and(|t| t.starts_with("rc=0 "))
+    }));
+    assert!(lock_gone(&r, "l9"));
+}
+
+#[test]
+fn dt10_a_result_that_appears_during_the_wait_for_the_lock_is_not_removed() {
+    // the owner file of an older release has no `result=` line: the second start waits for the
+    // lock. The first job writes its result before it releases; the second start must keep it.
+    let r = Rig::new();
+    let (l, res) = (r.s("l10"), r.s("r10"));
+    let mut hold = r
+        .cmd(&[
+            "run",
+            &l,
+            "--holder",
+            "old@hostA",
+            "--no-board",
+            "--",
+            "sh",
+            "-c",
+            &format!("sleep 2; echo 'rc=0 end=2026-10-21T10:00:00Z log=l' >{res}"),
+        ])
+        .spawn()
+        .unwrap();
+    assert!(wait_for(10, || r.p("l10").join("owner").exists()));
+    let (o, took) = start_again(&r, "l10", "r10", &["--poll", "0.2"]);
+    hold.wait().unwrap();
+    assert_eq!(o.code, 1, "{}", o.all());
+    assert!(took.as_millis() > 500, "it waited for the lock: {took:?}");
+    assert!(
+        o.stderr.contains("the detached job has finished: "),
+        "{}",
+        o.stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(r.p("r10")).unwrap(),
+        "rc=0 end=2026-10-21T10:00:00Z log=l\n"
+    );
+    assert!(
+        lock_gone(&r, "l10"),
+        "the lock taken for the start is released"
+    );
+}
