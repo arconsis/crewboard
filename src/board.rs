@@ -368,10 +368,49 @@ impl Board {
         Ok(out)
     }
 
+    /// Read items by id, with `None` for deleted items as well as null nodes.
+    /// Only an exact node-resolution error for the requested id counts as a missing item.
+    pub fn read_items_tolerant(
+        &self,
+        client: &Client,
+        ids: &[String],
+    ) -> CbResult<Vec<Option<ItemSnapshot>>> {
+        let read = self.read_items(client, ids);
+        let Err(CbError::Network(GhError::GraphQl(message))) = &read else {
+            return read;
+        };
+        const PREFIX: &str = "Could not resolve to a node with the global id of '";
+        if !message.starts_with(PREFIX)
+            || message.split("; ").any(|part| {
+                !part.starts_with(PREFIX)
+                    && part
+                        .strip_prefix("and ")
+                        .and_then(|s| s.strip_suffix(" more"))
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .is_none()
+            })
+        {
+            return read;
+        }
+        if ids.len() == 1 {
+            let expected = format!("{PREFIX}{}'", ids[0]);
+            return if message.trim_end_matches('.') == expected {
+                Ok(vec![None])
+            } else {
+                read
+            };
+        }
+        // Split failed batches only. Single-id reads also avoid the client's error-message cap.
+        let middle = ids.len() / 2;
+        let mut left = self.read_items_tolerant(client, &ids[..middle])?;
+        left.extend(self.read_items_tolerant(client, &ids[middle..])?);
+        Ok(left)
+    }
+
     /// Read one item by id; it must exist and belong to this project.
     pub fn read_item(&self, client: &Client, id: &str) -> CbResult<ItemSnapshot> {
         let it = self
-            .read_items(client, &[id.to_string()])?
+            .read_items_tolerant(client, &[id.to_string()])?
             .into_iter()
             .next()
             .flatten()

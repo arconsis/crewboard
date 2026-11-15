@@ -216,6 +216,51 @@ fn a_ready_agent_passes_every_setup_check_and_writes_nothing() {
 }
 
 #[test]
+fn deleted_items_of_ended_agents_do_not_fail_setup() {
+    use crate::support::board::REGISTRY;
+    use crewboard::protocol::{acts::left_body, names::Kind};
+
+    for rejected in [false, true] {
+        let s = ready();
+        let old = s.fake.agent_as("hermes@host-a", Role::Dev, CREW);
+        if rejected {
+            s.fake
+                .owner_comment(REGISTRY, &format!("/crew reject {}", old.name));
+        } else {
+            let text = crate::support::board::sign(
+                &old.key,
+                REGISTRY,
+                &old.name,
+                "coordinator",
+                Kind::Info,
+                &left_body(&old.name),
+            );
+            let now = crewboard::clock::now_epoch();
+            s.fake.comment_at(REGISTRY, CREW, &text, now, now);
+        }
+        s.fake.delete_item(&old.item_id);
+        let o = doctor(&s);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert_eq!(line(&o, "registry").0, "ok", "{}", o.all());
+        assert!(s.fake.unhandled().is_empty(), "{:?}", s.fake.unhandled());
+    }
+}
+
+#[test]
+fn a_deleted_live_item_names_owner_recovery_instead_of_network_retries() {
+    let s = ready();
+    let old = s.fake.agent_as("hermes@host-a", Role::Dev, CREW);
+    s.fake.delete_item(&old.item_id);
+    let o = doctor(&s);
+    let l = only_fails(&o, "registry", &format!("/crew reject {}", old.name));
+    assert!(
+        l.contains("agent-item-missing") && l.contains(&old.item_id),
+        "{l}"
+    );
+    assert!(!l.contains("check the network"), "{l}");
+}
+
+#[test]
 fn red_an_env_file_open_to_others_fails_the_agent_env_check() {
     let s = ready();
     write_env_file(&s.agent.dir, "GH_TOKEN=ghp_faketoken\n", 0o644);

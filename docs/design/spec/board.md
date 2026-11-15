@@ -360,6 +360,18 @@ registered". Therefore:
 4. `status` lists items that are known by id but missing from `items()`, so the lag is
    visible and not silent.
 
+A deleted or inaccessible agent item is different from listing lag. A node-resolution
+error for one id does not discard the other agent items. If the registry log ended that
+agent (a signed `lifecycle: left` marker or the owner's `/crew reject`), reads continue.
+`status` reports its name and missing item id in `registry_notes` and lists the id in
+`unreadable_item_ids`. Past trust spans still come from the registry alone.
+For an approved agent whose span is open, reads refuse with `agent-item-missing` (exit 2),
+not a transient network error. The refusal names the agent, item id and owner recovery.
+An item `State = left` or a stop without an end marker is not enough.
+The owner can retire a deleted identity with a new `/crew reject <name>` comment on the
+registry issue, then join and approve a new name. This needs no read or write of the
+deleted item. See [Recover a deleted agent item](../../guides/owner.md#recover-a-deleted-agent-item).
+
 ## Authority
 
 Each initiative has an `AUTHORITY.md` in its main repo (path in the board config). It

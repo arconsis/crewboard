@@ -147,6 +147,30 @@ move a ticket to another agent or position, run `crewboard assign <n> --to <agen
 edit `Agent` by hand: the new agent's `take` is then refused with `ticket-agent-not-signed`
 ([Concepts](../concepts.md#done-without-proof-is-detected)).
 
+## Recover a deleted agent item
+
+If GitHub cannot read an agent item by id, crewboard checks the registry log.
+An agent with a signed `lifecycle: left` marker or an owner's `/crew reject` does not
+block other agents. `status` names the missing item in a registry note. Past signed
+messages still count within that agent's trust spans.
+
+An approved agent whose span is still open causes refusal `agent-item-missing` (exit 2).
+The message names the agent and its item id. First check that the token has Project access.
+If the item was deleted, retrying or `prune` cannot restore it. To recover:
+
+1. Open the registry issue in GitHub as the configured owner.
+2. Post a new comment with `/crew reject <agent>`. Do not edit an old approval or join.
+   This owner command needs no readable Project item and ends the identity in the log.
+   It is final: that agent name cannot join again.
+3. Run `crewboard status` again. Let the coordinator return the rejected agent's open
+   tickets to `Backlog`. Review any open PRs before assigning the work again.
+4. If a replacement is needed, join with a new agent name, approve it, then start it.
+   If the deleted item belonged to the coordinator, approve a new coordinator first.
+
+There is no command to bind a replacement item to the old identity. A board `State = left`,
+`stop --force`, or `/crew stop` alone does not end a trust span. Before deleting such an
+item, wait for the signed left marker or post `/crew reject <agent>`.
+
 ## Branch rule
 
 `init` adds a repository ruleset to the default branch of the main repo. It requires a pull
