@@ -232,6 +232,184 @@ fn the_registry_trusts_the_approved_agents_and_status_reports_them() {
 }
 
 #[test]
+fn deleted_items_of_ended_agents_do_not_blind_the_crew_or_erase_history() {
+    for node_error in [false, true] {
+        let fake = FakeBoard::new();
+        let old = fake.agent("claude@fake-old", Role::Coordinator);
+        let b = fake.agent("hermes@fake-b", Role::Dev);
+        let (past, _) = fake.signed(
+            &old.key,
+            &old.name,
+            &b.name,
+            Kind::Info,
+            THREAD,
+            "before leaving",
+        );
+        let o = fake.run(&old.dir, &["stop"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        let c = fake.agent("codex@fake-c", Role::Coordinator);
+        let rejected = fake.agent("claude@fake-rejected", Role::Dev);
+        fake.owner_comment(REGISTRY, &format!("/crew reject {}", rejected.name));
+        fake.delete_item(&old.item_id);
+        fake.delete_item(&rejected.item_id);
+        if !node_error {
+            fake.null_missing_items();
+        }
+        let (after, _) = fake.signed(
+            &old.key,
+            &old.name,
+            &b.name,
+            Kind::Info,
+            THREAD,
+            "after leaving",
+        );
+        for agent in [&b, &c] {
+            let o = fake.run(&agent.dir, &["status", "--json"]);
+            assert_eq!(o.code, 0, "{}", o.all());
+            let v: Value = serde_json::from_str(&o.stdout).unwrap();
+            assert!(
+                v["unreadable_item_ids"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&old.item_id.clone().into())
+            );
+            let notes = v["registry_notes"].to_string();
+            assert!(
+                notes.contains(&old.name) && notes.contains(&rejected.name),
+                "{v}"
+            );
+            let o = fake.run(&agent.dir, &["status"]);
+            assert_eq!(o.code, 0, "{}", o.all());
+            assert!(
+                o.stdout.contains(&format!("{}: agent item", old.name)),
+                "{}",
+                o.all()
+            );
+        }
+        let (v, code) = fake.poll_json(&b);
+        assert_eq!(code, 0, "{v}");
+        assert!(ids(&v, "events").contains(&past), "{v}");
+        assert!(!ids(&v, "events").contains(&after), "{v}");
+        assert!(!reasons(&v, after).is_empty(), "{v}");
+        let o = fake.run(&c.dir, &["poll"]);
+        assert!(o.code == 0 || o.code == 1, "{}", o.all());
+        assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+    }
+}
+
+#[test]
+fn a_deleted_departed_coordinator_does_not_block_replacement_approval() {
+    let fake = FakeBoard::new();
+    let old = fake.agent("claude@fake-old", Role::Coordinator);
+    let replacement = fake.joined("hermes@fake-new");
+    let o = fake.run(&old.dir, &["stop"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    fake.delete_item(&old.item_id);
+
+    let owner = fake.owner_dir();
+    let o = fake.run(
+        owner.path(),
+        &[
+            "approve",
+            &replacement.name,
+            "--initiative",
+            INITIATIVE,
+            "--role",
+            "coordinator",
+        ],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("approved as coordinator"), "{}", o.all());
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+#[test]
+fn a_missing_live_item_is_a_permanent_refusal_and_owner_reject_recovers() {
+    for node_error in [false, true] {
+        let fake = FakeBoard::new();
+        let (a, b) = pair(&fake);
+        // A board State alone, or a request to stop, does not end the registry span.
+        fake.set_item(&a.item_id, "State", "left");
+        fake.owner_comment(REGISTRY, &format!("/crew stop {}", a.name));
+        fake.delete_item(&a.item_id);
+        if !node_error {
+            fake.null_missing_items();
+        }
+        for args in [
+            vec!["status"],
+            vec!["poll"],
+            vec!["watch", "--timeout", "30m"],
+            vec!["doctor", "--setup"],
+        ] {
+            let o = fake.run(&b.dir, &args);
+            assert_eq!(o.code, 2, "{}", o.all());
+            let text = o.all();
+            for needle in [
+                "agent-item-missing",
+                &a.name,
+                &a.item_id,
+                &format!("/crew reject {}", a.name),
+            ] {
+                assert!(text.contains(needle), "{needle}: {text}");
+            }
+            assert!(
+                !text.contains("transient error") && !text.contains("check the network"),
+                "{text}"
+            );
+        }
+        fake.owner_comment(REGISTRY, &format!("/crew reject {}", a.name));
+        let o = fake.run(&b.dir, &["status"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(o.stdout.contains("REJECTED"), "{}", o.all());
+        let event = fake.owner_comment(THREAD, &format!("-> {}\nstill works", b.name));
+        let (v, code) = fake.poll_json(&b);
+        assert_eq!(code, 0, "{v}");
+        assert!(ids(&v, "events").contains(&event), "{v}");
+        assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+    }
+}
+
+#[test]
+fn other_item_read_errors_are_not_hidden() {
+    let fake = FakeBoard::new();
+    let (a, b) = pair(&fake);
+    for message in [
+        "Resource not accessible by integration".to_string(),
+        format!(
+            "Could not resolve to a node with the global id of '{}'.; another failure",
+            a.item_id
+        ),
+        "Could not resolve to a node with the global id of 'not-requested'.".to_string(),
+    ] {
+        fake.item_read_error(&message);
+        let o = fake.run(&b.dir, &["status"]);
+        assert_eq!(o.code, 3, "{}", o.all());
+        assert!(o.stderr.contains(&message), "{}", o.all());
+    }
+}
+
+#[test]
+fn a_deleted_single_item_is_not_a_network_failure() {
+    use crate::support::board::{OWNER, PROJECT};
+    use crewboard::board::Board;
+    use crewboard::github::{Client, Token};
+
+    let fake = FakeBoard::new();
+    let a = fake.agent("claude@fake-a", Role::Dev);
+    let client = Client::for_base(Token::new("fake-token"), &fake.base()).unwrap();
+    let board = Board::load(&client, OWNER, PROJECT).unwrap();
+    assert_eq!(board.read_item(&client, &a.item_id).unwrap().id, a.item_id);
+    fake.delete_item(&a.item_id);
+    let error = board.read_item(&client, &a.item_id).unwrap_err();
+    assert_eq!(error.exit(), crewboard::exit::Exit::Config);
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("item {} not found", a.item_id))
+    );
+}
+
+#[test]
 fn the_no_events_line_carries_cursor_polls_and_time_and_exit_1() {
     let fake = FakeBoard::new();
     let (a, b) = pair(&fake);

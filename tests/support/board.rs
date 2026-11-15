@@ -172,6 +172,8 @@ struct State {
     push: bool,
     /// The GraphQL error of the board query (`projectV2(number)`), if set.
     board_error: Option<String>,
+    item_error: Option<String>,
+    unresolvable_items: bool,
     board_errors: Option<Value>,
     /// A single-select write of this value fails with a GraphQL error, if set.
     fail_select_value: Option<String>,
@@ -299,6 +301,8 @@ fn new_state(base: &str) -> State {
         scopes: None,
         push: true,
         board_error: None,
+        item_error: None,
+        unresolvable_items: true,
         board_errors: None,
         fail_select_value: None,
         fail_select_pass: 0,
@@ -552,6 +556,14 @@ impl FakeBoard {
     pub fn delete_item(&self, id: &str) {
         let mut st = self.st.lock().unwrap();
         assert!(st.items.remove(id).is_some(), "no item {id}");
+    }
+
+    pub fn null_missing_items(&self) {
+        self.st.lock().unwrap().unresolvable_items = false;
+    }
+
+    pub fn item_read_error(&self, message: &str) {
+        self.st.lock().unwrap().item_error = Some(message.to_string());
     }
 
     /// Mark an item as changed just now, as a board edit does.
@@ -1676,6 +1688,20 @@ fn graphql(st: &mut State, r: &Req) -> Resp {
     } else if q.contains("on IssueComment") {
         gql_comment_editors(st, vars)
     } else if q.contains("nodes(ids:") {
+        if let Some(message) = &st.item_error {
+            return graphql_error(message);
+        }
+        if st.unresolvable_items
+            && let Some(id) = vars["ids"].as_array().and_then(|ids| {
+                ids.iter()
+                    .filter_map(Value::as_str)
+                    .find(|id| !st.items.contains_key(*id))
+            })
+        {
+            return graphql_error(&format!(
+                "Could not resolve to a node with the global id of '{id}'."
+            ));
+        }
         gql_items_by_id(st, vars)
     } else if q.contains("updateProjectV2ItemFieldValue") {
         match gql_set_field(st, vars, q.contains("singleSelectOptionId")) {
@@ -1793,7 +1819,7 @@ fn item_json(st: &State, it: &Item) -> Value {
     })
 }
 
-/// `nodes(ids:)`: an unknown id is `null`.
+/// The successful `nodes(ids:)` data. Deleted ids normally cause an error in `graphql`.
 fn gql_items_by_id(st: &mut State, vars: &Value) -> Value {
     let ids: Vec<String> = vars["ids"]
         .as_array()

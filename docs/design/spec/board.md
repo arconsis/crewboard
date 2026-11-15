@@ -244,7 +244,8 @@ Two built-ins stay on purpose:
   inert for crewboard, and with the four above gone nothing writes their `Status`.
 - "Auto-close issue" writes no field and no item: it closes the issue when `Status` becomes
   Done. crewboard writes Done only for merged work, so a closed issue is the expected end
-  state. Dropped does not close the issue.
+  state. A drop closes the issue itself, as "not planned"
+  ([Close without a PR](tickets.md#close-without-a-pr)).
 
 Other workflows exist only when the owner added them by hand: "Item reopened", "Code changes
 requested", "Code review approved", "Auto-archive items" and "Auto-add to project". `doctor`
@@ -358,6 +359,18 @@ registered". Therefore:
    discover items that were added by hand (for example by the owner in the web UI).
 4. `status` lists items that are known by id but missing from `items()`, so the lag is
    visible and not silent.
+
+A deleted or inaccessible agent item is different from listing lag. A node-resolution
+error for one id does not discard the other agent items. If the registry log ended that
+agent (a signed `lifecycle: left` marker or the owner's `/crew reject`), reads continue.
+`status` reports its name and missing item id in `registry_notes` and lists the id in
+`unreadable_item_ids`. Past trust spans still come from the registry alone.
+For an approved agent whose span is open, reads refuse with `agent-item-missing` (exit 2),
+not a transient network error. The refusal names the agent, item id and owner recovery.
+An item `State = left` or a stop without an end marker is not enough.
+The owner can retire a deleted identity with a new `/crew reject <name>` comment on the
+registry issue, then join and approve a new name. This needs no read or write of the
+deleted item. See [Recover a deleted agent item](../../guides/owner.md#recover-a-deleted-agent-item).
 
 ## Authority
 

@@ -228,6 +228,20 @@ fn golden_close_notices() {
             kind: Kind::Info,
             act: Act::Closed(CloseKind::Dropped),
         },
+        Golden {
+            name: "drop with a merged PR",
+            text: dropped_merged_body("merged without verify", PR, Some("abc"), "crew-account"),
+            bytes: "dropped: merged without verify\npr: https://github.com/o/r/pull/9\nmerge-commit: abc\nmerged-by: crew-account\n",
+            kind: Kind::Info,
+            act: Act::Closed(CloseKind::Dropped),
+        },
+        Golden {
+            name: "drop with a merged PR and no merge commit",
+            text: dropped_merged_body("why", PR, None, "crew-account"),
+            bytes: "dropped: why\npr: https://github.com/o/r/pull/9\nmerge-commit: unknown\nmerged-by: crew-account\n",
+            kind: Kind::Info,
+            act: Act::Closed(CloseKind::Dropped),
+        },
     ]);
 }
 

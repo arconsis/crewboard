@@ -1177,6 +1177,10 @@ fn check_board_side(
             tags = Some(super::profile::caps_of(w.items.get(&agent.item_id)).declared);
             judge_registry(&w, &agent.name, &agent.item_id, cfg, &join_cmd, account)
         }
+        Err(crate::error::CbError::Refused(r)) => fail(
+            r.to_string(),
+            "follow the recovery action in the refusal, then run again",
+        ),
         Err(e) => fail(
             format!("cannot read the registry: {e}"),
             "check the network and the token, then run again",

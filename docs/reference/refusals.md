@@ -12,6 +12,7 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 
 | Id | Meaning |
 |---|---|
+| `agent-item-missing` | An approved agent with an open registry span has no readable Project item. Check access or have the owner reject the agent in the registry issue. |
 | `field-not-on-item` | The field is not a field of this kind of item (ticket or agent item). |
 | `field-type-mismatch` | A board field exists with another type than crewboard needs. |
 | `field-wrong-writer` | The field-writer table does not let this actor write this field. |

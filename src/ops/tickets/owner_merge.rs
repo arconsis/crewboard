@@ -31,6 +31,11 @@
 //! `dropped-option-missing` (rerun `crewboard init`). Without a reason the close is refused with
 //! `close-needs-reason`, and the message names the failed condition. Nothing is written then.
 //!
+//! A drop can still record delivered work. When a PR of the ticket is merged and fails only the
+//! last condition (somebody other than the owner merged it), the drop note carries the lines
+//! `pr:`, `merge-commit:` and `merged-by:` after `dropped: <reason>`. The ticket is Dropped all
+//! the same, and `retro` counts such a drop on its own.
+//!
 //! The PR comes from the evidence of the latest signed `done` of the assignee. If that PR does
 //! not meet the conditions (or there is no `done`), the
 //! cross-references on the issue timeline name more candidate PRs (one more read). A ticket on
@@ -39,7 +44,8 @@
 //! Writes, in this order: the `merged without verify` note for an owner merge, ONE signed
 //! `info` on the ticket (to the assignee, else to the coordinator) with the line `closed: owner
 //! merged <pr-url>` (Status Done) or `dropped: <reason>` (Status Dropped), the label
-//! `needs-owner` removed.
+//! `needs-owner` removed. A drop first closes the issue as "not planned" when it is open; an
+//! issue that is closed already keeps its state and its reason.
 
 use super::owner_applied::{Proof, names_this_ticket, patch_applied, tied};
 use super::pr_evidence::fetch_pr_files;
@@ -220,9 +226,43 @@ fn owner_of(ac: &AgentCtx) -> String {
     ac.ctx.cfg.owner_login.clone()
 }
 
-/// Find the PR that the owner merged. `Ok(Err(why))`: no candidate meets the conditions.
-fn find_merged_pr(ac: &AgentCtx, t: &Ticket, owner: &str) -> CbResult<Result<MergedPr, String>> {
+/// A PR of the ticket that is merged, but not by the owner: it meets every condition of
+/// [`judge_pr`] but the merge actor. The work is on the base branch, so a drop records the PR
+/// (it gives no Done). A PR without a merge actor is not one.
+pub fn merged_by_another(
+    pr: &MergedPr,
+    repos: &[String],
+    ticket_repo: &str,
+    issue: u64,
+    owner: &str,
+) -> bool {
+    pr.merged_by.as_deref().is_some_and(|by| {
+        !by.eq_ignore_ascii_case(owner) && judge_pr(pr, repos, ticket_repo, issue, by).is_ok()
+    })
+}
+
+/// Why a close found no owner merge.
+struct NoOwnerMerge {
+    /// The failed conditions, as text.
+    why: String,
+    /// The first PR of the ticket that somebody else merged ([`merged_by_another`]).
+    merged: Option<MergedPr>,
+}
+
+impl NoOwnerMerge {
+    fn because(why: String) -> NoOwnerMerge {
+        NoOwnerMerge { why, merged: None }
+    }
+}
+
+/// Find the PR that the owner merged. `Ok(Err(no))`: no candidate meets the conditions.
+fn find_merged_pr(
+    ac: &AgentCtx,
+    t: &Ticket,
+    owner: &str,
+) -> CbResult<Result<MergedPr, NoOwnerMerge>> {
     let repos = &ac.ctx.cfg.repos;
+    let mut merged: Option<MergedPr> = None;
     let mut tried: Vec<(String, u64)> = Vec::new();
     let mut why: Vec<String> = Vec::new();
     // 1. the PR of the latest signed `done` of the assignee
@@ -272,14 +312,22 @@ fn find_merged_pr(ac: &AgentCtx, t: &Ticket, owner: &str) -> CbResult<Result<Mer
             };
             match judge_pr(&pr, repos, &t.repo, t.issue, owner) {
                 Ok(()) => return Ok(Ok(pr)),
-                Err(w) => why.push(w),
+                Err(w) => {
+                    why.push(w);
+                    if merged.is_none() && merged_by_another(&pr, repos, &t.repo, t.issue, owner) {
+                        merged = Some(pr);
+                    }
+                }
             }
         }
     }
-    Ok(Err(if why.is_empty() {
-        "no PR is named by the evidence or by the cross-references of the issue".to_string()
-    } else {
-        why.join("; ")
+    Ok(Err(NoOwnerMerge {
+        why: if why.is_empty() {
+            "no PR is named by the evidence or by the cross-references of the issue".to_string()
+        } else {
+            why.join("; ")
+        },
+        merged,
     }))
 }
 
@@ -401,23 +449,25 @@ pub(super) fn close_loaded(
     } else {
         None
     };
-    // true: the issue is still open and `close` ends it (the owner route)
-    let mut end_issue = false;
+    // the issue is still open and `close` ends it (the owner route)
+    let mut end_issue = IssueEnd::Keep;
     let found = match (&route, &owner) {
         // The owner route: only its proof counts, also when the PR text closes the issue (a
         // keyword added after the `done` is no proof that the change is live).
         (Some((pr, patch)), Some(owner)) => {
             let r = find_owner_route_merge(ac, t, pr, patch, owner)?;
-            end_issue = t.info.open && r.is_ok();
-            r.map_err(|w| format!("on the owner route: {w}"))
+            if t.info.open && r.is_ok() {
+                end_issue = IssueEnd::Completed;
+            }
+            r.map_err(|w| NoOwnerMerge::because(format!("on the owner route: {w}")))
         }
         (None, Some(owner)) if !t.info.open => find_merged_pr(ac, t, owner)?,
-        _ => Err("the issue is still open".to_string()),
+        _ => Err(NoOwnerMerge::because("the issue is still open".to_string())),
     };
     match (found, reason) {
         (Ok(pr), _) => close_after_merge(ac, me, t, from, &pr, reason, end_issue),
-        (Err(_), Some(r)) => close_by_judgment(ac, me, t, from, r),
-        (Err(why), None) => Err(no_merge_found(&key, &why).into()),
+        (Err(no), Some(r)) => close_by_judgment(ac, me, t, from, r, no.merged.as_ref()),
+        (Err(no), None) => Err(no_merge_found(&key, &no.why).into()),
     }
 }
 
@@ -438,7 +488,7 @@ fn close_after_merge(
     from: Status,
     pr: &MergedPr,
     reason: Option<&str>,
-    end_issue: bool,
+    end_issue: IssueEnd,
 ) -> CbResult<String> {
     let key = t.key();
     let note =
@@ -472,21 +522,72 @@ fn close_by_judgment(
     t: &Ticket,
     from: Status,
     reason: &str,
+    merged: Option<&MergedPr>,
 ) -> CbResult<String> {
     let key = t.key();
-    let note = crate::protocol::acts::dropped_body(reason);
+    // A PR of the ticket that somebody other than the owner merged: the note records it.
+    let merged = merged.map(|pr| {
+        (
+            pr.url(),
+            pr.merge_commit.as_deref().unwrap_or("unknown"),
+            pr.merged_by.as_deref().unwrap_or("unknown"),
+        )
+    });
+    let note = match &merged {
+        Some((url, commit, by)) => {
+            crate::protocol::acts::dropped_merged_body(reason, url, Some(commit), by)
+        }
+        None => crate::protocol::acts::dropped_body(reason),
+    };
     check_body_text(&note)?;
     check_status_transition(Some(from), Status::Dropped, me.actor, &Transition::Drop)?;
     check_dropped_option(&key, ac.ctx.board.has_status_option(Status::Dropped))?;
     let headline = format!("{key} dropped: Status Dropped (dropped: {reason})");
+    // A drop ends the issue too. An issue that is closed already keeps its state and its reason.
+    let end_issue = if t.info.open {
+        IssueEnd::NotPlanned
+    } else {
+        IssueEnd::Keep
+    };
+    let mut extra = match end_issue {
+        IssueEnd::NotPlanned => format!("{key}: the issue is closed as not planned\n"),
+        _ => String::new(),
+    };
+    if let Some((url, commit, by)) = &merged {
+        extra.push_str(&format!(
+            "{key}: the note records the merged PR {url} (merge commit {commit}, merged by {by})\n"
+        ));
+    }
     let end = End {
         to: Status::Dropped,
         note: &note,
         headline: &headline,
-        extra: "",
-        end_issue: false,
+        extra: &extra,
+        end_issue,
     };
     finish_close(ac, t, &end)
+}
+
+/// What a close does with the GitHub issue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IssueEnd {
+    /// No write: GitHub closed the issue already, or it was closed before.
+    Keep,
+    /// Close it as completed: the owner route, where the PR has no closing keyword.
+    Completed,
+    /// Close it as not planned: a drop of a ticket whose issue is open.
+    NotPlanned,
+}
+
+impl IssueEnd {
+    /// `state_reason` of the PATCH; `None`: no PATCH.
+    fn state_reason(self) -> Option<&'static str> {
+        match self {
+            IssueEnd::Keep => None,
+            IssueEnd::Completed => Some("completed"),
+            IssueEnd::NotPlanned => Some("not_planned"),
+        }
+    }
 }
 
 /// How a close ends a ticket.
@@ -498,23 +599,25 @@ struct End<'a> {
     headline: &'a str,
     /// Output that comes after the notice line.
     extra: &'a str,
-    /// Close the open issue first.
-    end_issue: bool,
+    /// Close the open issue first, and with which reason.
+    end_issue: IssueEnd,
 }
 
-/// The writes of every close, in order: the signed `info`, the Status, the label off.
+/// The writes of every close, in order: the issue closed (when the close ends it), the signed
+/// `info`, the Status, the label off.
 fn finish_close(ac: &AgentCtx, t: &Ticket, end: &End<'_>) -> CbResult<String> {
     let (assignee, to) = close_recipient(t)?;
     // The guard runs before the first write: a ticket that moved gets no notice.
     if let Ok(from) = t.status() {
         super::check_status_unchanged(ac, &t.item_id, &t.key(), from, Some(end.to))?;
     }
-    if end.end_issue {
-        // the owner route: GitHub did not close the issue, because the PR has no closing keyword
+    if let Some(state_reason) = end.end_issue.state_reason() {
+        // The owner route (GitHub did not close the issue, because the PR has no closing
+        // keyword), or a drop. A rerun after a failed post finds the issue closed and skips this.
         ac.ctx.client.send(
             "PATCH",
             &format!("repos/{}/issues/{}", t.repo, t.issue),
-            Some(&json!({"state": "closed", "state_reason": "completed"})),
+            Some(&json!({"state": "closed", "state_reason": state_reason})),
         )?;
     }
     let p = post(ac, t, to, Kind::Info, Re::None, end.note)?;
@@ -636,6 +739,44 @@ mod tests {
     }
 
     #[test]
+    fn a_pr_that_another_account_merged_is_recorded_only_when_all_else_holds() {
+        let by = |p: &MergedPr| merged_by_another(p, &repos(), "o/r", 12, "the-owner");
+        let crew = MergedPr {
+            merged_by: Some("crew-account".into()),
+            ..pr()
+        };
+        assert!(by(&crew));
+        // the owner's merge is the other route (Done), in any letter case
+        assert!(!by(&pr()));
+        assert!(!by(&MergedPr {
+            merged_by: Some("The-Owner".into()),
+            ..pr()
+        }));
+        // every other failed condition: not a merged PR of this ticket
+        for p in [
+            MergedPr {
+                merged: false,
+                ..crew.clone()
+            },
+            MergedPr {
+                body: "Refs #12".into(),
+                ..crew.clone()
+            },
+            MergedPr {
+                repo: "x/y".into(),
+                body: "Closes o/r#12".into(),
+                ..crew.clone()
+            },
+            MergedPr {
+                merged_by: None,
+                ..crew.clone()
+            },
+        ] {
+            assert!(!by(&p), "{p:?}");
+        }
+    }
+
+    #[test]
     fn the_status_check_names_the_unfinished_statuses_done_and_the_rest() {
         for why in [false, true] {
             for s in [Status::Review, Status::InProgress, Status::Blocked] {
@@ -671,6 +812,13 @@ mod tests {
         let r = check_dropped_option("o/r#12", false).unwrap_err();
         assert_eq!(r.rule, ids::DROPPED_OPTION_MISSING);
         assert!(r.message.contains("crewboard init"), "{}", r.message);
+    }
+
+    #[test]
+    fn only_a_close_that_ends_the_issue_names_a_state_reason() {
+        assert_eq!(IssueEnd::Keep.state_reason(), None);
+        assert_eq!(IssueEnd::Completed.state_reason(), Some("completed"));
+        assert_eq!(IssueEnd::NotPlanned.state_reason(), Some("not_planned"));
     }
 
     #[test]

@@ -579,6 +579,16 @@ fn infos(fake: &FakeBoard, issue: u64, needle: &str) -> Vec<String> {
         .collect()
 }
 
+/// The bodies of the PATCH requests that changed the issue itself (its state, not a comment).
+fn issue_patches(fake: &FakeBoard, issue: u64) -> Vec<serde_json::Value> {
+    let path = format!("/repos/{}/issues/{issue}", crate::support::board::REPO);
+    fake.requests()
+        .iter()
+        .filter(|r| r.method == "PATCH" && r.path == path)
+        .map(|r| serde_json::from_str(&r.body).expect("a JSON body"))
+        .collect()
+}
+
 struct Plain {
     n: u64,
     ns: String,
@@ -641,8 +651,22 @@ fn a_ticket_without_a_pr_is_dropped_by_reason_from_every_status_but_done() {
             Some("Dropped"),
             "{stage}"
         );
-        // the issue stays open: a drop is no close of the issue
-        assert!(fake.issue_is_open(t.n), "{stage}");
+        // the drop closes the open issue as not planned, with ONE request
+        assert!(!fake.issue_is_open(t.n), "{stage}");
+        assert_eq!(
+            issue_patches(&fake, t.n),
+            [serde_json::json!({"state": "closed", "state_reason": "not_planned"})],
+            "{stage}"
+        );
+        assert!(
+            o.stdout.contains(&format!(
+                "{}#{}: the issue is closed as not planned\n",
+                crate::support::board::REPO,
+                t.n
+            )),
+            "{stage}: {}",
+            o.all()
+        );
         assert!(
             !fake.labels_of(t.n).contains(&"needs-owner".to_string()),
             "{stage}: the label went"
@@ -674,6 +698,161 @@ fn a_ticket_without_a_pr_is_dropped_by_reason_from_every_status_but_done() {
         );
         assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
     }
+}
+
+/// An issue that is closed already keeps its state and its reason: the drop sends no PATCH for
+/// it and prints no line about it. This is also the rerun after a drop whose note failed to
+/// post (the issue is closed, the ticket is not Dropped yet).
+#[test]
+fn a_drop_leaves_an_issue_alone_that_is_closed_already() {
+    let (fake, c, b) = crew();
+    let t = plain(&fake, &c, &b, "blocked");
+    fake.close_issue(t.n);
+    let o = run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
+    assert!(o.stdout.contains("dropped: Status Dropped"), "{}", o.all());
+    assert!(!o.stdout.contains("not planned"), "{}", o.all());
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
+    assert_eq!(issue_patches(&fake, t.n), [] as [serde_json::Value; 0]);
+    assert_eq!(infos(&fake, t.n, "dropped: not needed").len(), 1);
+    assert!(fake.unhandled().is_empty(), "{:?}", fake.unhandled());
+}
+
+/// The crew account merged the PR of the ticket without a passed verify, and GitHub closed the
+/// issue. That is no owner merge, so the ticket can only be dropped. The drop note records the
+/// PR, its merge commit and the merge actor; the ticket is Dropped like after any other drop.
+#[test]
+fn a_drop_records_the_pr_that_another_account_merged() {
+    // review: the PR of the signed done. in-progress: a PR that only the timeline names.
+    for stage in ["review", "in-progress"] {
+        let k = case(stage);
+        let ts = k.t.to_string();
+        let key = format!("{}#{}", crate::support::board::REPO, k.t);
+        k.fake.merge_pr_by(k.pr.number, "fake-crew");
+        k.fake.close_issue(k.t);
+        // without a reason the close is refused as before, and the text is the same
+        refused_no_write(
+            &k.fake,
+            &k.c.dir,
+            &["close", &ts],
+            "close-needs-reason",
+            "merged by fake-crew, not by the owner (fake-owner)",
+        );
+        let o = run_ok(
+            &k.fake,
+            &k.c,
+            &["close", &ts, "--why", "merged without verify"],
+        );
+        assert_eq!(status(&k).as_deref(), Some("Dropped"), "{stage}");
+        let merge_sha = format!("{:040x}", 0xabc0_u128 + u128::from(k.pr.number));
+        let notes = infos(&k.fake, k.t, "dropped: merged without verify");
+        assert_eq!(notes.len(), 1, "{stage}: {notes:?}");
+        let want = format!(
+            "dropped: merged without verify\npr: {}\nmerge-commit: {merge_sha}\nmerged-by: fake-crew",
+            k.pr.url
+        );
+        assert!(notes[0].contains(&want), "{stage}: {}", notes[0]);
+        assert!(
+            o.stdout.contains(&format!(
+                "{key}: the note records the merged PR {} (merge commit {merge_sha}, merged by fake-crew)\n",
+                k.pr.url
+            )),
+            "{stage}: {}",
+            o.all()
+        );
+        assert!(
+            o.stdout.starts_with(&format!(
+                "{key} dropped: Status Dropped (dropped: merged without verify)\nnotice "
+            )),
+            "{stage}: {}",
+            o.all()
+        );
+        // GitHub closed the issue already: the drop leaves it alone
+        assert!(!o.stdout.contains("not planned"), "{}", o.all());
+        assert_eq!(issue_patches(&k.fake, k.t), [] as [serde_json::Value; 0]);
+        // the ticket is Dropped like after a plain drop: final, and the log agrees with the board
+        refused_no_write(
+            &k.fake,
+            &k.c.dir,
+            &["close", &ts, "--why", "again"],
+            "status-no-change",
+            "already Dropped",
+        );
+        refused_no_write(
+            &k.fake,
+            &k.c.dir,
+            &["close", &ts],
+            "status-dropped-final",
+            "only the owner moves it",
+        );
+        let o = run_ok(
+            &k.fake,
+            &k.c,
+            &[
+                "audit",
+                "--json",
+                "--initiative",
+                crate::support::board::INITIATIVE,
+            ],
+        );
+        assert!(!o.stdout.contains("field-mismatch"), "{}", o.all());
+        assert!(!o.stdout.contains("the log shows"), "{}", o.all());
+        assert!(k.fake.unhandled().is_empty(), "{:?}", k.fake.unhandled());
+    }
+}
+
+/// Only a merged PR that closes this ticket is recorded. Any other PR gives the plain note.
+#[test]
+fn a_drop_records_no_pr_that_is_open_or_does_not_close_the_ticket() {
+    for case_name in ["open", "no-keyword"] {
+        let k = case("review");
+        let ts = k.t.to_string();
+        if case_name == "no-keyword" {
+            k.fake.merge_pr_by(k.pr.number, "fake-crew");
+            k.fake.set_pr_text(k.pr.number, "Work", "Refs ticket only");
+        }
+        k.fake.close_issue(k.t);
+        let o = run_ok(&k.fake, &k.c, &["close", &ts, "--why", "not needed"]);
+        assert_eq!(status(&k).as_deref(), Some("Dropped"), "{case_name}");
+        let notes = infos(&k.fake, k.t, "dropped: not needed");
+        assert_eq!(notes.len(), 1, "{case_name}: {notes:?}");
+        for line in ["\npr:", "merge-commit:", "merged-by:"] {
+            assert!(!notes[0].contains(line), "{case_name}: {}", notes[0]);
+        }
+        assert!(!o.stdout.contains("merged PR"), "{case_name}: {}", o.all());
+    }
+}
+
+/// A Dropped ticket with a closed issue is nothing for the headless tick: no line, no write.
+#[test]
+fn the_headless_tick_leaves_a_dropped_ticket_with_a_closed_issue_alone() {
+    let (fake, c, b) = crew();
+    let t = plain(&fake, &c, &b, "blocked");
+    let dir = tempfile::tempdir().unwrap();
+    crate::support::headless::copy_headless(&c, dir.path());
+    let key = format!("{}#{}", crate::support::board::REPO, t.n);
+    // control: the tick names a Blocked ticket whose issue is closed
+    fake.close_issue(t.n);
+    let o = fake.run(dir.path(), &["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains(&key), "{}", o.all());
+    // the owner opens the issue again, and the coordinator drops the ticket
+    fake.reopen_issue(t.n);
+    run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
+    assert!(!fake.issue_is_open(t.n));
+    for _ in 0..2 {
+        let w = writes(&fake);
+        let o = fake.run(dir.path(), &["tick"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(!o.stdout.contains(&key), "{}", o.all());
+        assert_eq!(writes(&fake), w, "the tick wrote: {}", o.all());
+    }
+    assert_eq!(
+        fake.item_field(&t.item, "Status").as_deref(),
+        Some("Dropped")
+    );
 }
 
 #[test]
@@ -840,6 +1019,16 @@ fn assign_and_verify_on_a_dropped_ticket_are_refused() {
     let (fake, c, b) = crew();
     let t = plain(&fake, &c, &b, "in-progress");
     run_ok(&fake, &c, &["close", &t.ns, "--why", "not needed"]);
+    // the drop closed the issue, and `assign` checks the issue first
+    refused_no_write(
+        &fake,
+        &c.dir,
+        &["assign", &t.ns, "--to", &b.name],
+        "ticket-closed",
+        "is closed",
+    );
+    // an issue that somebody opened again by hand does not open the ticket again
+    fake.reopen_issue(t.n);
     refused_no_write(
         &fake,
         &c.dir,

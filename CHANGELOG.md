@@ -2,6 +2,65 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## v0.9.2 (2026-11-15)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board. A crew whose reads
+fail with "Could not resolve to a node with the global id of ..." for the item of an agent that
+left works again after the update.
+
+Fixed:
+
+- A deleted Project item of an agent no longer stops the board reads of the whole crew. Before,
+  GitHub answered the read of the agent items with an error for the deleted id, and every
+  command that reads the registry (`status`, `watch`, `poll`, `doctor --setup`, the ticket
+  commands) ended with exit 3 for every agent. Now the read keeps the other items. For an agent
+  that the registry log ended (a signed `lifecycle: left` marker or the owner's
+  `/crew reject`), the reads continue: `status` names the agent and the missing item id in
+  `registry_notes` and lists the id in `unreadable_item_ids`. The past signed messages of that
+  agent still count within its trust spans.
+- An approved agent whose span is still open and whose item is missing gives the new refusal
+  `agent-item-missing` (exit 2), not a network error. The message names the agent, the item id
+  and the recovery: the owner posts `/crew reject <agent>` in the registry issue, then a new
+  agent name joins and is approved. `doctor --setup` shows the refusal with its fix.
+- `approve --role coordinator` no longer counts a coordinator that left: the check for one
+  coordinator looks only at approved agents whose span is open.
+
+Changed:
+
+- The owner guide has the section "Recover a deleted agent item", and the board spec says what
+  a missing agent item means. An item `State = left`, `stop --force` or `/crew stop` alone does
+  not end a trust span: before you delete an agent item, wait for the signed left marker or
+  post `/crew reject <agent>`.
+
+## v0.9.1 (2026-11-14)
+
+Upgrade: nothing changes on the board. A ticket that an older build dropped keeps its open
+issue. The rule for Done does not change.
+
+Changed:
+
+- `close <n> --why "<text>"` (a drop) also closes the GitHub issue, as "not planned", when the
+  issue is open. Before, the issue stayed open. An issue that is closed already keeps its state
+  and its reason. The answer has the line `<ticket>: the issue is closed as not planned` when
+  the command closed the issue. The write order is: the issue, the signed note, Status Dropped,
+  the label. A rerun after a failed write finds the issue closed and writes the rest.
+- Because a dropped ticket now has a closed issue, `assign` on it is refused with
+  `ticket-closed` (the issue check comes first). When somebody opens the issue again by hand,
+  the refusal is `status-dropped-final` as before. `crewboard move` of the owner out of Dropped
+  opens the issue again, as it does for Done.
+- The drop note records delivered work. A PR that another account than the owner merged,
+  without a passed verify, gives no Done, and the ticket can only be dropped. When the issue is
+  closed and such a PR closes the ticket, the note has the lines `pr: <url>`,
+  `merge-commit: <sha>` and `merged-by: <login>` after `dropped: <reason>`, and the answer names
+  the PR. Every reader takes the note as a drop like any other. A drop without such a PR writes
+  the note as before. The wire version stays `v=1`.
+- `retro` shows the dropped tickets whose drop note records a merged PR as their own number:
+  the line `dropped with a merged PR` in the section Flow, and `flow.dropped_merged` in
+  `--json`. Such a drop note on an issue without a signed assignment is in one new number,
+  `merged work without an assignment` (section Volume; `merged_unassigned` in `--json`), and
+  in no other. No field of the JSON changed its name. A drop note of an older build has no PR
+  lines and is a plain drop. Spec: `docs/design/spec/retro.md`.
+
 ## v0.9.0 (2026-11-12)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board, and no command

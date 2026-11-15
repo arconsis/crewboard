@@ -706,6 +706,93 @@ fn flow_counts_reassigns_drops_closes_and_late_notes() {
     assert_eq!(retro(&[notes]).flow.late_notes.len(), 2);
 }
 
+const DROP_WITH_PR: &str = "dropped: merged without verify\npr: https://github.com/a/b/pull/7\nmerge-commit: abc\nmerged-by: crew-account\n";
+
+#[test]
+fn a_drop_with_a_merged_pr_is_a_drop_and_has_its_own_count() {
+    // the text is the one that `close --why` writes
+    assert_eq!(
+        DROP_WITH_PR,
+        crate::protocol::acts::dropped_merged_body(
+            "merged without verify",
+            "https://github.com/a/b/pull/7",
+            Some("abc"),
+            "crew-account"
+        )
+    );
+    let plain = Log::new(1)
+        .assign(1)
+        .coord(2, Kind::Info, "dropped: not needed\n")
+        .build();
+    let with_pr = Log::new(2)
+        .assign(1)
+        .done(2)
+        .coord(3, Kind::Info, DROP_WITH_PR)
+        .build();
+    // dropped with a PR, then moved back by the owner: the ticket has not ended
+    let reopened = Log::new(3)
+        .assign(1)
+        .coord(2, Kind::Info, DROP_WITH_PR)
+        .owner(3, "/crew move Ready")
+        .build();
+    // the same text of a dev agent is no drop
+    let by_dev = Log::new(4)
+        .assign(1)
+        .dev(2, "coordinator", Kind::Info, DROP_WITH_PR)
+        .build();
+    // an older drop with a PR, then a new assignment and a plain drop: the end is a plain drop
+    let later_plain = Log::new(5)
+        .assign(1)
+        .coord(2, Kind::Info, DROP_WITH_PR)
+        .owner(3, "/crew move Ready")
+        .assign(4)
+        .coord(5, Kind::Info, "dropped: not needed\n")
+        .build();
+    let r = retro(&[plain, with_pr, reopened, by_dev, later_plain]);
+    let f = &r.flow;
+    assert_eq!(issues(&f.dropped.iter().collect::<Vec<_>>()), [1, 2, 5]);
+    assert_eq!(issues(&f.dropped_merged.iter().collect::<Vec<_>>()), [2]);
+    assert_eq!(f.dropped_merged[0].url, url(202));
+    // it is a drop in every other number: no merge close, no time to a close
+    assert_eq!(f.closes, BTreeMap::from([("dropped", 3)]));
+    assert_eq!(f.done_to_close, None);
+    assert_eq!((r.tickets, r.delivered), (5, 1));
+    assert!(r.merged_unassigned.is_empty());
+}
+
+#[test]
+fn merged_work_without_an_assignment_is_in_one_number_only() {
+    let ticket = Log::new(1).assign(1).done(2).pass(3).merged(4).build();
+    // no assignment: the coordinator drops the issue and records the merged PR
+    let unassigned = Log::new(2)
+        .coord(1, Kind::Info, "Ticket is on the board as PVTI_x.\n")
+        .coord(2, Kind::Info, DROP_WITH_PR)
+        .build();
+    // not counted: a plain drop, the text of a dev agent, and a drop that the owner moved back
+    let plain = Log::new(3)
+        .coord(1, Kind::Info, "dropped: not needed\n")
+        .build();
+    let by_dev = Log::new(4)
+        .dev(1, "coordinator", Kind::Info, DROP_WITH_PR)
+        .build();
+    let reopened = Log::new(5)
+        .coord(1, Kind::Info, DROP_WITH_PR)
+        .owner(2, "/crew move Backlog")
+        .build();
+    let alone = retro(std::slice::from_ref(&ticket));
+    let r = retro(&[ticket, unassigned, plain, by_dev, reopened]);
+    assert_eq!(issues(&r.merged_unassigned.iter().collect::<Vec<_>>()), [2]);
+    assert_eq!(r.merged_unassigned[0].url, url(201));
+    // every other number is the one of the ticket alone
+    assert_eq!(
+        Report {
+            merged_unassigned: Vec::new(),
+            ..r
+        },
+        alone
+    );
+}
+
 #[test]
 fn the_flow_times_are_the_median_and_the_ninetieth_percentile_over_tickets() {
     assert_eq!(spread(&[]), None);
