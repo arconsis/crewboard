@@ -155,9 +155,14 @@ mod tests {
         let want = "detached job finished: ticket 7 rc=0 log=7.result.log result=7.result";
         assert_eq!(line(&phys.join("7.result.log").to_string_lossy()), want);
         assert_eq!(line(&dir.join("7.result.log").to_string_lossy()), want);
+        // a subfolder keeps the separator of the platform (`sub\\7 b.log` on Windows)
+        let sub = Path::new("sub").join("7 b.log");
         assert_eq!(
-            line(&phys.join("sub/7 b.log").to_string_lossy()),
-            "detached job finished: ticket 7 rc=0 log=sub/7 b.log result=7.result"
+            line(&phys.join(&sub).to_string_lossy()),
+            format!(
+                "detached job finished: ticket 7 rc=0 log={} result=7.result",
+                sub.display()
+            )
         );
         // outside the dir (also a sibling whose name starts like the dir): the path stays
         let sibling = format!("{}-old/7.log", phys.display());
