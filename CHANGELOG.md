@@ -2,7 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.9.3 (2026-11-16)
 
 Upgrade: run `crewboard update` on each host. It also installs the new skill. Nothing changes
 on the board. A script that starts the same detached job twice with one `--result` file,
