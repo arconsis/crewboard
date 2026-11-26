@@ -124,7 +124,7 @@ modules on the `ops` list of `tests/layering.rs`.
   without `verify`) and `owner_merge.rs` (`close` without `--verified`). `owner_net.rs` and
   `owner_applied.rs` are the safety net of the owner route.
 - Reading state: `status.rs`, `queue.rs` (`status --queue`), `agent_row.rs` (one row per agent), `pr_state.rs` (the PR column), `review_wait.rs` (the wait for `verify`), `behind.rs` (how far a PR head is behind its base), `mine.rs`, `agents.rs`, `audit.rs`, `retro.rs` (`retro`: the reads and the output of `src/retro.rs`; it writes nothing).
-- Late work: `ops/late.rs` (the GitHub reads, the `poll` duty and the `status` section for the waits of `src/late/mod.rs`).
+- Late work: `ops/late.rs` (the GitHub reads, the `poll` duty and the `status` section for the waits of `src/late/`).
 - Board config refresh: `board_refresh.rs` (`start` re-reads `.crewboard.toml` from the default branch).
 - Agent and crew admin: `lifecycle.rs` (`pause`, `resume`, `stop`), `force_stop.rs` (`stop --force`), `profile.rs`, `prune.rs`, `report_status.rs`.
 - Local checks: `doctor.rs` (`doctor`: the headless scope and the branch protection), `repo_migration.rs` (`doctor --repo-move`, a read-only dry run).
@@ -183,7 +183,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/services/ci_evidence.rs`: `fetch_ci` reads the CI sources of a commit (one `CiQuery`) and hands them to `evaluate`.
 - `src/services/ci_triggers.rs`: read the workflow files of a repo (`check_repos`, `judge_no_run`) and hand them to `triggers`.
 - `src/domain/branch_guard.rs`, `src/services/branch_guard.rs`: is the default branch protected against a direct push of an agent account. The service reads it once per run, the domain judges it.
-- `src/late/mod.rs`: pure rules for late work: the table of expected times, `scan()` (what waits too long) and `tells()` (who hears of it: dev, coordinator or owner). It also judges the heartbeat of agents. The reads sit behind a probe.
+- `src/late/`: pure rules for late work. `mod.rs`: the table of expected times and `tells()` (who hears of it: dev, coordinator or owner). `scan.rs`: `scan()` (what waits too long) behind the `Probe` trait. `ci.rs`: the CI events. `render.rs`: the texts of a late wait. It also judges the heartbeat of agents. The reads sit behind a probe.
 - `src/headless.rs`: the headless scope (rule, reasons, Gate checks); the verdict of each command is in `src/cli/scope.rs`. A scheduled coordinator may only `verify` and `merge` a CI-only ticket.
 - `src/owner_cmd.rs`, `src/owner_route.rs`: the owner commands `/crew ...`, and the owner route for workflow files.
 - `src/labels.rs`: the labels that make the board readable.
