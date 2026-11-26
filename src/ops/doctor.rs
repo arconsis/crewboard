@@ -255,6 +255,42 @@ fn fail(what: impl Into<String>, fix: impl Into<String>) -> CheckVerdict {
     }
 }
 
+/// The warning for `checks` of AUTHORITY.md that run a file of the repo which no protected path
+/// covers: a PR can change what such a check does (spec/ci#checks-that-the-tool-runs). The files
+/// are read from the command lines: the program when it is a path, and each word that names a
+/// script (`.sh`, `.py`, `.js`, `.rb`, `.ps1`). Pure.
+pub fn unprotected_checks_warning(
+    authority_file: &str,
+    a: &crate::authority::Authority,
+) -> Option<String> {
+    let guard = crate::rules::protected::Protect::new(authority_file, &a.protected_paths);
+    let mut open: Vec<String> = Vec::new();
+    for c in &a.checks {
+        for (n, w) in c.argv.iter().enumerate() {
+            let rel = w.replace('\\', "/");
+            let rel = rel.trim_start_matches("./").to_string();
+            let script = [".sh", ".py", ".js", ".rb", ".ps1"]
+                .iter()
+                .any(|e| rel.ends_with(e));
+            let is_file = (n == 0 && rel.contains('/')) || (script && !rel.starts_with('-'));
+            if is_file
+                && !rel.starts_with('/')
+                && crate::rules::protected::protected_hits(std::slice::from_ref(&rel), guard)
+                    .is_empty()
+                && !open.contains(&rel)
+            {
+                open.push(rel);
+            }
+        }
+    }
+    (!open.is_empty()).then(|| {
+        format!(
+            "warning: checks of AUTHORITY.md run files that a PR can change: {}. List them in protected_paths, or read their diff at each verify (docs/design/spec/ci.md#checks-that-the-tool-runs)",
+            open.join(", ")
+        )
+    })
+}
+
 /// The lines of `doctor --setup`, in order.
 #[derive(Debug, Default)]
 pub struct SetupReport {
@@ -1159,6 +1195,11 @@ fn check_board_side(
     {
         rep.warnings.push(w);
     }
+    if let Some(a) = crate::ctx::load_authority_quiet(&ctx)
+        && let Some(w) = unprotected_checks_warning(&ctx.cfg.authority, &a)
+    {
+        rep.warnings.push(w);
+    }
     if let Some(w) = dropped_option_warning(
         ctx.board
             .has_status_option(crate::rules::status::Status::Dropped),
@@ -1647,6 +1688,29 @@ mod tests {
             dropped_option_warning(false).as_deref(),
             Some(NO_DROPPED_OPTION)
         );
+    }
+
+    #[test]
+    fn checks_that_run_an_unprotected_file_get_a_warning_that_names_the_files() {
+        let auth = |text: &str| crate::authority::parse(text).unwrap().unwrap();
+        let checks = "checks:\n  - a: tools/gate.sh all\n  - b: uv run python tools/guard.py --diff origin/main\n  - c: cargo test --workspace\n";
+        let open = auth(&format!("---\n{checks}---\n"));
+        let w = unprotected_checks_warning("AUTHORITY.md", &open).unwrap();
+        assert!(w.contains("tools/gate.sh, tools/guard.py"), "{w}");
+        assert!(!w.contains("origin/main") && !w.contains("cargo"), "{w}");
+        let half = auth(&format!(
+            "---\nprotected_paths: [tools/gate.sh]\n{checks}---\n"
+        ));
+        let w = unprotected_checks_warning("AUTHORITY.md", &half).unwrap();
+        assert!(
+            w.contains("tools/guard.py") && !w.contains("gate.sh"),
+            "{w}"
+        );
+        let closed = auth(&format!("---\nprotected_paths: [tools/**]\n{checks}---\n"));
+        assert_eq!(unprotected_checks_warning("AUTHORITY.md", &closed), None);
+        // no checks, or only programs of the host: no warning
+        let none = auth("---\nchecks:\n  - c: cargo test\n---\n");
+        assert_eq!(unprotected_checks_warning("AUTHORITY.md", &none), None);
     }
 
     #[test]

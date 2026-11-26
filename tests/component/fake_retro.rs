@@ -164,7 +164,8 @@ fn the_report_counts_the_signed_log_of_two_tickets_and_writes_nothing() {
         serde_json::json!({"verified": 2, "first_pass": 0, "first_pass_or_accepted": 1,
                            "tickets_with_fail": 2, "fails": 2,
                            "rework_tickets": 1, "rework_fails": 1,
-                           "repeat_rework_tickets": 0})
+                           "repeat_rework_tickets": 0,
+                           "passes": 1, "tool_run_passes": 0})
     );
     let classes: Vec<(&str, u64)> = r["classes"]
         .as_array()

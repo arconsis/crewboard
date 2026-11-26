@@ -7,9 +7,7 @@ use crate::rules::Refusal;
 /// The longest local-gate text (bytes): the text goes into the Evidence field (1024 bytes).
 const MAX_LOCAL_GATE_BYTES: usize = 400;
 
-/// The first word of a local-run line that the tool wrote itself after it ran the checks
-/// (`verify --run-check`). A typed `--local-run` text must not start with it.
-pub(crate) const TOOL_RUN_PREFIX: &str = "tool-run ";
+pub(crate) use crate::protocol::acts::TOOL_RUN_PREFIX;
 
 /// The refusal of a local-gate flag while `ci_mode` is `ci`, and of a local-gate evidence that no
 /// longer counts.

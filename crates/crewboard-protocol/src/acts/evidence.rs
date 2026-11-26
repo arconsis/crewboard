@@ -7,6 +7,15 @@ use super::{VERIFY_PREFIX, kv};
 /// The `ci:` value of evidence that holds a local gate instead of a CI run.
 pub const LOCAL_GATE_CI: &str = "local-gate";
 
+/// The first word of a local-run line that the tool wrote itself after it ran the checks
+/// (`verify --run-check`). A typed `--local-run` text must not start with it.
+pub const TOOL_RUN_PREFIX: &str = "tool-run ";
+
+/// Does a passed verify carry a local-run line that the tool wrote (`verify --run-check`)?
+pub fn is_tool_run_verify(body: &str) -> bool {
+    super::kv(body, "coordinator-local-gate").is_some_and(|t| t.starts_with(TOOL_RUN_PREFIX))
+}
+
 /// The evidence lines of a `done` message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvidenceMsg {

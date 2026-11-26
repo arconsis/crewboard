@@ -295,6 +295,12 @@ pub fn render(v: &View, r: &Report) -> String {
         "  tickets that went back two times or more: {}\n",
         y.repeat_rework_tickets
     ));
+    s.push_str(&format!(
+        "  passes with checks that the tool ran (verify --run-check): {} of {} ({})\n",
+        y.tool_run_passes,
+        y.passes,
+        percent(y.tool_run_passes, y.passes)
+    ));
     render_gates(r, &mut s);
     s.push_str("\nVerify fails by class (a fail with failures of two classes is in both)\n");
     if r.classes.is_empty() {
@@ -435,7 +441,8 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                        "first_pass_or_accepted": y.first_pass_or_accepted,
                        "tickets_with_fail": y.tickets_with_fail, "fails": y.fails,
                        "rework_tickets": y.rework_tickets, "rework_fails": y.rework_fails,
-                       "repeat_rework_tickets": y.repeat_rework_tickets},
+                       "repeat_rework_tickets": y.repeat_rework_tickets,
+                       "passes": y.passes, "tool_run_passes": y.tool_run_passes},
             "gates": {"ci_only": gate_json(&r.gates.ci_only), "other": gate_json(&r.gates.other),
                       "unsigned": gate_json(&r.gates.unsigned)},
             "classes": r.classes.iter().map(|c| rows(c.class, &c.events)).collect::<Vec<_>>(),
@@ -504,6 +511,8 @@ mod tests {
                 rework_tickets: 1,
                 rework_fails: 2,
                 repeat_rework_tickets: 1,
+                passes: 3,
+                tool_run_passes: 1,
             },
             gates: crate::retro::GateStats::default(),
             classes: vec![
@@ -683,6 +692,8 @@ mod tests {
                 rework_tickets: 1,
                 rework_fails: 2,
                 repeat_rework_tickets: 1,
+                passes: 2,
+                tool_run_passes: 0,
             },
             ..report()
         };
@@ -732,7 +743,8 @@ mod tests {
             r["verify"],
             json!({"verified": 3, "first_pass": 2, "first_pass_or_accepted": 3,
                    "tickets_with_fail": 2, "fails": 3,
-                   "rework_tickets": 1, "rework_fails": 2, "repeat_rework_tickets": 1})
+                   "rework_tickets": 1, "rework_fails": 2, "repeat_rework_tickets": 1,
+                   "passes": 3, "tool_run_passes": 1})
         );
         assert_eq!(r["classes"][0]["class"], "review");
         assert_eq!(r["classes"][0]["count"], 2);

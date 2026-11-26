@@ -62,6 +62,20 @@ impl Log {
         self.coord(hour, Kind::Report, &body)
     }
 
+    /// A pass whose local-run line the tool wrote.
+    fn tool_pass(self, hour: i64) -> Log {
+        let line = "tool-run host-a: tests rc=0 5s; clean checkout of abc";
+        let body = verify_body(true, &evidence(), "abc", &[], "", None, Some(line));
+        self.coord(hour, Kind::Report, &body)
+    }
+
+    /// A pass whose local-run line a model typed.
+    fn typed_pass(self, hour: i64) -> Log {
+        let line = "host-a: make test rc=0, log /tmp/x.log";
+        let body = verify_body(true, &evidence(), "abc", &[], "", None, Some(line));
+        self.coord(hour, Kind::Report, &body)
+    }
+
     fn fail(self, hour: i64, failures: &[VerifyFailure]) -> Log {
         let body = verify_body(false, &evidence(), "def", failures, "", None, None);
         self.coord(hour, Kind::Report, &body)
@@ -243,6 +257,8 @@ fn verify_counts_the_first_result_and_the_fails() {
             rework_tickets: 2,
             rework_fails: 3,
             repeat_rework_tickets: 1,
+            passes: 2,
+            tool_run_passes: 0,
         }
     );
     // a verify text of a dev agent is no verify result
@@ -521,6 +537,8 @@ fn the_rework_numbers_and_the_first_verify_leave_the_accepted_fails_out() {
             rework_tickets: 2,
             rework_fails: 2,
             repeat_rework_tickets: 0,
+            passes: 3,
+            tool_run_passes: 0,
         }
     );
     assert_eq!(issues(&class(&r, ACCEPTED_AFTER_HEAD_MOVED)), [1, 3]);
@@ -932,4 +950,23 @@ fn a_ticket_that_went_back_two_times_is_counted_once() {
     ];
     let y = retro(&logs).verify;
     assert_eq!((y.rework_tickets, y.repeat_rework_tickets), (2, 1));
+}
+
+#[test]
+fn the_passes_that_the_tool_decided_are_counted_apart_from_typed_ones() {
+    let logs = [
+        Log::new(1).assign(1).done(2).tool_pass(3).build(),
+        Log::new(2).assign(1).done(2).typed_pass(3).build(),
+        Log::new(3).assign(1).done(2).pass(3).build(),
+        // a fail, then a pass of the tool
+        Log::new(4)
+            .assign(1)
+            .done(2)
+            .fail(3, &[review("x")])
+            .done(4)
+            .tool_pass(5)
+            .build(),
+    ];
+    let y = retro(&logs).verify;
+    assert_eq!((y.passes, y.tool_run_passes), (4, 2));
 }
