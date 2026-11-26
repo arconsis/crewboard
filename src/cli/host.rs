@@ -334,7 +334,8 @@ mod wake_check_tests {
             panic!("fail expected");
         };
         assert!(what.contains("failed 7 times in a row"), "{what}");
-        assert!(fix.contains("/s/demo-dev/wake.log"), "{fix}");
+        let log = Path::new("/s/demo-dev").join("wake.log");
+        assert!(fix.contains(&log.display().to_string()), "{fix}");
     }
 
     #[test]
@@ -345,7 +346,8 @@ mod wake_check_tests {
             panic!("fail expected");
         };
         assert!(what.contains("poll: HTTP 401"), "{what}");
-        assert!(fix.contains("/s/demo-dev/stopped"), "{fix}");
+        let stop = Path::new("/s/demo-dev").join("stopped");
+        assert!(fix.contains(&stop.display().to_string()), "{fix}");
         assert!(matches!(
             verdict(Health::Network { fails: 3 }),
             CheckVerdict::Fail { .. }
