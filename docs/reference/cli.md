@@ -487,7 +487,7 @@ Options:
           Dry run for a repo transfer or rename (read only): count the signed messages that verify under the current repo name and under each `former_repos` name of AUTHORITY.md, and list the ones that verify under no name. Exit 0 whatever it finds
 
       --setup
-          Agent: check the setup of this agent instead (token, push access, plain gh, git identity, runtime, board, AUTHORITY.md, approval). Read only. One line per check: ok, FAIL with the fix, or skip. Exit 2 if a check fails. Run it with the agent's environment: `crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup`
+          Agent: check the setup of this agent instead (token, push access, plain gh, git identity, runtime, board, AUTHORITY.md, approval, scheduled wakes). Read only. One line per check: ok, FAIL with the fix, or skip. Exit 2 if a check fails. Run it with the agent's environment: `crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup`
 
       --work-dir <WORK_DIR>
           The checkout of the agent, for the git identity check (default: this directory)

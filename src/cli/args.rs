@@ -939,7 +939,8 @@ pub enum HostCmd {
         #[arg(long = "repo-move", conflicts_with = "setup")]
         repo_move: bool,
         /// Agent: check the setup of this agent instead (token, push access, plain gh, git
-        /// identity, runtime, board, AUTHORITY.md, approval). Read only. One line per check:
+        /// identity, runtime, board, AUTHORITY.md, approval, scheduled wakes). Read only. One line
+        /// per check:
         /// ok, FAIL with the fix, or skip. Exit 2 if a check fails. Run it with the agent's
         /// environment: `crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup`.
         #[arg(long)]

@@ -124,6 +124,11 @@ agent dir, `agent exec`, `agent env`, `agent with-env` and several agents on one
 `doctor --setup` reads and changes nothing. It prints one line per check: `ok`, `FAIL` with the
 fix, or `skip`. It exits 2 if a check fails.
 
+The last line is `wake`: the scheduled wakes of this agent on this host. It fails when the wake
+command failed two times or more in a row, when a refusal stopped the wakes, or when GitHub
+failed in two runs or more in a row. The board cannot show the first case: a wake that cannot
+start its model still polls, so the agent looks alive there.
+
 ```sh
 crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup --work-dir <work-dir>
 ```
