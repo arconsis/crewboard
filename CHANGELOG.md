@@ -16,6 +16,9 @@ Added:
   needs no run, and only for a head that is the commit of the `done`. It is no sandbox (the
   code of the PR runs as the user of the host), and it proves only the command part of a Gate:
   list the files that the checks run in `protected_paths`. Not for a headless coordinator.
+- `check_env` in `AUTHORITY.md`: the names of more environment variables that a check of
+  `verify --run-check` gets, for a path or a word list that differs per host. The values stay
+  on the host. A token of GitHub and a variable of crewboard are not allowed in it.
 - A typed `--local-run` text must not start with `tool-run` in any spelling, and a `--body` of
   `verify` must not have a line that starts with `local-gate:` or `coordinator-local-gate:`
   (`local-gate-invalid`). Before, such a note line could put a second result line into a

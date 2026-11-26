@@ -35,7 +35,7 @@ use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 13] = [
+pub const ENFORCED_KEYS: [&str; 14] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -48,6 +48,7 @@ pub const ENFORCED_KEYS: [&str; 13] = [
     "ci_ignore",
     "ci_mode",
     "checks",
+    "check_env",
     "former_repos",
 ];
 
@@ -76,6 +77,9 @@ pub struct Authority {
     pub ci_mode: CiMode,
     /// The named commands that `verify --run-check` runs (spec/ci#checks-that-the-tool-runs).
     pub checks: Vec<Check>,
+    /// The names of more environment variables that a check gets (the values are those of the
+    /// host that runs it).
+    pub check_env: Vec<String>,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
@@ -127,6 +131,7 @@ impl Default for Authority {
             ci_ignore: Vec::new(),
             ci_mode: CiMode::Ci,
             checks: Vec::new(),
+            check_env: Vec::new(),
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -218,6 +223,34 @@ fn parse_former_repo(item: &str) -> Result<FormerRepo, Refusal> {
     FormerRepo::parse(&name, &until).map_err(|e| err(&e.to_string()))
 }
 
+/// The `check_env` entries: names of environment variables. A variable that holds a token of
+/// GitHub or a setting of crewboard is never passed on.
+fn check_check_env(items: Vec<String>) -> Result<Vec<String>, Refusal> {
+    for i in &items {
+        let ok =
+            i.bytes().enumerate().all(|(n, b)| {
+                b == b'_' || b.is_ascii_alphabetic() || (n > 0 && b.is_ascii_digit())
+            }) && !i.is_empty();
+        if !ok {
+            return Err(bad(format!(
+                "check_env: '{i}' is not the name of an environment variable"
+            )));
+        }
+        let up = i.to_ascii_uppercase();
+        if up.starts_with("CREWBOARD_")
+            || matches!(
+                up.as_str(),
+                "GH_TOKEN" | "GITHUB_TOKEN" | "GH_ENTERPRISE_TOKEN" | "GITHUB_ENTERPRISE_TOKEN"
+            )
+        {
+            return Err(bad(format!(
+                "check_env: '{i}' is not allowed: a token of GitHub and the variables of crewboard never reach a check"
+            )));
+        }
+    }
+    Ok(items)
+}
+
 /// The longest name of a check.
 const MAX_CHECK_NAME: usize = 32;
 
@@ -302,6 +335,7 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                 "protected_paths" => a.protected_paths = check_protected_paths(items)?,
                 "needs_owner" => a.needs_owner = items,
                 "ci_ignore" => a.ci_ignore = check_ci_ignore(items)?,
+                "check_env" => a.check_env = check_check_env(items)?,
                 "former_repos" => a.former_repos = check_former_repos(items)?,
                 "checks" => a.checks = check_checks(items)?,
                 other => return Err(bad(format!("{other}: a list is not allowed here"))),
@@ -345,6 +379,7 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                     | "ci_ignore"
                     | "former_repos"
                     | "checks"
+                    | "check_env"
             ) {
                 block = Some((k.to_string(), Vec::new()));
                 continue;
@@ -371,6 +406,7 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
             "protected_paths" => a.protected_paths = check_protected_paths(parse_flow_list(k, v)?)?,
             "needs_owner" => a.needs_owner = parse_flow_list(k, v)?,
             "ci_ignore" => a.ci_ignore = check_ci_ignore(parse_flow_list(k, v)?)?,
+            "check_env" => a.check_env = check_check_env(parse_flow_list(k, v)?)?,
             "former_repos" if v == "[]" => a.former_repos = Vec::new(),
             "former_repos" => {
                 return Err(bad(
@@ -638,6 +674,26 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
     }
 
     #[test]
+    fn check_env_is_a_list_of_variable_names_and_never_a_token() {
+        assert!(parsed(INIT_TEMPLATE).check_env.is_empty());
+        let a = parsed("---\ncheck_env: [APP_WORDS, _x1]\n---\n");
+        assert_eq!(a.check_env, ["APP_WORDS", "_x1"]);
+        let b = parsed("---\ncheck_env:\n  - CARGO_TARGET_DIR\n---\n");
+        assert_eq!(b.check_env, ["CARGO_TARGET_DIR"]);
+        for (v, part) in [
+            ("[\"A B\"]", "not the name"),
+            ("[1A]", "not the name"),
+            ("[A=b]", "not the name"),
+            ("[GH_TOKEN]", "not allowed"),
+            ("[github_token]", "not allowed"),
+            ("[CREWBOARD_API_BASE]", "not allowed"),
+        ] {
+            let r = parse(&format!("---\ncheck_env: {v}\n---\n")).unwrap_err();
+            assert!(r.message.contains(part), "{v}: {}", r.message);
+        }
+    }
+
+    #[test]
     fn checks_are_named_command_lines_without_a_shell() {
         assert!(parsed(INIT_TEMPLATE).checks.is_empty());
         let a = parsed(
@@ -839,7 +895,7 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 | "coordinator_may_split_tickets"
                 | "coordinator_may_merge"
                 | "dev_may_open_prs" => "true",
-                "protected" | "ci_ignore" | "protected_paths" => "[a]",
+                "protected" | "ci_ignore" | "protected_paths" | "check_env" => "[a]",
                 "former_repos" | "checks" => "[]",
                 "ci_mode" => "ci",
                 _ => "x",
