@@ -14,7 +14,7 @@
 use super::local_gate::local_gate_not_enabled_for_evidence;
 use super::pr_evidence::{check_pr_in_initiative, fetch_pr, fetch_pr_files};
 use super::{
-    Me, check_verify_ticket, load_world_cached, me_of, needs_owner_lines, post_with,
+    Loaded, Me, check_verify_ticket, load_signed, needs_owner_lines, post_with,
     question_open_since, remember, to_agent,
 };
 use crate::authority::Authority;
@@ -31,7 +31,7 @@ use crate::rules::evidence::{CiFacts, PrFacts, PrUrl, branch_ticket, parse_pr_ur
 use crate::rules::evidence::{Evidence, EvidenceInput, judge_evidence};
 use crate::rules::status::{DoneReason, Status, Transition, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
-use crate::services::ticket_loader::{Ticket, load_ticket};
+use crate::services::ticket_loader::Ticket;
 use crate::ticket::{
     ci_none_declared, latest_done, passed_coordinator_local_gate, question_open, verify_result,
 };
@@ -393,11 +393,7 @@ struct MergeLoad {
 /// The reads of `merge` that come before any decision about the PR.
 fn load_merge(ac: &AgentCtx, issue_arg: &str) -> CbResult<MergeLoad> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    let world = load_world_cached(ac)?;
-    let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
-    t.check_agent_signed()?;
-    let from = t.status()?;
+    let Loaded { me, t, from, .. } = load_signed(ac, &tref)?;
     Ok(MergeLoad {
         repo: tref.repo.clone(),
         n: tref.issue,
