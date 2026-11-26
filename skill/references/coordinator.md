@@ -45,11 +45,9 @@ Events, Leaving, Extensions.
   agent> [--order <number>]` moves it to the queue of another agent.
 - To make a ticket urgent, put it first: give it a lower `Order` than the ticket that the agent
   works on. A dev agent may `take --interrupt` only a ticket that is ahead of its running ticket.
-- You answer a Blocked ticket, and its agent works on another ticket now: its plain `take`
-  refuses (`take-agent-busy`). When the ticket is ahead of the running one, the agent runs
-  `take <n> --interrupt --why "<why>"`: it parks the running ticket and resumes the answered one.
-  For an urgent ticket that is not ahead, put it first (`assign <n> --order <number>`) or tell the
-  agent to `block` its current ticket first.
+- You answer a Blocked ticket, and its agent works on another ticket now: its `take` refuses
+  (`take-agent-busy`) and names `--interrupt`, which works only for a ticket that is ahead. For
+  an urgent ticket that is not ahead, put it first (`assign <n> --order <number>`).
 
 ## Unblock and reassign
 

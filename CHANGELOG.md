@@ -2,6 +2,16 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Changed:
+
+- The skill is shorter where a refusal message or the wake prompt already says the same: the
+  join step, the protected paths, the exit codes, `unread-events`, `take-agent-busy`,
+  `status-answer-missing` and the two rules of the headless wake. A dev wake reads about 260
+  words less. No rule changed.
+- The build scripts of the explainer video are no longer in the repo (`docs/video/`).
+
 ## v0.9.3 (2026-11-16)
 
 Upgrade: run `crewboard update` on each host. It also installs the new skill. Nothing changes
