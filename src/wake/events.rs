@@ -216,7 +216,7 @@ mod tests {
         );
     }
 
-    /// The fault of a pilot host: 2571 failed wakes in a row made an events file of 15500 lines.
+    /// The fault of one host: 2571 failed wakes in a row made an events file of 15500 lines.
     #[test]
     fn ev6_failed_wakes_in_a_row_do_not_grow_the_kept_block() {
         let mut kept = String::new();
