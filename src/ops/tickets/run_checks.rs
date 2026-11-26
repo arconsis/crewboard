@@ -54,6 +54,10 @@ pub struct RunArgs<'a> {
     pub repo_dir: &'a Path,
     /// Where the logs of all runs are kept.
     pub log_root: &'a Path,
+    /// The caller is a process that nobody watches (`tick`). Then no check runs when a word of
+    /// its command line is a file of the checkout that no protected path covers, and a check
+    /// that fails is a failed verify of the same `done` (not a refusal).
+    pub unattended: bool,
 }
 
 /// What the checks run for: the ticket and the commit of its `done`.
@@ -69,6 +73,8 @@ pub(super) struct Target<'a> {
     pub protected_paths: &'a [String],
     /// `check_env` of AUTHORITY.md: more variables that a check gets.
     pub env: &'a [String],
+    /// `check_timeout` of AUTHORITY.md, in seconds.
+    pub timeout: u64,
 }
 
 /// One check that ran.
@@ -77,6 +83,28 @@ pub(super) struct Ran {
     pub name: String,
     pub rc: i32,
     pub secs: u64,
+    /// The check did not exit by itself with a code.
+    pub end: End,
+}
+
+/// How a check ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum End {
+    Exited,
+    /// Stopped at the time limit.
+    TimedOut,
+    /// The program is not on this host, or cannot be started.
+    NotStarted,
+}
+
+/// The refusal `check-not-run`: the checks could not run, for a reason of the host or the
+/// setup. Nothing was written.
+fn not_run(why: impl std::fmt::Display) -> CbError {
+    Refusal::new(
+        ids::CHECK_NOT_RUN,
+        format!("the checks did not run: {why}. Nothing was written"),
+    )
+    .into()
 }
 
 /// The checks that `names` ask for, in that order. Pure.
@@ -277,9 +305,10 @@ fn argv_in(tree: &Path, argv: &[String]) -> Vec<String> {
     clippy::disallowed_methods,
     reason = "real elapsed time of a child process"
 )]
-fn run_one(tree: &Path, c: &Check, log: &Path, more_env: &[String]) -> Ran {
+fn run_one(tree: &Path, c: &Check, log: &Path, more_env: &[String], limit: u64) -> Ran {
+    use crate::ops::repeat_cmd::RunEnd;
     let start = std::time::Instant::now();
-    let rc = crate::ops::repeat_cmd::run_logged(&argv_in(tree, &c.argv), tree, log, &|cmd| {
+    let prepare = |cmd: &mut Command| {
         // no input: a check that reads the terminal would stop and never end
         cmd.stdin(Stdio::null());
         cmd.env_clear();
@@ -292,11 +321,24 @@ fn run_one(tree: &Path, c: &Check, log: &Path, more_env: &[String]) -> Ran {
                 cmd.env(k, v);
             }
         }
-    });
+    };
+    let end = crate::ops::repeat_cmd::run_logged(
+        &argv_in(tree, &c.argv),
+        tree,
+        log,
+        &prepare,
+        Some(std::time::Duration::from_secs(limit)),
+    );
+    let (rc, end) = match end {
+        RunEnd::Exit(rc) => (rc, End::Exited),
+        RunEnd::TimedOut => (124, End::TimedOut),
+        RunEnd::NotStarted(rc) => (rc, End::NotStarted),
+    };
     Ran {
         name: c.name.clone(),
         rc,
         secs: start.elapsed().as_secs(),
+        end,
     }
 }
 
@@ -350,55 +392,78 @@ pub(super) fn run(
 ) -> CbResult<String> {
     let (issue, key) = (t.issue, t.key);
     if !is_full_sha(t.sha) {
-        return Err(CbError::config(format!(
+        return Err(not_run(format!(
             "the evidence of {key} has no full commit SHA ({}), so no checkout is possible",
             t.sha
         )));
     }
     let top = git(args.repo_dir, &["rev-parse", "--show-toplevel"]).map_err(|_| {
-        CbError::config(format!(
-            "--run-check needs a git checkout of {}: {} is none (pass --work-dir)",
+        not_run(format!(
+            "--run-check needs a git checkout of {}, and {} is none (pass --work-dir)",
             t.repo,
             args.repo_dir.display()
         ))
     })?;
     let top = PathBuf::from(top);
-    let origin = git(&top, &["remote", "get-url", "origin"]).map_err(CbError::config)?;
+    let origin = git(&top, &["remote", "get-url", "origin"]).map_err(not_run)?;
     if !origin_names_repo(&origin, t.repo) {
-        return Err(CbError::config(format!(
-            "--run-check needs a checkout of {}: origin of {} is another repo",
+        return Err(not_run(format!(
+            "--run-check needs a checkout of {}, and origin of {} is another repo",
             t.repo,
             top.display()
         )));
     }
-    let log_dir = make_log_dir(args.log_root, key, t.sha).map_err(CbError::config)?;
+    let log_dir = make_log_dir(args.log_root, key, t.sha).map_err(not_run)?;
     catch_stop_signals();
-    let tree = checkout(&top, t.pr, t.sha, &log_dir).map_err(CbError::config)?;
-    for c in checks {
-        for w in unprotected_files(ac, t.protected_paths, &tree.dir, c) {
-            eprintln!("{w}");
-        }
+    let tree = checkout(&top, t.pr, t.sha, &log_dir).map_err(not_run)?;
+    let open: Vec<String> = checks
+        .iter()
+        .flat_map(|c| unprotected_files(ac, t.protected_paths, &tree.dir, c))
+        .collect();
+    if args.unattended && !open.is_empty() {
+        // nobody reads a warning here, and nobody reads the diff of these files
+        return Err(not_run(format!(
+            "an unattended run needs every file of a command line in protected_paths of AUTHORITY.md ({})",
+            open.join("; ")
+        )));
+    }
+    for w in &open {
+        eprintln!("{w}");
     }
     let mut ran: Vec<Ran> = Vec::new();
     for c in checks {
         let log = log_dir.join(format!("{}.log", c.name));
         eprintln!("check {}: running on {} ...", c.name, &t.sha[..12]);
-        let r = run_one(&tree.dir, c, &log, t.env);
+        let r = run_one(&tree.dir, c, &log, t.env, t.timeout);
         eprintln!("check {}: rc={} after {}s", r.name, r.rc, r.secs);
         if stop_signal().is_some() {
-            return Err(CbError::config(format!(
-                "a signal stopped the run of check {}; nothing was written",
+            return Err(not_run(format!(
+                "a signal stopped the run of check {}",
                 r.name
             )));
         }
-        if r.rc != 0 {
+        if r.end == End::NotStarted {
+            return Err(not_run(format!(
+                "check {} cannot start on this host (see {}): the owner or the host setup repairs it, not the dev",
+                r.name,
+                log.display()
+            )));
+        }
+        if r.rc != 0 || r.end == End::TimedOut {
+            let how = if r.end == End::TimedOut {
+                format!(
+                    "ran longer than its limit of {}s and was stopped",
+                    t.timeout
+                )
+            } else {
+                format!("exited {}", r.rc)
+            };
             let tail = log_tail(&log);
             return Err(Refusal::new(
                 ids::CHECK_FAILED,
                 format!(
-                    "check {} exited {} on a clean checkout of {} ({}s). Log: {}{tail}\nNothing was written. To send the ticket back: crewboard verify {issue} --fail --body \"<what failed>\"",
+                    "check {} {how} on a clean checkout of {} ({}s). Log: {}{tail}\nNothing was written. To send the ticket back: crewboard verify {issue} --fail --body \"<what failed>\"",
                     r.name,
-                    r.rc,
                     t.sha,
                     r.secs,
                     log.display()
@@ -475,6 +540,7 @@ mod tests {
                     name: format!("check-number-{i}"),
                     rc: 0,
                     secs: 7,
+                    end: End::Exited,
                 })
                 .collect()
         };

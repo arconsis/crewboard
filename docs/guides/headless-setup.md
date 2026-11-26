@@ -150,8 +150,10 @@ clean checkout of the delivered commit and writes the verify. A check that fails
 ticket back to its agent with the check, the exit code and the log. The tick does not merge
 such a ticket: you or the interactive coordinator do.
 
-This runs code of a PR as `cb-headless` with nobody watching. Give that user no other access,
-and list the files that the checks run in `protected_paths`
+This runs code of a PR as `cb-headless` with nobody watching. Give that user no other access.
+The tick runs no check whose command line names a file of the repo that is not in
+`protected_paths`, it stops a check at `check_timeout`, and it starts the checks once per
+`done` and at most five times per ticket
 ([details](../design/spec/agents.md#headless-coordinator), 5a).
 
 ## A `Gate: ci` merge has no human review

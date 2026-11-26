@@ -35,7 +35,7 @@ use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 14] = [
+pub const ENFORCED_KEYS: [&str; 15] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -49,6 +49,7 @@ pub const ENFORCED_KEYS: [&str; 14] = [
     "ci_mode",
     "checks",
     "check_env",
+    "check_timeout",
     "former_repos",
 ];
 
@@ -80,6 +81,8 @@ pub struct Authority {
     /// The names of more environment variables that a check gets (the values are those of the
     /// host that runs it).
     pub check_env: Vec<String>,
+    /// The time limit of one check, in seconds ([`DEFAULT_CHECK_TIMEOUT`] without the key).
+    pub check_timeout: u64,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
@@ -132,6 +135,7 @@ impl Default for Authority {
             ci_mode: CiMode::Ci,
             checks: Vec::new(),
             check_env: Vec::new(),
+            check_timeout: DEFAULT_CHECK_TIMEOUT,
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -250,6 +254,23 @@ fn check_check_env(items: Vec<String>) -> Result<Vec<String>, Refusal> {
     }
     Ok(items)
 }
+
+/// A time in seconds: a whole number, with `s`, `m` or `h` after it or with nothing (seconds).
+fn parse_time(v: &str) -> Option<u64> {
+    let (digits, unit) = match v.char_indices().last()? {
+        (i, 's') => (&v[..i], 1),
+        (i, 'm') => (&v[..i], 60),
+        (i, 'h') => (&v[..i], 3600),
+        _ => (v, 1),
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u64>().ok()?.checked_mul(unit)
+}
+
+/// The time limit of one check without `check_timeout`: one hour.
+pub const DEFAULT_CHECK_TIMEOUT: u64 = 3600;
 
 /// The longest name of a check.
 const MAX_CHECK_NAME: usize = 32;
@@ -412,6 +433,13 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                 return Err(bad(
                     "former_repos: write one `- { name: owner/repo, until: ...Z }` item per line",
                 ));
+            }
+            "check_timeout" => {
+                a.check_timeout = parse_time(&unquote(v)).filter(|s| *s > 0).ok_or_else(|| {
+                    bad(format!(
+                        "check_timeout: '{v}' is not a time like 90s, 30m or 2h"
+                    ))
+                })?;
             }
             "checks" if v == "[]" => a.checks = Vec::new(),
             "checks" => {
@@ -674,6 +702,17 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
     }
 
     #[test]
+    fn check_timeout_is_one_hour_by_default_and_reads_a_time() {
+        assert_eq!(parsed(INIT_TEMPLATE).check_timeout, 3600);
+        assert_eq!(parsed("---\ncheck_timeout: 90m\n---\n").check_timeout, 5400);
+        assert_eq!(parsed("---\ncheck_timeout: 45\n---\n").check_timeout, 45);
+        for v in ["0", "soon", "-5m"] {
+            let r = parse(&format!("---\ncheck_timeout: {v}\n---\n")).unwrap_err();
+            assert!(r.message.contains("check_timeout"), "{v}: {}", r.message);
+        }
+    }
+
+    #[test]
     fn check_env_is_a_list_of_variable_names_and_never_a_token() {
         assert!(parsed(INIT_TEMPLATE).check_env.is_empty());
         let a = parsed("---\ncheck_env: [APP_WORDS, _x1]\n---\n");
@@ -898,6 +937,7 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 "protected" | "ci_ignore" | "protected_paths" | "check_env" => "[a]",
                 "former_repos" | "checks" => "[]",
                 "ci_mode" => "ci",
+                "check_timeout" => "30m",
                 _ => "x",
             };
             let a = parsed(&format!("---\n{k}: {value}\n---\n"));

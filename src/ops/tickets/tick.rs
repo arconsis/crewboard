@@ -51,6 +51,9 @@ use crate::services::ticket_index::{discover_closed_tickets, discover_tickets};
 use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::ticket::{latest_done, verify_result};
 
+/// How many times the tick starts the checks of one ticket. After that a person decides.
+const MAX_CHECK_RUNS: u32 = 5;
+
 /// The note that the log line starts with (spec/agents#headless-coordinator).
 const LEFT: &str = "left for the interactive coordinator";
 
@@ -572,28 +575,51 @@ fn one_checks(
             "the Gate names checks, and this tick has no checkout to run them in (`tick --work-dir <git checkout>`)",
         ));
     };
+    // Once per `done`, and a few times per ticket: a `done` costs the dev one line, and a run
+    // costs this host minutes. The memo is written before the run, so a failure after it (the
+    // post, the network) does not start the checks again.
+    let mut cache = ac.load_cache();
+    if cache.tick.checks_started.get(key) == Some(&done.comment_id) {
+        return Ok(left(
+            key,
+            "the checks ran for this done and no verify was written; the interactive coordinator verifies it",
+        ));
+    }
+    let runs = cache.tick.checks_runs.get(key).copied().unwrap_or(0);
+    if runs >= MAX_CHECK_RUNS {
+        return Ok(left(
+            key,
+            &format!(
+                "the checks ran {runs} times for this ticket; the interactive coordinator decides"
+            ),
+        ));
+    }
+    cache
+        .tick
+        .checks_started
+        .insert(key.to_string(), done.comment_id);
+    cache.tick.checks_runs.insert(key.to_string(), runs + 1);
+    ac.save_cache_required(&mut cache)?;
     let run = super::RunArgs {
         names,
         repo_dir: &c.repo_dir,
         log_root: &c.log_root,
+        unattended: true,
     };
     let note = "tick: the Gate names checks only; the tool ran them on a clean checkout";
     match verify(ac, key, note, &[], false, None, Some(&run)) {
         Ok(v) => Ok(v),
-        Err(CbError::Refused(r)) if r.rule == ids::CHECK_FAILED => {
-            // the first line names the check, the exit code, the commit and the log; the lines
-            // after it are output of code of the PR and stay in the log
-            let fact = r.message.lines().next().unwrap_or("a check failed");
-            let note = format!("tick: {fact}");
-            match verify(ac, key, &note, &[], true, None, None) {
-                Ok(v) => Ok(v),
-                Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
-                Err(e) => Err(e),
+        // a refusal before the run (the setup, the host, an unprotected file) takes the memo
+        // back: nothing ran, so the next tick may try again
+        Err(CbError::Refused(r)) => {
+            if r.rule == ids::CHECK_NOT_RUN || r.rule == ids::CHECK_UNKNOWN {
+                let mut cache = ac.load_cache();
+                cache.tick.checks_started.remove(key);
+                cache.tick.checks_runs.insert(key.to_string(), runs);
+                ac.save_cache_required(&mut cache)?;
             }
+            Ok(left(key, &format!("verify refused: {r}")))
         }
-        Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
-        // no checkout, a failed fetch, a signal: the next tick tries again
-        Err(CbError::Config(m)) => Ok(left(key, &format!("the checks could not run: {m}"))),
         Err(e) => Err(e),
     }
 }

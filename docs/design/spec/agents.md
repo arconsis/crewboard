@@ -260,13 +260,25 @@ limits it. The prompt does not.
    - **It never merges such a ticket.** Its next line for the ticket is "its checks passed
      (verified); a ticket with a `checks:` Gate is merged by a person". The headless `merge`
      still needs the Gate `ci`.
-   - **A check that fails is a fact, not a judgment.** `tick` records a failed verify. Its
-     failure text is `tick: check <name> exited <rc> on a clean checkout of <sha> (<n>s). Log:
-     <path>`. The output of the check is text of the PR and stays in the log. The ticket goes
-     back to its agent, and the checks do not run again before a new `done`.
+   - **A check that fails is a fact, not a judgment.** `tick` records a failed verify of the
+     `done` that was tested (one read of the ticket serves the run and the result). Its failure
+     text is `the tool ran the checks of the Gate: check <name> exited <rc> on a clean checkout
+     of <sha> (<n>s). Log: <path>`; a check that ran longer than `check_timeout` reads "ran
+     longer than its limit". The output of the check is text of the PR and stays in the log.
+     The ticket goes back to its agent.
+   - **Once per `done`, five times per ticket.** The tick notes the `done` in its state cache
+     before it starts the checks. It does not start them again for that `done`, also when the
+     verify could not be written after the run; the ticket is then left for the interactive
+     coordinator. After five starts for one ticket the tick leaves the ticket: a `done` costs
+     the dev one line, and a run costs the host minutes.
    - **Nothing runs** without `--work-dir`, for a `done` with CI evidence, for a `done` with a
-     `protected-paths:` line, or when the checks cannot start (no checkout, a failed fetch).
-     The ticket then gets a "left" line, and the next tick tries again.
+     `protected-paths:` line, for a closed or merged PR, or when the checks cannot start (no
+     checkout, a failed fetch, a program that is not on the host: `check-not-run`). The ticket
+     then gets a "left" line, nothing goes to the dev, and the next tick tries again.
+   - **No check whose file a PR can change.** A word of a command line that is a file of the
+     checkout must be in `protected_paths`. In an interactive run this is a warning; here it is
+     `check-not-run`, because nobody reads a warning and nobody reads the diff. A file that a
+     command reads without a word for it (a test that `cargo test` runs) is not seen.
    - **It runs code of a PR with nobody watching.** The checks run as the OS user of the
      headless coordinator, with its files and its signing key (see
      [the limits](ci.md#checks-that-the-tool-runs), item 6). Give that user nothing else, and
