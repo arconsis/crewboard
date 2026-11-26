@@ -209,6 +209,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ("registry", "owner_cmd"),
     ("registry", "protocol"),
     ("registry", "rules"),
+    ("repeat", "base"),
     ("retro", "base"),
     ("retro", "owner_cmd"),
     ("retro", "protocol"),

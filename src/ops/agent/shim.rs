@@ -22,9 +22,7 @@ use std::process::Command;
 const STUB_MARK: &str = "# crewboard gh shim";
 
 /// Quote one word for a POSIX shell: `'a'\''b'`.
-pub(super) fn sq(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
+pub(super) use crate::base::shell::quote as sq;
 
 /// The text of the stub. Pure.
 pub fn stub_text(agent_dir: &Path, crewboard: &Path, env_file: &Path, real_gh: &Path) -> String {

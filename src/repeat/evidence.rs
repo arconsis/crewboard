@@ -1,6 +1,8 @@
 //! The evidence block of `repeat`: text that a person pastes into a PR. Each line of it is built
 //! here, so that the wording stays in one place.
 
+use crate::base::shell::quote_if_needed as quote;
+
 /// The block, built run by run.
 #[derive(Debug, Default)]
 pub struct Block(String);
@@ -68,17 +70,6 @@ pub fn render(cmd: &str, block: &Block, verdict: &str, log_dir: &str) -> String 
 /// The command as one line for the header: words with a blank or a shell character are quoted.
 pub fn display_cmd(argv: &[String]) -> String {
     argv.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ")
-}
-
-fn quote(a: &str) -> String {
-    let plain = !a.is_empty()
-        && a.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_./:=@%+,-".contains(&b));
-    if plain {
-        a.to_string()
-    } else {
-        format!("'{}'", a.replace('\'', r"'\''"))
-    }
 }
 
 #[cfg(test)]
