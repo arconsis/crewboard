@@ -939,7 +939,7 @@ Options:
           Who should read it: an agent name, `coordinator`, `owner` or `all`
 
       --kind <KIND>
-          Kind of the message: one of request, ack, report, done, blocked, question, answer, ping, pong, info.
+          Kind of the message: one of request, report, question, answer, info.
 
       --re <RE>
           The message that this one answers: `#<issue>/c-<comment id>` or `none`

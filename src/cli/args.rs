@@ -17,14 +17,40 @@ fn parse_to(s: &str) -> Result<To, String> {
     To::parse(s).map_err(|e| e.to_string())
 }
 
-fn parse_kind(s: &str) -> Result<Kind, String> {
-    Kind::parse(s).map_err(|e| e.to_string())
+/// The kinds that `say` writes. The other kinds of the wire belong to a command that also
+/// moves the board (`done`, `block`, `take`) or are retired (`ping`, `pong`).
+pub(crate) const SAY_KINDS: [Kind; 5] = [
+    Kind::Request,
+    Kind::Report,
+    Kind::Question,
+    Kind::Answer,
+    Kind::Info,
+];
+
+fn say_kind_list() -> String {
+    SAY_KINDS.map(Kind::as_str).join(", ")
 }
 
-/// Help text of `say --kind`: the list comes from the enum.
+fn parse_kind(s: &str) -> Result<Kind, String> {
+    let Ok(kind) = Kind::parse(s) else {
+        return Err(format!(
+            "unknown kind '{s}'; valid kinds: {}",
+            say_kind_list()
+        ));
+    };
+    if SAY_KINDS.contains(&kind) {
+        return Ok(kind);
+    }
+    Err(format!(
+        "`say` writes {}; `{kind}` is the message of another command (`done`, `block`, `take`) or a retired kind",
+        say_kind_list()
+    ))
+}
+
+/// Help text of `say --kind`.
 fn kind_help() -> &'static str {
     static HELP: std::sync::LazyLock<String> =
-        std::sync::LazyLock::new(|| format!("Kind of the message: one of {}.", Kind::list()));
+        std::sync::LazyLock::new(|| format!("Kind of the message: one of {}.", say_kind_list()));
     HELP.as_str()
 }
 

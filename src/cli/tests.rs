@@ -419,6 +419,19 @@ fn an_argument_that_watch_does_not_take_is_an_error() {
 #[test]
 fn bad_values_are_usage_errors() {
     assert!(parse(&["say", "12", "--to", "owner", "--kind", "shout"]).is_err());
+    // a kind of the wire that another command writes, or a retired one, is not a `say` kind
+    for kind in ["done", "blocked", "ack", "ping", "pong"] {
+        let e = parse(&["say", "12", "--to", "owner", "--kind", kind])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("`say` writes request, report, question, answer, info"),
+            "{e}"
+        );
+    }
+    for kind in ["request", "report", "question", "answer", "info"] {
+        assert!(parse(&["say", "12", "--to", "owner", "--kind", kind, "--body", "x"]).is_ok());
+    }
     assert!(parse(&["say", "12", "--to", "Everyone", "--kind", "info"]).is_err());
     assert!(parse(&["init", "--initiative", "x"]).is_err());
     assert!(parse(&["frobnicate"]).is_err());

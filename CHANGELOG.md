@@ -14,6 +14,11 @@ Removed:
   `monitor`. It is the command that `resume` prints and that Monitor tool configs call. `watch`
   waits once, as before.
 
+- `say --kind` takes `request`, `report`, `question`, `answer` and `info` only. The kinds
+  `done`, `blocked` and `ack` are written by `done`, `block` and `take`, which also move the
+  board; `ping` and `pong` are retired. Such a `say` is a usage error (exit 64) that names the
+  five kinds. Old comments of every kind still parse and verify.
+
 Changed:
 
 - `agent with-env` is no longer in the help of `agent`: the gh shim calls it, a person uses
