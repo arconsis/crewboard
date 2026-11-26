@@ -17,14 +17,40 @@ fn parse_to(s: &str) -> Result<To, String> {
     To::parse(s).map_err(|e| e.to_string())
 }
 
-fn parse_kind(s: &str) -> Result<Kind, String> {
-    Kind::parse(s).map_err(|e| e.to_string())
+/// The kinds that `say` writes. The other kinds of the wire belong to a command that also
+/// moves the board (`done`, `block`, `take`) or are retired (`ping`, `pong`).
+pub(crate) const SAY_KINDS: [Kind; 5] = [
+    Kind::Request,
+    Kind::Report,
+    Kind::Question,
+    Kind::Answer,
+    Kind::Info,
+];
+
+fn say_kind_list() -> String {
+    SAY_KINDS.map(Kind::as_str).join(", ")
 }
 
-/// Help text of `say --kind`: the list comes from the enum.
+fn parse_kind(s: &str) -> Result<Kind, String> {
+    let Ok(kind) = Kind::parse(s) else {
+        return Err(format!(
+            "unknown kind '{s}'; valid kinds: {}",
+            say_kind_list()
+        ));
+    };
+    if SAY_KINDS.contains(&kind) {
+        return Ok(kind);
+    }
+    Err(format!(
+        "`say` writes {}; `{kind}` is the message of another command (`done`, `block`, `take`) or a retired kind",
+        say_kind_list()
+    ))
+}
+
+/// Help text of `say --kind`.
 fn kind_help() -> &'static str {
     static HELP: std::sync::LazyLock<String> =
-        std::sync::LazyLock::new(|| format!("Kind of the message: one of {}.", Kind::list()));
+        std::sync::LazyLock::new(|| format!("Kind of the message: one of {}.", say_kind_list()));
     HELP.as_str()
 }
 
@@ -732,14 +758,10 @@ impl ReviewCmd {
 /// The commands of the group `watch`: reading events and the board.
 #[derive(Debug, Subcommand)]
 pub enum WatchCmd {
-    /// Wait for events and print them (--loop: keep waiting).
+    /// Wait for events and print them.
     ///
-    /// Agent: block until there are new events for this agent, print them, exit. With `--loop`
-    /// it keeps waiting, as a silent loop for a Monitor tool: it prints nothing while there are no
-    /// events, prints the events once and exits 0 when there are some, and on an error prints ONE
-    /// line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2, 3,
-    /// 4, or 64 for a bad option). `--loop` is the old command `monitor`, which stays callable
-    /// for ever. With `--loop`, `--json` prints the events and that last line as JSON.
+    /// Agent: block until there are new events for this agent, print them, exit. The silent loop
+    /// for a Monitor tool is `crewboard monitor` (`crewboard resume` prints its command line).
     #[command(display_order = 4)]
     Watch {
         /// How long to wait (default: `timeout` of the `[loop]` table of the agent config, else 30m).
@@ -754,19 +776,6 @@ pub enum WatchCmd {
         /// Replace a damaged cursor with "now".
         #[arg(long)]
         reset_cursor: bool,
-        /// Keep waiting: run `watch` again and again until there are events or an error.
-        #[arg(long = "loop")]
-        watch_loop: bool,
-        /// With `--loop`: wait after a cycle without events, in seconds (default 2).
-        #[arg(long, requires = "watch_loop")]
-        pause: Option<String>,
-        /// With `--loop`: stop silently with exit 0 after this many cycles without events
-        /// (default: never).
-        #[arg(long, requires = "watch_loop")]
-        max_cycles: Option<u64>,
-        /// With `--loop`: append one line per cycle to this file (never to standard output).
-        #[arg(long, requires = "watch_loop")]
-        log: Option<PathBuf>,
         #[command(flatten)]
         sel: Sel,
     },
@@ -793,8 +802,8 @@ pub enum WatchCmd {
     /// Agent: a silent loop around `watch` for a Monitor tool. It prints nothing while there are
     /// no events, prints the events once and exits 0 when there are some, and on an error prints
     /// ONE line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2,
-    /// 3, 4, or 64 for a bad option). Arguments after `--` go to `watch`. `watch --loop` is the
-    /// same command. The name `monitor` stays for ever, because Monitor tool configs call it.
+    /// 3, 4, or 64 for a bad option). Arguments after `--` go to `watch`. The name
+    /// `monitor` stays for ever, because Monitor tool configs call it.
     #[command(hide = true, display_order = 6)]
     Monitor {
         #[command(flatten)]
@@ -1178,7 +1187,9 @@ pub enum AgentAction {
     },
     /// Run CMD with the token of --env-file.
     ///
-    /// Replace this process by CMD, run with the token and the settings of `--env-file`.
+    /// Replace this process by CMD, run with the token and the settings of `--env-file`. The gh
+    /// shim of an agent calls it; by hand, `agent exec` does the same for an agent dir.
+    #[command(hide = true)]
     WithEnv {
         /// The command and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true, num_args = 1..)]

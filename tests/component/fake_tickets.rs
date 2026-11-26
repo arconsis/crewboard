@@ -2414,7 +2414,7 @@ fn the_template_and_the_kind_list_need_no_board_call() {
     assert_eq!(o.stdout, block);
     assert!(o.stdout.starts_with("Goal: ") && o.stdout.contains("\nGate: "));
     assert_eq!(fake.requests().len(), before, "the template calls no board");
-    // a bad kind lists the valid kinds, from the enum
+    // a bad kind lists the kinds that `say` writes
     let o = fake.run(
         &c.dir,
         &[
@@ -2422,7 +2422,7 @@ fn the_template_and_the_kind_list_need_no_board_call() {
         ],
     );
     assert_ne!(o.code, 0, "{}", o.all());
-    let list = Kind::ALL.map(Kind::as_str).join(", ");
+    let list = "request, report, question, answer, info";
     assert!(
         o.stderr
             .contains(&format!("unknown kind 'shout'; valid kinds: {list}")),

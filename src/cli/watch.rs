@@ -9,7 +9,6 @@ use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::{self, AgentCtx, Global};
 use clap::Parser;
-use std::path::PathBuf;
 
 /// The status line for an error that happened before a cycle could start (for example the
 /// network was down while the board was loaded). Reads only the local cache.
@@ -153,35 +152,6 @@ pub(super) fn watch_command_args(cli: &Cli, w: &WatchSettings) -> (Vec<String>, 
     (before, after)
 }
 
-/// The options of `watch --loop` as those of `monitor`: the same loop, so the same code runs.
-/// `--json` is the form of the last line, and it also goes to `watch` for the events. Pure.
-pub(super) fn loop_args(
-    timeout: &Option<String>,
-    interval: &Option<String>,
-    json: bool,
-    reset_cursor: bool,
-    extra: (&Option<String>, Option<u64>, &Option<PathBuf>),
-    sel: &Sel,
-) -> MonitorArgs {
-    let (pause, max_cycles, log) = extra;
-    MonitorArgs {
-        timeout: timeout.clone(),
-        interval: interval.clone(),
-        pause: pause.clone(),
-        max_cycles: max_cycles.unwrap_or(0),
-        log: log.clone(),
-        json,
-        reset_cursor,
-        crewboard: None,
-        sel: sel.clone(),
-        watch_args: if json {
-            vec!["--json".to_string()]
-        } else {
-            Vec::new()
-        },
-    }
-}
-
 /// `monitor`: its own function so that the stack frame of `dispatch` stays small.
 #[inline(never)]
 fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
@@ -286,7 +256,7 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
     monitor_outcome(code)
 }
 
-/// `watch` without `--loop`: wait once for events, print them, exit.
+/// `watch`: wait once for events, print them, exit.
 fn watch_once(
     cli: &Cli,
     (timeout, interval): (&Option<String>, &Option<String>),
@@ -356,35 +326,12 @@ pub(super) fn dispatch(cli: &Cli, c: &WatchCmd) -> Outcome {
             *verbose,
             *queue,
         )),
-        // `watch --loop` is the old command `monitor`: the same loop and the same last line
-        WatchCmd::Watch {
-            timeout,
-            interval,
-            json,
-            reset_cursor,
-            watch_loop: true,
-            pause,
-            max_cycles,
-            log,
-            sel,
-        } => monitor_cmd(
-            cli,
-            &loop_args(
-                timeout,
-                interval,
-                *json,
-                *reset_cursor,
-                (pause, *max_cycles, log),
-                sel,
-            ),
-        ),
         WatchCmd::Watch {
             timeout,
             interval,
             json,
             reset_cursor,
             sel,
-            ..
         } => watch_once(cli, (timeout, interval), (*json, *reset_cursor), sel),
         WatchCmd::Monitor { m } => monitor_cmd(cli, m),
         WatchCmd::Poll {

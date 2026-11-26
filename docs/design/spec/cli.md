@@ -58,9 +58,8 @@ first. A model never adds it on its own (rule 3 of the skill).
 
 `agent` holds everything about one agent on this host: `add`, `shim`, `exec`, `env`, `with-env`,
 `profile`, `token` and `selftest`. Names that a machine calls (`wake`, `poll`, `tick`, `lock`,
-`monitor`, `heartbeat`, `acted`, `hook`) are never renamed. `monitor` is the same command as
-`watch --loop` (with `--pause`, `--max-cycles` and `--log`). It prints no warning: Monitor tool
-configs call it. With `watch --loop`, `--json` makes the events and the last line JSON; with
+`monitor`, `heartbeat`, `acted`, `hook`) are never renamed. `monitor` is the silent loop around
+`watch` for a Monitor tool (`--pause`, `--max-cycles`, `--log`); `watch` itself waits once. With
 `monitor`, `--json` is the form of the last line, and `-- --json` gives the events as JSON.
 
 ## Exit codes
