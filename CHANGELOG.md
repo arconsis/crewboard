@@ -35,6 +35,9 @@ Fixed (all three come from one host, where a login of the runtime had ended):
   works, the stop ends and the log says so. A stop that holds writes one log line per try and
   tells nobody again. A changed env file or agent config, or a removed `stopped` file, lifts
   the stop at once, as before.
+- The capability probe of `join` and `agent profile` no longer hangs when a probed tool leaves
+  a child process that keeps its output pipe open after the time limit. The probe now stops
+  waiting for the pipes when it has killed the tool.
 - `url` 2.5.9 (RUSTSEC-2026-0592: a nested `blob:` URL could overflow the stack in
   `Url::origin()`). crewboard builds its URLs itself, so no known input reached it.
 
