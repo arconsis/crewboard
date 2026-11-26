@@ -9,8 +9,8 @@ use crate::domain::ci::evaluate::{
     required_contexts,
 };
 use crate::error::CbResult;
-use crate::github::Rest;
 use crate::github::paging::MAX_PAGES;
+use crate::github::{Rest, optional};
 use crate::rules::evidence::CiFacts;
 use serde_json::Value;
 
@@ -167,17 +167,14 @@ fn read_named_run(
     sha: &str,
 ) -> CbResult<Value> {
     let path = format!("repos/{}/actions/runs/{}", n.repo, n.id);
-    let body = match get(&path) {
-        Ok(r) => r.body,
-        Err(GhError::Http { status: 404, .. }) => {
-            return Err(Refusal::new(
-                ids::EVIDENCE_RUN_REF,
-                format!("run {} does not exist in {}", n.id, n.repo),
-            )
-            .into());
-        }
-        Err(e) => return Err(e.into()),
+    let Some(r) = optional(get(&path))? else {
+        return Err(Refusal::new(
+            ids::EVIDENCE_RUN_REF,
+            format!("run {} does not exist in {}", n.id, n.repo),
+        )
+        .into());
     };
+    let body = r.body;
     check_named_run(&body, n.id, sha)?;
     Ok(body)
 }

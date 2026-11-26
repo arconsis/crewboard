@@ -8,7 +8,7 @@
 
 use crate::board::repo_path;
 use crate::error::{CbError, CbResult};
-use crate::github::{Client, GhError};
+use crate::github::{Client, optional};
 use serde_json::Value;
 
 /// The path of the file in the repo.
@@ -88,19 +88,17 @@ fn names_in(client: &Client, repo: &str, dir: &str, git_ref: &str) -> CbResult<V
     } else {
         format!("{}/contents/{dir}?ref={git_ref}", repo_path(repo)?)
     };
-    match client.get(&path) {
-        Ok(r) => Ok(r
-            .body
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|e| e.get("name").and_then(Value::as_str).map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()),
-        Err(GhError::Http { status: 404, .. }) => Ok(Vec::new()),
-        Err(e) => Err(e.into()),
-    }
+    let Some(r) = optional(client.get(&path))? else {
+        return Ok(Vec::new());
+    };
+    Ok(r.body
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|e| e.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 /// The refusal for an owner token that cannot write a workflow file. Nothing was written yet.

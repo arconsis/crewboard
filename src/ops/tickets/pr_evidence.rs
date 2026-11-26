@@ -2,8 +2,8 @@
 
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
-use crate::github::GhError;
 use crate::github::api::pulls;
+use crate::github::{GhError, optional};
 use crate::ops::AgentCtx;
 use crate::protocol::acts::EvidenceMsg;
 use crate::rules::Refusal;
@@ -79,15 +79,11 @@ pub(super) fn check_pr_in_initiative(
 }
 
 pub(super) fn fetch_pr(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<(PrFacts, String)> {
-    let r = match ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")) {
-        Ok(r) => r,
-        Err(GhError::Http { status: 404, .. }) => {
-            return Err(CbError::refused(
-                ids::EVIDENCE_PR_MISSING,
-                format!("PR {repo}#{number} does not exist"),
-            ));
-        }
-        Err(e) => return Err(e.into()),
+    let Some(r) = optional(ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")))? else {
+        return Err(CbError::refused(
+            ids::EVIDENCE_PR_MISSING,
+            format!("PR {repo}#{number} does not exist"),
+        ));
     };
     let b = &r.body;
     let s = |p: &str| {

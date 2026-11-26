@@ -9,7 +9,7 @@
 //! field `Agent` and the signed messages stay the source of truth. A failed label write is
 //! therefore a warning, not a refusal.
 
-use crate::github::{Client, GhError, is_already_exists};
+use crate::github::{Client, GhError, is_already_exists, optional};
 use serde_json::json;
 
 /// Prefix of the per-agent label.
@@ -92,16 +92,13 @@ fn add(client: &Client, repo: &str, issue: u64, name: &str) -> Result<(), GhErro
 }
 
 fn remove(client: &Client, repo: &str, issue: u64, name: &str) -> Result<(), GhError> {
-    match client.send(
+    // a 404 says the label is not on the issue: that is the wanted state
+    optional(client.send(
         "DELETE",
         &format!("repos/{repo}/issues/{issue}/labels/{}", encode_path(name)),
         None,
-    ) {
-        Ok(_) => Ok(()),
-        // the label is not on the issue: that is the wanted state
-        Err(GhError::Http { status: 404, .. }) => Ok(()),
-        Err(e) => Err(e),
-    }
+    ))
+    .map(|_| ())
 }
 
 /// Set `agent: <new>` (created on first use) and remove every other agent label of the
