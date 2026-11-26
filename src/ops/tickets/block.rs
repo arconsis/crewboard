@@ -2,8 +2,8 @@
 
 use super::in_progress::write_idle_when_free;
 use super::{
-    check_status_unchanged, facts, load_world_cached, me_of, needs_owner_lines, post, remember,
-    set_select_status, to_agent, unread_guard,
+    Loaded, check_status_unchanged, facts, load_signed, load_world_cached, me_of,
+    needs_owner_lines, post, remember, set_select_status, to_agent, unread_guard,
 };
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
@@ -115,11 +115,7 @@ pub fn unblock(
     anyway: bool,
 ) -> CbResult<String> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    let world = load_world_cached(ac)?;
-    let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
-    t.check_agent_signed()?;
-    let from = t.status()?;
+    let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     let assignee = t.agent().map(str::to_string);
     crate::rules::status::check_unblock(from, me.actor, assignee.is_some())?;
     let assignee = assignee.unwrap_or_default();
@@ -174,11 +170,7 @@ pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbRe
             "ask needs the question (--body or --body-file)",
         ));
     }
-    let world = load_world_cached(ac)?;
-    let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
-    t.check_agent_signed()?;
-    let from = t.status()?;
+    let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     let is_assignee = t.agent() == Some(me.name.as_str());
     check_ask(&t.key(), me.actor, is_assignee, from)?;
     let unread_line = unread_guard(ac, &world, &t, anyway)?;
