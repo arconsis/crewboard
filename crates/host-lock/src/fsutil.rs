@@ -1,5 +1,5 @@
 //! File helpers: the private-mode check, atomic file writes, and the executable checks (`set_mode`,
-//! `is_executable`, `find_on_path`).
+//! `is_executable`, `find_on_path`, `is_this_binary`).
 //!
 //! Atomic file writes. A reader (or a crash, or a full disk) never leaves a half-written file at
 //! the target path: the data goes to a temp file in the same directory, is synced, is renamed
@@ -188,6 +188,26 @@ pub fn find_on_path(name: &str, path: impl AsRef<std::ffi::OsStr>) -> Option<Pat
         .filter(|d| !d.as_os_str().is_empty())
         .map(|d| d.join(name))
         .find(|p| is_executable(p))
+}
+
+/// Is `bin` the binary that is running now? A caller that is handed the path of a program
+/// does the work in process when the program is itself. A name without a directory is looked
+/// up on the PATH as a shell does (the first executable match).
+pub fn is_this_binary(bin: &str) -> bool {
+    is_this_binary_on(bin, std::env::var_os("PATH").as_deref())
+}
+
+fn is_this_binary_on(bin: &str, path: Option<&std::ffi::OsStr>) -> bool {
+    let bare = !bin.is_empty() && Path::new(bin).components().count() == 1;
+    let found = if bare {
+        path.and_then(|p| find_on_path(bin, p))
+    } else {
+        Some(Path::new(bin).to_path_buf())
+    };
+    let (Some(Ok(a)), Ok(b)) = (found.map(std::fs::canonicalize), std::env::current_exe()) else {
+        return false;
+    };
+    std::fs::canonicalize(b).is_ok_and(|b| a == b)
 }
 
 /// Windows: a scanner or a reader can hold the target for a few ms ("access denied").
@@ -404,6 +424,45 @@ mod tests {
         std::fs::write(&p, "#!/bin/sh\n").unwrap();
         set_mode(&p, mode).unwrap();
         p
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn this_binary_is_the_running_one_and_no_other_file() {
+        let me = std::env::current_exe().unwrap();
+        assert!(is_this_binary(&me.to_string_lossy()));
+        let d = tempfile::tempdir().unwrap();
+        let other = script(d.path(), "tool", 0o755);
+        assert!(!is_this_binary(&other.to_string_lossy()));
+        assert!(!is_this_binary("/nonexistent/tool"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_bare_name_on_path_is_this_binary() {
+        let me = std::env::current_exe().unwrap();
+        let d = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(&me, d.path().join("tool")).unwrap();
+        let other = tempfile::tempdir().unwrap();
+        // another executable called `tool`
+        script(other.path(), "tool", 0o755);
+        let path = |dirs: &[&Path]| std::env::join_paths(dirs).unwrap();
+        // the first executable match counts
+        assert!(is_this_binary_on("tool", Some(&path(&[d.path()]))));
+        assert!(is_this_binary_on(
+            "tool",
+            Some(&path(&[d.path(), other.path()]))
+        ));
+        // twins: another binary of that name first, no such name, no PATH, a file that is not executable
+        assert!(!is_this_binary_on(
+            "tool",
+            Some(&path(&[other.path(), d.path()]))
+        ));
+        assert!(!is_this_binary_on("nothing-here", Some(&path(&[d.path()]))));
+        assert!(!is_this_binary_on("tool", None));
+        assert!(!is_this_binary_on("tool", Some(&path(&[other.path()]))));
+        script(d.path(), "plain", 0o644);
+        assert!(!is_this_binary_on("plain", Some(&path(&[d.path()]))));
     }
 
     #[cfg(unix)]

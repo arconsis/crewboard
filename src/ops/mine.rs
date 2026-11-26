@@ -262,16 +262,6 @@ pub fn pr_ci(pr: String, facts: CbResult<CiFacts>) -> PrCi {
     }
 }
 
-/// Is `head_ref` the branch of ticket `issue` of `agent`, whatever the branch prefix
-/// (`<prefix><agent>/<issue>-<slug>`, spec/tickets#branches)? `mine` does not read
-/// AUTHORITY.md for the prefix.
-pub fn is_ticket_branch(head_ref: &str, agent: &str, issue: u64) -> bool {
-    let want = format!("{agent}/{issue}-");
-    head_ref.find(&want).is_some_and(|i| {
-        (i == 0 || head_ref[..i].ends_with('/')) && head_ref.len() > i + want.len()
-    })
-}
-
 /// The head of a PR: its branch and its head SHA.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrHead {
@@ -340,7 +330,7 @@ fn find_pr(
     repos.sort_by_key(|x| **x != r.repo);
     for repo in repos {
         if let Some(p) = pulls::find_open(&ac.ctx.client, repo, Order::Created, |p| {
-            is_ticket_branch(&p.head_ref, me, r.issue)
+            crate::base::is_ticket_branch(&p.head_ref, me, r.issue)
         })? {
             return Ok(Some((
                 format!("{repo}#{}", p.number),
@@ -965,16 +955,5 @@ mod tests {
             pr_ci(pr(), Ok(CiFacts::NotQueried("x".into()))),
             PrCi::Unreadable { .. }
         ));
-    }
-
-    #[test]
-    fn the_ticket_branch_matches_any_prefix_but_only_this_agent_and_issue() {
-        assert!(is_ticket_branch("crew/me@x/12-fix", "me@x", 12));
-        assert!(is_ticket_branch("team/x/me@x/12-fix", "me@x", 12));
-        assert!(is_ticket_branch("me@x/12-fix", "me@x", 12));
-        assert!(!is_ticket_branch("crew/me@x/123-fix", "me@x", 12));
-        assert!(!is_ticket_branch("crew/me@x/12-", "me@x", 12));
-        assert!(!is_ticket_branch("crew/other@x/12-fix", "me@x", 12));
-        assert!(!is_ticket_branch("crew/xme@x/12-fix", "me@x", 12));
     }
 }

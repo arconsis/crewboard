@@ -206,9 +206,7 @@ fn events_hook_settings(
         let exe = i.exe.ok_or_else(|| {
             "cannot find the path of this program for the events hook".to_string()
         })?;
-        let seam = i
-            .crewboard
-            .filter(|b| !crate::ops::lock_cmd::is_this_binary(b));
+        let seam = i.crewboard.filter(|b| !crate::fsutil::is_this_binary(b));
         Some(adapters::hook_settings(&Hook {
             exe,
             initiative,
