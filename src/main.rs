@@ -113,14 +113,10 @@ fn overview_for(e: &clap::Error, args: &[String]) -> Option<String> {
     Some(cli::overview::render(&cli::Cli::command(), long))
 }
 
-/// Is this command line `monitor`, or `watch --loop` (the same loop)? Both end with one line on
-/// standard output, also for a command line that clap refuses.
+/// Is this command line `monitor`? It ends with one line on standard output, also for a command
+/// line that clap refuses.
 fn is_monitor_form(args: &[String]) -> bool {
-    match first_command(args).as_deref() {
-        Some("monitor") => true,
-        Some("watch") => args.iter().any(|a| a == "--loop"),
-        _ => false,
-    }
+    first_command(args).as_deref() == Some("monitor")
 }
 
 /// The first word of the command line that is not a global option or its value.
@@ -154,7 +150,7 @@ mod tests {
         assert_eq!(args, ["status", "--json"]);
         assert_eq!(first_command(&args).as_deref(), Some("status"));
         assert!(!is_monitor_form(&args));
-        let monitor = lossy_args(["watch", "--loop"].map(Into::into).into_iter());
+        let monitor = lossy_args(["monitor", "--json"].map(Into::into).into_iter());
         assert!(is_monitor_form(&monitor));
     }
 

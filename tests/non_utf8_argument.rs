@@ -36,7 +36,7 @@ fn a_non_utf8_argument_gives_a_usage_error_and_no_panic() {
     for args in [
         vec![OsString::from("status"), bad()],
         vec![bad()],
-        vec![OsString::from("watch"), OsString::from("--loop"), bad()],
+        vec![OsString::from("monitor"), bad()],
     ] {
         let o = run(args.clone());
         let err = String::from_utf8_lossy(&o.stderr);

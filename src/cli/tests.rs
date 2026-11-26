@@ -1,5 +1,5 @@
 use super::crew::{approve_all, approve_next_step, approve_to};
-use super::watch::{loop_args, watch_command_args, watch_settings};
+use super::watch::{watch_command_args, watch_settings};
 use super::*;
 use crate::base::ids;
 use crate::exit::Family;
@@ -859,8 +859,7 @@ fn the_moved_commands_parse_in_their_new_homes_and_the_old_names_still_parse() {
         ],
         &["agent", "selftest"],
         &[
-            "watch",
-            "--loop",
+            "monitor",
             "--pause",
             "1",
             "--max-cycles",
@@ -869,14 +868,13 @@ fn the_moved_commands_parse_in_their_new_homes_and_the_old_names_still_parse() {
             "/x/l",
             "--json",
         ],
-        &["monitor", "--max-cycles", "1"],
     ] {
         parse(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
     }
 }
 
 #[test]
-fn the_options_of_status_agents_and_watch_loop_need_their_switch() {
+fn the_options_of_status_agents_need_their_switch_and_watch_has_no_loop() {
     for bad in [
         &["status", "--can", "x86_64"][..],
         &["status", "--agents", "--queue"],
@@ -884,6 +882,8 @@ fn the_options_of_status_agents_and_watch_loop_need_their_switch() {
         &["watch", "--pause", "1"],
         &["watch", "--max-cycles", "1"],
         &["watch", "--log", "/x/l"],
+        // the loop is `monitor` only
+        &["watch", "--loop"],
     ] {
         assert!(parse(bad).is_err(), "{bad:?} must not parse");
     }
@@ -910,137 +910,12 @@ fn the_old_names_are_gone_and_the_new_homes_are_listed() {
         let s = agent.find_subcommand(new).unwrap();
         assert!(!s.is_hide_set(), "agent {new}");
     }
+    // the loop has one name: `monitor`
     let watch = c.find_subcommand("watch").unwrap();
-    assert!(watch.get_arguments().any(|a| a.get_long() == Some("loop")));
+    assert!(!watch.get_arguments().any(|a| a.get_long() == Some("loop")));
     let status = c.find_subcommand("status").unwrap();
     for flag in ["agents", "can"] {
         assert!(status.get_arguments().any(|a| a.get_long() == Some(flag)));
-    }
-}
-
-#[test]
-fn watch_loop_makes_the_same_loop_as_monitor() {
-    let cli = parse(&[
-        "watch",
-        "--loop",
-        "--timeout",
-        "5m",
-        "--interval",
-        "20s",
-        "--pause",
-        "3",
-        "--max-cycles",
-        "7",
-        "--log",
-        "/x/l.log",
-        "--reset-cursor",
-        "--initiative",
-        "demo",
-    ])
-    .unwrap();
-    let Command::Watch(WatchCmd::Watch {
-        timeout,
-        interval,
-        json,
-        reset_cursor,
-        watch_loop,
-        pause,
-        max_cycles,
-        log,
-        sel,
-    }) = &cli.command
-    else {
-        panic!("not watch")
-    };
-    assert!(*watch_loop);
-    let m = loop_args(
-        timeout,
-        interval,
-        *json,
-        *reset_cursor,
-        (pause, *max_cycles, log),
-        sel,
-    );
-    assert_eq!(m.timeout.as_deref(), Some("5m"));
-    assert_eq!(m.interval.as_deref(), Some("20s"));
-    assert_eq!(m.pause.as_deref(), Some("3"));
-    assert_eq!(m.max_cycles, 7);
-    assert_eq!(m.log.as_deref(), Some(std::path::Path::new("/x/l.log")));
-    assert!(m.reset_cursor && !m.json && m.watch_args.is_empty());
-    assert_eq!(m.sel.initiative.as_deref(), Some("demo"));
-    // the same settings reach `watch` as for `monitor` with those flags
-    let w = watch_settings(&m).unwrap();
-    assert_eq!(w.timeout.as_deref(), Some("5m"));
-    assert!(w.reset_cursor && !w.json);
-    // without `--max-cycles` the loop never ends by itself, as `monitor` does
-    let cli = parse(&["watch", "--loop"]).unwrap();
-    let Command::Watch(WatchCmd::Watch {
-        timeout,
-        interval,
-        json,
-        reset_cursor,
-        pause,
-        max_cycles,
-        log,
-        sel,
-        ..
-    }) = &cli.command
-    else {
-        panic!("not watch")
-    };
-    let m = loop_args(
-        timeout,
-        interval,
-        *json,
-        *reset_cursor,
-        (pause, *max_cycles, log),
-        sel,
-    );
-    assert_eq!(m.max_cycles, 0);
-    // `--json` is the form of the last line and also of the events
-    let cli = parse(&["watch", "--loop", "--json"]).unwrap();
-    let Command::Watch(WatchCmd::Watch {
-        json,
-        pause,
-        max_cycles,
-        log,
-        sel,
-        timeout,
-        interval,
-        reset_cursor,
-        ..
-    }) = &cli.command
-    else {
-        panic!("not watch")
-    };
-    let m = loop_args(
-        timeout,
-        interval,
-        *json,
-        *reset_cursor,
-        (pause, *max_cycles, log),
-        sel,
-    );
-    assert!(m.json);
-    assert!(watch_settings(&m).unwrap().json);
-}
-
-#[test]
-fn a_new_home_reaches_the_handler_of_its_old_name() {
-    // In an empty config dir both stop at the config load, with the same exit and message.
-    let dir = tempfile::tempdir().unwrap();
-    let cfgdir = dir.path().join("empty");
-    let run_in = |argv: &[&str]| {
-        let mut v = vec!["crewboard", "--config-dir", cfgdir.to_str().unwrap()];
-        v.extend_from_slice(argv);
-        run(&Cli::try_parse_from(v).unwrap())
-    };
-    {
-        let old = &["monitor", "--max-cycles", "1"][..];
-        let new = &["watch", "--loop", "--max-cycles", "1"][..];
-        let (a, b) = (run_in(old), run_in(new));
-        assert_eq!(a.exit, Exit::Config, "{old:?}: {a:?}");
-        assert_eq!(a, b, "{old:?} and {new:?} differ");
     }
 }
 

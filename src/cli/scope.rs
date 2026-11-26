@@ -254,7 +254,7 @@ mod tests {
         (&["agent", "profile", "show"], true),
         (&["agent", "profile", "set", "--tag", "x"], false),
         (&["status", "--agents", "--can", "x86_64"], true),
-        (&["watch", "--loop", "--max-cycles", "1"], true),
+        (&["monitor", "--max-cycles", "1"], true),
         (&["agent", "exec", "--", "true"], true),
         (
             &["agent", "with-env", "--env-file", "/x/a.env", "--", "true"],

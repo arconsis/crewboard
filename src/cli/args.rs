@@ -732,14 +732,10 @@ impl ReviewCmd {
 /// The commands of the group `watch`: reading events and the board.
 #[derive(Debug, Subcommand)]
 pub enum WatchCmd {
-    /// Wait for events and print them (--loop: keep waiting).
+    /// Wait for events and print them.
     ///
-    /// Agent: block until there are new events for this agent, print them, exit. With `--loop`
-    /// it keeps waiting, as a silent loop for a Monitor tool: it prints nothing while there are no
-    /// events, prints the events once and exits 0 when there are some, and on an error prints ONE
-    /// line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2, 3,
-    /// 4, or 64 for a bad option). `--loop` is the old command `monitor`, which stays callable
-    /// for ever. With `--loop`, `--json` prints the events and that last line as JSON.
+    /// Agent: block until there are new events for this agent, print them, exit. The silent loop
+    /// for a Monitor tool is `crewboard monitor` (`crewboard resume` prints its command line).
     #[command(display_order = 4)]
     Watch {
         /// How long to wait (default: `timeout` of the `[loop]` table of the agent config, else 30m).
@@ -754,19 +750,6 @@ pub enum WatchCmd {
         /// Replace a damaged cursor with "now".
         #[arg(long)]
         reset_cursor: bool,
-        /// Keep waiting: run `watch` again and again until there are events or an error.
-        #[arg(long = "loop")]
-        watch_loop: bool,
-        /// With `--loop`: wait after a cycle without events, in seconds (default 2).
-        #[arg(long, requires = "watch_loop")]
-        pause: Option<String>,
-        /// With `--loop`: stop silently with exit 0 after this many cycles without events
-        /// (default: never).
-        #[arg(long, requires = "watch_loop")]
-        max_cycles: Option<u64>,
-        /// With `--loop`: append one line per cycle to this file (never to standard output).
-        #[arg(long, requires = "watch_loop")]
-        log: Option<PathBuf>,
         #[command(flatten)]
         sel: Sel,
     },
@@ -793,8 +776,8 @@ pub enum WatchCmd {
     /// Agent: a silent loop around `watch` for a Monitor tool. It prints nothing while there are
     /// no events, prints the events once and exits 0 when there are some, and on an error prints
     /// ONE line `crewboard-watch: exit <code>: <reason> (<status>)` and exits with that code (2,
-    /// 3, 4, or 64 for a bad option). Arguments after `--` go to `watch`. `watch --loop` is the
-    /// same command. The name `monitor` stays for ever, because Monitor tool configs call it.
+    /// 3, 4, or 64 for a bad option). Arguments after `--` go to `watch`. The name
+    /// `monitor` stays for ever, because Monitor tool configs call it.
     #[command(hide = true, display_order = 6)]
     Monitor {
         #[command(flatten)]
