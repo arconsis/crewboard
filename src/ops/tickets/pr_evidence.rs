@@ -8,7 +8,7 @@ use crate::ops::AgentCtx;
 use crate::protocol::acts::EvidenceMsg;
 use crate::rules::Refusal;
 use crate::rules::evidence::{CiFacts, PrFacts};
-use crate::rules::protected::MAX_FILES;
+use crate::rules::protected::{MAX_FILES, PrFileList};
 use serde_json::Value;
 
 /// Read the `--run` values (spec/ci#which-ci-runs-count) against the repos of the initiative. A run
@@ -131,43 +131,16 @@ pub(super) fn fetch_pr_files(ac: &AgentCtx, repo: &str, number: u64) -> CbResult
     Ok(f.names)
 }
 
-/// The files of a PR: the paths, and the old paths of renamed files.
-pub(crate) struct PrFiles {
-    pub names: Vec<String>,
-    pub previous: Vec<String>,
-    /// True when the read stopped with a next page left: the PR has more files than it lists.
-    pub truncated: bool,
-}
-
-impl PrFiles {
-    /// Can the list not prove the absence of a path? True when the read was cut, or the list is
-    /// longer than `limit` files.
-    pub fn over(&self, limit: usize) -> bool {
-        self.truncated || self.names.len() > limit
-    }
-
-    /// Every path that the PR touches: the paths, then the old paths of renamed files
-    /// (spec/ci#files-that-every-workflow-ignores).
-    pub fn all(&self) -> Vec<String> {
-        let mut v = self.names.clone();
-        for p in &self.previous {
-            if !v.contains(p) {
-                v.push(p.clone());
-            }
-        }
-        v
-    }
-}
-
 /// [`fetch_pr_files`] that stops after the page that holds file `max` (100 per page).
+/// `truncated` is true when the read stopped with a next page left.
 pub(super) fn fetch_pr_files_upto(
     ac: &AgentCtx,
     repo: &str,
     number: u64,
     max: usize,
-) -> CbResult<PrFiles> {
+) -> CbResult<PrFileList> {
     let listed = pulls::files(&ac.ctx.client, repo, number, max.div_ceil(100).max(1))?;
-    Ok(PrFiles {
+    Ok(PrFileList {
         previous: listed
             .items
             .iter()
@@ -186,8 +159,7 @@ pub(crate) fn pr_files_for_protection(
     repo: &str,
     number: u64,
     ticket: &str,
-) -> CbResult<crate::rules::protected::PrFileList> {
-    use crate::rules::protected::PrFileList;
+) -> CbResult<PrFileList> {
     match fetch_pr_files_upto(ac, repo, number, MAX_FILES + 1) {
         Ok(f) => Ok(PrFileList {
             truncated: f.over(MAX_FILES),
@@ -217,7 +189,7 @@ pub(crate) fn judge_no_run_for(
     pr: &PrFacts,
     sha: &str,
     base: &str,
-    files: Option<&PrFiles>,
+    files: Option<&PrFileList>,
 ) -> CbResult<Option<Result<String, String>>> {
     let CiFacts::NoCi(unreadable) = ci else {
         return Ok(None);
