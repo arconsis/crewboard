@@ -179,23 +179,18 @@ pub fn graphql_root(kind: &OwnerKind) -> &'static str {
 
 /// Look up the owner of a project: organisation or user.
 pub fn owner_info(client: &Client, login: &str) -> CbResult<OwnerInfo> {
-    let r = client.get(&format!("users/{login}"))?;
-    let kind = match r.body.get("type").and_then(Value::as_str) {
+    let u = crate::github::api::users::get(client, login)?;
+    let kind = match u.kind.as_deref() {
         Some("Organization") => OwnerKind::Org,
         Some("User") => OwnerKind::User,
         other => {
             return Err(GhError::Shape(format!("owner type {other:?} of {login}")).into());
         }
     };
-    let node_id = r
-        .body
-        .get("node_id")
-        .and_then(Value::as_str)
+    let node_id = u
+        .node_id
         .ok_or_else(|| GhError::Shape("owner has no node_id".into()))?;
-    Ok(OwnerInfo {
-        kind,
-        node_id: node_id.to_string(),
-    })
+    Ok(OwnerInfo { kind, node_id })
 }
 
 fn parse_fields(v: &Value) -> CbResult<BTreeMap<String, FieldInfo>> {

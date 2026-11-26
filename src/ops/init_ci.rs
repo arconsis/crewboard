@@ -6,10 +6,8 @@
 //! workflow that FAILS with a message until the owner puts the test command in: a green check
 //! that tests nothing would be worse than a red one.
 
-use crate::board::repo_path;
 use crate::error::{CbError, CbResult};
 use crate::github::{Client, optional};
-use serde_json::Value;
 
 /// The path of the file in the repo.
 pub const CI_PATH: &str = ".github/workflows/ci.yml";
@@ -83,22 +81,10 @@ pub struct CiPlan {
 
 /// The names of the entries of a directory listing. A missing directory is empty.
 fn names_in(client: &Client, repo: &str, dir: &str, git_ref: &str) -> CbResult<Vec<String>> {
-    let path = if dir.is_empty() {
-        format!("{}/contents?ref={git_ref}", repo_path(repo)?)
-    } else {
-        format!("{}/contents/{dir}?ref={git_ref}", repo_path(repo)?)
-    };
-    let Some(r) = optional(client.get(&path))? else {
-        return Ok(Vec::new());
-    };
-    Ok(r.body
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|e| e.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default())
+    let names = optional(crate::github::api::contents::dir_names(
+        client, repo, dir, git_ref,
+    ))?;
+    Ok(names.unwrap_or_default())
 }
 
 /// The refusal for an owner token that cannot write a workflow file. Nothing was written yet.

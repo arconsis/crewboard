@@ -19,7 +19,6 @@ use crate::registry::{fingerprint, join_body};
 use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::lifecycle::State;
 use crate::state::StateCache;
-use serde_json::Value;
 use ssh_key::PrivateKey;
 
 pub struct JoinArgs<'a> {
@@ -52,18 +51,13 @@ impl FetchedBoard {
 /// `join`, `start`, `resume` and `status`.
 pub fn fetch_board_file(client: &Client, repo: &str) -> CbResult<FetchedBoard> {
     split_repo(repo)?;
-    let r = client.get(&format!("repos/{repo}/contents/{INITIATIVE_FILE}"))?;
-    let text = crate::ctx::decode_contents(&r.body)
+    let f = crate::github::api::contents::file(client, repo, INITIATIVE_FILE, None)?;
+    let text = f
+        .text
         .map_err(|why| CbError::config(format!("{repo}/{INITIATIVE_FILE} {why}")))?;
-    let sha = r
-        .body
-        .get("sha")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
     Ok(FetchedBoard {
         cfg: BoardConfig::parse(&text)?,
-        sha,
+        sha: f.sha,
     })
 }
 

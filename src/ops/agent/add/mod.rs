@@ -25,10 +25,10 @@ pub(super) use plan::{default_env_file, strip_prefix};
 pub(super) use setup::{is_linked, make_agent_dir};
 
 use super::install_wake;
-use super::shim::noreply_email;
 use super::{AddRole, absolute};
 use crate::agent_env;
 use crate::exit::Exit;
+use crate::github::api::users::noreply_email;
 use checkout::{step_git, step_work_dir};
 use next::{after_start_lines, after_wake_line, approve_line};
 use output::{Run, TOTAL, redact, say};

@@ -3,8 +3,8 @@
 
 use crate::ctx::Ctx;
 use crate::error::CbResult;
+use crate::github::api::pulls;
 use crate::github::optional;
-use serde_json::Value;
 
 /// What GitHub says about a candidate PR, as far as the judgement needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,38 +27,21 @@ impl MergedPr {
         format!("https://github.com/{}/pull/{}", self.repo, self.number)
     }
 
-    fn parse(repo: &str, number: u64, v: &Value) -> MergedPr {
+    fn from_pull(repo: &str, number: u64, p: pulls::Pull) -> MergedPr {
         MergedPr {
             repo: repo.to_string(),
             number,
-            merged: v.get("merged").and_then(Value::as_bool).unwrap_or(false)
-                || v.get("merged_at").is_some_and(|m| !m.is_null()),
-            body: v
-                .get("body")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            merged_by: v
-                .pointer("/merged_by/login")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            merge_commit: v
-                .get("merge_commit_sha")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            head_sha: v
-                .pointer("/head/sha")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            base: v
-                .pointer("/base/ref")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            merged: p.merged,
+            body: p.body.unwrap_or_default(),
+            merged_by: p.merged_by,
+            merge_commit: p.merge_commit_sha,
+            head_sha: p.head_sha,
+            base: p.base_ref,
         }
     }
 }
 
 pub(super) fn read_pr(ctx: &Ctx, repo: &str, number: u64) -> CbResult<Option<MergedPr>> {
-    let got = optional(ctx.client.get(&format!("repos/{repo}/pulls/{number}")))?;
-    Ok(got.map(|r| MergedPr::parse(repo, number, &r.body)))
+    let got = optional(pulls::get(&ctx.client, repo, number))?;
+    Ok(got.map(|p| MergedPr::from_pull(repo, number, p)))
 }

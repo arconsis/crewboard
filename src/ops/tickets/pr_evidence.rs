@@ -9,7 +9,6 @@ use crate::protocol::acts::EvidenceMsg;
 use crate::rules::Refusal;
 use crate::rules::evidence::{CiFacts, PrFacts};
 use crate::rules::protected::{MAX_FILES, PrFileList};
-use serde_json::Value;
 
 /// Read the `--run` values (spec/ci#which-ci-runs-count) against the repos of the initiative. A run
 /// in a foreign repo is refused here, before any call to GitHub.
@@ -79,39 +78,26 @@ pub(super) fn check_pr_in_initiative(
 }
 
 pub(super) fn fetch_pr(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<(PrFacts, String)> {
-    let Some(r) = optional(ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")))? else {
+    let Some(pr) = optional(pulls::get(&ac.ctx.client, repo, number))? else {
         return Err(CbError::refused(
             ids::EVIDENCE_PR_MISSING,
             format!("PR {repo}#{number} does not exist"),
         ));
     };
-    let b = &r.body;
-    let s = |p: &str| {
-        b.pointer(p)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| GhError::Shape(format!("PR answer has no {p}")))
+    let need = |v: Option<String>, p: &str| {
+        v.ok_or_else(|| GhError::Shape(format!("PR answer has no {p}")))
     };
-    let base = s("/base/ref")?;
+    let base = need(pr.base_ref, "/base/ref")?;
     Ok((
         PrFacts {
             repo: repo.to_string(),
             number,
-            state: s("/state")?,
-            merged: b.get("merged").and_then(Value::as_bool).unwrap_or(false)
-                || b.get("merged_at").is_some_and(|m| !m.is_null()),
-            head_sha: s("/head/sha")?,
-            head_ref: s("/head/ref")?,
-            title: b
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            body: b
-                .get("body")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            state: need(pr.state, "/state")?,
+            merged: pr.merged,
+            head_sha: need(pr.head_sha, "/head/sha")?,
+            head_ref: need(pr.head_ref, "/head/ref")?,
+            title: pr.title.unwrap_or_default(),
+            body: pr.body.unwrap_or_default(),
         },
         base,
     ))

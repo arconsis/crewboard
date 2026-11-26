@@ -24,8 +24,8 @@
 //! named file (at most [`MAX_FILES`]), so at most 6. The caller reads the PR and its files.
 
 use super::AgentCtx;
-use crate::ctx::decode_contents;
 use crate::error::CbResult;
+use crate::github::api::contents;
 use crate::github::optional;
 use crate::owner_route::{
     hunks_applied, is_workflow_path, patch_hunks, patch_path, patch_workflow_files,
@@ -144,15 +144,16 @@ fn read_text(
     path: &str,
     git_ref: &str,
 ) -> CbResult<Result<String, String>> {
-    let url = format!(
-        "repos/{repo}/contents/{}?ref={}",
-        url_encode(path, true),
-        url_encode(git_ref, false)
-    );
-    let Some(r) = optional(ac.ctx.client.get(&url))? else {
+    let Some(f) = optional(contents::file(
+        &ac.ctx.client,
+        repo,
+        &url_encode(path, true),
+        Some(&url_encode(git_ref, false)),
+    ))?
+    else {
         return Ok(Err(format!("it is not at {git_ref}")));
     };
-    Ok(decode_contents(&r.body)
+    Ok(f.text
         .map_err(|why| format!("the file {why}"))
         .and_then(|t| {
             if t.len() > MAX_BYTES {

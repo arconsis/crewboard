@@ -1,9 +1,60 @@
-//! Pull requests: the open list and the files of one PR.
+//! Pull requests: one PR, the open list and the files of one PR.
 
 use super::{Listed, repo_path};
 use crate::github::paging::{MAX_PAGES, paged};
 use crate::github::{Client, GhError, Rest};
 use serde_json::Value;
+
+/// One PR as `GET repos/<owner>/<name>/pulls/<n>` gives it. A field that the answer does not
+/// have (or has as null or of another type) is `None`; each caller decides what that means.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Pull {
+    /// `open` or `closed`.
+    pub state: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    /// `head.ref`: the branch of the head.
+    pub head_ref: Option<String>,
+    /// `head.sha`.
+    pub head_sha: Option<String>,
+    /// `head.repo.full_name`: the repo of the head branch (another one for a PR from a fork).
+    pub head_repo: Option<String>,
+    /// `base.ref`: the branch that the PR merges into.
+    pub base_ref: Option<String>,
+    pub mergeable_state: Option<String>,
+    /// `merged` is true, or `merged_at` is set.
+    pub merged: bool,
+    /// `merged_by.login`.
+    pub merged_by: Option<String>,
+    pub merge_commit_sha: Option<String>,
+}
+
+impl Pull {
+    fn from_json(v: &Value) -> Pull {
+        let s = |ptr: &str| v.pointer(ptr).and_then(Value::as_str).map(str::to_string);
+        Pull {
+            state: s("/state"),
+            title: s("/title"),
+            body: s("/body"),
+            head_ref: s("/head/ref"),
+            head_sha: s("/head/sha"),
+            head_repo: s("/head/repo/full_name"),
+            base_ref: s("/base/ref"),
+            mergeable_state: s("/mergeable_state"),
+            merged: v.get("merged").and_then(Value::as_bool).unwrap_or(false)
+                || v.get("merged_at").is_some_and(|m| !m.is_null()),
+            merged_by: s("/merged_by/login"),
+            merge_commit_sha: s("/merge_commit_sha"),
+        }
+    }
+}
+
+/// One PR of `repo`. A PR that is not there is the HTTP 404 of the client: wrap the call in
+/// [`crate::github::optional`] for `None`.
+pub fn get(client: &Client, repo: &str, number: u64) -> Result<Pull, GhError> {
+    let r = client.get(&format!("{}/pulls/{number}", repo_path(repo)?))?;
+    Ok(Pull::from_json(&r.body))
+}
 
 /// One PR as the list shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]

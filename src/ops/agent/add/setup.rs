@@ -7,13 +7,13 @@ use crate::agent_env;
 use crate::base::ignore::best_effort_cleanup;
 use crate::error::CbError;
 use crate::fsutil::set_mode;
+use crate::github::api::users;
 use crate::ops::agent::absolute;
 use crate::ops::agent::shim::{
     find_real_gh, is_current_stub_for, make_empty_gh_config, read_crew_id, scrub_tokens, sq,
     stub_text, valid_login, write_stub,
 };
 use crate::ops::{Global, join};
-use serde_json::Value;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -378,20 +378,13 @@ pub(super) fn step_crew_id(
     }
     let id_path = format!("users/{login}");
     let got = match &client {
-        Some(c) => c
-            .get(&id_path)
+        Some(c) => users::get(c, &login)
             .map_err(|e| {
                 let e = CbError::from(e);
                 run.record(&format!("GET /{id_path}"), &e.to_string());
                 (format!("GET /{id_path}: {e}"), e.exit().code())
             })
-            .map(|r| {
-                r.body
-                    .get("id")
-                    .and_then(Value::as_u64)
-                    .map(|n| n.to_string())
-                    .unwrap_or_default()
-            }),
+            .map(|u| u.id.map(|n| n.to_string()).unwrap_or_default()),
         None => gh_api(run, shim, &id_path, ".id"),
     };
     let id = got.map_err(|(what, code)| {
