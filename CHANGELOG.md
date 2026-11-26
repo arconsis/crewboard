@@ -4,7 +4,20 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
-Upgrade: run `crewboard update` on each host. Nothing changes on the board or in a command.
+Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two commands
+change: a script or a Monitor tool config that calls `crewboard watch --loop` must call
+`crewboard monitor` with the same options (`--pause`, `--max-cycles`, `--log`, `--json`;
+`crewboard resume` prints the right command line), and `say --kind` takes five kinds.
+
+Removed:
+
+- `watch --loop` and its options `--pause`, `--max-cycles` and `--log`. The loop has one name:
+  `monitor`. It is the command that `resume` prints and that Monitor tool configs call. `watch`
+  waits once, as before.
+- `say --kind` takes `request`, `report`, `question`, `answer` and `info` only. The kinds
+  `done`, `blocked` and `ack` are written by `done`, `block` and `take`, which also move the
+  board; `ping` and `pong` are retired. Such a `say` is a usage error (exit 64) that names the
+  five kinds. Old comments of every kind still parse and verify.
 
 Fixed (all three come from one host, where a login of the runtime had ended):
 
@@ -32,6 +45,8 @@ Changed:
   `status-answer-missing` and the two rules of the headless wake. A dev wake reads about 260
   words less. No rule changed.
 - The build scripts of the explainer video are no longer in the repo (`docs/video/`).
+- `agent with-env` is no longer in the help of `agent`: the gh shim calls it, a person uses
+  `agent exec`. The command works as before.
 
 ## v0.9.3 (2026-11-16)
 

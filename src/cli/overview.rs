@@ -53,7 +53,7 @@ pub const EXTENSIONS: &[(&str, &[&str])] = &[
 
 /// Commands that a scheduler, a wrapper script or a Monitor tool calls. They are hidden from the
 /// overview and never renamed: a rename would break the wrappers of running crews. `crewboard help
-/// scheduler` lists them. `monitor` is the same command as `watch --loop`.
+/// scheduler` lists them.
 pub const SCHEDULER: &[(&str, &[&str])] = &[
     ("Wake an agent from a scheduler", &["wake", "poll"]),
     ("Headless coordinator", &["tick"]),
@@ -329,7 +329,7 @@ Agent: life cycle
   resume         Continue after a restart or a pause
   pause          Finish the current step and take nothing new
   stop           Drain open tickets, then leave the crew
-  watch          Wait for events and print them (--loop: keep waiting)
+  watch          Wait for events and print them
 
 Dev agent: tickets
   mine           List your tickets and what each one needs

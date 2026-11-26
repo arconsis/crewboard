@@ -192,15 +192,6 @@ fn load_agent_env(cli: &Cli) -> Option<Outcome> {
                 let reason = ops::monitor::first_line(&e.to_string());
                 watch::monitor_fail(e.exit().code(), &reason, "", m.json)
             }
-            // `watch --loop` is `monitor`: it ends with the same one line
-            Command::Watch(WatchCmd::Watch {
-                watch_loop: true,
-                json,
-                ..
-            }) => {
-                let reason = ops::monitor::first_line(&e.to_string());
-                watch::monitor_fail(e.exit().code(), &reason, "", *json)
-            }
             _ => fail(e.clone()),
         }),
         Ok(env) => {
