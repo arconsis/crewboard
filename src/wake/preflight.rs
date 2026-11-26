@@ -104,6 +104,21 @@ impl Flow<'_, '_> {
             })
             .collect();
         let Some(changed) = policy::stop_lifted_by(stop_time, &times) else {
+            // No change lifted it. A stop that is old enough is tried once: the run goes on with
+            // the stop file in place. The first board call that works removes the file
+            // (`Flow::call`); an exit 4 writes it again, and the next try is one hour later.
+            let written = stop_time
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| i64::try_from(d.as_secs()).ok());
+            let age = written.map(|w| self.clock.now() - w);
+            if let Some(age) = age.filter(|a| *a >= policy::STOP_RETRY_SECS) {
+                self.log.line(&format!(
+                    "stopped for {} min: trying the board once (the stop stays until a call works)",
+                    age / 60
+                ));
+                return false;
+            }
             return true;
         };
         best_effort_cleanup(std::fs::remove_file(stop));

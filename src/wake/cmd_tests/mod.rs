@@ -42,6 +42,7 @@ fn parse(argv: &[&str]) -> WakeArgs {
 mod budget;
 mod env_file;
 mod events_file;
+mod fail_streak;
 mod fakes;
 mod heartbeats;
 mod host_locks;
