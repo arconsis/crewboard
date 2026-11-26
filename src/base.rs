@@ -7,6 +7,7 @@
 
 pub mod fields;
 pub mod ids;
+pub mod shell;
 pub use host_lock::ignore;
 mod ticket_ref;
 

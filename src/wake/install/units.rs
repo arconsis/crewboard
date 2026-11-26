@@ -82,9 +82,7 @@ pub fn fill(template: &str, vars: &[(&str, &str)]) -> String {
 }
 
 /// One word for a shell: `'a'\''b'`.
-pub fn sq(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
+pub use crate::base::shell::quote as sq;
 
 /// `&`, `<` and `>` for the text of a plist.
 pub fn xml_esc(s: &str) -> String {

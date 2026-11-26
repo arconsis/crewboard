@@ -1,12 +1,8 @@
 //! `crewboard agent env`: the export lines of the agent shell, for `eval`.
 
 use super::{Failed, absolute, missing_dir};
+use crate::base::shell::quote as sq;
 use std::path::Path;
-
-/// One word for a POSIX shell: `'a'\''b'`.
-fn sq(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
 
 /// The lines for `eval "$(crewboard agent env)"`: the shim dir first on the PATH, the empty `gh`
 /// config dir, the config dir. The first two only when the dirs exist. Never a token. Pure.
