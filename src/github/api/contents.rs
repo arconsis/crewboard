@@ -7,7 +7,7 @@ use serde_json::Value;
 /// One file of a repo, as the contents API gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoFile {
-    /// The text, or why there is none, as text that completes "<file> ...".
+    /// The text, or why there is none, as text that completes `<file> ...`.
     pub text: Result<String, String>,
     /// The blob SHA; empty when the answer has none.
     pub sha: String,
@@ -63,7 +63,7 @@ pub fn dir_names(
 
 /// The text of a file from the answer of the contents API: base64 in lines, UTF-8 inside. The
 /// one decoder for every read of a repo file. `Err` holds the reason as text that completes
-/// "<file> ...": no content (a directory, or a file over the 1 MB limit of the API, which
+/// `<file> ...`: no content (a directory, or a file over the 1 MB limit of the API, which
 /// answers `encoding: none`), not base64, or not UTF-8.
 fn decode_contents(body: &Value) -> Result<String, String> {
     use base64::Engine;
