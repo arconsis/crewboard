@@ -1,4 +1,4 @@
-//! Wake commands that fail in a row, and the hourly try of a stop. Both come from one pilot
+//! Wake commands that fail in a row, and the hourly try of a stop. Both come from one
 //! host: a login of the runtime had ended, the wake command failed 2571 times (one start every
 //! five minutes for days, nobody was told), and one 401 of GitHub then stopped the wakes for good.
 

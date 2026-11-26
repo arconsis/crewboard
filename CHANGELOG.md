@@ -6,7 +6,7 @@ This file lists the changes of crewboard, one section for each release.
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board or in a command.
 
-Fixed (all three come from one pilot host, where a login of the runtime had ended):
+Fixed (all three come from one host, where a login of the runtime had ended):
 
 - The events that a failed wake keeps for the next wake no longer grow. Before, each failed
   wake added its tickets part and an empty poll part to the kept block: 2571 failed wakes in a
@@ -22,6 +22,8 @@ Fixed (all three come from one pilot host, where a login of the runtime had ende
   works, the stop ends and the log says so. A stop that holds writes one log line per try and
   tells nobody again. A changed env file or agent config, or a removed `stopped` file, lifts
   the stop at once, as before.
+- `url` 2.5.9 (RUSTSEC-2026-0592: a nested `blob:` URL could overflow the stack in
+  `Url::origin()`). crewboard builds its URLs itself, so no known input reached it.
 
 ## v0.9.3 (2026-11-16)
 

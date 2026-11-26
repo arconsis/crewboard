@@ -2828,7 +2828,7 @@ Used by:
 - filetime 0.2.29 (https://github.com/alexcrichton/filetime)
 - find-msvc-tools 0.1.14 (https://github.com/rust-lang/cc-rs)
 - flate2 1.1.11 (https://github.com/rust-lang/flate2-rs)
-- form_urlencoded 1.2.2 (https://github.com/servo/rust-url)
+- form_urlencoded 1.2.3 (https://github.com/servo/rust-url)
 - heck 0.5.0 (https://github.com/withoutboats/heck)
 - httparse 1.10.1 (https://github.com/seanmonstar/httparse)
 - hyper-rustls 0.27.10 (https://github.com/rustls/hyper-rustls)
@@ -2852,7 +2852,7 @@ Used by:
 - socket2 0.6.5 (https://github.com/rust-lang/socket2)
 - stable_deref_trait 1.2.1 (https://github.com/storyyeller/stable_deref_trait)
 - tar 0.4.46 (https://github.com/composefs/tar-rs)
-- url 2.5.8 (https://github.com/servo/rust-url)
+- url 2.5.9 (https://github.com/servo/rust-url)
 - version_check 0.9.5 (https://github.com/SergioBenitez/version_check)
 
 ```text
