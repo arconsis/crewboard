@@ -184,6 +184,31 @@ pub fn net_owner_text(fails: u64) -> String {
     )
 }
 
+// --- failed wakes ----------------------------------------------------------------------------
+
+/// The run of failed wake commands at which the coordinator is told, once.
+pub const WAKE_TELL_RUN: u64 = 3;
+
+/// The file `wake-fail` after one more wake command that failed: the same count and the same
+/// growing pause as the net back-off (none after the first, then 300 s doubled, at most 1 h).
+/// During the pause the run still polls (the heartbeat goes on); it starts no wake command.
+pub fn wake_failed(prev: NetBackoff, now: i64) -> NetBackoff {
+    net_failed(prev, now)
+}
+
+/// The message to the coordinator at [`WAKE_TELL_RUN`]. It names no path of the host.
+pub fn wake_fail_text(agent: &str, fails: u64, rc: u8) -> String {
+    format!(
+        "The wake command of {agent} failed {fails} times in a row (last exit {rc}). The agent cannot work until the owner repairs its runtime on the host (a login that ended, a missing program); the reason is in wake.log in the state dir of the agent. The wrapper tries again with a pause of up to 1 h and goes on by itself when the command works."
+    )
+}
+
+// --- stop file: the hourly try ---------------------------------------------------------------
+
+/// A stop that no file change lifted is tried again when it is this old: an exit 4 can be a
+/// fault that ends by itself (GitHub answered 401 to a good token). One board call per hour.
+pub const STOP_RETRY_SECS: i64 = 3600;
+
 // --- quiet counter ---------------------------------------------------------------------------
 
 /// The file `<log>.quiet`: `<window start epoch> <window start ts> <polls>`.

@@ -164,7 +164,10 @@ impl Flow<'_, '_> {
         let Ok(text) = std::fs::read(ev) else {
             return;
         };
-        let text = with_budget_header(&text, first);
+        // only what the next wake cannot read again: the kept block must not grow with each
+        // failed wake
+        let text = events::compact_kept(&String::from_utf8_lossy(&text));
+        let text = with_budget_header(text.as_bytes(), first);
         let kept = events::unhandled_path(ev);
         let r = std::fs::OpenOptions::new()
             .create(true)

@@ -7,7 +7,8 @@
 //! events.txt     the events file of the wake (also `.unhandled`, `.tmp`); the unit picks the name
 //! results/       result files of detached jobs
 //! net-backoff    "<failed runs> <epoch until which runs are skipped>"
-//! stopped        "<ts> <call>: <reason>"; its presence stops all wakes
+//! wake-fail      "<failed wakes in a row> <epoch before which no wake command starts>"
+//! stopped        "<ts> <call>: <reason>"; its presence stops all wakes (tried again each hour)
 //! wake.log       the log; wake.log.quiet counts the silent polls
 //! last-tick      the output of the last `tick`
 //! ```
@@ -141,6 +142,7 @@ pub struct Paths {
     pub results: PathBuf,
     pub stop: PathBuf,
     pub net: PathBuf,
+    pub wake_fail: PathBuf,
     pub last_tick: PathBuf,
     pub budget_streak: PathBuf,
 }
@@ -159,6 +161,7 @@ impl Paths {
             results: dir.join("results"),
             stop: dir.join("stopped"),
             net: dir.join("net-backoff"),
+            wake_fail: dir.join("wake-fail"),
             last_tick: dir.join("last-tick"),
             budget_streak: dir.join("budget-streak"),
             dir,
