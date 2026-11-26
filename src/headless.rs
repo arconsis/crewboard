@@ -39,6 +39,7 @@ pub(crate) const DENY_LIFECYCLE: &str =
     "it changes the availability of the agent; the interactive coordinator or the owner does it";
 pub(crate) const DENY_GATE_FAIL: &str =
     "--fail records a failed Gate check, which is a judgment of the interactive coordinator";
+pub(crate) const DENY_RUN_CHECK: &str = "--run-check passes a ticket whose Gate is more than CI; the interactive coordinator reads the rest of the Gate";
 pub(crate) const DENY_LOCAL_GATE: &str = "--local-run records the coordinator's own local run, which is a judgment of the interactive coordinator";
 pub(crate) const DENY_CLOSE_JUDGMENT: &str =
     "close --why and close --verified are judgments of the interactive coordinator";

@@ -145,6 +145,8 @@ protected: [main]\n\
 # protected_paths: [tests/**, scripts/ci-*.sh]  # more paths that only the owner merges; adds to the built-in seven\n\
 # ci_ignore: [deploy-preview]       # CI jobs that are red for reasons outside a ticket; not counted\n\
 # ci_mode: local                    # the owner switches CI off: agents deliver with --local-run\n\
+# checks:                           # with ci_mode local: commands that verify --run-check runs\n\
+#   - tests: make test\n\
 # former_repos:                     # after a repo transfer or rename: the old name and an exclusive cutoff\n\
 #   - {{ name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }}\n\
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules\n\

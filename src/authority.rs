@@ -35,7 +35,7 @@ use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 12] = [
+pub const ENFORCED_KEYS: [&str; 13] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -47,6 +47,7 @@ pub const ENFORCED_KEYS: [&str; 12] = [
     "protected_paths",
     "ci_ignore",
     "ci_mode",
+    "checks",
     "former_repos",
 ];
 
@@ -73,10 +74,20 @@ pub struct Authority {
     pub ci_ignore: Vec<String>,
     /// How the Gate of a ticket is judged: by CI, or by a local gate of the owner's decision.
     pub ci_mode: CiMode,
+    /// The named commands that `verify --run-check` runs (spec/ci#checks-that-the-tool-runs).
+    pub checks: Vec<Check>,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
     pub unknown_keys: Vec<String>,
+}
+
+/// One `checks` item: `<name>: <command line>`. The command runs without a shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Check {
+    pub name: String,
+    /// The words of the command line; the first is the program.
+    pub argv: Vec<String>,
 }
 
 /// The value of `ci_mode` (spec/ci#local-run-ci_mode-local).
@@ -115,6 +126,7 @@ impl Default for Authority {
                 .collect(),
             ci_ignore: Vec::new(),
             ci_mode: CiMode::Ci,
+            checks: Vec::new(),
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -206,6 +218,46 @@ fn parse_former_repo(item: &str) -> Result<FormerRepo, Refusal> {
     FormerRepo::parse(&name, &until).map_err(|e| err(&e.to_string()))
 }
 
+/// The longest name of a check.
+const MAX_CHECK_NAME: usize = 32;
+
+/// The `checks` items: `<name>: <command line>`. A name is lower-case letters, digits and `-`,
+/// and is not used twice. The command line is split like a POSIX shell splits words (quotes and
+/// a backslash); nothing else of a shell works, because no shell runs it.
+fn check_checks(items: Vec<String>) -> Result<Vec<Check>, Refusal> {
+    let mut out: Vec<Check> = Vec::new();
+    for item in items {
+        let err = |m: &str| bad(format!("checks: '{item}': {m}"));
+        let (name, line) = item
+            .split_once(':')
+            .ok_or_else(|| err("write `<name>: <command line>`"))?;
+        let name = name.trim();
+        let ok_name = !name.is_empty()
+            && name.len() <= MAX_CHECK_NAME
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && !name.starts_with('-');
+        if !ok_name {
+            return Err(err(
+                "the name has lower-case letters, digits and `-` only (at most 32)",
+            ));
+        }
+        if out.iter().any(|c| c.name == name) {
+            return Err(err("the name is used twice"));
+        }
+        let argv = crate::base::shell::split_words(line).map_err(|m| err(&m))?;
+        if argv.is_empty() {
+            return Err(err("the command line is empty"));
+        }
+        out.push(Check {
+            name: name.to_string(),
+            argv,
+        });
+    }
+    Ok(out)
+}
+
 /// The `former_repos` items: no name twice.
 fn check_former_repos(items: Vec<String>) -> Result<Vec<FormerRepo>, Refusal> {
     let mut out: Vec<FormerRepo> = Vec::new();
@@ -246,6 +298,7 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                 "needs_owner" => a.needs_owner = items,
                 "ci_ignore" => a.ci_ignore = check_ci_ignore(items)?,
                 "former_repos" => a.former_repos = check_former_repos(items)?,
+                "checks" => a.checks = check_checks(items)?,
                 other => return Err(bad(format!("{other}: a list is not allowed here"))),
             }
         }
@@ -281,7 +334,12 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
         if v.is_empty() {
             if matches!(
                 k,
-                "protected" | "protected_paths" | "needs_owner" | "ci_ignore" | "former_repos"
+                "protected"
+                    | "protected_paths"
+                    | "needs_owner"
+                    | "ci_ignore"
+                    | "former_repos"
+                    | "checks"
             ) {
                 block = Some((k.to_string(), Vec::new()));
                 continue;
@@ -312,6 +370,12 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
             "former_repos" => {
                 return Err(bad(
                     "former_repos: write one `- { name: owner/repo, until: ...Z }` item per line",
+                ));
+            }
+            "checks" if v == "[]" => a.checks = Vec::new(),
+            "checks" => {
+                return Err(bad(
+                    "checks: write one `- <name>: <command line>` item per line",
                 ));
             }
             "ci_mode" => {
@@ -569,6 +633,36 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
     }
 
     #[test]
+    fn checks_are_named_command_lines_without_a_shell() {
+        assert!(parsed(INIT_TEMPLATE).checks.is_empty());
+        let a = parsed(
+            "---\nchecks:\n  - app: ./check.sh all\n  - \"private: tools/check.py --diff 'origin/main x'\"\n---\n",
+        );
+        assert_eq!(a.checks.len(), 2);
+        assert_eq!(a.checks[0].name, "app");
+        assert_eq!(a.checks[0].argv, ["./check.sh", "all"]);
+        assert_eq!(
+            a.checks[1].argv,
+            ["tools/check.py", "--diff", "origin/main x"]
+        );
+        assert!(parsed("---\nchecks: []\n---\n").checks.is_empty());
+        for (text, part) in [
+            ("checks:\n  - app\n", "<name>: <command line>"),
+            ("checks:\n  - App: x\n", "lower-case"),
+            ("checks:\n  - a: x\n  - a: y\n", "used twice"),
+            ("checks:\n  - a:\n", "empty"),
+            ("checks:\n  - \"a: 'x\"\n", "single quote"),
+            (
+                "checks: [a]\n",
+                "one `- <name>: <command line>` item per line",
+            ),
+        ] {
+            let r = parse(&format!("---\n{text}---\n")).unwrap_err();
+            assert!(r.message.contains(part), "{text}: {}", r.message);
+        }
+    }
+
+    #[test]
     fn ci_mode_is_ci_by_default_and_reads_ci_and_local() {
         assert_eq!(Authority::default().ci_mode, CiMode::Ci);
         assert_eq!(parsed("---\nowner: o\n---\n").ci_mode, CiMode::Ci);
@@ -739,7 +833,7 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 | "coordinator_may_merge"
                 | "dev_may_open_prs" => "true",
                 "protected" | "ci_ignore" | "protected_paths" => "[a]",
-                "former_repos" => "[]",
+                "former_repos" | "checks" => "[]",
                 "ci_mode" => "ci",
                 _ => "x",
             };

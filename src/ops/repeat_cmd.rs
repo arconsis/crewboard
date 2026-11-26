@@ -170,7 +170,7 @@ fn make_log_dir(given: Option<&Path>) -> Result<PathBuf, String> {
     Err("cannot create a log directory".to_string())
 }
 
-fn private_dir(d: &Path) -> std::io::Result<()> {
+pub(crate) fn private_dir(d: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         let mut b = std::fs::DirBuilder::new();
@@ -206,11 +206,22 @@ fn wait_child(child: &mut std::process::Child) -> std::io::Result<std::process::
 /// Run the command of one run without the lock: stdout and stderr go to `log`. A command that
 /// cannot start gives 127 (not found) or 126, and its error text is the log.
 fn run_plain(cmd: &[String], repo: &Path, log: &Path) -> i32 {
+    run_logged(cmd, repo, log, &|_| {})
+}
+
+/// [`run_plain`] with a last change of the command before it starts (its environment).
+pub(crate) fn run_logged(
+    cmd: &[String],
+    repo: &Path,
+    log: &Path,
+    prepare: &dyn Fn(&mut Command),
+) -> i32 {
     let started = std::fs::File::create(log)
         .and_then(|out| Ok((out.try_clone()?, out)))
         .and_then(|(err, out)| {
             let mut c = Command::new(&cmd[0]);
             c.args(&cmd[1..]).current_dir(repo).stdout(out).stderr(err);
+            prepare(&mut c);
             #[cfg(unix)]
             std::os::unix::process::CommandExt::process_group(&mut c, 0);
             crate::spawn::spawn_retrying(&mut c)

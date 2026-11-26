@@ -45,16 +45,16 @@ pub fn check_verify_fail_note(gate_failed: bool, note: &str) -> Result<(), Refus
 }
 
 /// What `verify` has loaded before it decides: the agent and the ticket.
-struct VerifyLoad {
+pub(super) struct VerifyLoad {
     n: u64,
     world: World,
     me: Me,
-    t: Ticket,
+    pub(super) t: Ticket,
     from: Status,
 }
 
 /// The reads of `verify` that come before any decision about the evidence.
-fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
+pub(super) fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     Ok(VerifyLoad {
@@ -72,6 +72,8 @@ struct VerifyArgs<'a> {
     runs: &'a [String],
     gate_failed: bool,
     local_gate: Option<&'a str>,
+    /// `local_gate` is the line of `run_checks`, not a typed text.
+    tool_run: bool,
 }
 
 /// The checks that need no PR: the ticket, the evidence of the `done`, `--local-run`.
@@ -90,7 +92,7 @@ struct VerifyPre {
 }
 
 /// The latest `done` of the assignee, or the refusal `verify-no-evidence`. Pure.
-fn latest_evidence<'a>(
+pub(super) fn latest_evidence<'a>(
     key: &str,
     assignee: Option<&str>,
     msgs: &'a [crate::ticket::VMsg],
@@ -114,7 +116,8 @@ fn precheck_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResu
     // of the PR branch). `--local-run` is checked before any write.
     let auth = crate::ctx::load_authority(&ac.ctx)?;
     let ev_local = is_local_gate(&ev);
-    let coordinator_gate = local_gate_for_verify(&auth, va.local_gate, ev_local, va.gate_failed)?;
+    let coordinator_gate =
+        local_gate_for_verify(&auth, va.local_gate, ev_local, va.gate_failed, va.tool_run)?;
     let local_verify = ev_local && auth.ci_mode.is_local();
     let mut pr_url = parse_pr_url(&ev.pr)?;
     super::pr_evidence::follow_former_name(
@@ -588,6 +591,7 @@ pub fn verify(
     runs: &[String],
     gate_failed: bool,
     local_gate: Option<&str>,
+    tool_run: bool,
 ) -> CbResult<String> {
     let l = load_verify(ac, issue_arg)?;
     let va = VerifyArgs {
@@ -595,6 +599,7 @@ pub fn verify(
         runs,
         gate_failed,
         local_gate,
+        tool_run,
     };
     let plan = plan_verify(ac, &l, &va)?;
     act_verify(ac, &l, &plan, &SystemClock)

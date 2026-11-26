@@ -18,9 +18,87 @@ pub fn quote_if_needed(w: &str) -> String {
     if plain { w.to_string() } else { quote(w) }
 }
 
+/// Split a command line into words like a POSIX shell: spaces separate, single quotes keep
+/// everything, double quotes keep everything but `\"` and `\\`, a backslash outside quotes
+/// keeps the next character. Nothing else of a shell is done (no variable, no glob, no pipe).
+/// The error names a quote that does not end.
+pub fn split_words(line: &str) -> Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut open = false;
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => {
+                if open {
+                    words.push(std::mem::take(&mut cur));
+                    open = false;
+                }
+            }
+            '\'' => {
+                open = true;
+                loop {
+                    match chars.next() {
+                        Some('\'') => break,
+                        Some(x) => cur.push(x),
+                        None => return Err("a single quote does not end".to_string()),
+                    }
+                }
+            }
+            '"' => {
+                open = true;
+                loop {
+                    match chars.next() {
+                        Some('"') => break,
+                        Some('\\') => match chars.next() {
+                            Some(x @ ('"' | '\\')) => cur.push(x),
+                            Some(x) => {
+                                cur.push('\\');
+                                cur.push(x);
+                            }
+                            None => return Err("a double quote does not end".to_string()),
+                        },
+                        Some(x) => cur.push(x),
+                        None => return Err("a double quote does not end".to_string()),
+                    }
+                }
+            }
+            '\\' => {
+                open = true;
+                match chars.next() {
+                    Some(x) => cur.push(x),
+                    None => return Err("a backslash at the end".to_string()),
+                }
+            }
+            c => {
+                open = true;
+                cur.push(c);
+            }
+        }
+    }
+    if open {
+        words.push(cur);
+    }
+    Ok(words)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_words_splits_like_a_shell_and_runs_nothing() {
+        let w = |s: &str| split_words(s).unwrap();
+        assert_eq!(w("  ./check.sh   all "), ["./check.sh", "all"]);
+        assert_eq!(w("a 'b c' \"d e\" f\\ g"), ["a", "b c", "d e", "f g"]);
+        assert_eq!(w("x '' \"\""), ["x", "", ""]);
+        assert_eq!(w("say \"a \\\"b\\\" $HOME\""), ["say", "a \"b\" $HOME"]);
+        assert_eq!(w("a|b >c *.rs"), ["a|b", ">c", "*.rs"]);
+        assert!(w("").is_empty());
+        assert!(split_words("a 'b").unwrap_err().contains("single quote"));
+        assert!(split_words("a \"b").unwrap_err().contains("double quote"));
+        assert!(split_words("a \\").unwrap_err().contains("backslash"));
+    }
 
     #[test]
     fn quote_always_quotes_and_escapes_a_single_quote() {

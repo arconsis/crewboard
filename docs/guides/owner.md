@@ -192,6 +192,7 @@ matter has these keys:
 | `protected_paths` | none | More paths that only you merge, as globs ([Protected paths](#protected-paths)). |
 | `ci_ignore` | none | CI jobs that the CI check skips ([details](../design/spec/ci.md#jobs-that-ci_ignore-skips)). |
 | `ci_mode` | `ci` | `local` when CI cannot run ([Local run](../design/spec/ci.md#local-run-ci_mode-local)). |
+| `checks` | none | With `ci_mode: local`: named commands that `verify --run-check <name>` runs on a clean checkout of the PR head ([Checks that the tool runs](../design/spec/ci.md#checks-that-the-tool-runs)). List the files that these commands run in `protected_paths`. |
 | `former_repos` | none | After a repo transfer or rename: the old name and a cutoff ([Move the repository](repo-move.md)). |
 | `needs_owner` | a list | Advice for the models: when to ask you. Not enforced, with one exception: `merge` in the list lets only you merge (rule `authority-needs-owner`, deprecated: use `coordinator_may_merge: false`). |
 

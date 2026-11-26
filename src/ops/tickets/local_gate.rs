@@ -7,6 +7,10 @@ use crate::rules::Refusal;
 /// The longest local-gate text (bytes): the text goes into the Evidence field (1024 bytes).
 const MAX_LOCAL_GATE_BYTES: usize = 400;
 
+/// The first word of a local-run line that the tool wrote itself after it ran the checks
+/// (`verify --run-check`). A typed `--local-run` text must not start with it.
+pub(crate) const TOOL_RUN_PREFIX: &str = "tool-run ";
+
 /// The refusal of a local-gate flag while `ci_mode` is `ci`, and of a local-gate evidence that no
 /// longer counts.
 pub(crate) fn local_gate_not_enabled() -> Refusal {
@@ -56,6 +60,13 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
     if t.contains(['\n', '\r']) || t.len() > MAX_LOCAL_GATE_BYTES {
         return Err(Refusal::new(ids::LOCAL_GATE_INVALID, local_gate_invalid_message(t)).into());
     }
+    if t.starts_with(TOOL_RUN_PREFIX.trim_end()) {
+        return Err(Refusal::new(
+            ids::LOCAL_GATE_INVALID,
+            "--local-run must not start with `tool-run`: that word marks a line that crewboard wrote after it ran the checks itself (verify --run-check <name>)",
+        )
+        .into());
+    }
     crate::ops::say::check_body_text(t)?;
     Ok(t.to_string())
 }
@@ -87,7 +98,12 @@ pub(super) fn local_gate_for_verify(
     arg: Option<&str>,
     evidence_local: bool,
     gate_failed: bool,
+    tool_run: bool,
 ) -> CbResult<Option<String>> {
+    // The line of a tool run was made by `run_checks`, which made every check of this function.
+    if let (true, Some(t)) = (tool_run, arg) {
+        return Ok(Some(t.to_string()));
+    }
     if arg.is_some() && !auth.ci_mode.is_local() {
         return Err(local_gate_not_enabled().into());
     }
@@ -210,8 +226,9 @@ mod tests {
 
     #[test]
     fn verify_follows_ci_mode_and_the_kind_of_the_done_for_the_local_gate_flag() {
-        let v =
-            |local, arg, ev_local, fail| local_gate_for_verify(&auth(local), arg, ev_local, fail);
+        let v = |local, arg, ev_local, fail| {
+            local_gate_for_verify(&auth(local), arg, ev_local, fail, false)
+        };
         // ci mode: the flag is refused (also for a local-gate done); no flag is fine
         assert_eq!(
             rule_of(v(false, Some(GATE), true, false)),

@@ -416,6 +416,10 @@ catalog! {
             "`--local-run` needs `ci_mode: local` in the authority file.";
         LOCAL_GATE_UNEXPECTED = "local-gate-unexpected" :
             "`--local-run` is for a local-gate delivery only.";
+        CHECK_UNKNOWN = "check-unknown" :
+            "`--run-check` names a check that the authority file does not have.";
+        CHECK_FAILED = "check-failed" :
+            "A check of `--run-check` did not exit 0; nothing was written.";
         OWNER_ROUTE_CLOSING_KEYWORD = "owner-route-closing-keyword" :
             "An owner-route PR has a closing keyword for the ticket; it says `Refs` until the owner applied the patch.";
         WORKFLOW_NEEDS_OWNER = "workflow-needs-owner" :

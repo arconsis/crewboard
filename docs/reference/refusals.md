@@ -208,6 +208,8 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `local-gate-invalid` | The text of the local gate does not have the expected shape. |
 | `local-gate-not-enabled` | `--local-run` needs `ci_mode: local` in the authority file. |
 | `local-gate-unexpected` | `--local-run` is for a local-gate delivery only. |
+| `check-unknown` | `--run-check` names a check that the authority file does not have. |
+| `check-failed` | A check of `--run-check` did not exit 0; nothing was written. |
 | `owner-route-closing-keyword` | An owner-route PR has a closing keyword for the ticket; it says `Refs` until the owner applied the patch. |
 | `workflow-needs-owner` | The change touches a workflow file: the owner merges it (the owner route). |
 | `protected-path-owner-merge` | The PR changes an authority file: only the owner merges it. |
