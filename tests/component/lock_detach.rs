@@ -235,7 +235,14 @@ fn term_of_supervisor_reaches_the_group_of_the_job() {
         "lt",
         "rt",
         &[],
-        &["sh", "-c", &format!("sleep 300 & echo $! >{kid}; wait")],
+        // `exec`: the leader of the group is then a `sleep`, which a TERM always ends with the
+        // signal. A shell that waits in `wait` can exit 0 instead when its child dies first
+        // (bash as `sh` did so in 9 of 300 runs).
+        &[
+            "sh",
+            "-c",
+            &format!("sleep 300 & echo $! >{kid}; exec sleep 300"),
+        ],
     );
     assert_eq!(o.code, 0, "{}", o.all());
     let sup = job_pid(o.stdout.trim());
