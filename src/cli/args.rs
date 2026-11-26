@@ -1161,7 +1161,9 @@ pub enum AgentAction {
     },
     /// Run CMD with the token of --env-file.
     ///
-    /// Replace this process by CMD, run with the token and the settings of `--env-file`.
+    /// Replace this process by CMD, run with the token and the settings of `--env-file`. The gh
+    /// shim of an agent calls it; by hand, `agent exec` does the same for an agent dir.
+    #[command(hide = true)]
     WithEnv {
         /// The command and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true, num_args = 1..)]

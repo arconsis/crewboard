@@ -178,7 +178,6 @@ Commands:
   selftest  Check that this agent can see events
   exec      Run CMD with the environment of the agent dir
   env       Print export lines for the agent shell
-  with-env  Run CMD with the token of --env-file
   add       Set up one agent in one command
   shim      Write the gh stub of an agent dir again
   help      Print this message or the help of the given subcommand(s)
@@ -337,24 +336,6 @@ Options:
       --agent-dir <AGENT_DIR>
           The config dir of the agent (default: `--config-dir`, else $CREWBOARD_CONFIG_DIR)
 
-  -h, --help
-          Print help (see a summary with '-h')
-```
-
-#### `crewboard agent with-env`
-
-```text
-Run CMD with the token of --env-file.
-
-Replace this process by CMD, run with the token and the settings of `--env-file`.
-
-Usage: crewboard agent with-env [OPTIONS] <CMD>...
-
-Arguments:
-  <CMD>...
-          The command and its arguments, after `--`
-
-Options:
   -h, --help
           Print help (see a summary with '-h')
 ```
