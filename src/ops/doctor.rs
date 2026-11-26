@@ -241,6 +241,13 @@ pub enum CheckVerdict {
     Skip(String),
 }
 
+impl CheckVerdict {
+    /// A failed check with its fix, for a check that another layer makes.
+    pub fn failed(what: impl Into<String>, fix: impl Into<String>) -> CheckVerdict {
+        fail(what, fix)
+    }
+}
+
 fn fail(what: impl Into<String>, fix: impl Into<String>) -> CheckVerdict {
     CheckVerdict::Fail {
         what: what.into(),
@@ -1190,9 +1197,20 @@ fn check_board_side(
 }
 
 /// `doctor --setup`: every check of an agent's setup. `work_dir` is the checkout of the agent.
-pub fn setup(g: &Global, work_dir: &Path) -> (String, CbResult<()>) {
+/// One check that the caller of [`setup`] made: its name and its verdict.
+pub type ExtraCheck = (String, CheckVerdict);
+
+/// The checks of the caller, from the agent config (its dir and its initiative) when it loaded.
+pub type ExtraChecks<'a> = dyn Fn(Option<(&Path, &str)>) -> Vec<ExtraCheck> + 'a;
+
+/// `extra`: checks that the caller made itself, shown after the others. The caller names the
+/// agent config that it used, so a check of another layer (the scheduled wakes) fits in.
+pub fn setup(g: &Global, work_dir: &Path, extra: &ExtraChecks) -> (String, CbResult<()>) {
     let mut rep = SetupReport::default();
     let Some((cd, agent)) = load_setup_agent(g, &mut rep) else {
+        for (check, v) in extra(None) {
+            rep.push(check, v);
+        }
         return rep.finish();
     };
     let cfg = &agent.board;
@@ -1213,7 +1231,11 @@ pub fn setup(g: &Global, work_dir: &Path) -> (String, CbResult<()>) {
         &shim,
     );
     check_runtime(&mut rep, &agent.runtime);
+    let initiative = agent.board.initiative.clone();
     check_board_side(&mut rep, client, &cd, &agent, account.as_deref());
+    for (check, v) in extra(Some((&cd.0, &initiative))) {
+        rep.push(check, v);
+    }
     rep.finish()
 }
 

@@ -18,6 +18,7 @@ pub mod events;
 mod exit;
 pub mod finish;
 pub mod flow;
+pub mod health;
 pub mod heartbeat;
 pub mod hook;
 pub mod hook_cmd;

@@ -151,6 +151,67 @@ fn hook_cmd(cli: &Cli, action: &HookAction) -> Outcome {
 }
 
 #[inline(never)]
+/// The check `wake` of `doctor --setup`: the health of the scheduled wakes of the agent, from
+/// its state dir on this host. Without the agent config there is nothing to read.
+fn wake_check(agent: Option<(&std::path::Path, &str)>) -> Vec<ops::doctor::ExtraCheck> {
+    use crate::wake::health;
+    use ops::doctor::CheckVerdict;
+    let env = |k: &str| std::env::var(k).ok();
+    let verdict = match agent {
+        None => CheckVerdict::Skip("needs the agent config".into()),
+        Some((dir, initiative)) => match health::state_dir(
+            dir,
+            initiative,
+            env("XDG_STATE_HOME").as_deref(),
+            env("HOME").as_deref(),
+        ) {
+            None => CheckVerdict::Skip("no state dir: HOME is not set".into()),
+            Some(state) => wake_verdict(&health::read(&state), &state),
+        },
+    };
+    vec![("wake".to_string(), verdict)]
+}
+
+/// The line of one wake health. Only a state that stops the work of the agent is a FAIL.
+fn wake_verdict(
+    h: &crate::wake::health::Health,
+    state: &std::path::Path,
+) -> ops::doctor::CheckVerdict {
+    use crate::wake::health::Health;
+    use ops::doctor::CheckVerdict;
+    let log = state.join("wake.log");
+    match h {
+        Health::NeverRan => CheckVerdict::Skip(
+            "no scheduled wake has run for this agent on this host (crewboard wake install sets one up)".into(),
+        ),
+        Health::Running { last: None } => {
+            CheckVerdict::Ok("the wakes run; no wake command has run yet".into())
+        }
+        Health::Running { last: Some(t) } => CheckVerdict::Ok(format!(
+            "the wakes run; the last wake command ended {}",
+            crate::clock::format_ts(*t)
+        )),
+        Health::Failing { fails } => CheckVerdict::failed(
+            format!("the wake command failed {fails} times in a row: the agent does no work, and the board still shows it alive"),
+            format!(
+                "read the last lines of {} (a login of the runtime that ended, a missing program), repair it; the next wake goes on by itself",
+                log.display()
+            ),
+        ),
+        Health::Stopped { line } => CheckVerdict::failed(
+            format!("the wakes are stopped ({line})"),
+            format!(
+                "repair the config or the token, then remove {}; the board is also tried once per hour",
+                state.join("stopped").display()
+            ),
+        ),
+        Health::Network { fails } => CheckVerdict::failed(
+            format!("GitHub or the network failed in {fails} runs in a row"),
+            format!("check the network and the token; see {}", log.display()),
+        ),
+    }
+}
+
 pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
     match c {
         HostCmd::Doctor {
@@ -163,7 +224,8 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
                 .clone()
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_else(|| PathBuf::from("."));
-            let (text, verdict) = ops::doctor::setup(&global(cli, sel, false), &wd);
+            let (text, verdict) =
+                ops::doctor::setup(&global(cli, sel, false), &wd, &|agent| wake_check(agent));
             print!("{text}");
             match verdict {
                 Ok(()) => Outcome {
@@ -239,5 +301,62 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
                 Err(e) => fail(e),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod wake_check_tests {
+    use super::{wake_check, wake_verdict};
+    use crate::ops::doctor::CheckVerdict;
+    use crate::wake::health::Health;
+    use std::path::Path;
+
+    fn verdict(h: Health) -> CheckVerdict {
+        wake_verdict(&h, Path::new("/s/demo-dev"))
+    }
+
+    #[test]
+    fn wakes_that_run_and_wakes_that_never_ran_are_no_fault() {
+        assert!(matches!(verdict(Health::NeverRan), CheckVerdict::Skip(_)));
+        assert!(matches!(
+            verdict(Health::Running { last: None }),
+            CheckVerdict::Ok(_)
+        ));
+        let CheckVerdict::Ok(text) = verdict(Health::Running { last: Some(0) }) else {
+            panic!("ok expected");
+        };
+        assert!(text.contains("1970-01-01"), "{text}");
+    }
+
+    #[test]
+    fn failed_wakes_fail_the_check_and_the_fix_names_the_log() {
+        let CheckVerdict::Fail { what, fix } = verdict(Health::Failing { fails: 7 }) else {
+            panic!("fail expected");
+        };
+        assert!(what.contains("failed 7 times in a row"), "{what}");
+        assert!(fix.contains("/s/demo-dev/wake.log"), "{fix}");
+    }
+
+    #[test]
+    fn a_stop_fails_the_check_and_the_fix_names_the_stop_file() {
+        let CheckVerdict::Fail { what, fix } = verdict(Health::Stopped {
+            line: "poll: HTTP 401".into(),
+        }) else {
+            panic!("fail expected");
+        };
+        assert!(what.contains("poll: HTTP 401"), "{what}");
+        assert!(fix.contains("/s/demo-dev/stopped"), "{fix}");
+        assert!(matches!(
+            verdict(Health::Network { fails: 3 }),
+            CheckVerdict::Fail { .. }
+        ));
+    }
+
+    #[test]
+    fn without_the_agent_config_the_check_is_skipped() {
+        let got = wake_check(None);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "wake");
+        assert!(matches!(got[0].1, CheckVerdict::Skip(_)));
     }
 }
