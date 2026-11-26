@@ -8,12 +8,11 @@
 //!
 //! The commands run through a [`Runner`], so the tests need no real toolchain.
 
-use crate::base::ignore::child_may_have_ended;
 use crate::config::RequiredTool;
+use crate::spawn::{Drain, Ended, run_within};
 use std::collections::BTreeSet;
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 /// One required tool may run this long.
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -39,60 +38,26 @@ pub trait Runner {
 pub struct ShellRunner;
 
 impl Runner for ShellRunner {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "real elapsed time of a child process"
-    )]
     fn run(&self, cmd: &str, limit: Duration) -> Outcome {
         #[cfg(windows)]
         let (shell, flag) = ("cmd", "/C");
         #[cfg(not(windows))]
         let (shell, flag) = ("sh", "-c");
         let mut sh = Command::new(shell);
-        sh.arg(flag)
-            .arg(cmd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        sh.arg(flag).arg(cmd);
         crate::agent_env::scrub_children(&mut sh);
-        let spawned = crate::spawn::spawn_retrying(&mut sh);
-        let mut child = match spawned {
-            Ok(c) => c,
+        let run = match run_within(&mut sh, limit, Drain::ToEnd) {
+            Ok(r) => r,
             Err(e) => return Outcome::Failed(format!("cannot start {shell}: {e}")),
         };
-        let (Some(mut out), Some(mut err)) = (child.stdout.take(), child.stderr.take()) else {
-            return Outcome::Failed("no output pipe".into());
-        };
-        let t_out = std::thread::spawn(move || {
-            let mut s = String::new();
-            out.read_to_string(&mut s).ok(); // a read error keeps what was read so far
-            s
-        });
-        let t_err = std::thread::spawn(move || {
-            let mut s = String::new();
-            err.read_to_string(&mut s).ok(); // a read error keeps what was read so far
-            s
-        });
-        let start = Instant::now();
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(s)) => break Some(s),
-                Ok(None) if start.elapsed() < limit => {
-                    crate::clock::pause(Duration::from_millis(10));
-                }
-                _ => {
-                    child_may_have_ended(child.kill());
-                    child_may_have_ended(child.wait());
-                    break None;
-                }
-            }
-        };
-        // A killed shell can leave a grandchild that holds the pipe open; do not wait for it.
-        let Some(status) = status else {
+        // A killed shell can leave a grandchild that holds the pipe open; `Drain::ToEnd` does
+        // not wait for it.
+        let Ended::Exited(status) = run.ended else {
             return Outcome::TimedOut;
         };
-        let stdout = t_out.join().unwrap_or_default();
-        let stderr = t_err.join().unwrap_or_default();
+        // text that is not UTF-8 counts as no text, as `read_to_string` gives it
+        let stdout = String::from_utf8(run.stdout).unwrap_or_default();
+        let stderr = String::from_utf8(run.stderr).unwrap_or_default();
         if status.success() {
             return Outcome::Ok;
         }
