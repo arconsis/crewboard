@@ -77,6 +77,11 @@ pub struct VerifyStats {
     pub repeat_rework_tickets: usize,
     /// Fails that are rework.
     pub rework_fails: usize,
+    /// Verify results that are a pass.
+    pub passes: usize,
+    /// Passes whose local-run line the tool wrote (`verify --run-check`): a machine ran the
+    /// command part of the Gate, not a model.
+    pub tool_run_passes: usize,
 }
 
 /// The tickets of one kind of Gate, and how their first verify went.
@@ -257,6 +262,8 @@ struct Verified {
     classes: Vec<FailClass>,
     /// A `PR head moved` fail that was accepted: not rework.
     accepted: bool,
+    /// A pass whose local-run line the tool wrote.
+    tool_run: bool,
     event: Event,
 }
 
@@ -363,6 +370,7 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
                         fail_classes(&m.body)
                     },
                     accepted: false,
+                    tool_run: pass && crate::protocol::acts::is_tool_run_verify(&m.body),
                     event: ev(),
                 });
             }
@@ -478,6 +486,8 @@ fn verify_stats(facts: &[TicketFacts]) -> VerifyStats {
         s.tickets_with_fail += usize::from(fails > 0);
         s.rework_tickets += usize::from(rework > 0);
         s.repeat_rework_tickets += usize::from(rework > 1);
+        s.passes += f.verifies.iter().filter(|v| v.pass).count();
+        s.tool_run_passes += f.verifies.iter().filter(|v| v.tool_run).count();
     }
     s
 }

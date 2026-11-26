@@ -366,5 +366,6 @@ protected_paths: [Makefile]
      List such files in `protected_paths`: a PR that changes one is for the owner, and no check
      runs for it. The run prints a warning for each word of a command line that is a file of
      the checkout and that no protected path covers. A file that a command reads without a
-     word for it (a `Makefile`) gets no warning.
+     word for it (a `Makefile`) gets no warning. `doctor --setup` prints the same warning from
+     the command lines alone, before any run.
 7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`.

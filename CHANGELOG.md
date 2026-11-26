@@ -16,6 +16,11 @@ Added:
   needs no run, and only for a head that is the commit of the `done`. It is no sandbox (the
   code of the PR runs as the user of the host), and it proves only the command part of a Gate:
   list the files that the checks run in `protected_paths`. Not for a headless coordinator.
+- `retro` counts, in its Verify section, the passes whose checks the tool ran
+  (`verify --run-check`) against all passes. `retro --json` has `verify.passes` and
+  `verify.tool_run_passes`. It shows how much of the verify work a machine decides.
+- `doctor --setup` prints a warning when `checks` of `AUTHORITY.md` run a file of the repo
+  that no protected path covers. It names the files.
 - `check_env` in `AUTHORITY.md`: the names of more environment variables that a check of
   `verify --run-check` gets, for a path or a word list that differs per host. The values stay
   on the host. A token of GitHub and a variable of crewboard are not allowed in it.
