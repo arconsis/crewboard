@@ -4,12 +4,9 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
-/// A word for a POSIX shell: in single quotes; a single quote inside ends the quotes, adds
-/// an escaped quote and opens the quotes again. Every command line that crewboard prints for a
+/// A word for a POSIX shell, in single quotes. Every command line that crewboard prints for a
 /// person to run quotes text that an agent controls (a branch, a path, a name) with this.
-pub fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
+pub use crate::base::shell::quote as shell_quote;
 
 /// Percent-encode text for a URL path or query value: every byte but `A-Za-z0-9-._~` (and `/`,
 /// when `keep_slash`). `%` is encoded too, so `%2e%2e` in a name stays text: it cannot become a

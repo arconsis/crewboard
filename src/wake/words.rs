@@ -69,16 +69,7 @@ pub fn split(s: &str) -> Result<Vec<String>, String> {
 }
 
 /// One word for a shell: as it is when it has only plain characters, else in single quotes.
-pub fn quote(w: &str) -> String {
-    let plain = !w.is_empty()
-        && w.chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_-./:=@%+,".contains(c));
-    if plain {
-        w.to_string()
-    } else {
-        format!("'{}'", w.replace('\'', "'\\''"))
-    }
-}
+pub use crate::base::shell::quote_if_needed as quote;
 
 /// The words as one shell line.
 pub fn join<S: AsRef<str>>(words: &[S]) -> String {
