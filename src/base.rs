@@ -9,8 +9,10 @@ pub mod fields;
 pub mod ids;
 pub mod shell;
 pub use host_lock::ignore;
+mod branch;
 mod ticket_ref;
 
+pub use branch::is_ticket_branch;
 pub use ticket_ref::TicketRef;
 
 use std::fmt;

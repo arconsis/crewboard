@@ -177,7 +177,7 @@ pub fn skill_read_dirs(home: Option<&Path>) -> Vec<PathBuf> {
             out.push(p);
         }
     };
-    let shared = crate::ops::skill_cmd::canonical_dir(home);
+    let shared = crate::skill_embed::canonical_dir(home);
     if let Ok(real) = shared.canonicalize() {
         push(real);
     }

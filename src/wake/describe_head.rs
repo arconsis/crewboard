@@ -5,7 +5,7 @@
 //! branch. `git` runs as a program; the PR calls go through [`Steps`].
 
 use super::steps::Steps;
-use crate::ops::mine::is_ticket_branch;
+use crate::base::is_ticket_branch;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

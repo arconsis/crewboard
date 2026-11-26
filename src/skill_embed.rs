@@ -1,12 +1,18 @@
-//! The skill files that `build.rs` embeds in the binary, and two pure helpers for them: the
-//! SHA-256 of a file and the version line of a `SKILL.md`.
+//! The skill files that `build.rs` embeds in the binary, and pure helpers for them: the
+//! SHA-256 of a file, the version line of a `SKILL.md` and the place of the shared copy.
 //!
 //! The table has the files of `skill/` except dot files.
 //! `tests/skill_embed.rs` compares it with the directory.
 
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 include!(concat!(env!("OUT_DIR"), "/skill_files.rs"));
+
+/// The shared copy of the installed skill: `<home>/.config/agent-skills/crewboard`.
+pub fn canonical_dir(home: &Path) -> PathBuf {
+    home.join(".config").join("agent-skills").join("crewboard")
+}
 
 /// The text of an embedded file, by its path relative to `skill/`.
 pub fn embedded(path: &str) -> Option<&'static [u8]> {

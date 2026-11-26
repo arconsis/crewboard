@@ -88,7 +88,7 @@ fn report_bad(b: &BadFlag, clock: &dyn Clock) {
 #[cfg(unix)]
 fn make_steps(s: &Settings, global: &crate::ctx::Global) -> Box<dyn Steps> {
     match s.crewboard.as_deref() {
-        Some(bin) if !crate::ops::lock_cmd::is_this_binary(bin) => Box::new(Subprocess {
+        Some(bin) if !crate::fsutil::is_this_binary(bin) => Box::new(Subprocess {
             bin: bin.to_string(),
             config_dir: s.config_dir.clone(),
             initiative: s.initiative.clone(),
