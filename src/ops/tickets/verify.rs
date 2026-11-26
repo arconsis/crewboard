@@ -8,6 +8,7 @@ use super::in_progress::in_progress_key;
 use super::local_gate::local_gate_for_verify;
 use super::order;
 use super::pr_evidence::{evidence_runs, fetch_pr, judge_no_run_for, pr_files_for_protection};
+use super::run_checks::RunArgs;
 use super::{
     Loaded, Me, check_verify_ticket, load_signed, needs_owner_lines, post_with, remember, to_agent,
     work_write_ctx_of,
@@ -45,16 +46,16 @@ pub fn check_verify_fail_note(gate_failed: bool, note: &str) -> Result<(), Refus
 }
 
 /// What `verify` has loaded before it decides: the agent and the ticket.
-pub(super) struct VerifyLoad {
+struct VerifyLoad {
     n: u64,
     world: World,
     me: Me,
-    pub(super) t: Ticket,
+    t: Ticket,
     from: Status,
 }
 
 /// The reads of `verify` that come before any decision about the evidence.
-pub(super) fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
+fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
     let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     Ok(VerifyLoad {
@@ -72,8 +73,8 @@ struct VerifyArgs<'a> {
     runs: &'a [String],
     gate_failed: bool,
     local_gate: Option<&'a str>,
-    /// `local_gate` is the line of `run_checks`, not a typed text.
-    tool_run: bool,
+    /// `--run-check`: the tool runs these checks and writes the local-run line.
+    run: Option<&'a RunArgs<'a>>,
 }
 
 /// The checks that need no PR: the ticket, the evidence of the `done`, `--local-run`.
@@ -92,7 +93,7 @@ struct VerifyPre {
 }
 
 /// The latest `done` of the assignee, or the refusal `verify-no-evidence`. Pure.
-pub(super) fn latest_evidence<'a>(
+fn latest_evidence<'a>(
     key: &str,
     assignee: Option<&str>,
     msgs: &'a [crate::ticket::VMsg],
@@ -116,8 +117,17 @@ fn precheck_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResu
     // of the PR branch). `--local-run` is checked before any write.
     let auth = crate::ctx::load_authority(&ac.ctx)?;
     let ev_local = is_local_gate(&ev);
-    let coordinator_gate =
-        local_gate_for_verify(&auth, va.local_gate, ev_local, va.gate_failed, va.tool_run)?;
+    let coordinator_gate = local_gate_for_verify(
+        &auth,
+        va.local_gate,
+        ev_local,
+        va.gate_failed,
+        va.run.is_some(),
+    )?;
+    // an unknown name is refused before any read of the PR
+    if let Some(run) = va.run {
+        super::run_checks::pick(&auth.checks, run.names)?;
+    }
     let local_verify = ev_local && auth.ci_mode.is_local();
     let mut pr_url = parse_pr_url(&ev.pr)?;
     super::pr_evidence::follow_former_name(
@@ -496,8 +506,29 @@ fn fail_move(f: &VerifyFacts<'_>, busy: Option<&(String, i64)>) -> Result<FailMo
 /// Read everything `verify` needs and decide: no write.
 fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<VerifyPlan> {
     let t = &l.t;
-    let pre = precheck_verify(ac, l, va)?;
-    let read = read_verify(ac, l, &pre, va)?;
+    let mut pre = precheck_verify(ac, l, va)?;
+    let mut read = read_verify(ac, l, &pre, va)?;
+    // `--run-check`: after every refusal of `verify` that needs no run (the writer, the status,
+    // the protected paths), and only for a head that is the commit of the evidence. The line
+    // belongs to the `done` that this command loaded: a `done` that arrives while the checks
+    // run is not answered by it. A head that moved in that time is the failure of every verify.
+    if let Some(run) = va.run
+        && read.pr.head_sha.eq_ignore_ascii_case(&pre.ev.sha)
+        && read.pr.state != "closed"
+    {
+        let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
+        let target = super::run_checks::Target {
+            issue: l.n,
+            key: &t.key(),
+            sha: &pre.ev.sha,
+            repo: &pre.pr_url.repo,
+            pr: pre.pr_url.number,
+            protected_paths: &pre.auth.protected_paths,
+        };
+        let line = super::run_checks::run(ac, &target, &checks, run)?;
+        pre.coordinator_gate = Some(line);
+        read.pr = fetch_pr(ac, &pre.pr_url.repo, pre.pr_url.number)?.0;
+    }
     let facts = VerifyFacts {
         ticket_key: t.key(),
         assignee: &pre.assignee,
@@ -591,7 +622,7 @@ pub fn verify(
     runs: &[String],
     gate_failed: bool,
     local_gate: Option<&str>,
-    tool_run: bool,
+    run: Option<&RunArgs<'_>>,
 ) -> CbResult<String> {
     let l = load_verify(ac, issue_arg)?;
     let va = VerifyArgs {
@@ -599,7 +630,7 @@ pub fn verify(
         runs,
         gate_failed,
         local_gate,
-        tool_run,
+        run,
     };
     let plan = plan_verify(ac, &l, &va)?;
     act_verify(ac, &l, &plan, &SystemClock)

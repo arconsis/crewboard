@@ -250,6 +250,11 @@ fn check_checks(items: Vec<String>) -> Result<Vec<Check>, Refusal> {
         if argv.is_empty() {
             return Err(err("the command line is empty"));
         }
+        if argv[0].split(['/', '\\']).any(|part| part == "..") {
+            return Err(err(
+                "the program must not have `..`: it is a file of the checkout or a name in PATH",
+            ));
+        }
         out.push(Check {
             name: name.to_string(),
             argv,
@@ -652,6 +657,8 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
             ("checks:\n  - a: x\n  - a: y\n", "used twice"),
             ("checks:\n  - a:\n", "empty"),
             ("checks:\n  - \"a: 'x\"\n", "single quote"),
+            ("checks:\n  - a: ../x.sh\n", "must not have `..`"),
+            ("checks:\n  - a: t/../../x.sh\n", "must not have `..`"),
             (
                 "checks: [a]\n",
                 "one `- <name>: <command line>` item per line",
