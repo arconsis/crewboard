@@ -15,7 +15,7 @@ use crate::comments::Comment;
 use crate::config::{AgentConfig, BoardConfig, ConfigDir, load_key};
 use crate::error::{CbError, CbResult};
 use crate::feed;
-use crate::github::{Client, GhError, resolve_owner_token, resolve_token};
+use crate::github::{Client, GhError, optional, resolve_owner_token, resolve_token};
 use crate::items::ItemSnapshot;
 use crate::protocol::names::AgentName;
 use crate::registry::{Registry, Trust, build_trust, resolve};
@@ -38,11 +38,8 @@ pub use token::{
 /// The text of the authority file on the default branch of the main repo; `None` if it is not
 /// there. A REST read by `owner/name`, so it follows a transfer or rename redirect.
 pub fn fetch_authority_text(client: &Client, repo: &str, path: &str) -> CbResult<Option<String>> {
-    match client.get(&format!("repos/{repo}/contents/{path}")) {
-        Ok(r) => Ok(Some(decode_contents(&r.body).unwrap_or_default())),
-        Err(GhError::Http { status: 404, .. }) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+    let got = optional(client.get(&format!("repos/{repo}/contents/{path}")))?;
+    Ok(got.map(|r| decode_contents(&r.body).unwrap_or_default()))
 }
 
 /// The text of a file from the answer of the contents API (`GET repos/{repo}/contents/{path}`):

@@ -3,7 +3,7 @@
 
 use crate::ctx::Ctx;
 use crate::error::CbResult;
-use crate::github::GhError;
+use crate::github::optional;
 use serde_json::Value;
 
 /// What GitHub says about a candidate PR, as far as the judgement needs it.
@@ -59,9 +59,6 @@ impl MergedPr {
 }
 
 pub(super) fn read_pr(ctx: &Ctx, repo: &str, number: u64) -> CbResult<Option<MergedPr>> {
-    match ctx.client.get(&format!("repos/{repo}/pulls/{number}")) {
-        Ok(r) => Ok(Some(MergedPr::parse(repo, number, &r.body))),
-        Err(GhError::Http { status: 404, .. }) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+    let got = optional(ctx.client.get(&format!("repos/{repo}/pulls/{number}")))?;
+    Ok(got.map(|r| MergedPr::parse(repo, number, &r.body)))
 }

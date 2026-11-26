@@ -132,6 +132,13 @@ pub enum GhError {
     ConflictExhausted(String),
 }
 
+impl GhError {
+    /// HTTP 404: the thing asked for is not there (or the token may not see it).
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, GhError::Http { status: 404, .. })
+    }
+}
+
 impl fmt::Display for GhError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

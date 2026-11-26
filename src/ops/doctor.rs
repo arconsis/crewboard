@@ -397,7 +397,7 @@ pub fn judge_push(
                 "run the check again with the agent token loaded",
             ),
         },
-        Err(crate::github::GhError::Http { status: 404, .. }) => fail(
+        Err(e) if e.is_not_found() => fail(
             format!("{repo}: the token cannot see the repo (HTTP 404)"),
             format!(
                 "a fine-grained token: add {repo} under Repository access. A classic token: {collab}"

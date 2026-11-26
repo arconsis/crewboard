@@ -26,7 +26,7 @@
 use super::AgentCtx;
 use crate::ctx::decode_contents;
 use crate::error::CbResult;
-use crate::github::GhError;
+use crate::github::optional;
 use crate::owner_route::{
     hunks_applied, is_workflow_path, patch_hunks, patch_path, patch_workflow_files,
     valid_workflow_path,
@@ -149,19 +149,18 @@ fn read_text(
         url_encode(path, true),
         url_encode(git_ref, false)
     );
-    match ac.ctx.client.get(&url) {
-        Ok(r) => Ok(decode_contents(&r.body)
-            .map_err(|why| format!("the file {why}"))
-            .and_then(|t| {
-                if t.len() > MAX_BYTES {
-                    Err(format!("the file is over {MAX_BYTES} bytes"))
-                } else {
-                    Ok(t)
-                }
-            })),
-        Err(GhError::Http { status: 404, .. }) => Ok(Err(format!("it is not at {git_ref}"))),
-        Err(e) => Err(e.into()),
-    }
+    let Some(r) = optional(ac.ctx.client.get(&url))? else {
+        return Ok(Err(format!("it is not at {git_ref}")));
+    };
+    Ok(decode_contents(&r.body)
+        .map_err(|why| format!("the file {why}"))
+        .and_then(|t| {
+            if t.len() > MAX_BYTES {
+                Err(format!("the file is over {MAX_BYTES} bytes"))
+            } else {
+                Ok(t)
+            }
+        }))
 }
 
 #[cfg(test)]
