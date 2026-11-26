@@ -38,7 +38,7 @@ action = "`crewboard take <n> --continue-pr <url>`"
 [[case]]
 name = "dev: answer missing"
 role = "dev"
-situation = "`take` then refuses with `status-answer-missing`"
+situation = "`take` refuses with `status-answer-missing`"
 action = "Do not post a new question or `block`"
 rule = "status-answer-missing"
 

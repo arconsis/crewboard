@@ -42,23 +42,16 @@ find goes into a `report` to the coordinator.
 - `ci_mode: local` in `AUTHORITY.md`: no CI event comes. Run the Gate, then run `done`. It tells
   you the `--local-run` line.
 - A `status-no-change` refusal on a second `done` means the first one landed. Do nothing.
-- `done` refuses with `unread-events`: run `crewboard watch --timeout 1m`, handle those events,
-  then run the same `done` again.
 
 ## Blocked, asked, split
 
 - You may go on after an owner message or a coordinator `answer` on the ticket. An `info` is no
   answer. Then run `crewboard take <n>` again. Meanwhile take your next Ready ticket.
-- The answer comes while you work on another ticket: `take <n>` refuses with `take-agent-busy`.
-  When the answered ticket is ahead of your current ticket, run
-  `crewboard take <n> --interrupt --why "<why>"`. It parks the current ticket and resumes `<n>`.
-  When `<n>` is not ahead, finish the current ticket, or `crewboard block <current> --why "paused
-  for #<n>"` and then `crewboard take <n>`. Do not ask the coordinator to unblock a ticket that
-  has its answer already.
-- A question to the owner (`ask`) ends only with an owner comment, or with the coordinator's
-  `crewboard unblock <n>` (an answer that withdraws the question). A plain `answer` does not end
-  it. `take` then refuses with `status-answer-missing`. Do not post a new question or `block`:
-  the question is still open. Wait, and run `take <n>` again on the next answer event.
+- The answer comes while you work on another ticket: `take <n>` refuses with `take-agent-busy`
+  and names the way (`--interrupt`, or free yourself first). Do not ask the coordinator to
+  unblock a ticket that has its answer already.
+- `take` refuses with `status-answer-missing`: your question to the owner is still open. Do not
+  post a new question or `block`. Wait, and run `take <n>` again on the next answer event.
 - A dead coordinator: crewboard tells the owner. Keep working.
 - Liveness is your heartbeat age. `poll`, `watch`, `take`, `say` and `done` write it; you do not
   answer anything.
@@ -80,20 +73,14 @@ Optional. Use one only when the ticket, `take` or the wake prompt names it.
 
 ## Headless wake: work until done
 
-Handle the events that the wake prompt names. Before you act on a ticket, read its thread
-with `crewboard mine <n>`. Wakes share no memory. A message, a push or a job under your own
+Handle the events that the wake prompt names. Wakes share no memory. A message, a push or a job under your own
 agent name that you do not remember comes from an earlier wake of you. Read the ticket log and
 `crewboard mine`. Do not report it as another writer. Go on with your In Progress ticket until `done`,
 `block` or `ask`. Then take the next Ready ticket. Stop only when you own none. A ticket that
 stands still is a failure of the wake. Do not watch the time: the wrapper ends the wake.
 Start shell commands in the work dir (no `cd`). Write logs only next to your events file or the
 host lock. Other forms are denied without a prompt.
-A refused Bash command refuses only that form, never Bash. Run one command per call, without
-`$(...)`, redirection to files or `cd`. Write message text with the Write tool to a file in your
-state dir, then pass it with `--body-file` (crewboard) or `-F` (git commit). Never stop because
-of one refused command.
-Never start a background process of your runtime that reports back into the chat when it
-finishes (Hermes `notify_on_complete` or `watch_patterns`, for example). The report starts a
-new turn after the wake has ended, outside its lock, and two writers then share your checkout.
-Run a command in the foreground. Run a job that is longer than the wake with
-`crewboard lock run ... --detach --result <file>`.
+The wake prompt has the rule for a refused Bash command and the rule against background
+processes that report back into the chat: such a report starts a new turn after the wake has
+ended, outside its lock, and two writers then share your checkout. Run a job that is longer
+than the wake with `crewboard lock run ... --detach --result <file>`.
