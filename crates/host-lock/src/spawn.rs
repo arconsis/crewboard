@@ -71,65 +71,144 @@ pub fn status_retrying(cmd: &mut Command) -> io::Result<std::process::ExitStatus
     retry_busy(TRIES, PAUSE, || cmd.status())
 }
 
-/// Run `cmd` and collect its output, but kill it when it runs longer than `limit`
-/// (`ErrorKind::TimedOut`). The standard input is closed.
+/// How a child that [`run_within`] ran came to an end.
+#[derive(Debug)]
+pub enum Ended {
+    /// It exited by itself.
+    Exited(std::process::ExitStatus),
+    /// It ran past the deadline and was killed.
+    TimedOut,
+    /// Waiting for it failed; it was killed.
+    WaitFailed(io::Error),
+}
+
+/// What a child that [`run_within`] ran printed, and how it ended.
+#[derive(Debug)]
+pub struct Bounded {
+    pub ended: Ended,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+/// How long [`run_within`] waits for the pipes after the child has ended.
+#[derive(Debug, Clone, Copy)]
+pub enum Drain {
+    /// After an exit, read each pipe to its end. After a kill, take what was read and do not
+    /// wait: a grandchild of the killed child may hold a pipe open for a long time.
+    ToEnd,
+    /// In every case wait at most this long for each pipe, then take what was read. A pipe
+    /// that a grandchild keeps open then gives the text up to that point.
+    AtMost(Duration),
+}
+
+/// One output pipe of a child, read on its own thread into a buffer that can be taken at any
+/// time, so a pipe that never closes still gives what it has.
+struct Pipe {
+    buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    done: std::sync::mpsc::Receiver<()>,
+}
+
+impl Pipe {
+    fn read<R: io::Read + Send + 'static>(pipe: Option<R>) -> Pipe {
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (tx, done) = std::sync::mpsc::channel();
+        let shared = buf.clone();
+        std::thread::spawn(move || {
+            if let Some(mut r) = pipe {
+                let mut chunk = [0u8; 4096];
+                loop {
+                    match r.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if let Ok(mut b) = shared.lock() {
+                                b.extend_from_slice(&chunk[..n]);
+                            }
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        Err(_) => break, // a read error keeps what was read so far
+                    }
+                }
+            }
+            tx.send(()).ok(); // the receiver may be gone
+        });
+        Pipe { buf, done }
+    }
+
+    /// Wait for the end of the pipe (`None`: as long as it takes), then take what was read. A
+    /// wait that runs out means the reader is still busy: take what it has.
+    fn take(self, wait: Option<Duration>) -> Vec<u8> {
+        match wait {
+            None => self.done.recv().ok(),
+            Some(d) => self.done.recv_timeout(d).ok(),
+        };
+        self.buf.lock().map(|b| b.clone()).unwrap_or_default()
+    }
+}
+
+/// Run `cmd` with its standard input closed and collect its output; kill it when it runs longer
+/// than `limit`. `drain` says how long to wait for the pipes after that. The error is the one of
+/// the start.
 #[allow(
     clippy::disallowed_methods,
     reason = "real elapsed time of a child process"
 )]
-pub fn output_within(
-    cmd: &mut std::process::Command,
-    limit: std::time::Duration,
-) -> std::io::Result<std::process::Output> {
-    use std::io::Read;
+pub fn run_within(cmd: &mut Command, limit: Duration, drain: Drain) -> io::Result<Bounded> {
     use std::process::Stdio;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = spawn_retrying(cmd)?;
-    let reader = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut v = Vec::new();
-            if let Some(mut p) = pipe {
-                p.read_to_end(&mut v).ok(); // a read error keeps what was read so far
+    let out = Pipe::read(child.stdout.take());
+    let err = Pipe::read(child.stderr.take());
+    let start = Instant::now();
+    let ended = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Ended::Exited(st),
+            Ok(None) if start.elapsed() < limit => crate::clock::pause(Duration::from_millis(10)),
+            Ok(None) => {
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
+                break Ended::TimedOut;
             }
-            v
-        })
-    };
-    let so = reader(
-        child
-            .stdout
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
-    let se = reader(
-        child
-            .stderr
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
-    let end = Instant::now() + limit;
-    let status = loop {
-        if let Some(st) = child.try_wait()? {
-            break st;
+            Err(e) => {
+                child_may_have_ended(child.kill());
+                child_may_have_ended(child.wait());
+                break Ended::WaitFailed(e);
+            }
         }
-        if Instant::now() >= end {
-            // the readers end when the pipes close; do not wait for a grandchild that holds them
-            child_may_have_ended(child.kill());
-            child_may_have_ended(child.wait());
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("no answer after {} s", limit.as_secs()),
-            ));
-        }
-        crate::clock::pause(Duration::from_millis(20));
     };
-    Ok(std::process::Output {
-        status,
-        stdout: so.join().unwrap_or_default(),
-        stderr: se.join().unwrap_or_default(),
+    let wait = match (drain, &ended) {
+        (Drain::AtMost(d), _) => Some(d),
+        (Drain::ToEnd, Ended::Exited(_)) => None,
+        (Drain::ToEnd, _) => Some(Duration::ZERO),
+    };
+    Ok(Bounded {
+        stdout: out.take(wait),
+        stderr: err.take(wait),
+        ended,
     })
+}
+
+/// Run `cmd` and collect its output, but kill it when it runs longer than `limit`
+/// (`ErrorKind::TimedOut`). The standard input is closed.
+pub fn output_within(
+    cmd: &mut std::process::Command,
+    limit: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    let b = run_within(cmd, limit, Drain::ToEnd)?;
+    match b.ended {
+        Ended::Exited(status) => Ok(std::process::Output {
+            status,
+            stdout: b.stdout,
+            stderr: b.stderr,
+        }),
+        Ended::TimedOut => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("no answer after {} s", limit.as_secs()),
+        )),
+        Ended::WaitFailed(e) => Err(e),
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +286,80 @@ mod tests {
         };
         assert_eq!(r.unwrap_err().kind(), io::ErrorKind::NotFound);
         assert_eq!(calls, 1);
+    }
+
+    /// A killed child can leave a grandchild that holds the output pipes open. The helper does
+    /// not wait for it: the run ends soon after the deadline, not when the grandchild ends.
+    #[cfg(unix)]
+    #[test]
+    fn a_grandchild_that_holds_the_pipe_does_not_hang_a_killed_run() {
+        let t = std::time::Instant::now();
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo x; sleep 30 & sleep 30"]);
+        let b = run_within(&mut c, Duration::from_secs(1), Drain::ToEnd).unwrap();
+        assert!(matches!(b.ended, Ended::TimedOut), "{:?}", b.ended);
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            t.elapsed()
+        );
+        let t = std::time::Instant::now();
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo x; sleep 30 & sleep 30"]);
+        let b = run_within(
+            &mut c,
+            Duration::from_secs(1),
+            Drain::AtMost(Duration::from_secs(1)),
+        )
+        .unwrap();
+        assert!(matches!(b.ended, Ended::TimedOut), "{:?}", b.ended);
+        assert_eq!(String::from_utf8_lossy(&b.stdout), "x\n");
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            t.elapsed()
+        );
+    }
+
+    /// A grandchild that holds the pipe after a normal exit: a bounded drain gives the text up
+    /// to that point.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_drain_gives_up_on_a_pipe_that_a_grandchild_holds_after_an_exit() {
+        let t = std::time::Instant::now();
+        let mut c = Command::new("sh");
+        c.args(["-c", "sleep 30 & echo x"]);
+        let b = run_within(
+            &mut c,
+            Duration::from_secs(1),
+            Drain::AtMost(Duration::from_secs(1)),
+        )
+        .unwrap();
+        assert!(
+            matches!(b.ended, Ended::Exited(s) if s.success()),
+            "{:?}",
+            b.ended
+        );
+        assert_eq!(String::from_utf8_lossy(&b.stdout), "x\n");
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            t.elapsed()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_exit_within_the_deadline_gives_both_pipes_to_their_end() {
+        let mut c = Command::new("sh");
+        c.args(["-c", "echo out; echo err >&2; exit 3"]);
+        let b = run_within(&mut c, Duration::from_secs(30), Drain::ToEnd).unwrap();
+        assert!(
+            matches!(b.ended, Ended::Exited(s) if s.code() == Some(3)),
+            "{:?}",
+            b.ended
+        );
+        assert_eq!(String::from_utf8_lossy(&b.stdout), "out\n");
+        assert_eq!(String::from_utf8_lossy(&b.stderr), "err\n");
     }
 }

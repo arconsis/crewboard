@@ -5,12 +5,11 @@
 //! the result. The detection reads the host through a [`Probe`], so the parsing is tested
 //! with fake command output; [`RealProbe`] is the one implementation that runs commands.
 
-use crate::base::ignore::child_may_have_ended;
 pub use crate::base::{TOOL_NAME_RULE, valid_tool_name};
 use crate::error::{CbError, CbResult};
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use crate::spawn::{Drain, Ended, run_within};
+use std::process::Command;
+use std::time::Duration;
 
 /// The tools that are checked when the agent config has no `tools = [...]` list: common tools
 /// of many stacks, not the build tools of the project. The list is a probe, not a requirement: a
@@ -356,49 +355,22 @@ impl HostFacts {
 /// The probe of this host.
 pub struct RealProbe;
 
-#[allow(
-    clippy::disallowed_methods,
-    reason = "real elapsed time of a child process"
-)]
+/// Run one probe command; `None` when it fails, does not start or runs past `limit`. A killed
+/// command is not waited for: a grandchild that holds its output pipe open does not hang the probe.
 fn run_with_timeout(program: &str, args: &[&str], limit: Duration) -> Option<CmdOutput> {
     let mut cmd = Command::new(program);
-    cmd.args(args)
-        // a corepack shim (yarn, pnpm) must not download a package manager for a version probe
-        .env("COREPACK_ENABLE_NETWORK", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    // a corepack shim (yarn, pnpm) must not download a package manager for a version probe
+    cmd.args(args).env("COREPACK_ENABLE_NETWORK", "0");
     crate::agent_env::scrub_children(&mut cmd);
-    let mut child = cmd.spawn().ok()?;
-    let mut out = child.stdout.take()?;
-    let mut err = child.stderr.take()?;
-    let t_out = std::thread::spawn(move || {
-        let mut s = String::new();
-        out.read_to_string(&mut s).ok(); // a read error keeps what was read so far
-        s
-    });
-    let t_err = std::thread::spawn(move || {
-        let mut s = String::new();
-        err.read_to_string(&mut s).ok(); // a read error keeps what was read so far
-        s
-    });
-    let start = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break Some(s),
-            Ok(None) if start.elapsed() < limit => crate::clock::pause(Duration::from_millis(10)),
-            _ => {
-                child_may_have_ended(child.kill());
-                child_may_have_ended(child.wait());
-                break None;
-            }
-        }
-    };
-    let stdout = t_out.join().unwrap_or_default();
-    let stderr = t_err.join().unwrap_or_default();
-    status
-        .filter(std::process::ExitStatus::success)
-        .map(|_| CmdOutput { stdout, stderr })
+    let run = run_within(&mut cmd, limit, Drain::ToEnd).ok()?;
+    match run.ended {
+        // text that is not UTF-8 counts as no text, as `read_to_string` gives it
+        Ended::Exited(st) if st.success() => Some(CmdOutput {
+            stdout: String::from_utf8(run.stdout).unwrap_or_default(),
+            stderr: String::from_utf8(run.stderr).unwrap_or_default(),
+        }),
+        _ => None,
+    }
 }
 
 impl Probe for RealProbe {
@@ -768,10 +740,26 @@ pub(crate) mod tests {
         if cfg!(windows) {
             return;
         }
-        let t = Instant::now();
+        let t = std::time::Instant::now();
         let r = run_with_timeout("sleep", &["30"], Duration::from_millis(200));
         assert!(r.is_none());
         assert!(t.elapsed() < Duration::from_secs(5));
+    }
+
+    /// The killed command leaves two sleeps that hold its pipes; the probe does not wait for them.
+    #[test]
+    fn a_grandchild_that_holds_the_pipe_does_not_hang_the_probe() {
+        if cfg!(windows) {
+            return;
+        }
+        let t = std::time::Instant::now();
+        let r = run_with_timeout("sh", &["-c", "sleep 30 & sleep 30"], Duration::from_secs(1));
+        assert!(r.is_none());
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            t.elapsed()
+        );
     }
 
     #[test]

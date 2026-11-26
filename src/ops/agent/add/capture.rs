@@ -1,10 +1,8 @@
 //! Running a step command of `agent add` with a deadline.
 
-use crate::base::ignore::child_may_have_ended;
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use crate::spawn::{Drain, Ended, run_within};
+use std::process::Command;
+use std::time::Duration;
 
 /// How long one step command may run. A clone is the slow one.
 pub(super) const STEP_LIMIT: Duration = Duration::from_secs(180);
@@ -18,18 +16,14 @@ pub(super) struct Captured {
     pub timed_out: bool,
 }
 
+/// How long the output of a finished or killed command is waited for, per pipe.
+const PIPE_GRACE: Duration = Duration::from_secs(3);
+
 /// Run a command; stop it after `limit`. Nothing here waits without a deadline: a child that
 /// hangs is killed, and a pipe that a grandchild keeps open is given up after a few seconds.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "real elapsed time of a child process"
-)]
 pub(super) fn run_captured(mut cmd: Command, limit: Duration) -> Captured {
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = match crate::spawn::spawn_retrying(&mut cmd) {
-        Ok(c) => c,
+    let run = match run_within(&mut cmd, limit, Drain::AtMost(PIPE_GRACE)) {
+        Ok(r) => r,
         Err(e) => {
             let code = if e.kind() == std::io::ErrorKind::NotFound {
                 127
@@ -43,67 +37,13 @@ pub(super) fn run_captured(mut cmd: Command, limit: Duration) -> Captured {
             };
         }
     };
-    // A reader keeps what it has read in a shared buffer, so that a pipe that never closes (a
-    // grandchild holds it) still gives the text up to that point.
-    type Shared = (
-        std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
-        mpsc::Receiver<()>,
-    );
-    let pipe = |r: Option<Box<dyn Read + Send>>| -> Shared {
-        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let (tx, rx) = mpsc::channel();
-        let shared = buf.clone();
-        std::thread::spawn(move || {
-            if let Some(mut r) = r {
-                let mut chunk = [0u8; 4096];
-                while let Ok(n) = r.read(&mut chunk) {
-                    if n == 0 {
-                        break;
-                    }
-                    if let Ok(mut b) = shared.lock() {
-                        b.extend_from_slice(&chunk[..n]);
-                    }
-                }
-            }
-            tx.send(()).ok(); // the receiver may be gone
-        });
-        (buf, rx)
+    let (code, timed_out) = match run.ended {
+        Ended::Exited(st) => (st.code().unwrap_or(-1), false),
+        Ended::TimedOut => (-1, true),
+        Ended::WaitFailed(_) => (-1, false),
     };
-    let out = pipe(
-        child
-            .stdout
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-    );
-    let err = pipe(
-        child
-            .stderr
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-    );
-    let start = Instant::now();
-    let (code, timed_out) = loop {
-        match child.try_wait() {
-            Ok(Some(st)) => break (st.code().unwrap_or(-1), false),
-            Ok(None) if start.elapsed() >= limit => {
-                child_may_have_ended(child.kill());
-                child_may_have_ended(child.wait());
-                break (-1, true);
-            }
-            Ok(None) => crate::clock::pause(Duration::from_millis(10)),
-            Err(_) => {
-                child_may_have_ended(child.kill());
-                child_may_have_ended(child.wait());
-                break (-1, false);
-            }
-        }
-    };
-    let grab = |(buf, done): Shared| {
-        done.recv_timeout(Duration::from_secs(3)).ok(); // a timeout means the reader is still busy: take what it has
-        buf.lock().map(|b| b.clone()).unwrap_or_default()
-    };
-    let mut text = String::from_utf8_lossy(&grab(out)).to_string();
-    text.push_str(&String::from_utf8_lossy(&grab(err)));
+    let mut text = String::from_utf8_lossy(&run.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&run.stderr));
     if timed_out {
         text.push_str(&format!(
             "\ntimed out after {} s and stopped",
