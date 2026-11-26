@@ -12,9 +12,14 @@ Added:
   named check there without a shell and with a cut-down environment, keeps the logs, and writes
   the local-run line of the verify (`tool-run <host>: <name> rc=0 ...`). No model types a
   result. A check that does not exit 0 is refused with `check-failed` and nothing is written;
-  an unknown name is `check-unknown`. A typed `--local-run` text must not start with
-  `tool-run`. It is no sandbox, and it proves only the command part of a Gate: list the files
-  that the checks run in `protected_paths`. Not for a headless coordinator.
+  an unknown name is `check-unknown`. The checks run after every refusal of `verify` that
+  needs no run, and only for a head that is the commit of the `done`. It is no sandbox (the
+  code of the PR runs as the user of the host), and it proves only the command part of a Gate:
+  list the files that the checks run in `protected_paths`. Not for a headless coordinator.
+- A typed `--local-run` text must not start with `tool-run` in any spelling, and a `--body` of
+  `verify` must not have a line that starts with `local-gate:` or `coordinator-local-gate:`
+  (`local-gate-invalid`). Before, such a note line could put a second result line into a
+  signed verify.
 - `doctor --setup` has one more line, `wake`: the scheduled wakes of this agent on this host.
   It fails when the wake command failed two times or more in a row, when a refusal stopped the
   wakes, or when GitHub failed in two runs or more in a row; the fix names the log or the stop

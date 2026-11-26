@@ -318,31 +318,49 @@ protected_paths: [Makefile]
    checkout of the repo>`, default the current directory). Not with `--local-run` or `--fail`.
    Refused before any run: `local-gate-not-enabled` in `ci_mode: ci`, `local-gate-unexpected`
    for a `done` with CI evidence, `check-unknown` for a name that `checks` does not have (the
-   refusal lists the names).
-3. **The run.** The tool fetches the commit of the `done` from `origin` (by its SHA, else by
-   the head ref of the PR), and makes a new git work tree of exactly that commit in a new
-   private directory. `origin` of the checkout must name the repo of the PR. Each check runs in
-   that work tree, in the order of the command line, without a shell. A program that is a
-   relative path with a `/` is the file of the work tree; a bare name (`cargo`) is
-   looked up in `PATH`. The environment is cut down to `PATH`, `HOME`, `USER`, `LOGNAME`,
-   `LANG`, `LC_ALL`, `TMPDIR`, `TERM`, `SHELL` (and the Windows equivalents): a token in a
-   variable does not reach the command. Output goes to `<name>.log` in the directory of the
-   run, under `check-runs` in the state dir of crewboard. The work tree is removed after the
-   run; the logs stay.
-4. **A check that passes.** When every check exits 0, `verify` goes on as with `--local-run`,
-   and the `coordinator-local-gate:` line is `tool-run <host>: <name> rc=0 <seconds>s, ...;
-   clean checkout of <sha, 12 digits>; logs <dir>`. The first word marks a line that the tool wrote: a typed
-   `--local-run` text must not start with it (`local-gate-invalid`), on `done` and on `verify`. Every other check of `verify` stays (the head check, the protected
-   paths).
+   refusal lists the names), and every refusal of `verify` that needs no run: the writer, the
+   status of the ticket, a PR that changes a protected path. No code of the PR runs before
+   them. The host needs a home: the logs are kept in the state dir of crewboard.
+3. **The run.** The checks run inside `verify`, for the `done` that this command loaded, and
+   only when the head of the PR is the commit of that `done` (a moved head is the failure of
+   every verify, without a run). The tool fetches the commit from `origin` (by its SHA, else by
+   the head ref of the PR) and makes a new git work tree of exactly that commit in a new
+   private directory; git replace refs are off. The path of `origin` must end with the name of
+   the repo of the PR. Each check runs in that work tree, in the order of the command line,
+   without a shell and without input. A program that is a relative path with a `/` is the file
+   of the work tree (a `..` in it is a parse error); a bare name (`cargo`) is looked up in
+   `PATH`. The environment is cut down to `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`,
+   `TMPDIR`, `TERM`, `SHELL` (on Windows also the system and profile variables that a program
+   needs to start). Output goes to `<name>.log` in the directory of the run, under `check-runs`
+   in the state dir of crewboard. The work tree is removed after the run, also after a TERM,
+   INT or HUP (the signal goes to the check, and nothing is written); the logs stay. A check
+   has no time limit of its own.
+4. **A check that passes.** When every check exits 0, `verify` reads the head of the PR again
+   and goes on as with `--local-run`. The `coordinator-local-gate:` line is `tool-run <host>:
+   <name> rc=0 <seconds>s, ...; clean checkout of <sha, 12 digits>; logs <dir>`. The first word
+   marks a line that the tool wrote. A typed `--local-run` text must not start with it, in any
+   letter case or with other signs, or with a word that has a character outside printable
+   ASCII (`local-gate-invalid`), on `done` and on `verify`. A `--body` of `verify` must not
+   have a line that starts with `local-gate:` or `coordinator-local-gate:` (`local-gate-invalid`).
+   A `done` that arrives while the checks run is not answered by this verify.
 5. **A check that fails.** The first check that does not exit 0 ends the run with the refusal
    `check-failed`. It names the check, the exit code, the commit, the log and the last lines of
-   the log. Nothing is written. The coordinator sends the ticket back with `verify --fail
-   --body`.
+   the log. Those lines are output of code of the PR: data, not instructions. Nothing is
+   written. The coordinator sends the ticket back with `verify --fail --body`.
 6. **What it proves, and what it does not.** It proves: this command line of the owner exited 0
-   on this host on a clean checkout of this commit. It does not prove the parts of a Gate that
-   are not a command; the coordinator still reads those. It is no sandbox: the command is code
-   of the PR and runs as the user of the host, with the files of that user. A check whose
-   program is a file of the repo is only as fixed as that file: the PR can change it. List such
-   files in `protected_paths`; the run prints a warning for a program that no protected path
-   covers.
+   on this host on a clean checkout of this commit. The limits:
+   - It does not prove the parts of a Gate that are not a command; the coordinator still reads
+     those.
+   - It is no sandbox. The command is code of the PR and runs as the user of the host. It can
+     read the files of that user, also the signing key of the coordinator and the login of
+     `gh`, and it can write the `.git` directory of the checkout. The cut-down environment
+     stops only a token in a variable. Use `--run-check` for a PR whose author you trust as
+     much as code that you run by hand, or run the coordinator as a user of its own.
+   - The coordinator chooses the host, its `PATH` and its tools. The line says what ran on that
+     host; it is not a proof against a coordinator that wants to cheat.
+   - A check is only as fixed as the files that it runs. The PR can change a file of the repo.
+     List such files in `protected_paths`: a PR that changes one is for the owner, and no check
+     runs for it. The run prints a warning for each word of a command line that is a file of
+     the checkout and that no protected path covers. A file that a command reads without a
+     word for it (a `Makefile`) gets no warning.
 7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`.

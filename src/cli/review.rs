@@ -7,13 +7,18 @@ use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::{self, AgentCtx};
 
-/// Where the logs of `verify --run-check` are kept: `check-runs` in the state dir of crewboard,
-/// or in the temp dir when the host has no home.
-fn check_log_root() -> std::path::PathBuf {
+/// Where the logs of `verify --run-check` are kept: `check-runs` in the state dir of crewboard.
+/// A host without a home has none: a directory in the shared temp dir is no place for a
+/// checkout that code runs in.
+fn check_log_root() -> Result<std::path::PathBuf, CbError> {
     let env = |k: &str| std::env::var(k).ok();
     crate::wake::state::state_root(env("XDG_STATE_HOME").as_deref(), env("HOME").as_deref())
-        .unwrap_or_else(|| std::env::temp_dir().join("crewboard"))
-        .join("check-runs")
+        .map(|r| r.join("check-runs"))
+        .ok_or_else(|| {
+            CbError::config(
+                "--run-check keeps its logs in the state dir of crewboard, and HOME is not set",
+            )
+        })
 }
 
 #[inline(never)]
@@ -42,31 +47,36 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
             if let Err(e) = ops::say::check_body_text(&note) {
                 return fail(e);
             }
+            if let Err(r) = ops::tickets::check_note_has_no_gate_line(&note) {
+                return fail(r.into());
+            }
+            // `--run-check`: the tool runs the checks inside `verify`, in a new work tree
+            let dir = work_dir
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let log_root = if run_check.is_empty() {
+                None
+            } else {
+                match check_log_root() {
+                    Ok(r) => Some(r),
+                    Err(e) => return fail(e),
+                }
+            };
             done(AgentCtx::load(&global(cli, sel, false)).and_then(|mut ac| {
-                // `--run-check`: the tool runs the checks first; their line is the local run.
-                let tool_line = if run_check.is_empty() {
-                    None
-                } else {
-                    let dir = work_dir
-                        .clone()
-                        .or_else(|| std::env::current_dir().ok())
-                        .unwrap_or_else(|| std::path::PathBuf::from("."));
-                    Some(ops::tickets::run_checks(
-                        &ac,
-                        issue,
-                        run_check,
-                        &dir,
-                        &check_log_root(),
-                    )?)
-                };
+                let run = log_root.as_deref().map(|log_root| ops::tickets::RunArgs {
+                    names: run_check,
+                    repo_dir: &dir,
+                    log_root,
+                });
                 ops::tickets::verify(
                     &mut ac,
                     issue,
                     &note,
                     runs,
                     *gate_failed,
-                    tool_line.as_deref().or(local_run.as_deref()),
-                    tool_line.is_some(),
+                    local_run.as_deref(),
+                    run.as_ref(),
                 )
             }))
         }

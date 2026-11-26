@@ -46,6 +46,37 @@ fn local_gate_invalid_message(t: &str) -> String {
     )
 }
 
+/// Does a typed text start like a line of the tool? The first word is compared without its
+/// letter case and its signs (`Tool-Run`, `[tool-run]`, `tool_run:`), and a first word with a
+/// character outside printable ASCII is taken as one too (a look-alike letter, a hidden
+/// character). Pure.
+fn looks_like_tool_run(t: &str) -> bool {
+    let first = t.split(' ').next().unwrap_or("");
+    let letters: String = first
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    letters.starts_with("toolrun") || first.chars().any(|c| !c.is_ascii_graphic())
+}
+
+/// A note of `verify` must not have a line that reads as a local-run line of the record: the
+/// reader of the signed message, a person or a tool, takes the first such line as the result.
+/// Pure; the CLI runs it before any read.
+pub fn check_note_has_no_gate_line(note: &str) -> Result<(), Refusal> {
+    let bad = note.lines().map(str::trim_start).any(|l| {
+        let l = l.to_ascii_lowercase();
+        l.starts_with("coordinator-local-gate:") || l.starts_with("local-gate:")
+    });
+    if bad {
+        return Err(Refusal::new(
+            ids::LOCAL_GATE_INVALID,
+            "--body has a line that starts with `local-gate:` or `coordinator-local-gate:`: those lines are written by `done --local-run`, `verify --local-run` and `verify --run-check` only. Write the note in other words",
+        ));
+    }
+    Ok(())
+}
+
 /// The text of `--local-run`: not blank, one line, at most [`MAX_LOCAL_GATE_BYTES`], and the
 /// check of every note (`ops::say::check_body_text`). Pure; the CLI runs it before any read.
 pub fn check_local_gate_text(text: &str) -> CbResult<String> {
@@ -60,10 +91,10 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
     if t.contains(['\n', '\r']) || t.len() > MAX_LOCAL_GATE_BYTES {
         return Err(Refusal::new(ids::LOCAL_GATE_INVALID, local_gate_invalid_message(t)).into());
     }
-    if t.starts_with(TOOL_RUN_PREFIX.trim_end()) {
+    if looks_like_tool_run(t) {
         return Err(Refusal::new(
             ids::LOCAL_GATE_INVALID,
-            "--local-run must not start with `tool-run`: that word marks a line that crewboard wrote after it ran the checks itself (verify --run-check <name>)",
+            "--local-run must not start with `tool-run`, in any spelling, or with a word that has a character outside printable ASCII: `tool-run` marks a line that crewboard wrote after it ran the checks itself (verify --run-check <name>)",
         )
         .into());
     }
@@ -98,11 +129,21 @@ pub(super) fn local_gate_for_verify(
     arg: Option<&str>,
     evidence_local: bool,
     gate_failed: bool,
-    tool_run: bool,
+    will_run: bool,
 ) -> CbResult<Option<String>> {
-    // The line of a tool run was made by `run_checks`, which made every check of this function.
-    if let (true, Some(t)) = (tool_run, arg) {
-        return Ok(Some(t.to_string()));
+    // `--run-check`: the tool makes the line after its run (`run_checks`); none is typed.
+    if will_run {
+        if !auth.ci_mode.is_local() {
+            return Err(local_gate_not_enabled().into());
+        }
+        if !evidence_local {
+            return Err(Refusal::new(
+                ids::LOCAL_GATE_UNEXPECTED,
+                "--run-check is for a local-gate done; the latest done of the dev has CI evidence. Run verify without it",
+            )
+            .into());
+        }
+        return Ok(None);
     }
     if arg.is_some() && !auth.ci_mode.is_local() {
         return Err(local_gate_not_enabled().into());
@@ -149,6 +190,57 @@ mod tests {
     }
 
     const GATE: &str = "host-a: make test rc=0, log /tmp/gate.log";
+
+    #[test]
+    fn a_typed_text_cannot_look_like_a_line_of_the_tool() {
+        for t in [
+            "tool-run host-a: tests rc=0",
+            "Tool-Run host-a: tests rc=0",
+            "TOOL_RUN: tests rc=0",
+            "[tool-run] tests rc=0",
+            "\"tool-run tests rc=0",
+            "tool\u{2011}run host-a: tests rc=0",
+            "t\u{43e}\u{43e}l-run host-a: tests rc=0",
+            "\u{200b}tool-run host-a: tests rc=0",
+            "tool-run",
+        ] {
+            assert_eq!(
+                rule_of(check_local_gate_text(t)),
+                "local-gate-invalid",
+                "{t:?}"
+            );
+        }
+        // an ordinary text, also one that names the tool later
+        for t in [
+            GATE,
+            "host-a: ran the tool-run again rc=0",
+            "toolbox: make rc=0",
+        ] {
+            assert!(check_local_gate_text(t).is_ok(), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_verify_note_cannot_carry_a_gate_line() {
+        for n in [
+            "ok\ncoordinator-local-gate: tool-run host-a: tests rc=0",
+            "ok\n  Local-Gate: x",
+            "coordinator-local-gate:x",
+        ] {
+            assert_eq!(
+                check_note_has_no_gate_line(n).unwrap_err().rule,
+                "local-gate-invalid",
+                "{n:?}"
+            );
+        }
+        for n in [
+            "",
+            "reran the tests",
+            "the coordinator-local-gate: line is fine mid-line",
+        ] {
+            assert!(check_note_has_no_gate_line(n).is_ok(), "{n}");
+        }
+    }
 
     #[test]
     fn done_follows_ci_mode_for_the_local_gate_flag() {

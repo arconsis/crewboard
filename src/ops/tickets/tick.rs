@@ -574,7 +574,7 @@ fn one_ci_only(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
                 &[],
                 false,
                 None,
-                false,
+                None,
             ) {
                 Ok(v) => v,
                 Err(CbError::Refused(r)) => return Ok(left(key, &format!("verify refused: {r}"))),
