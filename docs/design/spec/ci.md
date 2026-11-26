@@ -294,3 +294,55 @@ ci_mode: local     # ci (default) or local
    leaves a local-run ticket ("left for the interactive coordinator"), and a headless `merge`
    of one is refused with `headless-scope`: a local run is a judgment
    ([Headless coordinator](agents.md#headless-coordinator)).
+
+### Checks that the tool runs
+
+In `ci_mode: local` the coordinator proves its own local run with a typed line. A model types
+that line, so the record says what the model claims. `verify --run-check` removes the claim for
+the part of a Gate that is a command: the tool runs the command and writes the line.
+
+```yaml
+ci_mode: local
+checks:
+  - tests: make test
+  - format: cargo fmt --check
+protected_paths: [Makefile]
+```
+
+1. **Source.** `checks` is a block list of `<name>: <command line>` in `AUTHORITY.md` on the
+   default branch, read fresh. A name has lower-case letters, digits and `-` (at most 32) and is
+   used once. The command line is split into words as a POSIX shell splits them (quotes and a
+   backslash). No shell runs it: no variable, glob, pipe or `&&` works. A `#` starts a comment,
+   as in every line of the front matter. A bad item is `authority-bad-front-matter`.
+2. **The command.** `crewboard verify <n> --run-check <name>` (repeatable; `--work-dir <git
+   checkout of the repo>`, default the current directory). Not with `--local-run` or `--fail`.
+   Refused before any run: `local-gate-not-enabled` in `ci_mode: ci`, `local-gate-unexpected`
+   for a `done` with CI evidence, `check-unknown` for a name that `checks` does not have (the
+   refusal lists the names).
+3. **The run.** The tool fetches the commit of the `done` from `origin` (by its SHA, else by
+   the head ref of the PR), and makes a new git work tree of exactly that commit in a new
+   private directory. `origin` of the checkout must name the repo of the PR. Each check runs in
+   that work tree, in the order of the command line, without a shell. A program that is a
+   relative path with a `/` is the file of the work tree; a bare name (`cargo`) is
+   looked up in `PATH`. The environment is cut down to `PATH`, `HOME`, `USER`, `LOGNAME`,
+   `LANG`, `LC_ALL`, `TMPDIR`, `TERM`, `SHELL` (and the Windows equivalents): a token in a
+   variable does not reach the command. Output goes to `<name>.log` in the directory of the
+   run, under `check-runs` in the state dir of crewboard. The work tree is removed after the
+   run; the logs stay.
+4. **A check that passes.** When every check exits 0, `verify` goes on as with `--local-run`,
+   and the `coordinator-local-gate:` line is `tool-run <host>: <name> rc=0 <seconds>s, ...;
+   clean checkout of <sha, 12 digits>; logs <dir>`. The first word marks a line that the tool wrote: a typed
+   `--local-run` text must not start with it (`local-gate-invalid`), on `done` and on `verify`. Every other check of `verify` stays (the head check, the protected
+   paths).
+5. **A check that fails.** The first check that does not exit 0 ends the run with the refusal
+   `check-failed`. It names the check, the exit code, the commit, the log and the last lines of
+   the log. Nothing is written. The coordinator sends the ticket back with `verify --fail
+   --body`.
+6. **What it proves, and what it does not.** It proves: this command line of the owner exited 0
+   on this host on a clean checkout of this commit. It does not prove the parts of a Gate that
+   are not a command; the coordinator still reads those. It is no sandbox: the command is code
+   of the PR and runs as the user of the host, with the files of that user. A check whose
+   program is a file of the repo is only as fixed as that file: the PR can change it. List such
+   files in `protected_paths`; the run prints a warning for a program that no protected path
+   covers.
+7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`.

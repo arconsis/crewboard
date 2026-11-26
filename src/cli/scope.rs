@@ -97,6 +97,10 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         Command::Review(ReviewCmd::Verify {
             local_run: Some(_), ..
         }) => Deny(headless::DENY_LOCAL_GATE),
+        // `verify --run-check` passes a ticket whose Gate is more than CI: not in the scope yet
+        Command::Review(ReviewCmd::Verify { run_check, .. }) if !run_check.is_empty() => {
+            Deny(headless::DENY_RUN_CHECK)
+        }
         // the two actions of the scope
         Command::Review(ReviewCmd::Verify { runs, .. })
         | Command::Review(ReviewCmd::Merge { runs, .. }) => {

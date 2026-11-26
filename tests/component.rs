@@ -132,6 +132,9 @@ mod fake_repo_transfer;
 mod fake_request_budget;
 #[path = "component/fake_retro.rs"]
 mod fake_retro;
+#[cfg(unix)]
+#[path = "component/fake_run_check.rs"]
+mod fake_run_check;
 #[path = "component/fake_signed_ci.rs"]
 mod fake_signed_ci;
 #[path = "component/fake_split.rs"]

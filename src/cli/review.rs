@@ -7,6 +7,15 @@ use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::{self, AgentCtx};
 
+/// Where the logs of `verify --run-check` are kept: `check-runs` in the state dir of crewboard,
+/// or in the temp dir when the host has no home.
+fn check_log_root() -> std::path::PathBuf {
+    let env = |k: &str| std::env::var(k).ok();
+    crate::wake::state::state_root(env("XDG_STATE_HOME").as_deref(), env("HOME").as_deref())
+        .unwrap_or_else(|| std::env::temp_dir().join("crewboard"))
+        .join("check-runs")
+}
+
 #[inline(never)]
 pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
     match c {
@@ -16,6 +25,8 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
             fail: gate_failed,
             runs,
             local_run,
+            run_check,
+            work_dir,
             sel,
         } => {
             let note = body.clone().unwrap_or_default();
@@ -32,13 +43,30 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                 return fail(e);
             }
             done(AgentCtx::load(&global(cli, sel, false)).and_then(|mut ac| {
+                // `--run-check`: the tool runs the checks first; their line is the local run.
+                let tool_line = if run_check.is_empty() {
+                    None
+                } else {
+                    let dir = work_dir
+                        .clone()
+                        .or_else(|| std::env::current_dir().ok())
+                        .unwrap_or_else(|| std::path::PathBuf::from("."));
+                    Some(ops::tickets::run_checks(
+                        &ac,
+                        issue,
+                        run_check,
+                        &dir,
+                        &check_log_root(),
+                    )?)
+                };
                 ops::tickets::verify(
                     &mut ac,
                     issue,
                     &note,
                     runs,
                     *gate_failed,
-                    local_run.as_deref(),
+                    tool_line.as_deref().or(local_run.as_deref()),
+                    tool_line.is_some(),
                 )
             }))
         }

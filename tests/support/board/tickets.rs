@@ -216,6 +216,17 @@ impl FakeBoard {
         }
     }
 
+    /// Give PR `number` the head `sha` (a commit of a real git repo of the test).
+    pub fn set_pr_head(&self, number: u64, sha: &str) {
+        let mut st = self.st.lock().unwrap();
+        let pr = st
+            .prs
+            .iter_mut()
+            .find(|p| p.number == number)
+            .expect("the PR exists");
+        pr.head_sha = sha.to_string();
+    }
+
     /// A branch on GitHub without a PR.
     pub fn push_branch(&self, branch: &str) {
         let mut st = self.st.lock().unwrap();

@@ -87,6 +87,9 @@ Events, Leaving, Extensions.
 
 - `verify` checks evidence and CI. You check the Gate: read the run log or rerun the command
   (also for a local run). Put your result in `--body`. Never trust a results table or a summary. The conclusion field of the CI run counts, not its status.
+- A local-run `done` whose Gate names a command that AUTHORITY.md lists under `checks`: do not
+  rerun it by hand. `verify <n> --run-check <name>` runs it on a clean checkout of the head and
+  writes the result. You still read the parts of the Gate that are not a command.
 - The evidence holds but your Gate check fails: `verify --fail --body "<what you found>"`.
 - Review once and completely. Finish your Gate check before you run `verify`. Put all findings
   into one `verify --fail --body`. Do not pass a head and correct it later.

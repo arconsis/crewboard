@@ -1203,6 +1203,12 @@ Options:
       --local-run <LOCAL_RUN>
           What you checked for a local-run done (`ci_mode: local`): host, command, rc, log. Required then (not with --fail). Refused with `local-gate-not-enabled` in `ci_mode: ci`; not for a headless coordinator
 
+      --run-check <NAME>
+          Run this check of AUTHORITY.md (`checks`) yourself on a clean checkout of the head of the done, and record the result as the local run (repeatable; `ci_mode: local`). The tool writes the line; you type no result. A check that does not exit 0 is refused with `check-failed` and nothing is written. Not with --local-run or --fail; not for a headless coordinator
+
+      --work-dir <WORK_DIR>
+          With --run-check: a git checkout of the repo of the PR (default: the current directory). The checks run in a new work tree, not in this directory
+
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
 

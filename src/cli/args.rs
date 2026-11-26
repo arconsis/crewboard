@@ -647,6 +647,17 @@ pub enum ReviewCmd {
         /// `ci_mode: ci`; not for a headless coordinator.
         #[arg(long = "local-run")]
         local_run: Option<String>,
+        /// Run this check of AUTHORITY.md (`checks`) yourself on a clean checkout of the head of
+        /// the done, and record the result as the local run (repeatable; `ci_mode: local`). The
+        /// tool writes the line; you type no result. A check that does not exit 0 is refused
+        /// with `check-failed` and nothing is written. Not with --local-run or --fail; not for
+        /// a headless coordinator.
+        #[arg(long = "run-check", value_name = "NAME", conflicts_with_all = ["local_run", "fail"])]
+        run_check: Vec<String>,
+        /// With --run-check: a git checkout of the repo of the PR (default: the current
+        /// directory). The checks run in a new work tree, not in this directory.
+        #[arg(long, requires = "run_check")]
+        work_dir: Option<PathBuf>,
         #[command(flatten)]
         sel: Sel,
     },
