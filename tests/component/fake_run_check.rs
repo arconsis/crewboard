@@ -9,7 +9,7 @@ use crewboard::rules::Role;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const CHECKS: &str = "ci_mode: local\ncheck_env: [IT_WORDS]\nchecks:\n  - env: sh -c 'test \"$IT_WORDS\" = abc && test -z \"$IT_OTHER\"'\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n";
+const CHECKS: &str = "ci_mode: local\ncheck_env: [IT_WORDS]\ncheck_timeout: 2\nchecks:\n  - slow: sleep 30\n  - missing: no-such-program-of-this-test\n  - env: sh -c 'test \"$IT_WORDS\" = abc && test -z \"$IT_OTHER\"'\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n";
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
@@ -226,7 +226,7 @@ fn an_unknown_check_a_typed_tool_line_and_a_foreign_checkout_are_refused_before_
     assert!(o.stderr.contains("rule=check-unknown"), "{}", o.all());
     assert!(
         o.stderr
-            .contains("AUTHORITY.md has: env, marker, clean, script, red"),
+            .contains("AUTHORITY.md has: slow, missing, env, marker, clean, script, red"),
         "{}",
         o.all()
     );
@@ -272,7 +272,8 @@ fn an_unknown_check_a_typed_tool_line_and_a_foreign_checkout_are_refused_before_
             &other.to_string_lossy(),
         ],
     );
-    assert_eq!(o.code, 4, "{}", o.all());
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
     assert!(o.stderr.contains("another repo"), "{}", o.all());
     assert_eq!(writes(&k.fake), before);
     assert!(!k.state.join("crewboard").join("check-runs").exists());
@@ -421,7 +422,11 @@ fn a_failed_check_of_a_typed_gate_is_a_signed_fail_without_the_output_of_the_pr(
         .collect();
     let fail = bodies
         .iter()
-        .find(|b| b.contains("tick: check red exited 3 on a clean checkout of"))
+        .find(|b| {
+            b.contains(
+                "the tool ran the checks of the Gate: check red exited 3 on a clean checkout of",
+            )
+        })
         .unwrap_or_else(|| panic!("no fail with the fact: {bodies:?}"));
     // the output of the check stays in the log: it is text of the PR
     assert!(!fail.contains("boom"), "{fail}");
@@ -448,4 +453,79 @@ fn a_gate_with_one_more_word_is_prose_and_the_headless_tick_runs_nothing() {
     );
     assert_eq!(writes(&k.fake), before);
     assert!(!k.state.join("crewboard").join("check-runs").exists());
+}
+
+#[test]
+fn a_check_that_runs_too_long_fails_and_one_that_cannot_start_is_not_a_fail() {
+    let k = case();
+    let before = writes(&k.fake);
+    // the limit of AUTHORITY.md is 2 seconds: the check is stopped, and that is a failed check
+    let o = verify(&k, &["--run-check", "slow"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-failed"), "{}", o.all());
+    assert!(
+        o.stderr
+            .contains("check slow ran longer than its limit of 2s"),
+        "{}",
+        o.all()
+    );
+    // a program that is not on the host is a fault of the host, not of the dev
+    let o = verify(&k, &["--run-check", "missing"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr.contains("cannot start on this host"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&k.fake), before);
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn a_merged_pr_gets_no_pass_that_claims_a_run() {
+    let k = case();
+    k.fake.merge_pr(k.pr);
+    let before = writes(&k.fake);
+    let o = verify(&k, &["--run-check", "marker"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(o.stderr.contains("closed or merged"), "{}", o.all());
+    assert_eq!(writes(&k.fake), before);
+    assert!(!k.state.join("crewboard").join("check-runs").exists());
+}
+
+#[test]
+fn the_headless_tick_runs_no_check_whose_file_a_pr_can_change_and_no_program_that_is_missing() {
+    // `script` runs ./check.sh, which no protected path covers
+    let k = case_gate("checks: script");
+    let h = headless_of(&k);
+    let before = writes(&k.fake);
+    let o = tick(&k, h.path(), true);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains("rule=check-not-run") || o.stdout.contains("check-not-run"),
+        "{}",
+        o.all()
+    );
+    assert!(
+        o.stdout.contains("an unattended run needs every file"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&k.fake), before, "{}", o.all());
+    // a missing program sends nothing back to the dev, and the next tick tries again
+    let k = case_gate("checks: missing");
+    let h = headless_of(&k);
+    let before = writes(&k.fake);
+    for _ in 0..2 {
+        let o = tick(&k, h.path(), true);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(
+            o.stdout.contains("cannot start on this host"),
+            "{}",
+            o.all()
+        );
+    }
+    assert_eq!(writes(&k.fake), before);
 }

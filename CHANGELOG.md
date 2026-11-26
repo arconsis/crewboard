@@ -12,10 +12,22 @@ Added:
   named check there without a shell and with a cut-down environment, keeps the logs, and writes
   the local-run line of the verify (`tool-run <host>: <name> rc=0 ...`). No model types a
   result. A check that does not exit 0 is refused with `check-failed` and nothing is written;
-  an unknown name is `check-unknown`. The checks run after every refusal of `verify` that
+  an unknown name is `check-unknown`; checks that could not run (no checkout, a program that is
+  not on the host, a closed or merged PR) are `check-not-run`. The checks run after every refusal of `verify` that
   needs no run, and only for a head that is the commit of the `done`. It is no sandbox (the
   code of the PR runs as the user of the host), and it proves only the command part of a Gate:
   list the files that the checks run in `protected_paths`. Not for a headless coordinator.
+- The headless coordinator verifies a ticket whose Gate is a list of checks. The second typed
+  Gate is `Gate: checks: <name>, <name>`, and nothing else. For such a ticket in Review with a
+  local-run `done`, `tick --work-dir <git checkout>` runs the named checks of `AUTHORITY.md` on
+  a clean checkout of the delivered commit and writes the verify. A check that fails is a
+  failed verify with the check, its exit code and the log, and the ticket goes back. The tick
+  never merges such a ticket: the headless `merge` still needs the Gate `ci`. It starts the
+  checks once per `done` and at most five times per ticket, and it runs no check whose command
+  line names a file of the repo outside `protected_paths`. `wake --tick` passes its work dir.
+  `retro` has a row for the new Gate.
+- `check_timeout` in `AUTHORITY.md`: the time limit of one check of `verify --run-check`
+  (default one hour). A check that runs longer is stopped and counts as failed.
 - `retro` counts, in its Verify section, the passes whose checks the tool ran
   (`verify --run-check`) against all passes. `retro --json` has `verify.passes` and
   `verify.tool_run_passes`. It shows how much of the verify work a machine decides.

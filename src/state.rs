@@ -185,6 +185,13 @@ pub struct TickState {
     /// request to the dev. The tick does not send it again.
     #[serde(default)]
     pub tick_requested: BTreeMap<String, u64>,
+    /// `<repo>#<issue>` -> id of the latest `done` comment for which the tick started the checks
+    /// of a `checks:` Gate. The tick starts them once per `done`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub checks_started: BTreeMap<String, u64>,
+    /// `<repo>#<issue>` -> how many times the tick started the checks of the ticket.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub checks_runs: BTreeMap<String, u32>,
     /// `tick`: item id of an In Progress ticket -> the URL of the merged PR about which
     /// the dev was told already. A told PR is not read again. A cache only: the signed `info` on
     /// the ticket is the truth, and a lost cache costs one read, not a second `info`.

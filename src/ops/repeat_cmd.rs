@@ -183,30 +183,84 @@ pub(crate) fn private_dir(d: &Path) -> std::io::Result<()> {
 
 /// Wait for the command. A TERM, INT or HUP that reaches the gate is passed on to the command (it
 /// runs in its own process group, so nothing else would reach it); the gate then stops.
+/// `limit`: after this time the group of the command gets a TERM, and 5 seconds later a KILL;
+/// the result is then `None`.
 #[cfg(unix)]
-fn wait_child(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "real elapsed time of a child process"
+)]
+fn wait_child(
+    child: &mut std::process::Child,
+    limit: Option<Duration>,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let start = std::time::Instant::now();
     let mut forwarded = false;
+    let mut termed: Option<std::time::Instant> = None;
     loop {
         if let Some(st) = child.try_wait()? {
-            return Ok(st);
+            return Ok(termed.is_none().then_some(st));
         }
         if !forwarded && let Some(sig) = crate::lock::sys::stop_requested() {
             crate::lock::sys::signal_group(child.id(), sig);
             forwarded = true;
+        }
+        match termed {
+            None if limit.is_some_and(|l| start.elapsed() >= l) => {
+                crate::lock::sys::signal_group(child.id(), libc::SIGTERM);
+                termed = Some(std::time::Instant::now());
+            }
+            Some(t) if t.elapsed() >= Duration::from_secs(5) => {
+                crate::lock::sys::signal_group(child.id(), libc::SIGKILL);
+                child.wait()?;
+                return Ok(None);
+            }
+            _ => {}
         }
         crate::clock::pause(Duration::from_millis(50));
     }
 }
 
 #[cfg(not(unix))]
-fn wait_child(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
-    child.wait()
+#[allow(
+    clippy::disallowed_methods,
+    reason = "real elapsed time of a child process"
+)]
+fn wait_child(
+    child: &mut std::process::Child,
+    limit: Option<Duration>,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(st) = child.try_wait()? {
+            return Ok(Some(st));
+        }
+        if limit.is_some_and(|l| start.elapsed() >= l) {
+            child.kill()?;
+            child.wait()?;
+            return Ok(None);
+        }
+        crate::clock::pause(Duration::from_millis(50));
+    }
+}
+
+/// How a logged run ended.
+pub(crate) enum RunEnd {
+    /// The command ran and ended with this code.
+    Exit(i32),
+    /// The command ran longer than its limit and was stopped.
+    TimedOut,
+    /// The command did not start: the exit code of a shell for it (127 not found, else 126).
+    NotStarted(i32),
 }
 
 /// Run the command of one run without the lock: stdout and stderr go to `log`. A command that
 /// cannot start gives 127 (not found) or 126, and its error text is the log.
 fn run_plain(cmd: &[String], repo: &Path, log: &Path) -> i32 {
-    run_logged(cmd, repo, log, &|_| {})
+    match run_logged(cmd, repo, log, &|_| {}, None) {
+        RunEnd::Exit(rc) | RunEnd::NotStarted(rc) => rc,
+        RunEnd::TimedOut => 124,
+    }
 }
 
 /// [`run_plain`] with a last change of the command before it starts (its environment).
@@ -215,7 +269,8 @@ pub(crate) fn run_logged(
     repo: &Path,
     log: &Path,
     prepare: &dyn Fn(&mut Command),
-) -> i32 {
+    limit: Option<Duration>,
+) -> RunEnd {
     let started = std::fs::File::create(log)
         .and_then(|out| Ok((out.try_clone()?, out)))
         .and_then(|(err, out)| {
@@ -226,9 +281,10 @@ pub(crate) fn run_logged(
             std::os::unix::process::CommandExt::process_group(&mut c, 0);
             crate::spawn::spawn_retrying(&mut c)
         })
-        .and_then(|mut child| wait_child(&mut child));
+        .and_then(|mut child| wait_child(&mut child, limit));
     match started {
-        Ok(st) => crate::spawn::code_of(st),
+        Ok(Some(st)) => RunEnd::Exit(crate::spawn::code_of(st)),
+        Ok(None) => RunEnd::TimedOut,
         Err(e) => {
             let (rc, why) = match e.kind() {
                 std::io::ErrorKind::NotFound => (127, "command not found".to_string()),
@@ -236,7 +292,7 @@ pub(crate) fn run_logged(
                 _ => (126, e.to_string()),
             };
             best_effort_output(std::fs::write(log, format!("{}: {why}\n", cmd[0])));
-            rc
+            RunEnd::NotStarted(rc)
         }
     }
 }

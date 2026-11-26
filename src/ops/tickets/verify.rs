@@ -17,7 +17,7 @@ use crate::authority::Authority;
 use crate::base::ids;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
-use crate::error::CbResult;
+use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::{EvidenceMsg, VerifyFailure, failed_line, is_local_gate, verify_body};
 use crate::protocol::names::{Kind, Re};
@@ -512,10 +512,22 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
     // the protected paths), and only for a head that is the commit of the evidence. The line
     // belongs to the `done` that this command loaded: a `done` that arrives while the checks
     // run is not answered by it. A head that moved in that time is the failure of every verify.
+    // A check that failed in an unattended run: the failure text of this verify.
+    let mut failed_check: Option<String> = None;
     if let Some(run) = va.run
         && read.pr.head_sha.eq_ignore_ascii_case(&pre.ev.sha)
-        && read.pr.state != "closed"
     {
+        // A closed or merged PR gets no run, and so no pass that says "the tool ran the checks".
+        if read.pr.state == "closed" {
+            return Err(Refusal::new(
+                ids::CHECK_NOT_RUN,
+                format!(
+                    "the checks did not run: the PR of {} is closed or merged. Nothing was written",
+                    t.key()
+                ),
+            )
+            .into());
+        }
         let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
         let target = super::run_checks::Target {
             issue: l.n,
@@ -525,11 +537,24 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             pr: pre.pr_url.number,
             protected_paths: &pre.auth.protected_paths,
             env: &pre.auth.check_env,
+            timeout: pre.auth.check_timeout,
         };
-        let line = super::run_checks::run(ac, &target, &checks, run)?;
-        pre.coordinator_gate = Some(line);
+        match super::run_checks::run(ac, &target, &checks, run) {
+            Ok(line) => pre.coordinator_gate = Some(line),
+            // unattended: the failed check is the result of this verify, for the `done` that
+            // was tested. The first line is the fact; the lines after it are output of the PR.
+            Err(CbError::Refused(r)) if run.unattended && r.rule == ids::CHECK_FAILED => {
+                let fact = r.message.lines().next().unwrap_or("a check failed");
+                let note = format!("the tool ran the checks of the Gate: {fact}");
+                crate::ops::say::check_body_text(&note)?;
+                failed_check = Some(note);
+            }
+            Err(e) => return Err(e),
+        }
         read.pr = fetch_pr(ac, &pre.pr_url.repo, pre.pr_url.number)?.0;
     }
+    let gate_failed = va.gate_failed || failed_check.is_some();
+    let note = failed_check.as_deref().unwrap_or(va.note);
     let facts = VerifyFacts {
         ticket_key: t.key(),
         assignee: &pre.assignee,
@@ -542,8 +567,8 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
         pr: &read.pr,
         ci: read.ci.as_ref(),
         linked_repos: &ac.ctx.cfg.repos,
-        gate_failed: va.gate_failed,
-        note: va.note,
+        gate_failed,
+        note,
         from: l.from,
         actor: l.me.actor,
         labelled_needs_owner: t
