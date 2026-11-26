@@ -8,7 +8,7 @@ use super::in_progress::write_idle_when_free;
 use super::local_gate::local_gate_for_done;
 use super::merged_pr;
 use super::pr_evidence::{
-    PrFiles, check_pr_in_initiative, fetch_pr, fetch_pr_files_upto, judge_no_run_for, named_runs,
+    check_pr_in_initiative, fetch_pr, fetch_pr_files_upto, judge_no_run_for, named_runs,
 };
 use super::{
     Me, facts, load_world_cached, me_of, needs_owner_lines, post_with, remember, unread_guard,
@@ -32,7 +32,7 @@ use crate::rules::evidence::{
 };
 use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::limits::check_text_field;
-use crate::rules::protected::MAX_FILES;
+use crate::rules::protected::{MAX_FILES, PrFileList};
 use crate::rules::status::{Status, TicketFacts, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_loader::Ticket;
@@ -167,7 +167,7 @@ struct DonePr {
     pr: PrFacts,
     base: String,
     adopted: Option<String>,
-    files: PrFiles,
+    files: PrFileList,
     route: Route,
     named: Vec<NamedRun>,
 }
@@ -318,7 +318,7 @@ struct DoneFacts<'a> {
     claimed_sha: Option<&'a str>,
     pr: &'a PrFacts,
     route: &'a Route,
-    files: &'a PrFiles,
+    files: &'a PrFileList,
     adopted: Option<&'a str>,
     ci: &'a CiFacts,
     no_run: Option<&'a Result<String, String>>,
@@ -685,8 +685,8 @@ mod tests {
         }
     }
 
-    fn files(names: &[&str]) -> PrFiles {
-        PrFiles {
+    fn files(names: &[&str]) -> PrFileList {
+        PrFileList {
             names: names.iter().map(|s| s.to_string()).collect(),
             previous: vec![],
             truncated: false,
@@ -697,7 +697,7 @@ mod tests {
     struct Fix {
         pr: PrFacts,
         route: Route,
-        files: PrFiles,
+        files: PrFileList,
         ci: CiFacts,
         repos: Vec<String>,
         msgs: Vec<VMsg>,

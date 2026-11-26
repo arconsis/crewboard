@@ -42,12 +42,21 @@ pub struct PrFileList {
     pub names: Vec<String>,
     /// The old paths of renamed files.
     pub previous: Vec<String>,
-    /// True when the PR has more than [`MAX_FILES`] files (the list is not complete).
+    /// True when the list is not complete. The reader sets it when the read stopped with a
+    /// next page left; the list for [`check_unprotected`] also has it when the PR has more
+    /// than [`MAX_FILES`] files.
     pub truncated: bool,
 }
 
 impl PrFileList {
-    /// Every path that the PR touches: the paths, then the old paths of renamed files.
+    /// Can the list not prove the absence of a path? True when the read was cut, or the list is
+    /// longer than `limit` files.
+    pub fn over(&self, limit: usize) -> bool {
+        self.truncated || self.names.len() > limit
+    }
+
+    /// Every path that the PR touches: the paths, then the old paths of renamed files
+    /// (spec/ci#files-that-every-workflow-ignores).
     pub fn all(&self) -> Vec<String> {
         let mut v = self.names.clone();
         for p in &self.previous {
