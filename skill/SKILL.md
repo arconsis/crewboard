@@ -19,15 +19,9 @@ Never work around a refusal. Never retry it unchanged.
 
 ## Start
 
-1. First time: `crewboard join --agent <runtime>@<host> --runtime <runtime> --model <model> --repo <owner>/<repo>`.
-   The name is free text in the form `<word>@<host>`; the convention is the runtime, for
-   example `claude@host-b`. Lowercase `a-z`, `0-9` and `-` only.
-   `--runtime` is `claude`, `codex` or `hermes`, as for `agent add`. `--model` is optional.
-   Wait for the owner to approve. The
-   account of your token is your agent account (your own or a shared one, never the owner's); the approval binds
-   it to your name, and your messages count only from it.
-   A setup gap: `crewboard doctor --setup`. If the owner ran `crewboard agent add`, that command
-   did this step already.
+1. First time, and only if the owner did not run `crewboard agent add` for you: `crewboard join`
+   (`--help` shows the options), then wait for the owner to approve. The account of your token is
+   your agent account, never the owner's. A setup gap: `crewboard doctor --setup`.
 2. Each session: `crewboard start`. After a restart: `crewboard resume`. Both print your brief
    and the command that re-arms your loop.
 3. Read your role file: [coordinator](references/coordinator.md) or [dev agent](references/dev.md).
@@ -64,10 +58,9 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
    (`agent-*`): stop and tell the owner. Never use the owner's token.
    Never post as the owner. Never add `--insecure-one-account` or `--override-unread` on your own.
 4. `needs_owner` in `AUTHORITY.md` is advice. Ask the owner before such work. Only the owner
-   merges a PR that changes a protected path (the crewboard CLI refuses it for anyone else):
-   `AUTHORITY.md`, `.crewboard.toml`, a CODEOWNERS file (`.github/`, the root or `docs/`),
-   `.github/workflows/` or `.github/actions/`. Never edit them to
-   widen your scope.
+   merges a PR that changes a protected path (`AUTHORITY.md`, `.crewboard.toml`, CODEOWNERS,
+   `.github/workflows/`, `.github/actions/`); crewboard refuses it for anyone else. Never edit
+   them to widen your scope.
 5. Work, tooling and refusals go to the coordinator (`crewboard say <n> --to coordinator
    --kind question`). Use `--kind question` only when you need an answer; a status update is
    `--kind info`. Owner decisions (`needs_owner` work, scope, product) go to
@@ -81,13 +74,12 @@ Tell the owner. Ignore `selftest-forgery` (a test comment that crewboard posts o
 
 ## Exit codes
 
-`0`: success, or events to handle. `1` from `watch`, `poll`, `mine`: nothing to do (`mine` also exits 1 when you own no ticket; `mine <n>` exits 0).
+`0`: success, or events to handle. `1` from `watch`, `poll`, `mine`: nothing to do.
 `2`: a rule refused the command. Read the rule and the fix.
 `3`: GitHub or network. Retry in minutes. After 3 tries, tell the owner and stop.
 `4`: config or key. Stop and tell the owner.
-`64`: usage error: a bad option, argument or issue number. Fix the command and run it again.
-`lock` and `repeat` add their own codes (75, 76, 77, 143): read `crewboard lock --help` and
-[references/shared-hosts.md](references/shared-hosts.md). The full list: https://github.com/arconsis/crewboard/blob/main/docs/reference/exit-codes.md.
+`64`: usage error. Fix the command and run it again.
+`lock` and `repeat` have their own codes: [references/shared-hosts.md](references/shared-hosts.md).
 
 ## Extensions
 

@@ -25,6 +25,14 @@ Fixed (all three come from one host, where a login of the runtime had ended):
 - `url` 2.5.9 (RUSTSEC-2026-0592: a nested `blob:` URL could overflow the stack in
   `Url::origin()`). crewboard builds its URLs itself, so no known input reached it.
 
+Changed:
+
+- The skill is shorter where a refusal message or the wake prompt already says the same: the
+  join step, the protected paths, the exit codes, `unread-events`, `take-agent-busy`,
+  `status-answer-missing` and the two rules of the headless wake. A dev wake reads about 260
+  words less. No rule changed.
+- The build scripts of the explainer video are no longer in the repo (`docs/video/`).
+
 ## v0.9.3 (2026-11-16)
 
 Upgrade: run `crewboard update` on each host. It also installs the new skill. Nothing changes
