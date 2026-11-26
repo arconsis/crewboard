@@ -2,7 +2,13 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.11.0 (2026-11-26)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board, and no existing
+command or key changes. The new parts are off until the owner adds `checks` to `AUTHORITY.md`
+(with `ci_mode: local`). An older crewboard shows the new keys as unknown and does not obey
+them, so update every host before you add them. One stricter rule: a `--body` of `verify`
+must not have a line that starts with `local-gate:` or `coordinator-local-gate:`.
 
 Added:
 
@@ -13,10 +19,11 @@ Added:
   the local-run line of the verify (`tool-run <host>: <name> rc=0 ...`). No model types a
   result. A check that does not exit 0 is refused with `check-failed` and nothing is written;
   an unknown name is `check-unknown`; checks that could not run (no checkout, a program that is
-  not on the host, a closed or merged PR) are `check-not-run`. The checks run after every refusal of `verify` that
-  needs no run, and only for a head that is the commit of the `done`. It is no sandbox (the
-  code of the PR runs as the user of the host), and it proves only the command part of a Gate:
-  list the files that the checks run in `protected_paths`. Not for a headless coordinator.
+  not on the host, a closed or merged PR) are `check-not-run`. The checks run after every
+  refusal of `verify` that needs no run, and only for a head that is the commit of the `done`.
+  It is no sandbox (the code of the PR runs as the user of the host), and it proves only the
+  command part of a Gate: list the files that the checks run in `protected_paths`. As a
+  command it is not for a headless coordinator; the next item is its unattended form.
 - The headless coordinator verifies a ticket whose Gate is a list of checks. The second typed
   Gate is `Gate: checks: <name>, <name>`, and nothing else. For such a ticket in Review with a
   local-run `done`, `tick --work-dir <git checkout>` runs the named checks of `AUTHORITY.md` on
