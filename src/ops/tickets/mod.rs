@@ -15,6 +15,7 @@
 
 use super::say::{require_approved, send_signed};
 use super::{AgentCtx, World, load_world};
+use crate::base::TicketRef;
 use crate::base::ids;
 use crate::board::FieldValue;
 use crate::board::ItemRef;
@@ -26,7 +27,7 @@ use crate::rules::fields::WriteCtx;
 use crate::rules::lifecycle::State;
 use crate::rules::status::{BlockReason, Status, TicketFacts, check_not_owner_route, check_verify};
 use crate::rules::{Actor, Refusal, Role};
-use crate::services::ticket_loader::Ticket;
+use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::state::TicketSnap;
 use crate::ticket::{answer_after_block, latest_done, own_block_reason, question_open};
 
@@ -99,6 +100,27 @@ pub(crate) fn load_world_cached(ac: &AgentCtx) -> CbResult<World> {
     let world = load_world(&ac.ctx, std::slice::from_ref(&ac.agent.item_id), &mut cache)?;
     ac.save_cache(&mut cache);
     Ok(world)
+}
+
+/// What a command on one ticket reads first ([`load_signed`]).
+pub(crate) struct Loaded {
+    pub(crate) world: World,
+    pub(crate) me: Me,
+    pub(crate) t: Ticket,
+    /// The Status of the ticket as the command read it.
+    pub(crate) from: Status,
+}
+
+/// The first reads of a command on one ticket: the world, the caller, the ticket, the check
+/// that its Agent field is signed, its Status. The order is fixed, so the first failure is the
+/// same in every command.
+pub(crate) fn load_signed(ac: &AgentCtx, tref: &TicketRef) -> CbResult<Loaded> {
+    let world = load_world_cached(ac)?;
+    let me = me_of(ac, &world)?;
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, tref)?;
+    t.check_agent_signed()?;
+    let from = t.status()?;
+    Ok(Loaded { world, me, t, from })
 }
 
 /// Remember a ticket and its new fields in the local cache, so that this agent's own next

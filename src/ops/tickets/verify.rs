@@ -9,8 +9,8 @@ use super::local_gate::local_gate_for_verify;
 use super::order;
 use super::pr_evidence::{evidence_runs, fetch_pr, judge_no_run_for, pr_files_for_protection};
 use super::{
-    Me, check_verify_ticket, load_world_cached, me_of, needs_owner_lines, post_with, remember,
-    to_agent, work_write_ctx_of,
+    Loaded, Me, check_verify_ticket, load_signed, needs_owner_lines, post_with, remember, to_agent,
+    work_write_ctx_of,
 };
 use crate::authority::Authority;
 use crate::base::ids;
@@ -27,7 +27,7 @@ use crate::rules::fields::{Field, Item, check_field_write};
 use crate::rules::protected::PrFileList;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
-use crate::services::ticket_loader::{Ticket, load_ticket};
+use crate::services::ticket_loader::Ticket;
 use crate::ticket::{ci_none_declared, latest_done, question_open};
 
 /// `verify <issue> [--body ...]` (coordinator): spec/tickets#verification-by-the-coordinator steps
@@ -56,11 +56,7 @@ struct VerifyLoad {
 /// The reads of `verify` that come before any decision about the evidence.
 fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
-    let world = load_world_cached(ac)?;
-    let me = me_of(ac, &world)?;
-    let t = load_ticket(&ac.ctx.reader(), &world.trust, &tref)?;
-    t.check_agent_signed()?;
-    let from = t.status()?;
+    let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     Ok(VerifyLoad {
         n: tref.issue,
         world,
