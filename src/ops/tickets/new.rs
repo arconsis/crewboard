@@ -16,7 +16,6 @@ use crate::base::ids::RuleId;
 use crate::base::{TicketRef, ids};
 use crate::board::FieldValue;
 use crate::error::{CbError, CbResult};
-use crate::github::GhError;
 use crate::ops::say::prepare_body;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::names::AgentName;
@@ -161,7 +160,7 @@ pub(super) fn check_adoption(ac: &AgentCtx, world: &World, url: &str) -> CbResul
             pr.head_ref
         )),
         // the branch names a ticket number that is no issue of the repo
-        Err(CbError::Network(GhError::Http { status: 404, .. })) => Err(format!(
+        Err(CbError::Network(e)) if e.is_not_found() => Err(format!(
             "{parent}, the ticket that branch '{}' names, does not exist: a ticket adopts the PR of a DONE ticket only",
             pr.head_ref
         )),

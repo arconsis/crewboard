@@ -23,7 +23,7 @@ use crate::ctx::decode_contents;
 use crate::error::{CbError, CbResult};
 use crate::github::api::issues::{self, IssueSummary, State};
 use crate::github::projects;
-use crate::github::{Client, GhError, is_already_exists};
+use crate::github::{Client, GhError, is_already_exists, optional};
 use crate::rules::fields::Field;
 use crate::rules::options::{is_noop, plan_options};
 use base64::Engine;
@@ -215,18 +215,17 @@ fn file_on(
     path: &str,
     git_ref: &str,
 ) -> CbResult<Option<(String, String)>> {
-    match client.get(&format!("repos/{repo}/contents/{path}?ref={git_ref}")) {
-        Ok(r) => Ok(Some((
+    let got = optional(client.get(&format!("repos/{repo}/contents/{path}?ref={git_ref}")))?;
+    Ok(got.map(|r| {
+        (
             decode_contents(&r.body).unwrap_or_default(),
             r.body
                 .get("sha")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string(),
-        ))),
-        Err(GhError::Http { status: 404, .. }) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+        )
+    }))
 }
 
 #[derive(Default)]
@@ -871,12 +870,8 @@ fn check_crew_login(
             format!("--crew-login {crew} is the owner: agents may not act as the owner"),
         ));
     }
-    let r = client.get(&format!("users/{crew}")).map_err(|e| match e {
-        GhError::Http { status: 404, .. } => {
-            CbError::config(format!("--crew-login {crew}: no such GitHub user"))
-        }
-        other => other.into(),
-    })?;
+    let r = optional(client.get(&format!("users/{crew}")))?
+        .ok_or_else(|| CbError::config(format!("--crew-login {crew}: no such GitHub user")))?;
     if r.body.get("type").and_then(Value::as_str) != Some("User") {
         return Err(CbError::config(format!(
             "--crew-login {crew} is not a user account"
@@ -1196,15 +1191,11 @@ fn open_pr(
         .and_then(Value::as_str)
         .ok_or_else(|| GhError::Shape("default branch ref has no sha".into()))?
         .to_string();
-    match client.get(&format!("{rp}/git/ref/heads/{branch}")) {
-        Ok(_) => {}
-        Err(GhError::Http { status: 404, .. }) => {
-            client.post(
-                &format!("{rp}/git/refs"),
-                &json!({"ref": format!("refs/heads/{branch}"), "sha": base_sha}),
-            )?;
-        }
-        Err(e) => return Err(e.into()),
+    if optional(client.get(&format!("{rp}/git/ref/heads/{branch}")))?.is_none() {
+        client.post(
+            &format!("{rp}/git/refs"),
+            &json!({"ref": format!("refs/heads/{branch}"), "sha": base_sha}),
+        )?;
     }
     for (path, text) in &todo {
         let on_branch = file_on(client, repo, path, &branch)?;

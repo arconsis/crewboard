@@ -56,6 +56,15 @@ pub fn parse_viewer_login(body: &Value) -> Result<String, GhError> {
     }
 }
 
+/// Turn "not found" (HTTP 404) into `None`; every other error stays an error.
+pub fn optional<T>(r: Result<T, GhError>) -> Result<Option<T>, GhError> {
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// HTTP 422 whose error list says `already_exists` (a duplicate label). Any other 422 is a
 /// real validation failure and must not be mistaken for "reuse".
 pub fn is_already_exists(e: &GhError) -> bool {

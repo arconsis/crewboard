@@ -7,7 +7,7 @@ use crate::domain::ci::triggers::{
     MAX_JUDGED_FILES, MAX_SHOWN_PATTERNS, check_no_required_checks, judge, judge_ignored,
     judge_paths, paths_warning, warning,
 };
-use crate::github::{Client, Rest};
+use crate::github::{Client, Rest, optional};
 use serde_json::Value;
 
 /// `done` and `verify` without a CI run for the head (spec/ci#files-that-every-workflow-ignores):
@@ -100,11 +100,10 @@ fn read_workflows_with(
     let at = git_ref
         .map(|r| format!("?ref={}", crate::rules::text::url_encode(r, false)))
         .unwrap_or_default();
-    let list = match get(&format!("repos/{repo}/contents/.github/workflows{at}")) {
-        Ok(r) => r.body,
-        Err(GhError::Http { status: 404, .. }) => return Ok(vec![]),
-        Err(e) => return Err(e),
+    let Some(r) = optional(get(&format!("repos/{repo}/contents/.github/workflows{at}")))? else {
+        return Ok(vec![]);
     };
+    let list = r.body;
     let Some(arr) = list.as_array() else {
         return Err(GhError::Shape("workflow directory is not an array".into()));
     };

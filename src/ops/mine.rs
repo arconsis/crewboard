@@ -290,11 +290,8 @@ pub struct OpenPrRef {
 /// The head of a PR, for the message of a wake that ended at its time budget. `None` when the
 /// PR does not exist.
 pub fn pr_head(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<Option<PrHead>> {
-    match ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")) {
-        Ok(r) => Ok(head_of(&r.body)),
-        Err(crate::github::GhError::Http { status: 404, .. }) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+    let got = crate::github::optional(ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")))?;
+    Ok(got.and_then(|r| head_of(&r.body)))
 }
 
 /// The open PRs of a repo, every page.
