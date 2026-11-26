@@ -9,7 +9,7 @@ use crewboard::rules::Role;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const CHECKS: &str = "ci_mode: local\nchecks:\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n";
+const CHECKS: &str = "ci_mode: local\ncheck_env: [IT_WORDS]\nchecks:\n  - env: sh -c 'test \"$IT_WORDS\" = abc && test -z \"$IT_OTHER\"'\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n";
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
@@ -120,7 +120,11 @@ fn verify(k: &Case, extra: &[&str]) -> Out {
         &k.c.dir,
         &k.work,
         &args,
-        &[("XDG_STATE_HOME", &k.state.to_string_lossy())],
+        &[
+            ("XDG_STATE_HOME", &k.state.to_string_lossy()),
+            ("IT_WORDS", "abc"),
+            ("IT_OTHER", "not listed"),
+        ],
     )
 }
 
@@ -140,6 +144,9 @@ fn the_tool_runs_the_checks_on_a_clean_checkout_and_writes_the_line_itself() {
             "clean",
             "--run-check",
             "script",
+            // a variable that check_env names reaches the check; another one does not
+            "--run-check",
+            "env",
         ],
     );
     assert_eq!(o.code, 0, "{}", o.all());
@@ -214,7 +221,7 @@ fn an_unknown_check_a_typed_tool_line_and_a_foreign_checkout_are_refused_before_
     assert!(o.stderr.contains("rule=check-unknown"), "{}", o.all());
     assert!(
         o.stderr
-            .contains("AUTHORITY.md has: marker, clean, script, red"),
+            .contains("AUTHORITY.md has: env, marker, clean, script, red"),
         "{}",
         o.all()
     );

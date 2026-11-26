@@ -331,7 +331,11 @@ protected_paths: [Makefile]
    of the work tree (a `..` in it is a parse error); a bare name (`cargo`) is looked up in
    `PATH`. The environment is cut down to `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`,
    `TMPDIR`, `TERM`, `SHELL` (on Windows also the system and profile variables that a program
-   needs to start). Output goes to `<name>.log` in the directory of the run, under `check-runs`
+   needs to start), and the variables that `check_env` names. `check_env` is a list of names
+   in `AUTHORITY.md`; the value is the one of the host that runs the check, so a path or a
+   word list that differs per host needs no line in the repo. A token of GitHub and a variable
+   of crewboard are not allowed in it (`authority-bad-front-matter`). A fixed value needs no
+   key: `env NAME=value <command>` is a command line. Output goes to `<name>.log` in the directory of the run, under `check-runs`
    in the state dir of crewboard. The work tree is removed after the run, also after a TERM,
    INT or HUP (the signal goes to the check, and nothing is written); the logs stay. A check
    has no time limit of its own.

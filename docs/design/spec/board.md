@@ -395,6 +395,7 @@ protected: [main]
 # ci_mode: local                    # optional: ci (default) or local; see ci.md, Local run
 # checks:                           # optional, with ci_mode local: see ci.md, Checks that the tool runs
 #   - tests: make test
+# check_env: [APP_TEST_DATA]        # optional: more variables of the host that a check gets
 # former_repos:                     # optional: after a repo transfer or rename, see messages.md
 #   - { name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules
@@ -419,6 +420,7 @@ the enforced keys.
 | `protected` | `done`: a PR from a protected branch is no evidence (`evidence-branch-protected`) |
 | `protected_paths` | `verify` PASS, `close --verified`, `merge`, `tick`: more paths that only the owner merges, added to the built-in seven (`protected-path-owner-merge`); see below |
 | `ci_ignore`, `ci_mode` | the CI judgement of `done`, `verify` and `merge` ([CI](ci.md)) |
+| `check_env` | `verify --run-check`: the names of more environment variables that a check gets ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |
 | `checks` | `verify --run-check`: the named commands that the tool runs itself on a clean checkout of the PR head ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |
 | `former_repos` | which messages verify after a repo transfer or rename: earlier names with an exclusive cutoff ([Repository moves](messages.md#repository-moves)) |
 

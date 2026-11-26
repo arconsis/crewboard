@@ -67,6 +67,8 @@ pub(super) struct Target<'a> {
     pub pr: u64,
     /// `protected_paths` of AUTHORITY.md.
     pub protected_paths: &'a [String],
+    /// `check_env` of AUTHORITY.md: more variables that a check gets.
+    pub env: &'a [String],
 }
 
 /// One check that ran.
@@ -275,13 +277,17 @@ fn argv_in(tree: &Path, argv: &[String]) -> Vec<String> {
     clippy::disallowed_methods,
     reason = "real elapsed time of a child process"
 )]
-fn run_one(tree: &Path, c: &Check, log: &Path) -> Ran {
+fn run_one(tree: &Path, c: &Check, log: &Path, more_env: &[String]) -> Ran {
     let start = std::time::Instant::now();
     let rc = crate::ops::repeat_cmd::run_logged(&argv_in(tree, &c.argv), tree, log, &|cmd| {
         // no input: a check that reads the terminal would stop and never end
         cmd.stdin(Stdio::null());
         cmd.env_clear();
-        for k in KEPT_ENV {
+        for k in KEPT_ENV
+            .iter()
+            .copied()
+            .chain(more_env.iter().map(String::as_str))
+        {
             if let Some(v) = std::env::var_os(k) {
                 cmd.env(k, v);
             }
@@ -377,7 +383,7 @@ pub(super) fn run(
     for c in checks {
         let log = log_dir.join(format!("{}.log", c.name));
         eprintln!("check {}: running on {} ...", c.name, &t.sha[..12]);
-        let r = run_one(&tree.dir, c, &log);
+        let r = run_one(&tree.dir, c, &log, t.env);
         eprintln!("check {}: rc={} after {}s", r.name, r.rc, r.secs);
         if stop_signal().is_some() {
             return Err(CbError::config(format!(

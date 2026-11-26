@@ -524,6 +524,7 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             repo: &pre.pr_url.repo,
             pr: pre.pr_url.number,
             protected_paths: &pre.auth.protected_paths,
+            env: &pre.auth.check_env,
         };
         let line = super::run_checks::run(ac, &target, &checks, run)?;
         pre.coordinator_gate = Some(line);
