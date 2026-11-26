@@ -43,6 +43,11 @@ struct Case {
 /// A ticket in Review with a local-run `done` whose head is a real commit. The checkout of the
 /// coordinator has an untracked file, which a clean checkout must not have.
 fn case() -> Case {
+    case_gate("the checks pass")
+}
+
+/// [`case`] with the Gate line of the ticket.
+fn case_gate(gate: &str) -> Case {
     let tmp = tempfile::tempdir().unwrap();
     let origin = tmp.path().join("origin").join(REPO);
     std::fs::create_dir_all(&origin).unwrap();
@@ -78,7 +83,7 @@ fn case() -> Case {
     );
     let t = fake.ticket_issue(
         "IT run check",
-        "Goal: x.\n\nGate: the checks pass\n",
+        &format!("Goal: x.\n\nGate: {gate}\n"),
         &["crew:work"],
     );
     let ts = t.to_string();
@@ -320,4 +325,127 @@ fn a_head_that_is_not_the_commit_of_the_done_runs_nothing_and_fails_the_verify()
         .map(|(_, _, b)| b)
         .collect();
     assert!(!bodies.iter().any(|b| b.contains("tool-run")), "{bodies:?}");
+}
+
+/// `tick` of a headless copy of the coordinator, with or without a checkout.
+fn tick(k: &Case, headless: &Path, with_checkout: bool) -> Out {
+    let work = k.work.to_string_lossy().into_owned();
+    let mut args = vec!["tick"];
+    if with_checkout {
+        args.extend_from_slice(&["--work-dir", &work]);
+    }
+    k.fake.run_env(
+        headless,
+        k.work.parent().unwrap(),
+        &args,
+        &[
+            ("XDG_STATE_HOME", &k.state.to_string_lossy()),
+            ("IT_WORDS", "abc"),
+        ],
+    )
+}
+
+fn headless_of(k: &Case) -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    crate::support::headless::copy_headless(&k.c, d.path());
+    d
+}
+
+fn gate_lines(k: &Case) -> Vec<String> {
+    k.fake
+        .comments_of(k.ts.parse().unwrap())
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .filter(|b| b.contains("coordinator-local-gate:"))
+        .collect()
+}
+
+#[test]
+fn the_headless_tick_runs_the_checks_of_a_typed_gate_and_verifies_but_never_merges() {
+    let k = case_gate("checks: marker, clean");
+    let h = headless_of(&k);
+    // without a checkout the ticket is left, and nothing runs
+    let before = writes(&k.fake);
+    let o = tick(&k, h.path(), false);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains("no checkout to run them in"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&k.fake), before);
+    // with a checkout: the tool runs both checks and writes the verify
+    let o = tick(&k, h.path(), true);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("verify PASS"), "{}", o.all());
+    let lines = gate_lines(&k);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains("coordinator-local-gate: tool-run fake-c: marker rc=0")
+            && lines[0].contains("clean rc=0"),
+        "{}",
+        lines[0]
+    );
+    // no merge: a person merges a ticket with a checks Gate
+    let merges = k
+        .fake
+        .requests()
+        .into_iter()
+        .filter(|r| r.method == "PUT" && r.path.ends_with("/merge"))
+        .count();
+    assert_eq!(merges, 0);
+    // the next tick runs nothing again
+    let before = writes(&k.fake);
+    let o = tick(&k, h.path(), true);
+    assert!(
+        o.stdout.contains("its checks passed (verified)"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&k.fake), before);
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn a_failed_check_of_a_typed_gate_is_a_signed_fail_without_the_output_of_the_pr() {
+    let k = case_gate("checks: marker, red");
+    let h = headless_of(&k);
+    let o = tick(&k, h.path(), true);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains("verify FAIL"), "{}", o.all());
+    let bodies: Vec<String> = k
+        .fake
+        .comments_of(k.ts.parse().unwrap())
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .collect();
+    let fail = bodies
+        .iter()
+        .find(|b| b.contains("tick: check red exited 3 on a clean checkout of"))
+        .unwrap_or_else(|| panic!("no fail with the fact: {bodies:?}"));
+    // the output of the check stays in the log: it is text of the PR
+    assert!(!fail.contains("boom"), "{fail}");
+    assert!(!bodies.iter().any(|b| b.contains("tool-run")), "{bodies:?}");
+    // the next tick does not run the checks again for the same done
+    let runs = k.state.join("crewboard").join("check-runs");
+    let n = std::fs::read_dir(&runs).unwrap().count();
+    let o = tick(&k, h.path(), true);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(std::fs::read_dir(&runs).unwrap().count(), n, "{}", o.all());
+}
+
+#[test]
+fn a_gate_with_one_more_word_is_prose_and_the_headless_tick_runs_nothing() {
+    let k = case_gate("checks: marker and the page is unchanged");
+    let h = headless_of(&k);
+    let before = writes(&k.fake);
+    let o = tick(&k, h.path(), true);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains("left for the interactive coordinator"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&k.fake), before);
+    assert!(!k.state.join("crewboard").join("check-runs").exists());
 }

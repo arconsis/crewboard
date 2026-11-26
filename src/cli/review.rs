@@ -144,9 +144,17 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
             }
         }
         // The output first, then the reported deleted notes are forgotten (`TickOut::settle`).
-        ReviewCmd::Tick { sel } => match AgentCtx::load(&global(cli, sel, false))
-            .and_then(|mut ac| ops::tickets::tick(&mut ac).map(|t| (ac, t)))
-        {
+        ReviewCmd::Tick { work_dir, sel } => match AgentCtx::load(&global(cli, sel, false))
+            .and_then(|mut ac| {
+                // a checkout and a home for the logs: both, or the checks do not run
+                let checks = work_dir.as_ref().and_then(|d| {
+                    Some(ops::tickets::TickChecks {
+                        repo_dir: d.clone(),
+                        log_root: check_log_root().ok()?,
+                    })
+                });
+                ops::tickets::tick(&mut ac, checks.as_ref()).map(|t| (ac, t))
+            }) {
             Ok((ac, t)) => {
                 print!("{}", t.text);
                 best_effort_output(std::io::Write::flush(&mut std::io::stdout()));

@@ -141,6 +141,19 @@ cannot change the job. For a coordinator without a separate OS user,
 `crewboard wake install --tick --agent-dir <dir>` writes and enables a user unit (see
 [unattended-claude.md](runtimes/unattended-claude.md#headless-coordinator)).
 
+## A `Gate: checks: ...` ticket: the tool runs your commands
+
+In `ci_mode: local` the headless coordinator can also verify a ticket whose Gate names only
+checks of `AUTHORITY.md`, for example `Gate: checks: tests, format`. Add `--work-dir <git
+checkout of the repo>` to the `wake --tick` line. The tick then runs the named checks on a
+clean checkout of the delivered commit and writes the verify. A check that fails sends the
+ticket back to its agent with the check, the exit code and the log. The tick does not merge
+such a ticket: you or the interactive coordinator do.
+
+This runs code of a PR as `cb-headless` with nobody watching. Give that user no other access,
+and list the files that the checks run in `protected_paths`
+([details](../design/spec/agents.md#headless-coordinator), 5a).
+
 ## A `Gate: ci` merge has no human review
 
 The headless coordinator merges a ticket whose Gate is `ci` when the evidence, the protected

@@ -1830,6 +1830,9 @@ Headless coordinator: verify, and merge when allowed, every Review ticket whose 
 Usage: crewboard tick [OPTIONS]
 
 Options:
+      --work-dir <WORK_DIR>
+          A git checkout of the repo. With it the tick also verifies a local-run ticket whose signed Gate is `checks: <name>, ...`: it runs those checks of AUTHORITY.md on a clean checkout of the PR head, like `verify --run-check`. Without it such a ticket is left
+
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
 

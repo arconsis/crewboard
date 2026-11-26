@@ -182,8 +182,8 @@ impl Steps for FourOnCheck {
     fn say(&mut self, t: &str, b: &str, a: bool) -> StepRc {
         self.inner.say(t, b, a)
     }
-    fn tick(&mut self, o: &mut Vec<u8>) -> StepRc {
-        self.inner.tick(o)
+    fn tick(&mut self, w: Option<&Path>, o: &mut Vec<u8>) -> StepRc {
+        self.inner.tick(w, o)
     }
     fn acted_list(&mut self, e: &Path, o: &mut Vec<u8>) -> StepRc {
         self.inner.acted_list(e, o)

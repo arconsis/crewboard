@@ -49,7 +49,8 @@ pub trait Steps {
     /// `say <ticket> --to coordinator --kind info [--override-unread] --body <body>`.
     fn say(&mut self, ticket: &str, body: &str, anyway: bool) -> StepRc;
     /// `tick`: the lines of the headless coordinator.
-    fn tick(&mut self, out: &mut Vec<u8>) -> StepRc;
+    /// `work_dir`: the checkout of the wake, for the checks of a typed Gate.
+    fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc;
     /// `acted --events-file F --list`: `<repo>#<n> <kind>` per event of the file. No board read.
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc;
     /// `acted --events-file F --since T --redeliver-to U`: the events that need an act and got
@@ -206,10 +207,19 @@ impl Steps for InProcess {
         }
     }
 
-    fn tick(&mut self, out: &mut Vec<u8>) -> StepRc {
+    fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
         // the output first, then the reported deleted notes are forgotten (`TickOut::settle`)
         match self.with(|ac| {
-            let t = plain(ops::tickets::tick(ac))?;
+            let env = |k: &str| std::env::var(k).ok();
+            let root = crate::wake::state::state_root(
+                env("XDG_STATE_HOME").as_deref(),
+                env("HOME").as_deref(),
+            );
+            let checks = work_dir.zip(root).map(|(d, r)| ops::tickets::TickChecks {
+                repo_dir: d.to_path_buf(),
+                log_root: r.join("check-runs"),
+            });
+            let t = plain(ops::tickets::tick(ac, checks.as_ref()))?;
             out.extend_from_slice(t.text.as_bytes());
             plain(t.settle(ac))
         }) {
@@ -354,8 +364,11 @@ impl Steps for Subprocess {
         self.run(&head, &["--body", body], &mut Vec::new())
     }
 
-    fn tick(&mut self, out: &mut Vec<u8>) -> StepRc {
-        self.run(&["tick"], &[], out)
+    fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
+        match work_dir.map(|d| d.to_string_lossy().into_owned()) {
+            Some(d) => self.run(&["tick"], &["--work-dir", &d], out),
+            None => self.run(&["tick"], &[], out),
+        }
     }
 
     fn heartbeat(&mut self) -> StepRc {

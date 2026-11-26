@@ -96,7 +96,7 @@ impl Steps for Scripted {
             .push(format!("say {ticket} anyway={anyway} {body}"));
         self.next(&mut Vec::new())
     }
-    fn tick(&mut self, out: &mut Vec<u8>) -> StepRc {
+    fn tick(&mut self, _work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
         self.calls.push("tick".into());
         self.next(out)
     }

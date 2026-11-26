@@ -358,6 +358,10 @@ fn render_gates(r: &Report, s: &mut String) {
         }
     };
     row("Gate `ci`", &g.ci_only);
+    row(
+        "Gate `checks: ...` (the tool runs them; the headless coordinator can verify)",
+        &g.checks,
+    );
     row("another Gate", &g.other);
     row("no signed gate line", &g.unsigned);
 }
@@ -441,9 +445,16 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                        "first_pass_or_accepted": y.first_pass_or_accepted,
                        "tickets_with_fail": y.tickets_with_fail, "fails": y.fails,
                        "rework_tickets": y.rework_tickets, "rework_fails": y.rework_fails,
+<<<<<<< HEAD
                        "repeat_rework_tickets": y.repeat_rework_tickets,
                        "passes": y.passes, "tool_run_passes": y.tool_run_passes},
             "gates": {"ci_only": gate_json(&r.gates.ci_only), "other": gate_json(&r.gates.other),
+=======
+                       "repeat_rework_tickets": y.repeat_rework_tickets},
+            "gates": {"ci_only": gate_json(&r.gates.ci_only),
+                      "checks": gate_json(&r.gates.checks),
+                      "other": gate_json(&r.gates.other),
+>>>>>>> 42e58fa (tick verifies a ticket whose Gate is a list of checks)
                       "unsigned": gate_json(&r.gates.unsigned)},
             "classes": r.classes.iter().map(|c| rows(c.class, &c.events)).collect::<Vec<_>>(),
             "rounds": r.rounds.iter().map(|x| json!({

@@ -101,6 +101,8 @@ pub struct GateRow {
 pub struct GateStats {
     /// The Gate is exactly `ci`: CI alone decides.
     pub ci_only: GateRow,
+    /// The Gate is `checks: a, b`: named checks of AUTHORITY.md that the tool runs.
+    pub checks: GateRow,
     /// Any other Gate: a command, a check by hand, a second condition.
     pub other: GateRow,
     /// No signed gate line (an assignment of an old binary).
@@ -497,6 +499,7 @@ fn gate_stats(facts: &[TicketFacts]) -> GateStats {
     for f in facts {
         let row = match &f.gate {
             Some(g) if g.is_ci_only() => &mut s.ci_only,
+            Some(crate::headless::Gate::Checks(_)) => &mut s.checks,
             Some(_) => &mut s.other,
             None => &mut s.unsigned,
         };

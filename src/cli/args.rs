@@ -747,6 +747,11 @@ pub enum ReviewCmd {
     /// is CI only. Needs no event. Refused in a config dir that is not headless.
     #[command(hide = true, display_order = 29)]
     Tick {
+        /// A git checkout of the repo. With it the tick also verifies a local-run ticket whose
+        /// signed Gate is `checks: <name>, ...`: it runs those checks of AUTHORITY.md on a clean
+        /// checkout of the PR head, like `verify --run-check`. Without it such a ticket is left.
+        #[arg(long)]
+        work_dir: Option<PathBuf>,
         #[command(flatten)]
         sel: Sel,
     },

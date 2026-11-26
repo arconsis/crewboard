@@ -7,6 +7,9 @@
 //! live in `verify` and `merge_ticket`. Every other Review ticket gets one line, "left for
 //! the interactive coordinator: ...", and nothing is written for it.
 //!
+//! A Review ticket whose Gate is `checks: a, b` and whose `done` is a local run is verified by
+//! the checks of the tool (`one_checks`), when the caller gave a checkout. It is never merged.
+//!
 //! A ticket in Review whose issue is closed and whose PR the owner
 //! merged by hand is closed (`owner_merge`). That is no judgment, so it needs no Gate rule.
 //!
@@ -91,6 +94,16 @@ struct Scan<'a> {
     /// forgotten after the caller printed the output ([`TickOut::settle`]), not before: a tick
     /// that fails later, or whose output is not printed, raises them again.
     shown: std::cell::RefCell<Vec<crate::events::SecurityEvent>>,
+    /// Where the checks of a typed Gate run, when the caller gave a checkout.
+    checks: Option<&'a TickChecks>,
+}
+
+/// What the tick needs to run the checks of a ticket whose Gate is `checks: ...`.
+pub struct TickChecks {
+    /// A git checkout of the repo of the PRs.
+    pub repo_dir: std::path::PathBuf,
+    /// Where the logs of all runs are kept.
+    pub log_root: std::path::PathBuf,
 }
 
 /// The ids of the board items that the tick acts on, by what it does with them.
@@ -295,7 +308,7 @@ fn handle_review(
                 s.now,
             )?);
         }
-        out.push_str(&one(ac, &t, &key)?);
+        out.push_str(&one(ac, &t, &key, s.checks)?);
     }
     Ok(())
 }
@@ -317,7 +330,7 @@ impl TickOut {
 
 /// `tick`: see the module text. Returns one line per Review ticket; the caller prints it, then
 /// calls [`TickOut::settle`].
-pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
+pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut> {
     if !ac.ctx.cd.is_headless()? {
         return Err(CbError::refused(
             ids::TICK_HEADLESS_ONLY,
@@ -350,6 +363,7 @@ pub fn tick(ac: &mut AgentCtx) -> CbResult<TickOut> {
         lim: crate::late::expect(&ac.ctx.cfg),
         now: crate::clock::now_epoch(),
         shown: std::cell::RefCell::default(),
+        checks,
     };
     let buckets = Buckets::of(&scan);
     discover_missing(ac, &world, &mut cache, &buckets)?;
@@ -488,12 +502,15 @@ fn is_in_work(status: Option<&str>) -> bool {
 }
 
 /// One Review ticket: its line or lines.
-fn one(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
+fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) -> CbResult<String> {
     // The Gate is the signed `gate:` line of the assignment, not the body (spec/agents#headless-coordinator).
     let gate = match crate::ticket::signed_gate(&t.msgs) {
         None => return Ok(left(key, "no signed gate line: the Gate is not CI only")),
         Some(g) => Gate::parse(&g),
     };
+    if let Gate::Checks(names) = &gate {
+        return one_checks(ac, t, key, names, checks);
+    }
     if let Gate::Text(g) = &gate {
         let shown: String = g.chars().take(80).collect();
         return Ok(left(
@@ -511,6 +528,74 @@ fn one(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
         ));
     }
     one_ci_only(ac, t, key)
+}
+
+/// One Review ticket whose Gate is a list of checks (`checks: a, b`): the tool runs them on a
+/// clean checkout of the head of the `done` and writes the verify. A check that fails is a fact,
+/// not a judgment: the tick records a failed verify with the check, its exit code and the log,
+/// and the ticket goes back to its agent. The tick never merges such a ticket.
+fn one_checks(
+    ac: &mut AgentCtx,
+    t: &Ticket,
+    key: &str,
+    names: &[String],
+    checks: Option<&TickChecks>,
+) -> CbResult<String> {
+    let Some(assignee) = t.agent() else {
+        return Ok(left(key, "no assignee"));
+    };
+    let Some((done, ev)) = latest_done(&t.msgs, assignee) else {
+        return Ok(left(key, "no signed done message with evidence"));
+    };
+    if crate::ticket::kv(&done.body, "protected-paths").is_some() {
+        return Ok(left(key, "protected path: the owner merges this PR"));
+    }
+    if !crate::protocol::acts::is_local_gate(&ev) {
+        return Ok(left(
+            key,
+            "the Gate names checks, but the evidence is CI evidence: the checks of the tool run for a local-run done only (`ci_mode: local`)",
+        ));
+    }
+    match verify_result(&t.msgs, done, t.issue) {
+        Some(true) => {
+            return Ok(left(
+                key,
+                "its checks passed (verified); a ticket with a `checks:` Gate is merged by a person",
+            ));
+        }
+        Some(false) => return Ok(left(key, "the verify of the latest done failed")),
+        None => {}
+    }
+    let Some(c) = checks else {
+        return Ok(left(
+            key,
+            "the Gate names checks, and this tick has no checkout to run them in (`tick --work-dir <git checkout>`)",
+        ));
+    };
+    let run = super::RunArgs {
+        names,
+        repo_dir: &c.repo_dir,
+        log_root: &c.log_root,
+    };
+    let note = "tick: the Gate names checks only; the tool ran them on a clean checkout";
+    match verify(ac, key, note, &[], false, None, Some(&run)) {
+        Ok(v) => Ok(v),
+        Err(CbError::Refused(r)) if r.rule == ids::CHECK_FAILED => {
+            // the first line names the check, the exit code, the commit and the log; the lines
+            // after it are output of code of the PR and stay in the log
+            let fact = r.message.lines().next().unwrap_or("a check failed");
+            let note = format!("tick: {fact}");
+            match verify(ac, key, &note, &[], true, None, None) {
+                Ok(v) => Ok(v),
+                Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
+                Err(e) => Err(e),
+            }
+        }
+        Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
+        // no checkout, a failed fetch, a signal: the next tick tries again
+        Err(CbError::Config(m)) => Ok(left(key, &format!("the checks could not run: {m}"))),
+        Err(e) => Err(e),
+    }
 }
 
 /// One Review ticket whose Gate is CI only: the checks of the evidence, then verify and merge.
