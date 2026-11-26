@@ -2,6 +2,19 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Added:
+
+- `doctor --setup` has one more line, `wake`: the scheduled wakes of this agent on this host.
+  It fails when the wake command failed two times or more in a row, when a refusal stopped the
+  wakes, or when GitHub failed in two runs or more in a row; the fix names the log or the stop
+  file. The board cannot show a failing wake command, because such a wake still polls.
+- `retro` has a section `Gates`: per kind of signed gate line (`ci`, other, none) the tickets,
+  the verified tickets and the tickets whose first verify passed. It shows how much of the work
+  a machine can check. The Verify section also counts the tickets that went back two times or
+  more. `retro --json` has the keys `gates` and `verify.repeat_rework_tickets`.
+
 ## v0.10.0 (2026-11-26)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two commands
