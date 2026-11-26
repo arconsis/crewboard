@@ -4,6 +4,27 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Upgrade: run `crewboard update` on each host. Nothing changes on the board or in a command.
+
+Fixed (all three come from one host, where a login of the runtime had ended):
+
+- The events that a failed wake keeps for the next wake no longer grow. Before, each failed
+  wake added its tickets part and an empty poll part to the kept block: 2571 failed wakes in a
+  row made an events file of 15500 lines for the first wake that worked. Now the kept block
+  holds only the events, so it is the same after any number of failed wakes.
+- A wake command that fails again and again no longer starts at every tick without a word.
+  Two failed wakes in a row pause the next wakes (5 min, doubled, at most 1 h); the run still
+  polls, so the heartbeat goes on. At the third failed wake in a row the coordinator gets one
+  `say` on the first ticket of the agent. The log line names the count and the time of the
+  next try. A wake that works ends the count. The new state file is `wake-fail`.
+- An exit 4 no longer stops the wakes for good when the fault ends by itself (GitHub answered
+  401 to a good token). The stop is tried once per hour with one board call; when the call
+  works, the stop ends and the log says so. A stop that holds writes one log line per try and
+  tells nobody again. A changed env file or agent config, or a removed `stopped` file, lifts
+  the stop at once, as before.
+- `url` 2.5.9 (RUSTSEC-2026-0592: a nested `blob:` URL could overflow the stack in
+  `Url::origin()`). crewboard builds its URLs itself, so no known input reached it.
+
 Changed:
 
 - The skill is shorter where a refusal message or the wake prompt already says the same: the

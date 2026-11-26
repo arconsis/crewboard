@@ -48,6 +48,8 @@ impl Flow<'_, '_> {
                 code
             }
             Ended::Budget => {
+                // the command started and worked until its budget: it runs
+                self.wake_ran();
                 self.start_work_backoff();
                 self.budget_end()
             }
@@ -70,9 +72,11 @@ impl Flow<'_, '_> {
     fn after_exit(&mut self, wrc: u8, start: &str) -> u8 {
         if wrc != 0 {
             self.keep_events();
-            self.log.say(&format!("wake command failed: exit {wrc}"));
+            let line = self.wake_failed(wrc);
+            self.log.say(&line);
             return WakeExit::WakeFailed.code();
         }
+        self.wake_ran();
         // a wake that ends by itself ends the run of budget stops
         best_effort_cleanup(std::fs::remove_file(&self.s.paths.budget_streak));
         if let Err(code) = self.check_acted(start) {

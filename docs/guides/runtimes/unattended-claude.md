@@ -104,7 +104,13 @@ Not tested: a real systemd or cron job on Linux, a full wake with a real board, 
    pauses the next runs (5 min, doubled, at most 1 h). Exit 4 stops the wakes: one line in the
    log and on stderr, and one `say` to the coordinator if crewboard can still post. The wakes
    start again when the env file or the agent config changes, or when you remove
-   `<state-dir>/stopped`.
+   `<state-dir>/stopped`. A stop is also tried once per hour: when a board call works again
+   (GitHub had answered 401 to a good token), the stop ends by itself.
+7. A wake command that fails (not exit 0: a login of the runtime that ended, a missing
+   program) keeps its events for the next wake; the kept events do not grow. Two failed wakes
+   in a row pause the next wakes (5 min, doubled, at most 1 h); the run still polls, so the
+   heartbeat goes on. At the third failed wake in a row the coordinator gets one `say` on the
+   first ticket of the agent. A wake that works ends the count.
 
 The state dir is per agent: `~/.local/state/crewboard/agents/<initiative>-<agent-dir>/`. It has
 the lock, the back-off files, `events.txt` and the log `wake.log`. Two agents on one host never

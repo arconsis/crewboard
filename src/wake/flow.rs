@@ -81,6 +81,9 @@ impl Flow<'_, '_> {
         if let Some(code) = self.signalled() {
             return code;
         }
+        if !self.s.tick && self.wake_paused() {
+            return 0;
+        }
         let held = match self.take_lock() {
             Lock::Held(h) => h,
             Lock::End(code) => return code,
@@ -197,7 +200,74 @@ impl Flow<'_, '_> {
             out.clear();
             rc = f(&mut *self.steps, &mut out);
         }
+        if matches!(rc.code, 0 | 1) {
+            self.end_stop();
+        }
         (rc, out)
+    }
+
+    /// A board call worked while the stop file of an earlier exit 4 is there (the hourly try of
+    /// `preflight`): the fault is over, the stop ends.
+    fn end_stop(&self) {
+        let stop = &self.s.paths.stop;
+        if stop.exists() {
+            best_effort_cleanup(std::fs::remove_file(stop));
+            self.log
+                .say("stop lifted: the board calls work again; polling again");
+        }
+    }
+
+    // --- failed wakes ---
+
+    /// Is the wake command paused after wakes that failed in a row?
+    fn wake_paused(&self) -> bool {
+        state::read_text(&self.s.paths.wake_fail)
+            .map(|t| NetBackoff::parse(&t))
+            .is_some_and(|b| b.pauses(self.clock.now()))
+    }
+
+    /// The wake command ended by itself with exit 0, or at its budget: it runs.
+    pub(super) fn wake_ran(&self) {
+        best_effort_cleanup(std::fs::remove_file(&self.s.paths.wake_fail));
+    }
+
+    /// The wake command failed with `rc`: count it, pause the next wakes, and at the third in a
+    /// row tell the coordinator once. Returns the text for the log line.
+    pub(super) fn wake_failed(&mut self, rc: u8) -> String {
+        let prev = state::read_text(&self.s.paths.wake_fail)
+            .map(|t| NetBackoff::parse(&t))
+            .unwrap_or_default();
+        let now = self.clock.now();
+        let next = policy::wake_failed(prev, now);
+        self.put(&self.s.paths.wake_fail, next.render().as_bytes());
+        if next.fails == policy::WAKE_TELL_RUN {
+            let agent = self.s.agent.clone().unwrap_or_else(|| "this agent".into());
+            self.tell_coordinator(&policy::wake_fail_text(&agent, next.fails, rc));
+        }
+        if next.fails < 2 {
+            return format!("wake command failed: exit {rc}");
+        }
+        format!(
+            "wake command failed: exit {rc} ({} in a row; the next wake not before {})",
+            next.fails,
+            format_ts(next.until)
+        )
+    }
+
+    /// One `say` to the coordinator on the first ticket of the agent, also when a message is
+    /// unread. Without a ticket, or when the post fails, nobody is told: `false`.
+    fn tell_coordinator(&mut self, body: &str) -> bool {
+        let mut out = Vec::new();
+        // a call that fails here is not counted: the caller has its own failure to report
+        let _ = self.steps.mine_text(&mut out);
+        let Some(t) = policy::first_ticket(&String::from_utf8_lossy(&out)) else {
+            return false;
+        };
+        let told = self.steps.say(&t, body, true).code == 0;
+        if told {
+            self.log.line(&format!("told the coordinator on {t}"));
+        }
+        told
     }
 
     pub(super) fn net_ok(&self) {
@@ -247,27 +317,28 @@ impl Flow<'_, '_> {
             ));
             return WakeExit::Config.code();
         }
+        // the hourly try of a stop that is still there: the owner and the coordinator know it
+        let again = self.s.paths.stop.exists();
         let line = format!("{} {call}: {reason}\n", format_ts(self.clock.now()));
         self.put(&self.s.paths.stop, line.as_bytes());
+        if again {
+            self.log
+                .line(&format!("still stopped: crewboard {call} exit 4: {reason}"));
+            return WakeExit::Config.code();
+        }
         self.log.say(&format!(
-            "STOPPED: crewboard {call} exit 4: {reason}. No more wakes until the env file or the agent config changes, or you remove {}",
+            "STOPPED: crewboard {call} exit 4: {reason}. No more wakes until the env file or the agent config changes, or you remove {}; the board is tried once per hour",
             self.s.paths.stop.display()
         ));
         if let Some(code) = self.signalled() {
             return code;
         }
         // a key or config error often stops this too; then nobody is told
-        let mut out = Vec::new();
-        let _ = self.steps.mine_text(&mut out);
-        if let Some(t) = policy::first_ticket(&String::from_utf8_lossy(&out)) {
-            let body = format!(
-                "The wake wrapper of {} stopped: crewboard exit 4 ({reason}). It polls again when the owner has fixed the config or the token.",
-                self.s.agent.as_deref().unwrap_or("this agent")
-            );
-            if self.steps.say(&t, &body, true).code == 0 {
-                self.log.line(&format!("told the coordinator on {t}"));
-            }
-        }
+        let body = format!(
+            "The wake wrapper of {} stopped: crewboard exit 4 ({reason}). It polls again when the owner has fixed the config or the token; it tries the board once per hour.",
+            self.s.agent.as_deref().unwrap_or("this agent")
+        );
+        self.tell_coordinator(&body);
         WakeExit::Config.code()
     }
 }
