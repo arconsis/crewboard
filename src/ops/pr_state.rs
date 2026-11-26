@@ -122,7 +122,7 @@ pub fn done_pr(
 /// Read one PR: the PR (head, base, merge state) and the CI of the head.
 pub fn read_pr(client: &Client, repo: &str, number: u64) -> PrView {
     let pr = format!("{repo}#{number}");
-    let Ok(r) = client.get(&format!("repos/{repo}/pulls/{number}")) else {
+    let Ok(r) = crate::github::api::pulls::get(client, repo, number) else {
         return PrView {
             pr,
             head: None,
@@ -130,10 +130,9 @@ pub fn read_pr(client: &Client, repo: &str, number: u64) -> PrView {
             merge: None,
         };
     };
-    let s = |p: &str| r.body.pointer(p).and_then(Value::as_str);
-    let head = s("/head/sha").map(str::to_string);
-    let merge = s("/mergeable_state").map(str::to_string);
-    let ci = match (&head, s("/base/ref")) {
+    let head = r.head_sha;
+    let merge = r.mergeable_state;
+    let ci = match (&head, r.base_ref.as_deref()) {
         (Some(h), Some(base)) => {
             let q = CiQuery {
                 repo,

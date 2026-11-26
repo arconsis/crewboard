@@ -13,6 +13,7 @@
 use super::{absolute, missing_dir};
 use crate::error::{CbError, CbResult};
 use crate::fsutil::{Mode, is_executable, set_mode, write_atomic};
+use crate::github::api::users::noreply_email;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -247,11 +248,6 @@ impl Identity<'_> {
             self.repo.display()
         ))
     }
-}
-
-/// The e-mail that GitHub accepts for an agent account: `<id>+<login>@users.noreply.github.com`.
-pub fn noreply_email(login: &str, id: &str) -> String {
-    format!("{id}+{login}@users.noreply.github.com")
 }
 
 /// The cache file `crew-id` of an agent dir: `<login> <id>`.
@@ -604,14 +600,6 @@ mod tests {
         assert_eq!(read_crew_id(t.path()), None);
         std::fs::write(t.path().join("crew-id"), "crew-bot\n").unwrap();
         assert_eq!(read_crew_id(t.path()), None);
-    }
-
-    #[test]
-    fn the_noreply_email_has_the_id_first() {
-        assert_eq!(
-            noreply_email("crew-bot", "4242"),
-            "4242+crew-bot@users.noreply.github.com"
-        );
     }
 
     #[test]

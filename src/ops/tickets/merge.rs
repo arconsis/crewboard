@@ -23,6 +23,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::{CbError, CbResult};
 use crate::github::GhError;
+use crate::github::api::pulls;
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::acts::{EvidenceMsg, is_local_gate};
 use crate::protocol::names::{Kind, Re};
@@ -779,15 +780,8 @@ fn plan_mergeable(
         MERGEABLE_READS,
         || clock.sleep(MERGEABLE_WAIT),
         || -> CbResult<String> {
-            let r = ac
-                .ctx
-                .client
-                .get(&format!("repos/{}/pulls/{}", pr.repo, pr.number))?;
-            Ok(r.body
-                .get("mergeable_state")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string())
+            let r = pulls::get(&ac.ctx.client, &pr.repo, pr.number)?;
+            Ok(r.mergeable_state.unwrap_or_default())
         },
     )?;
     let (state, conflict) = match state {
@@ -830,14 +824,7 @@ fn plan_merge(
     if let Some(action) = plan_mergeable(ac, l, &pre, &read, clock)? {
         return Ok(action);
     }
-    let head_repo = ac
-        .ctx
-        .client
-        .get(&format!("repos/{}/pulls/{}", read.pr.repo, read.pr.number))?
-        .body
-        .pointer("/head/repo/full_name")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let head_repo = pulls::get(&ac.ctx.client, &read.pr.repo, read.pr.number)?.head_repo;
     Ok(MergeAction::Merge(Box::new(merge_steps(&StepFacts {
         auth: &pre.auth,
         ticket_key: t.key(),

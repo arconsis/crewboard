@@ -280,8 +280,13 @@ pub struct OpenPrRef {
 /// The head of a PR, for the message of a wake that ended at its time budget. `None` when the
 /// PR does not exist.
 pub fn pr_head(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<Option<PrHead>> {
-    let got = crate::github::optional(ac.ctx.client.get(&format!("repos/{repo}/pulls/{number}")))?;
-    Ok(got.and_then(|r| head_of(&r.body)))
+    let got = crate::github::optional(pulls::get(&ac.ctx.client, repo, number))?;
+    Ok(got.and_then(|p| {
+        Some(PrHead {
+            head_ref: p.head_ref?,
+            head_sha: p.head_sha?,
+        })
+    }))
 }
 
 /// The open PRs of a repo, every page.
@@ -296,15 +301,6 @@ pub fn open_prs(ac: &AgentCtx, repo: &str) -> CbResult<Vec<OpenPrRef>> {
         .collect())
 }
 
-/// The head of a PR object.
-fn head_of(pr: &Value) -> Option<PrHead> {
-    let s = |p: &str| pr.pointer(p).and_then(Value::as_str).map(str::to_string);
-    Some(PrHead {
-        head_ref: s("/head/ref")?,
-        head_sha: s("/head/sha")?,
-    })
-}
-
 /// The PR of an In Progress ticket: `(owner/repo#n, head sha, base ref)`. The PR of the latest
 /// `done` of the agent first (one PR read), else the open PR of the ticket branch (one list
 /// read per repo of the initiative, the ticket repo first). `Ok(None)`: no PR.
@@ -314,15 +310,11 @@ fn find_pr(
     r: &TicketRow,
 ) -> CbResult<Option<(String, String, String)>> {
     let me = ac.name.as_str();
-    let s = |v: &Value, p: &str| v.pointer(p).and_then(Value::as_str).map(str::to_string);
     if let Some((_, ev)) = latest_done(msgs, me)
         && let Ok(u) = parse_pr_url(&ev.pr)
     {
-        let pr = ac
-            .ctx
-            .client
-            .get(&format!("repos/{}/pulls/{}", u.repo, u.number))?;
-        if let (Some(head), Some(base)) = (s(&pr.body, "/head/sha"), s(&pr.body, "/base/ref")) {
+        let pr = pulls::get(&ac.ctx.client, &u.repo, u.number)?;
+        if let (Some(head), Some(base)) = (pr.head_sha, pr.base_ref) {
             return Ok(Some((format!("{}#{}", u.repo, u.number), head, base)));
         }
     }

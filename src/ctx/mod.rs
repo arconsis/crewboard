@@ -15,6 +15,7 @@ use crate::comments::Comment;
 use crate::config::{AgentConfig, BoardConfig, ConfigDir, load_key};
 use crate::error::{CbError, CbResult};
 use crate::feed;
+use crate::github::api::contents;
 use crate::github::{Client, GhError, optional, resolve_owner_token, resolve_token};
 use crate::items::ItemSnapshot;
 use crate::protocol::names::AgentName;
@@ -38,30 +39,8 @@ pub use token::{
 /// The text of the authority file on the default branch of the main repo; `None` if it is not
 /// there. A REST read by `owner/name`, so it follows a transfer or rename redirect.
 pub fn fetch_authority_text(client: &Client, repo: &str, path: &str) -> CbResult<Option<String>> {
-    let got = optional(client.get(&format!("repos/{repo}/contents/{path}")))?;
-    Ok(got.map(|r| decode_contents(&r.body).unwrap_or_default()))
-}
-
-/// The text of a file from the answer of the contents API (`GET repos/{repo}/contents/{path}`):
-/// base64 in lines, UTF-8 inside. The one decoder for every read of a repo file. `Err` holds
-/// the reason as text that completes "<file> ...": no content (a directory, or a file over the
-/// 1 MB limit of the API, which answers `encoding: none`), not base64, or not UTF-8.
-pub fn decode_contents(body: &serde_json::Value) -> Result<String, String> {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD;
-    let content = body.get("content").and_then(serde_json::Value::as_str);
-    let Some(b64) = content.filter(|_| {
-        body.get("encoding")
-            .and_then(serde_json::Value::as_str)
-            .is_none_or(|e| e == "base64")
-    }) else {
-        return Err("has no content".to_string());
-    };
-    let clean: String = b64.chars().filter(|c| !c.is_whitespace()).collect();
-    let bytes = STANDARD
-        .decode(clean)
-        .map_err(|e| format!("is not base64: {e}"))?;
-    String::from_utf8(bytes).map_err(|e| format!("is not UTF-8: {e}"))
+    let got = optional(contents::file(client, repo, path, None))?;
+    Ok(got.map(|f| f.text.unwrap_or_default()))
 }
 
 /// Read AUTHORITY.md of the main repo once where the context loads. The text is kept in the

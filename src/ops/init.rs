@@ -19,9 +19,9 @@ use crate::board::{
 use crate::config::{
     BoardConfig, INITIATIVE_FILE, merge_init_keys, split_repo, valid_initiative_name,
 };
-use crate::ctx::decode_contents;
 use crate::error::{CbError, CbResult};
 use crate::github::api::issues::{self, IssueSummary, State};
+use crate::github::api::{contents, users};
 use crate::github::projects;
 use crate::github::{Client, GhError, is_already_exists, optional};
 use crate::rules::fields::Field;
@@ -215,17 +215,8 @@ fn file_on(
     path: &str,
     git_ref: &str,
 ) -> CbResult<Option<(String, String)>> {
-    let got = optional(client.get(&format!("repos/{repo}/contents/{path}?ref={git_ref}")))?;
-    Ok(got.map(|r| {
-        (
-            decode_contents(&r.body).unwrap_or_default(),
-            r.body
-                .get("sha")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-        )
-    }))
+    let got = optional(contents::file(client, repo, path, Some(git_ref)))?;
+    Ok(got.map(|f| (f.text.unwrap_or_default(), f.sha)))
 }
 
 #[derive(Default)]
@@ -870,24 +861,18 @@ fn check_crew_login(
             format!("--crew-login {crew} is the owner: agents may not act as the owner"),
         ));
     }
-    let r = optional(client.get(&format!("users/{crew}")))?
+    let u = optional(users::get(client, crew))?
         .ok_or_else(|| CbError::config(format!("--crew-login {crew}: no such GitHub user")))?;
-    if r.body.get("type").and_then(Value::as_str) != Some("User") {
+    if u.kind.as_deref() != Some("User") {
         return Err(CbError::config(format!(
             "--crew-login {crew} is not a user account"
         )));
     }
-    let id = r
-        .body
-        .get("id")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| GhError::Shape("crew user has no numeric id".into()))?;
-    let node = r
-        .body
-        .get("node_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| GhError::Shape("crew user has no node_id".into()))?
-        .to_string();
+    let id =
+        u.id.ok_or_else(|| GhError::Shape("crew user has no numeric id".into()))?;
+    let node = u
+        .node_id
+        .ok_or_else(|| GhError::Shape("crew user has no node_id".into()))?;
     rep.line(format!("agent account: {crew}"));
     for repo in repos {
         match client.get(&format!("{}/collaborators/{crew}/permission", repo_path(repo)?)) {

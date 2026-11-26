@@ -7,8 +7,10 @@
 //! with `truncated` where the caller decides), or one page on purpose (a sample, or a search
 //! where any hit will do).
 
+pub mod contents;
 pub mod issues;
 pub mod pulls;
+pub mod users;
 
 use crate::github::GhError;
 

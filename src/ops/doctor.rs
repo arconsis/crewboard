@@ -20,6 +20,7 @@ use crate::builtin_workflows;
 use crate::config::ConfigDir;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::find_on_path;
+use crate::github::api::users;
 use crate::rules::fields::Field;
 use std::path::{Path, PathBuf};
 
@@ -1040,36 +1041,30 @@ fn check_git_identity(
             "git identity",
             CheckVerdict::Skip("needs a working token".into()),
         ),
-        (Some(crew), Some(c)) => {
-            match c
-                .get(&format!("users/{crew}"))
-                .ok()
-                .and_then(|r| r.body.get("id").and_then(serde_json::Value::as_u64))
-            {
-                Some(id) => {
-                    let email = format!("{id}+{crew}@users.noreply.github.com");
-                    let found = read_git_identity(work_dir);
-                    rep.push(
-                        "git identity",
-                        judge_git(
-                            work_dir,
-                            found.as_ref(),
-                            crew,
-                            &email,
-                            shim,
-                            cfg.main_repo(),
-                        ),
-                    );
-                }
-                None => rep.push(
+        (Some(crew), Some(c)) => match users::get(c, crew).ok().and_then(|u| u.id) {
+            Some(id) => {
+                let email = users::noreply_email(crew, &id.to_string());
+                let found = read_git_identity(work_dir);
+                rep.push(
                     "git identity",
-                    fail(
-                        format!("cannot read the id of {crew} (GET users/{crew})"),
-                        "check the crew login of the board and the token, then run again",
+                    judge_git(
+                        work_dir,
+                        found.as_ref(),
+                        crew,
+                        &email,
+                        shim,
+                        cfg.main_repo(),
                     ),
-                ),
+                );
             }
-        }
+            None => rep.push(
+                "git identity",
+                fail(
+                    format!("cannot read the id of {crew} (GET users/{crew})"),
+                    "check the crew login of the board and the token, then run again",
+                ),
+            ),
+        },
     }
 }
 
