@@ -96,7 +96,7 @@ impl Steps for Beats {
     fn say(&mut self, _: &str, _: &str, _: bool) -> StepRc {
         unreachable!()
     }
-    fn tick(&mut self, _: &mut Vec<u8>) -> StepRc {
+    fn tick(&mut self, _: Option<&Path>, _: &mut Vec<u8>) -> StepRc {
         unreachable!()
     }
     fn acted_list(&mut self, _: &Path, _: &mut Vec<u8>) -> StepRc {

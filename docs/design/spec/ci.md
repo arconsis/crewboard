@@ -368,4 +368,7 @@ protected_paths: [Makefile]
      the checkout and that no protected path covers. A file that a command reads without a
      word for it (a `Makefile`) gets no warning. `doctor --setup` prints the same warning from
      the command lines alone, before any run.
-7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`.
+7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`. `tick
+   --work-dir` runs the checks itself for a ticket whose signed Gate is `checks: <name>, ...`
+   and nothing else; it verifies, and it never merges such a ticket
+   ([Headless coordinator](agents.md#headless-coordinator), 5a).

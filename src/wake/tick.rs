@@ -7,7 +7,8 @@ impl Flow<'_, '_> {
     /// One `tick` call (with the retries). A tick that gives the same text as the last one is a
     /// quiet poll; else its lines go to the log. The result is the exit code.
     pub(super) fn tick(&mut self) -> u8 {
-        let (rc, out) = self.call("tick", &mut |s, o| s.tick(o));
+        let wd = self.s.work_dir.clone();
+        let (rc, out) = self.call("tick", &mut |s, o| s.tick(wd.as_deref(), o));
         if let Some(code) = self.signalled() {
             return code;
         }

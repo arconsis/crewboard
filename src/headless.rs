@@ -90,12 +90,19 @@ pub fn in_scope(config_dir: Option<&std::path::Path>) -> CbResult<bool> {
 /// and the signed `gate:` line of the assignment carries it.
 pub const GATE_CI: &str = "ci";
 
+/// The key of the Gate line of a ticket whose Gate is a list of checks: `Gate: checks: a, b`.
+pub const GATE_CHECKS: &str = "checks";
+
 /// The Gate of a ticket as the headless coordinator reads it: the one success line of the
 /// ticket (spec/agents#headless-coordinator). [`Gate::parse`] is the only parser of the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gate {
     /// The typed CI-only Gate: the text is `ci` (any letter case, spaces around it ignored).
     Ci,
+    /// The typed Gate of named checks: `checks: <name>, <name>`. The names are checks of
+    /// AUTHORITY.md that `verify --run-check` runs (spec/ci#checks-that-the-tool-runs). The
+    /// headless coordinator verifies such a ticket; it does not merge it.
+    Checks(Vec<String>),
     /// Any other Gate (a command, a by-hand check, a second condition): never CI only.
     Text(String),
 }
@@ -106,11 +113,37 @@ impl Gate {
     /// [`Gate::Text`]. A signed gate that joins several `Gate:` lines of the body with ` | ` is
     /// a `Text`.
     pub fn parse(signed_gate_line: &str) -> Gate {
-        if signed_gate_line.trim().eq_ignore_ascii_case(GATE_CI) {
-            Gate::Ci
-        } else {
-            Gate::Text(signed_gate_line.to_string())
+        let text = signed_gate_line.trim();
+        if text.eq_ignore_ascii_case(GATE_CI) {
+            return Gate::Ci;
         }
+        match Self::check_names(text) {
+            Some(names) => Gate::Checks(names),
+            None => Gate::Text(signed_gate_line.to_string()),
+        }
+    }
+
+    /// The names of `checks: a, b`: the key in any letter case, then one name or more, each of
+    /// lower-case letters, digits and `-`, no name twice. Any other text is `None`: a Gate with
+    /// one more word is prose, and a person reads it.
+    fn check_names(text: &str) -> Option<Vec<String>> {
+        let (key, rest) = text.split_once(':')?;
+        if !key.trim().eq_ignore_ascii_case(GATE_CHECKS) {
+            return None;
+        }
+        let mut names: Vec<String> = Vec::new();
+        for n in rest.split(',').map(str::trim) {
+            let ok = !n.is_empty()
+                && n.len() <= 32
+                && !n.starts_with('-')
+                && n.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+            if !ok || names.iter().any(|x| x == n) {
+                return None;
+            }
+            names.push(n.to_string());
+        }
+        Some(names)
     }
 
     /// Is the Gate CI only?
@@ -179,6 +212,29 @@ mod tests {
         for g in ["ci", "CI", "Ci", "  ci  ", "ci\n"] {
             assert_eq!(Gate::parse(g), Gate::Ci, "{g:?}");
         }
+    }
+
+    #[test]
+    fn a_gate_of_named_checks_is_typed_and_any_other_word_makes_it_prose() {
+        let names = |v: &[&str]| Gate::Checks(v.iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            Gate::parse("checks: ara, private"),
+            names(&["ara", "private"])
+        );
+        assert_eq!(Gate::parse("  Checks:tests \n"), names(&["tests"]));
+        for g in [
+            "checks:",
+            "checks: ara,",
+            "checks: ara, ara",
+            "checks: ara and the page is unchanged",
+            "checks: Ara",
+            "checks: ara; private",
+            "the checks: ara",
+            "check: ara",
+        ] {
+            assert_eq!(Gate::parse(g), Gate::Text(g.to_string()), "{g}");
+        }
+        assert!(!Gate::parse("checks: ara").is_ci_only());
     }
 
     #[test]

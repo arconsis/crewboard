@@ -204,7 +204,7 @@ limits it. The prompt does not.
    | `status`, `mine`, `audit`, `retro`, `agent profile show` | allowed (read-only) |
    | `watch`, `poll` | allowed. They are not read-only: each cycle, also with `--quiet`, runs the coordinator duties (item 6) |
    | `start`, `resume` (own), `agent selftest`, `heartbeat` | allowed (liveness of the agent itself) |
-   | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8) |
+   | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8). With `--work-dir` it also runs the checks of a ticket whose Gate is `checks: ...` (see 5a) |
    | `verify` | allowed (no `--run`; it counts the named runs of the evidence, [ci](ci.md#which-ci-runs-count) point 10); a ticket with an open question to the owner is refused, also after the owner answered in a chat ([Verify after the owner's go](tickets.md#verify-after-the-owners-go)) |
    | `merge` | allowed, with the checks of 4 (no `--run`); a ticket with an open question to the owner is refused, as for `verify` |
    | `close` (bare) | allowed (the owner merged the PR by hand: a fact, not a judgment; [Close after an owner merge](tickets.md#close-after-an-owner-merge)); a ticket with an open question is allowed too |
@@ -220,6 +220,7 @@ limits it. The prompt does not.
    | `verify --run`, `merge --run` | refused (a named run belongs to a Gate that is not CI only) |
    | `verify --fail` | refused (a failed Gate check is a judgment of the interactive coordinator) |
    | `verify --local-run` | refused (a local run is a judgment of the interactive coordinator, [Local run](ci.md#local-run-ci_mode-local)) |
+   | `verify --run-check` | refused as a command. `tick` runs the checks itself, and only for a Gate that names nothing but checks (see 5a) |
    | `merge` of a local-run ticket | refused (the evidence is `ci: local-gate`, so the Gate is not CI only) |
 
    A new command has no verdict until someone writes one: the match has no catch-all arm.
@@ -248,6 +249,29 @@ limits it. The prompt does not.
    doubt, the answer is "not CI only". `ticket new --gate-ci` writes `Gate: ci` (a
    body with another `Gate:` line is refused, so no real condition is lost), and the `left`
    line of `tick` names the signed Gate and the flag.
+   5a. **A Gate of named checks.** The second typed Gate is `checks: <name>, <name>` (`Gate:
+   checks: tests, format` in the body): the key in any letter case, then one name or more of
+   lower-case letters, digits and `-`, no name twice, and nothing else. One more word makes
+   the Gate prose, and a person reads it. The names are checks of `checks` in `AUTHORITY.md`
+   ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)). For a ticket in Review with
+   such a Gate and a local-run `done`, `tick --work-dir <git checkout>` does what `verify
+   --run-check` does: it runs the named checks on a clean checkout of the head of the `done`
+   and writes the verify with the line of the tool. Rules:
+   - **It never merges such a ticket.** Its next line for the ticket is "its checks passed
+     (verified); a ticket with a `checks:` Gate is merged by a person". The headless `merge`
+     still needs the Gate `ci`.
+   - **A check that fails is a fact, not a judgment.** `tick` records a failed verify. Its
+     failure text is `tick: check <name> exited <rc> on a clean checkout of <sha> (<n>s). Log:
+     <path>`. The output of the check is text of the PR and stays in the log. The ticket goes
+     back to its agent, and the checks do not run again before a new `done`.
+   - **Nothing runs** without `--work-dir`, for a `done` with CI evidence, for a `done` with a
+     `protected-paths:` line, or when the checks cannot start (no checkout, a failed fetch).
+     The ticket then gets a "left" line, and the next tick tries again.
+   - **It runs code of a PR with nobody watching.** The checks run as the OS user of the
+     headless coordinator, with its files and its signing key (see
+     [the limits](ci.md#checks-that-the-tool-runs), item 6). Give that user nothing else, and
+     list the files that the checks run in `protected_paths`: a PR that changes one is left
+     for the owner, and no check runs for it.
 6. **What the headless coordinator does with the rest.** `tick` does nothing on the board for
    a ticket it leaves. It writes one line per ticket to its own log ("left for the interactive
    coordinator: <ticket>, <reason>") and posts no message. The `watch` and `poll` cycle of a
