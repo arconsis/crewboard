@@ -242,6 +242,7 @@ fn verify_counts_the_first_result_and_the_fails() {
             fails: 3,
             rework_tickets: 2,
             rework_fails: 3,
+            repeat_rework_tickets: 1,
         }
     );
     // a verify text of a dev agent is no verify result
@@ -519,6 +520,7 @@ fn the_rework_numbers_and_the_first_verify_leave_the_accepted_fails_out() {
             fails: 4,
             rework_tickets: 2,
             rework_fails: 2,
+            repeat_rework_tickets: 0,
         }
     );
     assert_eq!(issues(&class(&r, ACCEPTED_AFTER_HEAD_MOVED)), [1, 3]);
@@ -849,4 +851,85 @@ fn the_flow_times_are_the_median_and_the_ninetieth_percentile_over_tickets() {
             p90_s: 9 * HOUR
         })
     );
+}
+
+/// An assignment whose signed gate line is `text`.
+fn assign_gate(log: Log, hour: i64, text: &str) -> Log {
+    log.coord(
+        hour,
+        Kind::Request,
+        &format!("Assigned to you: t\ngate: {text}\n"),
+    )
+}
+
+#[test]
+fn the_tickets_are_counted_by_the_kind_of_their_signed_gate() {
+    // 1: Gate `ci`, first verify passes. 2: Gate `CI ` (any case, spaces), first verify fails.
+    // 3: another Gate, passes. 4: another Gate, not verified yet. 5: no gate line at all.
+    let logs = vec![
+        assign_gate(Log::new(1), 1, "ci").done(2).pass(3).build(),
+        assign_gate(Log::new(2), 1, " CI ")
+            .done(2)
+            .fail(3, &[review("x")])
+            .done(4)
+            .pass(5)
+            .build(),
+        assign_gate(Log::new(3), 1, "cargo test")
+            .done(2)
+            .pass(3)
+            .build(),
+        assign_gate(Log::new(4), 1, "ci and a review")
+            .done(2)
+            .build(),
+        Log::new(5)
+            .coord(1, Kind::Request, "Assigned to you: t\n")
+            .done(2)
+            .pass(3)
+            .build(),
+    ];
+    let g = retro(&logs).gates;
+    let row = |tickets, verified, first_pass| GateRow {
+        tickets,
+        verified,
+        first_pass,
+    };
+    assert_eq!(g.ci_only, row(2, 2, 1));
+    assert_eq!(g.other, row(2, 1, 1));
+    assert_eq!(g.unsigned, row(1, 1, 1));
+}
+
+#[test]
+fn the_latest_assignment_decides_the_gate_kind() {
+    let log = assign_gate(Log::new(1), 1, "make check");
+    let log = assign_gate(log, 2, "ci").done(3).pass(4).build();
+    let g = retro(&[log]).gates;
+    assert_eq!((g.ci_only.tickets, g.other.tickets), (1, 0));
+}
+
+#[test]
+fn a_ticket_that_went_back_two_times_is_counted_once() {
+    let logs = vec![
+        // two fails that are rework
+        Log::new(1)
+            .assign(1)
+            .done(2)
+            .fail(3, &[review("a")])
+            .done(4)
+            .fail(5, &[review("b")])
+            .done(6)
+            .pass(7)
+            .build(),
+        // one fail
+        Log::new(2)
+            .assign(1)
+            .done(2)
+            .fail(3, &[review("a")])
+            .done(4)
+            .pass(5)
+            .build(),
+        // none
+        Log::new(3).assign(1).done(2).pass(3).build(),
+    ];
+    let y = retro(&logs).verify;
+    assert_eq!((y.rework_tickets, y.repeat_rework_tickets), (2, 1));
 }

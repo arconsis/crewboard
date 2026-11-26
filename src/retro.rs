@@ -73,8 +73,33 @@ pub struct VerifyStats {
     pub fails: usize,
     /// Tickets with at least one fail that is rework.
     pub rework_tickets: usize,
+    /// Tickets with two or more fails that are rework: the work went back more than once.
+    pub repeat_rework_tickets: usize,
     /// Fails that are rework.
     pub rework_fails: usize,
+}
+
+/// The tickets of one kind of Gate, and how their first verify went.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GateRow {
+    pub tickets: usize,
+    /// Tickets with at least one verify result.
+    pub verified: usize,
+    /// Tickets whose first verify result is a pass.
+    pub first_pass: usize,
+}
+
+/// The tickets by the kind of their signed Gate (the `gate:` line of the latest assignment; the
+/// issue body is not read). It answers how much of the work a machine can decide: the headless
+/// coordinator verifies and merges only a ticket whose Gate is `ci`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GateStats {
+    /// The Gate is exactly `ci`: CI alone decides.
+    pub ci_only: GateRow,
+    /// Any other Gate: a command, a check by hand, a second condition.
+    pub other: GateRow,
+    /// No signed gate line (an assignment of an old binary).
+    pub unsigned: GateRow,
 }
 
 /// The fails of one class.
@@ -154,6 +179,7 @@ pub struct Report {
     pub first: Option<i64>,
     pub last: Option<i64>,
     pub verify: VerifyStats,
+    pub gates: GateStats,
     /// Only classes with a fail, in the order of [`FailClass::ALL`].
     pub classes: Vec<ClassRow>,
     pub rounds: Vec<Round>,
@@ -239,6 +265,8 @@ struct Verified {
 struct TicketFacts {
     /// Creation time of the first assignment.
     assigned: Option<i64>,
+    /// The signed Gate of the latest assignment; `None`: no signed gate line.
+    gate: Option<crate::headless::Gate>,
     /// Creation time of each `done` of the assignee.
     dones: Vec<i64>,
     verifies: Vec<Verified>,
@@ -311,8 +339,10 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
         let by_assignee = !closed && assignee == Some(name.as_str());
         let ev = || event_of(log, m);
         match (m.kind, act) {
-            (_, Act::Assignment { .. }) if coordinator => {
+            (_, Act::Assignment { gate, .. }) if coordinator => {
                 f.assigned.get_or_insert(m.created);
+                // the latest assignment decides, as for the headless coordinator
+                f.gate = gate.as_deref().map(crate::headless::Gate::parse);
                 assignee = Some(m.to.as_str());
             }
             (_, Act::Reassigned) if coordinator => {
@@ -447,6 +477,24 @@ fn verify_stats(facts: &[TicketFacts]) -> VerifyStats {
         s.rework_fails += rework;
         s.tickets_with_fail += usize::from(fails > 0);
         s.rework_tickets += usize::from(rework > 0);
+        s.repeat_rework_tickets += usize::from(rework > 1);
+    }
+    s
+}
+
+fn gate_stats(facts: &[TicketFacts]) -> GateStats {
+    let mut s = GateStats::default();
+    for f in facts {
+        let row = match &f.gate {
+            Some(g) if g.is_ci_only() => &mut s.ci_only,
+            Some(_) => &mut s.other,
+            None => &mut s.unsigned,
+        };
+        row.tickets += 1;
+        if let Some(first) = f.verifies.first() {
+            row.verified += 1;
+            row.first_pass += usize::from(first.pass);
+        }
     }
     s
 }
@@ -569,6 +617,7 @@ pub fn retro(logs: &[TicketLog]) -> Report {
         first: times().min(),
         last: times().max(),
         verify: verify_stats(&facts),
+        gates: gate_stats(&facts),
         classes: class_rows(&facts),
         rounds: rounds(&tickets, &facts),
         andon: andon(&tickets, &facts),

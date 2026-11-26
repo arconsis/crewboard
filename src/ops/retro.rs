@@ -291,6 +291,11 @@ pub fn render(v: &View, r: &Report) -> String {
         y.rework_fails,
         a = crate::retro::ACCEPTED_AFTER_HEAD_MOVED,
     ));
+    s.push_str(&format!(
+        "  tickets that went back two times or more: {}\n",
+        y.repeat_rework_tickets
+    ));
+    render_gates(r, &mut s);
     s.push_str("\nVerify fails by class (a fail with failures of two classes is in both)\n");
     if r.classes.is_empty() {
         s.push_str("  none\n");
@@ -324,6 +329,31 @@ pub fn render(v: &View, r: &Report) -> String {
     }
     render_flow(r, &mut s);
     s
+}
+
+/// The section "Gates": how much of the work CI alone can decide.
+fn render_gates(r: &Report, s: &mut String) {
+    let g = &r.gates;
+    s.push_str(&format!(
+        "\nGates (the signed gate line of the assignment)\n  Gate `ci` (CI alone decides; the headless coordinator can verify and merge): {} of {}{}\n",
+        g.ci_only.tickets,
+        r.tickets,
+        percent(g.ci_only.tickets, r.tickets)
+    ));
+    let mut row = |name: &str, x: &crate::retro::GateRow| {
+        if x.tickets > 0 {
+            s.push_str(&format!(
+                "  {name}: {} ticket(s), first verify passed {} of {}{}\n",
+                x.tickets,
+                x.first_pass,
+                x.verified,
+                percent(x.first_pass, x.verified)
+            ));
+        }
+    };
+    row("Gate `ci`", &g.ci_only);
+    row("another Gate", &g.other);
+    row("no signed gate line", &g.unsigned);
 }
 
 fn render_andon(v: &View, r: &Report, s: &mut String) {
@@ -381,6 +411,10 @@ fn spread_json(s: Option<Spread>) -> Value {
 
 /// The same data as [`render`]. Every listed event carries the URL of its comment and, only
 /// here, the sender and the addressee.
+fn gate_json(x: &crate::retro::GateRow) -> Value {
+    json!({"tickets": x.tickets, "verified": x.verified, "first_pass": x.first_pass})
+}
+
 pub fn render_json(v: &View, r: &Report) -> Value {
     let (y, a, f) = (&r.verify, &r.andon, &r.flow);
     let rows = |class: &str, events: &[Event]| {
@@ -400,7 +434,10 @@ pub fn render_json(v: &View, r: &Report) -> Value {
             "verify": {"verified": y.verified, "first_pass": y.first_pass,
                        "first_pass_or_accepted": y.first_pass_or_accepted,
                        "tickets_with_fail": y.tickets_with_fail, "fails": y.fails,
-                       "rework_tickets": y.rework_tickets, "rework_fails": y.rework_fails},
+                       "rework_tickets": y.rework_tickets, "rework_fails": y.rework_fails,
+                       "repeat_rework_tickets": y.repeat_rework_tickets},
+            "gates": {"ci_only": gate_json(&r.gates.ci_only), "other": gate_json(&r.gates.other),
+                      "unsigned": gate_json(&r.gates.unsigned)},
             "classes": r.classes.iter().map(|c| rows(c.class, &c.events)).collect::<Vec<_>>(),
             "rounds": r.rounds.iter().map(|x| json!({
                 "ticket": x.ticket.to_string(), "issue": x.ticket.issue, "fails": x.fails,
@@ -466,7 +503,9 @@ mod tests {
                 fails: 3,
                 rework_tickets: 1,
                 rework_fails: 2,
+                repeat_rework_tickets: 1,
             },
+            gates: crate::retro::GateStats::default(),
             classes: vec![
                 ClassRow {
                     class: "review",
@@ -643,6 +682,7 @@ mod tests {
                 fails: 2,
                 rework_tickets: 1,
                 rework_fails: 2,
+                repeat_rework_tickets: 1,
             },
             ..report()
         };
@@ -692,7 +732,7 @@ mod tests {
             r["verify"],
             json!({"verified": 3, "first_pass": 2, "first_pass_or_accepted": 3,
                    "tickets_with_fail": 2, "fails": 3,
-                   "rework_tickets": 1, "rework_fails": 2})
+                   "rework_tickets": 1, "rework_fails": 2, "repeat_rework_tickets": 1})
         );
         assert_eq!(r["classes"][0]["class"], "review");
         assert_eq!(r["classes"][0]["count"], 2);
