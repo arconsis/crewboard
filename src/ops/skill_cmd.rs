@@ -13,7 +13,7 @@
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
 use crate::fsutil::{self, Mode};
-use crate::skill_embed::{FILES, sha256_hex, skill_version};
+use crate::skill_embed::{FILES, canonical_dir, sha256_hex, skill_version};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -39,11 +39,6 @@ pub struct InstallArgs {
 struct Manifest {
     version: String,
     files: BTreeMap<String, String>,
-}
-
-/// The shared copy: `<home>/.config/agent-skills/crewboard`.
-pub fn canonical_dir(home: &Path) -> PathBuf {
-    home.join(".config").join("agent-skills").join("crewboard")
 }
 
 /// The installed skill: the version its manifest names, and the shared copy. `None` without a

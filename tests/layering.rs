@@ -273,6 +273,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ("wake", "lock"),
     ("wake", "ops"),
     ("wake", "protocol"),
+    ("wake", "skill_embed"),
     ("wake", "spawn"),
 ];
 
@@ -598,7 +599,7 @@ fn no_new_module_edges() {
 
 /// `services` sits between `ops` and the GitHub layer: only `ops` and `ctx` (the contexts of the
 /// commands, which hand a `Reader` out) import it, and it imports
-/// no command, no CLI, no policy and no local-machine helper (`spawn`, `toolchain`, `facts`).
+/// no command, no CLI, no policy and no local-machine helper (`spawn`, `toolchain`).
 #[test]
 fn services_sit_between_ops_and_github() {
     let found = edges();
@@ -659,9 +660,10 @@ fn the_command_layer_has_no_cycle() {
 
 /// No cycle in the import graph of the top-level modules: peel off every module that imports
 /// nothing left, until none remains. What is left on a failure is the cycle, with every module
-/// that leads into it. The core (`agent_env`, `comments`, `config`, `items`, `facts`, `github`,
-/// `capabilities`, `owner_cmd`, `registry`, `events`, `state`, `ticket`) was one cycle of 12
-/// modules until the plain data types and helpers moved down.
+/// that leads into it. The core (`agent_env`, `comments`, `config`, `items`, `github`,
+/// `capabilities`, `owner_cmd`, `registry`, `events`, `state`, `ticket`, and a module that is
+/// now part of `capabilities`) was one cycle of 12 modules until the plain data types and
+/// helpers moved down.
 #[test]
 fn the_module_graph_has_no_cycle() {
     let mut left = edges();
@@ -695,7 +697,6 @@ fn the_core_is_layered() {
         "comments",
         "config",
         "items",
-        "facts",
         "github",
         "capabilities",
         "owner_cmd",

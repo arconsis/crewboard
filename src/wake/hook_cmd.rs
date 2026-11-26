@@ -42,7 +42,7 @@ pub fn run(a: &PostToolUseArgs, config_dir: Option<PathBuf>) -> Option<String> {
     input.events_file.filter(|p| !p.as_os_str().is_empty())?;
     let initiative = a.initiative.clone().filter(|s| !s.is_empty());
     let mut steps: Box<dyn Steps> = match a.crewboard.as_deref() {
-        Some(bin) if !crate::ops::lock_cmd::is_this_binary(bin) => Box::new(Subprocess {
+        Some(bin) if !crate::fsutil::is_this_binary(bin) => Box::new(Subprocess {
             bin: bin.to_string(),
             config_dir,
             initiative,

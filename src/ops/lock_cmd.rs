@@ -7,7 +7,7 @@
 
 #[cfg(unix)]
 use crate::base::ignore::best_effort_output;
-use crate::fsutil::find_on_path;
+use crate::fsutil::is_this_binary;
 #[cfg(unix)]
 use crate::lock::LockExit;
 #[cfg(unix)]
@@ -137,29 +137,10 @@ const BOARD_TTL: i64 = 60;
 
 /// The binary of the hidden test option `--crewboard BIN` of `lock`, `monitor` and `agent add`:
 /// `bin` when it is another binary than this one, and only in a build with debug assertions (the
-/// builds of `cargo test`). A release build ignores the option and does the work in process.
+/// builds of `cargo test`). A release build ignores the option and does the work (the board
+/// check of `lock`, the `watch` of `monitor`) in process.
 pub(crate) fn test_seam(bin: Option<&str>) -> Option<&str> {
     bin.filter(|b| cfg!(debug_assertions) && !is_this_binary(b))
-}
-
-/// Is `bin` the binary that is running now? Then the work (the board check of `lock`, the
-/// `watch` of `monitor`) goes in process. A name without a directory is looked up on the PATH
-/// as a shell does (the first executable match).
-pub(crate) fn is_this_binary(bin: &str) -> bool {
-    is_this_binary_on(bin, std::env::var_os("PATH").as_deref())
-}
-
-fn is_this_binary_on(bin: &str, path: Option<&std::ffi::OsStr>) -> bool {
-    let bare = !bin.is_empty() && Path::new(bin).components().count() == 1;
-    let found = if bare {
-        path.and_then(|p| find_on_path(bin, p))
-    } else {
-        Some(Path::new(bin).to_path_buf())
-    };
-    let (Some(Ok(a)), Ok(b)) = (found.map(std::fs::canonicalize), std::env::current_exe()) else {
-        return false;
-    };
-    std::fs::canonicalize(b).is_ok_and(|b| a == b)
 }
 
 #[cfg(unix)]
@@ -608,46 +589,15 @@ mod tests {
     }
 
     #[test]
-    fn the_seam_names_this_binary_only_when_it_is_this_binary() {
+    fn the_seam_is_another_binary_only_never_this_one() {
         let me = std::env::current_exe().unwrap();
-        assert!(is_this_binary(&me.to_string_lossy()));
+        assert_eq!(test_seam(Some(&me.to_string_lossy())), None);
+        assert_eq!(test_seam(None), None);
         let d = tempfile::tempdir().unwrap();
         let (bin, _) = stub(d.path(), OK);
-        assert!(!is_this_binary(&bin));
-        assert!(!is_this_binary("/nonexistent/crewboard"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_bare_name_on_path_is_this_binary() {
-        let me = std::env::current_exe().unwrap();
-        let d = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(&me, d.path().join("crewboard")).unwrap();
-        let other = tempfile::tempdir().unwrap();
-        // another executable called `crewboard`
-        stub(other.path(), OK);
-        let path = |dirs: &[&Path]| std::env::join_paths(dirs).unwrap();
-        // the first executable match counts
-        assert!(is_this_binary_on("crewboard", Some(&path(&[d.path()]))));
-        assert!(is_this_binary_on(
-            "crewboard",
-            Some(&path(&[d.path(), other.path()]))
-        ));
-        // twins: another binary of that name first, no such name, no PATH, a file that is not executable
-        assert!(!is_this_binary_on(
-            "crewboard",
-            Some(&path(&[other.path(), d.path()]))
-        ));
-        assert!(!is_this_binary_on("nothing-here", Some(&path(&[d.path()]))));
-        assert!(!is_this_binary_on("crewboard", None));
-        assert!(!is_this_binary_on(
-            "crewboard",
-            Some(&path(&[other.path()]))
-        ));
-        use std::os::unix::fs::PermissionsExt;
-        let plain = d.path().join("plain");
-        std::fs::write(&plain, "x").unwrap();
-        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(!is_this_binary_on("plain", Some(&path(&[d.path()]))));
+        assert_eq!(
+            test_seam(Some(&bin)),
+            cfg!(debug_assertions).then_some(bin.as_str())
+        );
     }
 }
