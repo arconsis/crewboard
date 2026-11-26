@@ -2,7 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.10.0 (2026-11-26)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two commands
 change: a script or a Monitor tool config that calls `crewboard watch --loop` must call
@@ -19,7 +19,7 @@ Removed:
   board; `ping` and `pong` are retired. Such a `say` is a usage error (exit 64) that names the
   five kinds. Old comments of every kind still parse and verify.
 
-Fixed (all three come from one host, where a login of the runtime had ended):
+Fixed (the first three come from one host, where a login of the runtime had ended):
 
 - The events that a failed wake keeps for the next wake no longer grow. Before, each failed
   wake added its tickets part and an empty poll part to the kept block: 2571 failed wakes in a
