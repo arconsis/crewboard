@@ -189,11 +189,10 @@ fn a_ready_agent_passes_every_setup_check_and_writes_nothing() {
         let (st, l) = line(&o, c);
         assert_eq!(st, "ok", "{l}\n{}", o.all());
     }
-    assert!(
-        !o.stdout.contains("FAIL") && !o.stdout.contains("skip"),
-        "{}",
-        o.all()
-    );
+    // the one skip: no scheduled wake has run for this agent on this host
+    assert_eq!(line(&o, "wake").0, "skip", "{}", o.all());
+    let skips = o.stdout.lines().filter(|l| l.starts_with("skip")).count();
+    assert!(!o.stdout.contains("FAIL") && skips == 1, "{}", o.all());
     assert!(
         line(&o, "registry")
             .1
