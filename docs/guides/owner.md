@@ -195,7 +195,7 @@ matter has these keys:
 | `daily_digest` | `false` | `true`: the headless `tick` posts one project status update per day with fixed facts (ticket counts, late and dead agents, the Review tickets that wait for a person). No model writes it. |
 | `check_timeout` | `1h` | The time limit of one check of `checks`. A check that runs longer is stopped and counts as failed. |
 | `check_env` | none | Names of environment variables that a check of `checks` gets, in addition to the short fixed list. The values are those of the host; write no value here. |
-| `checks` | none | With `ci_mode: local`: named commands that `verify --run-check <name>` runs on a clean checkout of the PR head ([Checks that the tool runs](../design/spec/ci.md#checks-that-the-tool-runs)). List the files that these commands run in `protected_paths`. |
+| `checks` | none | With `ci_mode: local`: named commands that `verify --run-check <name>` runs on a clean checkout of the PR head ([Checks that the tool runs](../design/spec/ci.md#checks-that-the-tool-runs)). List the files that these commands run in `protected_paths`. Try a draft first: `crewboard check --authority-file AUTHORITY.md` runs them on a clean checkout of your commit and writes nothing. |
 | `former_repos` | none | After a repo transfer or rename: the old name and a cutoff ([Move the repository](repo-move.md)). |
 | `needs_owner` | a list | Advice for the models: when to ask you. Not enforced, with one exception: `merge` in the list lets only you merge (rule `authority-needs-owner`, deprecated: use `coordinator_may_merge: false`). |
 

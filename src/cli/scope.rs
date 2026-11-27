@@ -57,6 +57,15 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         // `repeat` runs a command of the repo and records evidence; it writes no board field.
         // Under a scope it needs the grant of `lock run` (`repeat_cmd::scope_grant`)
         Command::Host(HostCmd::Repeat(_)) => Allow,
+        // `check --authority-file` runs the command lines of a local file, which a model can
+        // write: a draft of AUTHORITY.md is owner work
+        Command::Host(HostCmd::Check {
+            authority_file: Some(_),
+            ..
+        }) => Deny(headless::DENY_OWNER),
+        // `check` runs the commands of AUTHORITY.md on the default branch as `tick` runs them
+        // (no check whose command line names a file that a PR can change), and writes nothing
+        Command::Host(HostCmd::Check { .. }) => Allow,
         // local work: `exec` and `env` set up a shell, `with-env` runs a command that its own
         // guard judges
         Command::Host(HostCmd::Agent {
@@ -250,6 +259,10 @@ mod tests {
         (&["hook", "post-tool-use", "--every", "0"], true),
         // the gate runs a command of the repo and writes no board field
         (&["repeat", "--times", "1", "--", "true"], true),
+        // it runs commands of AUTHORITY.md, as `tick` does, and writes nothing
+        (&["check", "fmt"], true),
+        // the command lines of a local file: owner work
+        (&["check", "--authority-file", "draft.md"], false),
         // local work: a shell setup, or a command that its own guard judges
         (&["agent", "env"], true),
         // it writes the env file of the agent account: a model must not change it

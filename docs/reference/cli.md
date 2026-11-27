@@ -92,6 +92,9 @@ Heavy jobs on a shared host
   lock           Host lock for heavy jobs on a shared host
   repeat         Run a command N times on one commit and keep evidence
 
+Checks of the project
+  check          Run checks of AUTHORITY.md on a clean checkout of a commit
+
 Run `crewboard <command> --help` for details.
 Guide: https://github.com/arconsis/crewboard/blob/main/docs/guides/extensions.md
 ```
@@ -1634,6 +1637,38 @@ Before each run `repeat` waits while a CI job runs or waits on this host (the ho
 Under a wake or a headless config dir, `repeat` needs --lock <dir> for a lock dir that the wake names with --host-lock: it starts a command, as `lock run` does.
 
 Exit codes: 0 all N runs green on one commit; 1 a red run; 2 the commit changed (or --lock on a host without Unix process control, or a wake or headless scope without the grant of `lock run`); 3 CI did not finish within --ci-max-wait; 4 setup error (not a git checkout, cannot write the logs); 64 usage; 143 a TERM, INT or HUP stopped `repeat` (the command got it too, the lock is released).
+```
+
+### `crewboard check`
+
+```text
+Run checks of AUTHORITY.md on a clean checkout of a commit.
+
+Any: run the named `checks` of AUTHORITY.md (all of them without a name) as `verify --run-check` runs them: without a shell, in a new work tree of exactly one commit, with the cut-down environment and the time limit of the file. A dev runs it before `done`. The owner tries the checks of a draft with --authority-file. It writes nothing, and a pass is no evidence of a `done` or a `verify`. Changes that no commit holds are not tested.
+
+Usage: crewboard check [OPTIONS] [NAMES]...
+
+Arguments:
+  [NAMES]...
+          The names of the checks, in the order to run them (default: every check of the file, in its order). The run stops at the first check that fails
+
+Options:
+      --rev <REV>
+          The commit to test, as git names it (default `HEAD`)
+          
+          [default: HEAD]
+
+      --work-dir <WORK_DIR>
+          A git checkout of the repo (default: this directory)
+
+      --authority-file <AUTHORITY_FILE>
+          Read `checks`, `check_env`, `check_timeout` and `protected_paths` from this file and not from AUTHORITY.md on the default branch. No board is read then
+
+      --initiative <INITIATIVE>
+          Initiative name (default: the only one in the config dir)
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ### `crewboard wake`

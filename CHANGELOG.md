@@ -4,6 +4,15 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- `crewboard check [<name>...]`: run the `checks` of `AUTHORITY.md` on a clean checkout of your
+  own commit, as `verify --run-check` runs them, without a ticket. A dev runs it before `done`,
+  so a fault of a machine check costs minutes and not a round through Review. The owner tries
+  the checks of a draft with `--authority-file <file>`, before the file is on the default
+  branch; no board is read then. `--rev` picks the commit (default `HEAD`). It writes nothing,
+  and a pass is no evidence of a `done` or a `verify`.
+
 Changed:
 
 - `repeat` under a wake or a headless config dir needs the grant of `lock run`: it is allowed

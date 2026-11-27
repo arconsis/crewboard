@@ -13,7 +13,7 @@
 //! printed, because its numbers would be wrong.
 
 use super::audit::parse_since;
-use super::{AgentCtx, Ctx, Global, load_world, new_client, resolve_board_config};
+use super::{Ctx, Global, load_world};
 use crate::base::TicketRef;
 use crate::clock::{format_ts, now_epoch};
 use crate::comments::Comment;
@@ -40,10 +40,7 @@ pub struct Out {
 /// token of the caller. No role is asked for: the report holds only what the comments of the
 /// repos show to every reader.
 fn open(g: &Global) -> CbResult<Ctx> {
-    match AgentCtx::load(g) {
-        Ok(ac) => Ok(ac.ctx),
-        Err(_) => Ctx::load(new_client()?, resolve_board_config(g)?, g.dir()?),
-    }
+    super::open_reader(g)
 }
 
 /// The error of a comment list that is longer than the page limit: a usage error (exit 64),

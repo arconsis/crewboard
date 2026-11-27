@@ -1,6 +1,8 @@
 //! `verify --run-check <name>`: the tool runs named commands of AUTHORITY.md on a clean checkout
 //! of the head that the `done` names, and writes the local-run line of the verify itself
-//! (spec/ci#checks-that-the-tool-runs). A model types no result.
+//! (spec/ci#checks-that-the-tool-runs). A model types no result. `crewboard check` (the sibling
+//! module `check`) runs the same commands the same way on a commit of the caller and writes
+//! nothing: [`run_job`] is the part that both share.
 //!
 //! What makes the result a machine result:
 //!
@@ -75,6 +77,35 @@ pub(super) struct Target<'a> {
     pub env: &'a [String],
     /// `check_timeout` of AUTHORITY.md, in seconds.
     pub timeout: u64,
+}
+
+/// One run of checks on one commit: where the rules come from and how a failure reads.
+pub(super) struct Job<'a> {
+    /// The name of the run in the log directory (the key of a ticket, or `check`).
+    pub key: &'a str,
+    /// The commit, as a full SHA.
+    pub sha: &'a str,
+    /// The path of the authority file in the repo: a protected path by itself.
+    pub authority: &'a str,
+    /// `protected_paths` of AUTHORITY.md.
+    pub protected_paths: &'a [String],
+    /// `check_env` of AUTHORITY.md: more variables that a check gets.
+    pub env: &'a [String],
+    /// `check_timeout` of AUTHORITY.md, in seconds.
+    pub timeout: u64,
+    /// See [`RunArgs::unattended`].
+    pub unattended: bool,
+    /// Fetch the commit from `origin` first, by its SHA or by the head ref of this PR.
+    pub fetch_pr: Option<u64>,
+    /// What the refusal of a failed check says after the log (the next step of the caller).
+    pub after_fail: &'a str,
+}
+
+/// A run in which every check exited 0.
+pub(super) struct Passed {
+    pub ran: Vec<Ran>,
+    /// The directory of the logs of this run.
+    pub log_dir: PathBuf,
 }
 
 /// One check that ran.
@@ -221,26 +252,33 @@ impl Drop for Tree<'_> {
     }
 }
 
-/// Make the clean checkout of `sha` of PR `number` from `origin` of `repo`.
+/// Make the clean checkout of `sha` in `repo`. With `fetch_pr`, the commit is fetched from
+/// `origin` first (it is the head of that PR); without it, the commit is one of `repo`.
 fn checkout<'a>(
     repo: &'a Path,
-    number: u64,
+    fetch_pr: Option<u64>,
     sha: &str,
     log_dir: &Path,
 ) -> Result<Tree<'a>, String> {
     // The commit of a PR from a branch of the repo is fetched by its SHA; the head ref of the PR
     // is the second way (a fork, or a server that does not give a commit by SHA).
     // Whether the commit is here is decided after the fetches, not by their exit codes.
-    if git(repo, &["fetch", "--quiet", "--no-tags", "origin", sha]).is_err() {
+    if let Some(number) = fetch_pr
+        && git(repo, &["fetch", "--quiet", "--no-tags", "origin", sha]).is_err()
+    {
         let pr_ref = format!("refs/pull/{number}/head");
         git(repo, &["fetch", "--quiet", "--no-tags", "origin", &pr_ref]).ok();
     }
     let commit = format!("{sha}^{{commit}}");
     git(repo, &["rev-parse", "--verify", "--quiet", &commit]).map_err(|_| {
-        format!(
-            "the commit {sha} of the evidence is not in {} after a fetch from origin",
-            repo.display()
-        )
+        if fetch_pr.is_some() {
+            format!(
+                "the commit {sha} of the evidence is not in {} after a fetch from origin",
+                repo.display()
+            )
+        } else {
+            format!("the commit {sha} is not in {}", repo.display())
+        }
     })?;
     let dir = log_dir.join("tree");
     let text = dir.to_string_lossy().into_owned();
@@ -343,10 +381,10 @@ fn run_one(tree: &Path, c: &Check, log: &Path, more_env: &[String], limit: u64) 
 }
 
 /// The warnings for a check: each word of its command line that is a file of the checkout and
-/// that no protected path covers. The PR can change such a file, and so what the check does.
+/// that no protected path covers. A PR can change such a file, and so what the check does.
 /// (A file that the command reads without a word for it, like a Makefile, is not seen here.)
-fn unprotected_files(ac: &AgentCtx, extra: &[String], tree: &Path, c: &Check) -> Vec<String> {
-    let guard = crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, extra);
+fn unprotected_files(authority: &str, extra: &[String], tree: &Path, c: &Check) -> Vec<String> {
+    let guard = crate::rules::protected::Protect::new(authority, extra);
     c.argv
         .iter()
         .filter_map(|w| {
@@ -359,7 +397,7 @@ fn unprotected_files(ac: &AgentCtx, extra: &[String], tree: &Path, c: &Check) ->
                 .is_empty()
                 .then(|| {
                     format!(
-                        "warning: check {}: {rel} is a file of the PR and is not in protected_paths of AUTHORITY.md, so a PR can change what this check does",
+                        "warning: check {}: {rel} is a file of the repo and is not in protected_paths of AUTHORITY.md, so a PR can change what this check does",
                         c.name
                     )
                 })
@@ -397,14 +435,13 @@ pub(super) fn run(
             t.sha
         )));
     }
-    let top = git(args.repo_dir, &["rev-parse", "--show-toplevel"]).map_err(|_| {
+    let top = top_of(args.repo_dir).map_err(|_| {
         not_run(format!(
             "--run-check needs a git checkout of {}, and {} is none (pass --work-dir)",
             t.repo,
             args.repo_dir.display()
         ))
     })?;
-    let top = PathBuf::from(top);
     let origin = git(&top, &["remote", "get-url", "origin"]).map_err(not_run)?;
     if !origin_names_repo(&origin, t.repo) {
         return Err(not_run(format!(
@@ -413,14 +450,74 @@ pub(super) fn run(
             top.display()
         )));
     }
-    let log_dir = make_log_dir(args.log_root, key, t.sha).map_err(not_run)?;
+    let after_fail = format!(
+        "\nNothing was written. To send the ticket back: crewboard verify {issue} --fail --body \"<what failed>\""
+    );
+    let job = Job {
+        key,
+        sha: t.sha,
+        authority: &ac.ctx.cfg.authority,
+        protected_paths: t.protected_paths,
+        env: t.env,
+        timeout: t.timeout,
+        unattended: args.unattended,
+        fetch_pr: Some(t.pr),
+        after_fail: &after_fail,
+    };
+    let passed = run_job(&top, &job, checks, args.log_root)?;
+    let text = tool_text(ac.name.host(), t.sha, &passed.ran, &passed.log_dir);
+    // the line goes into a signed message: the check of every note
+    crate::ops::say::check_body_text(&text)?;
+    Ok(text)
+}
+
+/// The top directory of the git checkout that holds `dir`.
+pub(super) fn top_of(dir: &Path) -> Result<PathBuf, String> {
+    git(dir, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+}
+
+/// The full SHA of the commit that `rev` names in the checkout `top`.
+pub(super) fn commit_of(top: &Path, rev: &str) -> Result<String, String> {
+    // `--end-of-options`: a rev that starts with `-` is a rev, never an option of git
+    let commit = format!("{rev}^{{commit}}");
+    git(
+        top,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &commit,
+        ],
+    )
+    .ok()
+    .filter(|s| is_full_sha(s))
+    .ok_or_else(|| format!("{rev} names no commit of {}", top.display()))
+}
+
+/// Has the checkout `top` changes that no commit holds (a clean checkout of a commit does not
+/// have them)?
+pub(super) fn has_open_changes(top: &Path) -> bool {
+    git(top, &["status", "--porcelain"]).is_ok_and(|s| !s.is_empty())
+}
+
+/// Run `checks` in a new work tree of the commit of `job`, made from the checkout `top`. `Ok`:
+/// every check exited 0. A check that fails is the refusal `check-failed`; a run that the host
+/// or the setup stops is `check-not-run`. The work tree is removed in every case; the logs stay.
+pub(super) fn run_job(
+    top: &Path,
+    job: &Job<'_>,
+    checks: &[&Check],
+    log_root: &Path,
+) -> CbResult<Passed> {
+    let log_dir = make_log_dir(log_root, job.key, job.sha).map_err(not_run)?;
     catch_stop_signals();
-    let tree = checkout(&top, t.pr, t.sha, &log_dir).map_err(not_run)?;
+    let tree = checkout(top, job.fetch_pr, job.sha, &log_dir).map_err(not_run)?;
     let open: Vec<String> = checks
         .iter()
-        .flat_map(|c| unprotected_files(ac, t.protected_paths, &tree.dir, c))
+        .flat_map(|c| unprotected_files(job.authority, job.protected_paths, &tree.dir, c))
         .collect();
-    if args.unattended && !open.is_empty() {
+    if job.unattended && !open.is_empty() {
         // nobody reads a warning here, and nobody reads the diff of these files
         return Err(not_run(format!(
             "an unattended run needs every file of a command line in protected_paths of AUTHORITY.md ({})",
@@ -433,8 +530,8 @@ pub(super) fn run(
     let mut ran: Vec<Ran> = Vec::new();
     for c in checks {
         let log = log_dir.join(format!("{}.log", c.name));
-        eprintln!("check {}: running on {} ...", c.name, &t.sha[..12]);
-        let r = run_one(&tree.dir, c, &log, t.env, t.timeout);
+        eprintln!("check {}: running on {} ...", c.name, &job.sha[..12]);
+        let r = run_one(&tree.dir, c, &log, job.env, job.timeout);
         eprintln!("check {}: rc={} after {}s", r.name, r.rc, r.secs);
         if stop_signal().is_some() {
             return Err(not_run(format!(
@@ -453,7 +550,7 @@ pub(super) fn run(
             let how = if r.end == End::TimedOut {
                 format!(
                     "ran longer than its limit of {}s and was stopped",
-                    t.timeout
+                    job.timeout
                 )
             } else {
                 format!("exited {}", r.rc)
@@ -462,11 +559,12 @@ pub(super) fn run(
             return Err(Refusal::new(
                 ids::CHECK_FAILED,
                 format!(
-                    "check {} {how} on a clean checkout of {} ({}s). Log: {}{tail}\nNothing was written. To send the ticket back: crewboard verify {issue} --fail --body \"<what failed>\"",
+                    "check {} {how} on a clean checkout of {} ({}s). Log: {}{tail}{}",
                     r.name,
-                    t.sha,
+                    job.sha,
                     r.secs,
-                    log.display()
+                    log.display(),
+                    job.after_fail
                 ),
             )
             .into());
@@ -474,10 +572,7 @@ pub(super) fn run(
         ran.push(r);
     }
     drop(tree);
-    let text = tool_text(ac.name.host(), t.sha, &ran, &log_dir);
-    // the line goes into a signed message: the check of every note
-    crate::ops::say::check_body_text(&text)?;
-    Ok(text)
+    Ok(Passed { ran, log_dir })
 }
 
 /// The last lines of a log, for the refusal text (the log may hold text of the PR: it is shown

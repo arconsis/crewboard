@@ -7,19 +7,7 @@ use crate::error::CbError;
 use crate::exit::Exit;
 use crate::ops::{self, AgentCtx};
 
-/// Where the logs of `verify --run-check` are kept: `check-runs` in the state dir of crewboard.
-/// A host without a home has none: a directory in the shared temp dir is no place for a
-/// checkout that code runs in.
-fn check_log_root() -> Result<std::path::PathBuf, CbError> {
-    let env = |k: &str| std::env::var(k).ok();
-    crate::wake::state::state_root(env("XDG_STATE_HOME").as_deref(), env("HOME").as_deref())
-        .map(|r| r.join("check-runs"))
-        .ok_or_else(|| {
-            CbError::config(
-                "--run-check keeps its logs in the state dir of crewboard, and HOME is not set",
-            )
-        })
-}
+use super::check_log_root;
 
 #[inline(never)]
 pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {

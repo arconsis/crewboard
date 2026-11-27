@@ -263,6 +263,39 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
             check: *check,
         }),
         HostCmd::Repeat(a) => repeat_cmd(cli, a),
+        HostCmd::Check {
+            names,
+            rev,
+            work_dir,
+            authority_file,
+            sel,
+        } => {
+            let dir = work_dir
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| PathBuf::from("."));
+            let log_root = match super::check_log_root() {
+                Ok(r) => r,
+                Err(e) => return fail(e),
+            };
+            // a scope binds the caller as it binds `lock run`: a headless config dir, or a wake
+            let scoped = match crate::headless::in_scope(cli.config_dir.as_deref()) {
+                Ok(s) => s,
+                Err(e) => return fail(e),
+            };
+            let wake = std::env::var_os("CREWBOARD_WAKE").is_some_and(|v| !v.is_empty());
+            done(ops::tickets::check(
+                &global(cli, sel, false),
+                &ops::tickets::CheckArgs {
+                    names,
+                    rev,
+                    repo_dir: &dir,
+                    log_root: &log_root,
+                    authority_file: authority_file.as_deref(),
+                    unattended: scoped || wake,
+                },
+            ))
+        }
         HostCmd::Doctor {
             repo_move: true,
             sel,

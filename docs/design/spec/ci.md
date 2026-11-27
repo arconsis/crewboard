@@ -377,3 +377,37 @@ protected_paths: [Makefile]
    --work-dir` runs the checks itself for a ticket whose signed Gate is `checks: <name>, ...`
    and nothing else; it verifies, and it never merges such a ticket
    ([Headless coordinator](agents.md#headless-coordinator), 5a).
+
+### Checks before a delivery
+
+`crewboard check [<name>...]` runs checks of `AUTHORITY.md` on a commit of the caller. It is the
+run of `verify --run-check` without a ticket: the same command lines, no shell, a new work tree
+of exactly one commit, the same environment, the same time limit, the same logs.
+
+1. **What it is for.** A dev runs it before `done`. A fault of a machine check then costs
+   minutes and not a round through Review. The owner runs it to try the `checks` of a draft
+   before the draft is on the default branch.
+2. **The commit.** `--rev <rev>` names it (default `HEAD`), in the checkout of `--work-dir`
+   (default the current directory). Nothing is fetched. The checkout of the caller is not
+   touched. A change that no commit holds is not tested, and the command says so.
+3. **The checks.** Without a name, every check runs in the order of the file. With names, the
+   named checks run in the order of the command line. The run stops at the first check that
+   does not exit 0. A name that `checks` does not have is `check-unknown`, also a file without
+   `checks`.
+4. **The source.** `AUTHORITY.md` on the default branch, read fresh. `--authority-file <file>`
+   reads `checks`, `check_env`, `check_timeout` and `protected_paths` from a local file, as a
+   path from the current directory. No board and no token are read then, and no request is
+   sent.
+5. **The result.** One line for each check that passed, then one line with the commit, the
+   source and the directory of the logs. A check that fails or runs longer than its limit is
+   `check-failed`, with the last lines of its log. A check that cannot start, or a run that a
+   signal stops, is `check-not-run`. A name of `check_env` that the process does not have is
+   named in a note, and so is a command word that is a file of the repo outside
+   `protected_paths`.
+6. **It writes nothing.** No comment, no board field, no state. A pass is backpressure, not
+   proof: the caller runs it on its own host. It is no evidence of a `done` and no part of a
+   `verify`.
+7. **Under a scope.** A headless config dir, or a wake that a scheduler started, may run
+   `check` as `tick` runs a typed Gate: no check runs when a word of its command line is a
+   file of the repo outside `protected_paths` (`check-not-run`). `--authority-file` is refused
+   there with `headless-scope`: a model can write that file, and a draft is owner work.
