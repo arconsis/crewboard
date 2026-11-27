@@ -22,7 +22,7 @@ use crate::protocol::acts::{
 use crate::protocol::names::Kind;
 use crate::rules::Role;
 use crate::ticket::log::{Expected, fold_ticket};
-use crate::ticket::{Act, Sender, VMsg, question_open};
+use crate::ticket::{Act, Sender, VMsg, closes_question, kv, question_open};
 use std::collections::BTreeMap;
 
 /// The class word of a `PR head moved` fail that was accepted: the next verify result of the
@@ -194,6 +194,73 @@ pub struct Flow {
     pub done_to_close: Option<Spread>,
 }
 
+/// A merge that a signed close note of a ticket records: the lines `pr:` and `merge-commit:` of
+/// the note of a merge, of a close after an owner merge, or of a drop with a merged PR. A note
+/// with neither line gives no `MergedRef`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedRef {
+    /// The close note.
+    pub close: Event,
+    /// The repo of the PR; the repo of the ticket when the note names no PR.
+    pub repo: String,
+    /// The number of the PR.
+    pub pr: Option<u64>,
+    /// The full sha of the merge commit, in lower case. `None` when the note has no sha
+    /// (`merge-commit: unknown`).
+    pub merge_commit: Option<String>,
+}
+
+/// One commit of the default branch of a repo, as the caller read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaseCommit {
+    pub repo: String,
+    pub sha: String,
+    /// The commit time, Unix seconds.
+    pub at: i64,
+    pub message: String,
+}
+
+/// A merged ticket whose merge a later commit reverts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Revert {
+    /// The close note whose merge is reverted.
+    pub close: Event,
+    /// The commit that reverts it: the earliest one.
+    pub sha: String,
+    pub at: i64,
+}
+
+/// The merged tickets that a commit of the default branch reverts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reverted {
+    /// The caller passed the commits. `false`: they were not read, and `reverts` says nothing.
+    pub read: bool,
+    /// Merged tickets with a [`MergedRef`]: the tickets that a revert can be found for.
+    pub known: usize,
+    /// At most one per ticket, in ticket order.
+    pub reverts: Vec<Revert>,
+}
+
+/// Whether merged work was right, and how much the owner had to do.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Outcome {
+    /// Merged tickets: tickets with at least one close that says the PR is merged, or with a
+    /// drop whose note records a merged PR.
+    pub merged: usize,
+    /// For each merged ticket that was opened again after such a close: the first message that
+    /// opened it.
+    pub came_back: Vec<Event>,
+    pub reverted: Reverted,
+    /// Tickets with at least one owner comment.
+    pub owner_touched: usize,
+    /// The owner comments per ticket of `owner_touched`. The values of this [`Spread`] are
+    /// counts, not seconds.
+    pub owner_comments: Option<Spread>,
+    /// The seconds from a question to the owner to the first message that closes it. One value
+    /// per answered question: `Spread::tickets` is the number of questions.
+    pub owner_wait: Option<Spread>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
     /// Tickets: issues with a signed assignment of a coordinator.
@@ -222,6 +289,7 @@ pub struct Report {
     /// ended in Dropped and that no coordinator assigned. Such an issue is no ticket, so it
     /// is in no other number.
     pub merged_unassigned: Vec<Event>,
+    pub outcome: Outcome,
 }
 
 /// The word of a close kind in the report.
@@ -318,6 +386,16 @@ struct TicketFacts {
     blocked: Vec<Event>,
     parked: Vec<Event>,
     refusals: Vec<(&'static str, Event)>,
+    /// A close says that the PR is merged, or a drop note records a merged PR.
+    merged: bool,
+    /// What the notes of those closes record.
+    merge_refs: Vec<MergedRef>,
+    /// The first message that opened the ticket again after such a close.
+    came_back: Option<Event>,
+    /// The headerless comments of the owner.
+    owner_comments: usize,
+    /// For each answered question to the owner: the seconds to the message that closed it.
+    owner_waits: Vec<i64>,
 }
 
 /// One step of a ticket that the artifact rule reads, in comment order. A `done` is no step:
@@ -353,10 +431,24 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
     // later coordinator act opens it again.
     let mut closed = false;
     let mut steps: Vec<Step> = Vec::new();
+    // The creation times of the questions to the owner that no message has closed yet.
+    let mut asked: Vec<i64> = Vec::new();
     for m in &log.msgs {
+        if closes_question(m) {
+            f.owner_waits
+                .extend(asked.drain(..).map(|q| (m.created - q).max(0)));
+        }
+        // a message that opens the ticket again: after a merge, the work came back
+        let opens = |f: &mut TicketFacts, closed: &mut bool| {
+            if *closed && f.merged && f.came_back.is_none() {
+                f.came_back = Some(event_of(log, m));
+            }
+            *closed = false;
+        };
         let Sender::Agent { name, role } = &m.sender else {
+            f.owner_comments += 1;
             if let Ok(Some(OwnerCommand::Move { .. })) = owner_cmd::parse(&m.body) {
-                closed = false;
+                opens(&mut f, &mut closed);
             }
             continue;
         };
@@ -368,7 +460,7 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
                 Act::BoardAnnounce
                 | Act::Assignment { .. }
                 | Act::Reassigned
-                | Act::Verify { pass: false } => closed = false,
+                | Act::Verify { pass: false } => opens(&mut f, &mut closed),
                 _ => {}
             }
         }
@@ -412,8 +504,13 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
             (_, Act::Closed(k)) if coordinator => {
                 steps.push(Step::Close(k));
                 f.closes.push((k, ev()));
-                if k == CloseKind::Dropped && dropped_merged_pr(&m.body).is_some() {
+                let drop_with_pr = k == CloseKind::Dropped && dropped_merged_pr(&m.body).is_some();
+                if drop_with_pr {
                     f.drops_with_pr.push(m.comment_id);
+                }
+                if is_merge_close(k) || drop_with_pr {
+                    f.merged = true;
+                    f.merge_refs.extend(merged_ref(log, ev(), &m.body));
                 }
             }
             // a late note is a report to the owner, of the coordinator or of a dev agent
@@ -425,6 +522,7 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
             (Some(Kind::Question), _) => match m.to.as_str() {
                 "owner" => {
                     f.questions_owner.push(ev());
+                    asked.push(m.created);
                     if coordinator && crate::protocol::acts::round_limit_rounds(&m.body).is_some() {
                         f.round_limit_stops.push(ev());
                     }
@@ -447,6 +545,172 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
     }
     mark_accepted(&mut f.verifies, &steps);
     f
+}
+
+/// At least this many hex digits of a commit message name a merge commit.
+pub const MIN_SHA_PREFIX: usize = 12;
+
+fn is_sha(s: &str) -> bool {
+    s.len() >= MIN_SHA_PREFIX && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// The repo and the number of a PR URL (`.../<owner>/<repo>/pull/<n>`). The host is not checked:
+/// the note is signed, and only the repo and the number are compared.
+fn pr_of(url: &str) -> Option<(String, u64)> {
+    let mut parts = url.trim().trim_end_matches('/').rsplit('/');
+    let number = parts.next()?.parse().ok()?;
+    if parts.next()? != "pull" {
+        return None;
+    }
+    let (repo, owner) = (parts.next()?, parts.next()?);
+    (!repo.is_empty() && !owner.is_empty()).then(|| (format!("{owner}/{repo}"), number))
+}
+
+/// What the close note `body` records about the merge.
+fn merged_ref(log: &TicketLog, close: Event, body: &str) -> Option<MergedRef> {
+    let pr = kv(body, "pr").and_then(|url| pr_of(&url));
+    let merge_commit = kv(body, "merge-commit")
+        .map(|s| s.to_ascii_lowercase())
+        .filter(|s| is_sha(s));
+    if pr.is_none() && merge_commit.is_none() {
+        return None;
+    }
+    Some(MergedRef {
+        close,
+        repo: pr
+            .as_ref()
+            .map_or_else(|| log.ticket.repo.to_string(), |(repo, _)| repo.clone()),
+        pr: pr.map(|(_, n)| n),
+        merge_commit,
+    })
+}
+
+/// The merges that the close notes of the tickets of `logs` record: what a revert is looked
+/// for. An issue without a signed assignment gives none.
+pub fn merged_refs(logs: &[TicketLog]) -> Vec<MergedRef> {
+    logs.iter()
+        .map(facts_of)
+        .filter(|f| f.assigned.is_some())
+        .flat_map(|f| f.merge_refs)
+        .collect()
+}
+
+/// What a commit message says that the commit reverts.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Reverts {
+    /// The hex digits after each `This reverts commit `, in lower case.
+    shas: Vec<String>,
+    /// The PR of each line `Reverts <owner>/<repo>#<n>` or `Reverts #<n>`. Without a repo, the
+    /// PR is in the repo of the commit.
+    prs: Vec<(Option<String>, u64)>,
+}
+
+fn reverts_named(message: &str) -> Reverts {
+    const BY_SHA: &str = "This reverts commit ";
+    let shas = message
+        .match_indices(BY_SHA)
+        .map(|(at, _)| {
+            message[at + BY_SHA.len()..]
+                .chars()
+                .take_while(char::is_ascii_hexdigit)
+                .collect::<String>()
+                .to_ascii_lowercase()
+        })
+        .filter(|s| is_sha(s))
+        .collect();
+    let prs = message
+        .lines()
+        .filter_map(|l| {
+            let word = l
+                .trim()
+                .strip_prefix("Reverts ")?
+                .split_whitespace()
+                .next()?;
+            let (repo, n) = word.trim_end_matches(['.', ',']).split_once('#')?;
+            let n = n.parse().ok()?;
+            match repo {
+                "" => Some((None, n)),
+                r if r.contains('/') => Some((Some(r.to_string()), n)),
+                _ => None,
+            }
+        })
+        .collect();
+    Reverts { shas, prs }
+}
+
+/// Does the commit `c`, whose message names `named`, revert the merge `r`? Both are in the same
+/// repo. A sha matches when one is a prefix of the other ([`MIN_SHA_PREFIX`] digits or more).
+fn reverts(c: &BaseCommit, named: &Reverts, r: &MergedRef) -> bool {
+    if !c.repo.eq_ignore_ascii_case(&r.repo) {
+        return false;
+    }
+    let by_sha = r.merge_commit.as_ref().is_some_and(|full| {
+        named
+            .shas
+            .iter()
+            .any(|s| full.starts_with(s.as_str()) || s.starts_with(full.as_str()))
+    });
+    let by_pr = r.pr.is_some_and(|n| {
+        named.prs.iter().any(|(repo, m)| {
+            *m == n
+                && repo
+                    .as_ref()
+                    .is_none_or(|x| x.eq_ignore_ascii_case(&r.repo))
+        })
+    });
+    by_sha || by_pr
+}
+
+/// The outcome numbers. `commits` are the commits of the default branches since the earliest
+/// close of [`merged_refs`]; `None`: the caller did not read them.
+fn outcome(facts: &[TicketFacts], commits: Option<&[BaseCommit]>) -> Outcome {
+    let named: Vec<(&BaseCommit, Reverts)> = commits
+        .unwrap_or_default()
+        .iter()
+        .map(|c| (c, reverts_named(&c.message)))
+        .filter(|(_, n)| *n != Reverts::default())
+        .collect();
+    let mut out = Outcome {
+        reverted: Reverted {
+            read: commits.is_some(),
+            ..Reverted::default()
+        },
+        ..Outcome::default()
+    };
+    let (mut comments, mut waits) = (Vec::new(), Vec::new());
+    for f in facts {
+        if f.owner_comments > 0 {
+            out.owner_touched += 1;
+            comments.push(f.owner_comments as i64);
+        }
+        waits.extend(&f.owner_waits);
+        if !f.merged {
+            continue;
+        }
+        out.merged += 1;
+        out.came_back.extend(f.came_back.clone());
+        if f.merge_refs.is_empty() {
+            continue;
+        }
+        out.reverted.known += 1;
+        let earliest = named
+            .iter()
+            .filter_map(|(c, n)| {
+                let r = f.merge_refs.iter().find(|r| reverts(c, n, r))?;
+                Some((*c, r))
+            })
+            .min_by_key(|(c, _)| c.at);
+        if let Some((c, r)) = earliest {
+            out.reverted.reverts.push(Revert {
+                close: r.close.clone(),
+                sha: c.sha.clone(),
+                at: c.at,
+            });
+        }
+    }
+    out.owner_comments = spread(&comments);
+    out.owner_wait = spread(&waits);
+    out
 }
 
 /// The end of a ticket: its latest close, when the log still ends there (an owner move or a
@@ -665,7 +929,9 @@ fn andon(logs: &[&TicketLog], facts: &[TicketFacts]) -> Andon {
 /// The report of `logs`: one entry per issue, each with its counted messages in comment order.
 /// An issue without a signed assignment of a coordinator is no ticket and counts nowhere, with
 /// one exception: its drop notice with a merged PR is in `merged_unassigned`, and only there.
-pub fn retro(logs: &[TicketLog]) -> Report {
+/// `commits` are the commits of the default branches that may revert a merge ([`merged_refs`]
+/// says which merges); `None` when the caller did not read them.
+pub fn retro(logs: &[TicketLog], commits: Option<&[BaseCommit]>) -> Report {
     let (mut tickets, mut facts): (Vec<&TicketLog>, Vec<TicketFacts>) = (Vec::new(), Vec::new());
     let mut merged_unassigned = Vec::new();
     for log in logs {
@@ -700,6 +966,7 @@ pub fn retro(logs: &[TicketLog]) -> Report {
         refusals: refusal_rows(&facts),
         flow: flow(&tickets, &facts),
         merged_unassigned,
+        outcome: outcome(&facts, commits),
     }
 }
 

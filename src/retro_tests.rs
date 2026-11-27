@@ -7,6 +7,11 @@ const DEV: &str = "agent-b@host-b";
 const OTHER_DEV: &str = "agent-c@host-c";
 const HOUR: i64 = 3600;
 
+/// The report without the commits of the default branch: the reverts are not read.
+fn retro(logs: &[TicketLog]) -> Report {
+    super::retro(logs, None)
+}
+
 /// The messages of one issue under construction: the comment ids count up, and each message is
 /// created at the hour that the caller names.
 struct Log {
@@ -1051,4 +1056,252 @@ fn review_fails_are_counted_by_the_tag_of_their_note_and_three_of_one_tag_repeat
     assert_eq!(rows, [("formatter", 3), ("check-tests", 1), ("scope", 1)]);
     assert_eq!(t.untagged, 1);
     assert!(t.rows[0].events.len() >= REPEATED_FROM);
+}
+
+const MERGE_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// The notice of `merge` for PR `pr` of the repo a/b, with the merge commit [`MERGE_SHA`].
+fn merge_note(pr: u64) -> String {
+    crate::protocol::acts::merged_body(
+        &format!("https://github.com/a/b/pull/{pr}"),
+        "abc",
+        "squash",
+        MERGE_SHA,
+        "crew/x",
+        None,
+    )
+}
+
+fn commit(repo: &str, hour: i64, message: &str) -> BaseCommit {
+    BaseCommit {
+        repo: repo.into(),
+        sha: format!("c{hour}"),
+        at: hour * HOUR,
+        message: message.into(),
+    }
+}
+
+#[test]
+fn a_merged_ticket_that_opens_again_came_back_and_a_reopened_drop_did_not() {
+    let merged = || Log::new(1).assign(0).done(1).pass(2).merged(3);
+    let came_back = |log: Log| retro(&[log.build()]).outcome.came_back;
+    // control: a merged ticket that stays closed
+    let r = retro(&[merged().build()]);
+    assert_eq!((r.outcome.merged, r.outcome.came_back.len()), (1, 0));
+    // the owner moves it back: the event is the message that opened it
+    let moved = came_back(merged().owner(5, "/crew move Ready"));
+    assert_eq!(moved.len(), 1);
+    assert_eq!((moved[0].url.as_str(), moved[0].at), (&*url(104), 5 * HOUR));
+    // a plain owner comment and a message of the dev agent open nothing
+    assert!(came_back(merged().owner(5, "thanks").done(6)).is_empty());
+    // a new assignment, a reassign and a failed verify of the coordinator open it too
+    assert_eq!(came_back(merged().assign(5))[0].url, url(104));
+    let reassigned = merged().coord(5, Kind::Info, "Reassigned. Reason: a fault showed up");
+    assert_eq!(came_back(reassigned).len(), 1);
+    assert_eq!(came_back(merged().fail(5, &[review("broken")])).len(), 1);
+    // opened two times: one ticket, the first message
+    let twice = merged().owner(5, "/crew move Ready").merged(6).assign(7);
+    assert_eq!(came_back(twice)[0].url, url(104));
+    // a fail before the merge is the normal flow
+    let rework = Log::new(1)
+        .assign(0)
+        .done(1)
+        .fail(2, &[review("x")])
+        .done(3);
+    assert!(came_back(rework.pass(4).merged(5)).is_empty());
+
+    // a reopened drop is a changed decision: no merged ticket, nothing came back
+    let drop = Log::new(2)
+        .assign(0)
+        .coord(1, Kind::Info, "dropped: not needed\n")
+        .owner(2, "/crew move Ready")
+        .assign(3);
+    let r = retro(&[drop.build()]);
+    assert_eq!((r.outcome.merged, r.outcome.came_back.len()), (0, 0));
+    // a drop after a merge: the ticket is a merged ticket, and it came back
+    let merged_then_dropped = merged().owner(5, "/crew move Ready").coord(
+        6,
+        Kind::Info,
+        "dropped: the change was wrong\n",
+    );
+    let r = retro(&[merged_then_dropped.build()]);
+    assert_eq!((r.outcome.merged, r.outcome.came_back.len()), (1, 1));
+    // a drop whose note records a merged PR is merged work too
+    let drop_with_pr = Log::new(3).assign(0).coord(1, Kind::Info, DROP_WITH_PR);
+    let r = retro(&[drop_with_pr.owner(2, "/crew move Ready").build()]);
+    assert_eq!((r.outcome.merged, r.outcome.came_back.len()), (1, 1));
+    // an issue without an assignment is in no outcome number
+    let unassigned = Log::new(4).merged(1).owner(2, "/crew move Ready");
+    assert_eq!(retro(&[unassigned.build()]).outcome, Outcome::default());
+}
+
+#[test]
+fn the_owner_numbers_count_the_owner_comments_and_the_wait_for_an_answer() {
+    // two questions, the owner answers both with one comment: waits of 3 h and 1 h
+    let answered = Log::new(1)
+        .assign(0)
+        .dev(1, "owner", Kind::Question, "which API?")
+        .dev(3, "owner", Kind::Question, "and which version?")
+        .owner(4, "the new one, v2")
+        .owner(5, "thanks");
+    // the coordinator withdraws the question after 6 h; its plain answer closes nothing
+    let withdrawn = Log::new(2)
+        .assign(0)
+        .dev(2, "owner", Kind::Question, "may I drop the cache?")
+        .coord(3, Kind::Answer, "I think so")
+        .coord(
+            8,
+            Kind::Answer,
+            "not needed any more\nwithdraws: question\n",
+        );
+    // an open question is in no wait; a question to the coordinator is none to the owner
+    let open = Log::new(3)
+        .assign(0)
+        .dev(1, "coordinator", Kind::Question, "which branch?")
+        .owner(2, "/crew move Ready")
+        .dev(3, "owner", Kind::Question, "still open?");
+    let untouched = Log::new(4).assign(0);
+    // an owner comment on an issue without an assignment counts nowhere
+    let no_ticket = Log::new(5)
+        .dev(1, "owner", Kind::Question, "early")
+        .owner(2, "no");
+    let r = retro(&[
+        answered.build(),
+        withdrawn.build(),
+        open.build(),
+        untouched.build(),
+        no_ticket.build(),
+    ]);
+    let o = &r.outcome;
+    assert_eq!((r.tickets, o.owner_touched), (4, 2));
+    // the touched tickets have 2 and 1 owner comments
+    assert_eq!(
+        o.owner_comments,
+        Some(Spread {
+            tickets: 2,
+            median_s: 1,
+            p90_s: 2
+        })
+    );
+    // the waits are 1 h, 3 h and 6 h
+    assert_eq!(
+        o.owner_wait,
+        Some(Spread {
+            tickets: 3,
+            median_s: 3 * HOUR,
+            p90_s: 6 * HOUR
+        })
+    );
+    assert_eq!(r.andon.questions_owner.len(), 4);
+    assert_eq!(r.andon.open_questions.len(), 1);
+}
+
+#[test]
+fn the_merge_refs_are_the_pr_and_the_merge_commit_of_the_close_notes() {
+    let merged = Log::new(1).assign(0).coord(3, Kind::Info, &merge_note(7));
+    // an owner merge whose commit GitHub did not name: the PR alone
+    let owner_merged = crate::protocol::acts::owner_merged_body(
+        "https://github.com/a/c/pull/9",
+        None,
+        Some("pr: https://github.com/x/y/pull/1"),
+    );
+    let by_owner = Log::new(2).assign(0).coord(4, Kind::Info, &owner_merged);
+    let drop = Log::new(3).assign(0).coord(5, Kind::Info, DROP_WITH_PR);
+    // no ref: a merge note without the lines, a plain drop, a note on an issue without an
+    // assignment, and the note text of a dev agent
+    let bare = Log::new(4).assign(0).merged(1);
+    let plain_drop = Log::new(5).assign(0).coord(1, Kind::Info, "dropped: no\n");
+    let unassigned = Log::new(6).coord(1, Kind::Info, &merge_note(8));
+    let by_dev = Log::new(7)
+        .assign(0)
+        .dev(1, "coordinator", Kind::Info, &merge_note(8));
+    let logs = [
+        merged.build(),
+        by_owner.build(),
+        drop.build(),
+        bare.build(),
+        plain_drop.build(),
+        unassigned.build(),
+        by_dev.build(),
+    ];
+    let refs = merged_refs(&logs);
+    let short: Vec<_> = refs
+        .iter()
+        .map(|r| {
+            (
+                r.close.ticket.issue,
+                r.close.at / HOUR,
+                r.repo.as_str(),
+                r.pr,
+                r.merge_commit.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        short,
+        [
+            (1, 3, "a/b", Some(7), Some(MERGE_SHA)),
+            (2, 4, "a/c", Some(9), None),
+            // the sha `abc` of the drop note is too short to be compared
+            (3, 5, "a/b", Some(7), None),
+        ]
+    );
+    // the ticket without a ref is a merged ticket, but no revert can be found for it
+    let o = super::retro(&logs, Some(&[])).outcome;
+    assert_eq!((o.merged, o.reverted.known, o.reverted.read), (4, 3, true));
+    assert!(o.reverted.reverts.is_empty());
+    // without the commits the count says nothing
+    let o = retro(&logs).outcome;
+    assert_eq!((o.reverted.known, o.reverted.read), (3, false));
+}
+
+#[test]
+fn a_revert_matches_by_the_sha_a_prefix_of_it_or_the_pr_number_of_the_same_repo() {
+    let log = || {
+        [Log::new(1)
+            .assign(0)
+            .coord(3, Kind::Info, &merge_note(7))
+            .build()]
+    };
+    let reverted = |c: &[BaseCommit]| super::retro(&log(), Some(c)).outcome.reverted.reverts;
+    let by_sha = format!("Revert \"t\"\n\nThis reverts commit {MERGE_SHA}.\n");
+    let hit = reverted(&[commit("a/b", 9, &by_sha)]);
+    assert_eq!(hit.len(), 1);
+    // the event is the close note; the commit is the revert
+    assert_eq!(hit[0].close.url, url(101));
+    assert_eq!((hit[0].sha.as_str(), hit[0].at), ("c9", 9 * HOUR));
+    // a prefix of 12 hex digits, in upper case
+    let prefix = format!("This reverts commit {}", MERGE_SHA[..12].to_uppercase());
+    assert_eq!(reverted(&[commit("a/b", 9, &prefix)]).len(), 1);
+    // 11 digits are too few, and another sha is another commit
+    let short = format!("This reverts commit {}", &MERGE_SHA[..11]);
+    assert!(reverted(&[commit("a/b", 9, &short)]).is_empty());
+    let other = format!("This reverts commit {}0", &MERGE_SHA[..39][1..]);
+    assert!(reverted(&[commit("a/b", 9, &other)]).is_empty());
+    // the PR number, with and without the repo
+    for text in [
+        "Revert \"t\"\n\nReverts a/b#7",
+        "Reverts #7\n",
+        "  Reverts A/B#7.",
+    ] {
+        assert_eq!(reverted(&[commit("a/b", 9, text)]).len(), 1, "{text}");
+    }
+    // not the PR of another repo, another number, or a word that only starts like one
+    for text in [
+        "Reverts a/c#7",
+        "Reverts #70",
+        "Reverts #7a",
+        "Reverts b#7",
+        "This Reverts #7",
+        "mentions #7 and a/b#7",
+    ] {
+        assert!(reverted(&[commit("a/b", 9, text)]).is_empty(), "{text}");
+    }
+    // a commit of another repo names its own PR 7 and its own commits
+    assert!(reverted(&[commit("a/c", 9, "Reverts #7")]).is_empty());
+    assert!(reverted(&[commit("a/c", 9, &by_sha)]).is_empty());
+    // two reverts of one ticket: one ticket, the earliest commit
+    let two = [commit("a/b", 9, "Reverts #7"), commit("a/b", 6, &by_sha)];
+    let hit = reverted(&two);
+    assert_eq!((hit.len(), hit[0].sha.as_str()), (1, "c6"));
 }

@@ -188,7 +188,7 @@ modules on the `ops` list of `tests/layering.rs`.
 - `src/owner_cmd.rs`, `src/owner_route.rs`: the owner commands `/crew ...`, and the owner route for workflow files.
 - `src/labels.rs`: the labels that make the board readable.
 - `src/audit.rs`: what the signed comments show.
-- `src/retro.rs`: the retrospective report: what the signed log of the tickets says about a period (verify fails by class, questions and blocks, flow times). Pure.
+- `src/retro.rs`: the retrospective report: what the signed log of the tickets says about a period (verify fails by class, questions and blocks, flow times, the outcome of merged tickets). Pure.
 
 ### Configuration and checks
 

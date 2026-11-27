@@ -59,6 +59,14 @@ Run `crewboard retro` for the time after the merge. The tag should fall under th
 does not, the rule does not bind: make it stricter or remove it. A rule that no fault needs any
 more is removed too: each rule costs attention.
 
+## Read the section "Outcome" too
+
+A fault that no verify found shows up after the merge. The section "Outcome" of `retro` counts
+the merged tickets that came back and the merged tickets that a commit of the default branch
+reverts. Read the tickets of both lists: each one is a fault that the Gate did not catch, and
+a candidate for a check. The owner numbers say how often you had to step in and how long a
+question waited for you; a long wait is a cost of the line, not of an agent.
+
 ## What this does not do
 
 - It does not classify a fail without a tag. A model would have to read the note, and its

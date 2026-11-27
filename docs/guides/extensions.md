@@ -70,7 +70,8 @@ Spec: [Status updates](../design/spec/board.md#status-updates) and
 `verify` at the first try, why the others went back (the verify fails by class), where work
 stopped (questions and blocks), which refusals the dev agents named, and how long the steps
 took. `retro --since 7d` takes the tickets of the last week. `--json` adds the comment URL of
-each event. A dropped ticket whose PR another account merged has its own count. The report
+each event. A dropped ticket whose PR another account merged has its own count. The section
+"Outcome" counts the merged tickets that came back or were reverted. The report
 counts classes and ranks no agent. The owner, the coordinator or any
 other reader of the board runs it. It writes nothing.
 

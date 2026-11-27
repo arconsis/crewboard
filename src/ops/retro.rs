@@ -8,6 +8,12 @@
 //! that has a crew message among them is then read in full (one request per 100 comments of the
 //! issue), because the report needs the whole log of a ticket.
 //!
+//! The section "Outcome" needs the commits of the default branch, to find a revert: one request
+//! per 100 commits of each repo with a merged ticket, since the earliest close note of a merge,
+//! at most [`REVERT_PAGES`] pages per repo. This read is soft: when it fails or the list is
+//! longer, the report prints and says that the reverts were not read. No merged ticket: no
+//! request.
+//!
 //! One list read follows at most `github::paging::MAX_PAGES` pages (5000 comments). A feed that
 //! is longer ends the command with a usage error that names `--since`; no partial report is
 //! printed, because its numbers would be wrong.
@@ -15,14 +21,14 @@
 use super::audit::parse_since;
 use super::{Ctx, Global, load_world};
 use crate::base::TicketRef;
-use crate::clock::{format_ts, now_epoch};
+use crate::clock::{format_ts, now_epoch, parse_ts};
 use crate::comments::Comment;
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::github::GhError;
-use crate::github::paging::MAX_PAGES;
+use crate::github::paging::{MAX_PAGES, paged};
 use crate::registry::{CREW_PREFIX, Trust};
-use crate::retro::{Event, Report, Spread, TicketLog, retro};
+use crate::retro::{BaseCommit, Event, MergedRef, Report, Spread, TicketLog, merged_refs, retro};
 use crate::state::StateCache;
 use crate::ticket::{Sender, out_of_window_messages, verified_messages};
 use serde_json::{Value, json};
@@ -127,6 +133,45 @@ fn ticket_log(
     })
 }
 
+/// The most pages of commits that `retro` reads of one repo (100 commits each).
+pub const REVERT_PAGES: usize = 10;
+
+/// The commits of the default branch of each repo of the initiative that has a merge of
+/// `refs`, since the earliest close note of such a merge. `None` when a read fails or a list
+/// has more than [`REVERT_PAGES`] pages: the report then says that the reverts were not read.
+/// No merge: no request.
+fn read_base_commits(ctx: &Ctx, refs: &[MergedRef]) -> Option<Vec<BaseCommit>> {
+    let mut out = Vec::new();
+    for repo in &ctx.cfg.repos {
+        let Some(since) = refs
+            .iter()
+            .filter(|r| r.repo.eq_ignore_ascii_case(repo))
+            .map(|r| r.close.at)
+            .min()
+        else {
+            continue;
+        };
+        let path = format!(
+            "repos/{repo}/commits?since={}&per_page=100",
+            format_ts(since)
+        );
+        let list = paged(&ctx.client, &path, REVERT_PAGES).ok()?;
+        if list.truncated {
+            return None;
+        }
+        for c in list.items("commits").ok()? {
+            let text = |at: &str| c.pointer(at).and_then(Value::as_str);
+            out.push(BaseCommit {
+                repo: repo.to_string(),
+                sha: text("/sha")?.to_string(),
+                at: parse_ts(text("/commit/committer/date")?)?,
+                message: text("/commit/message")?.to_string(),
+            });
+        }
+    }
+    Some(out)
+}
+
 pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<Out> {
     // a bad `--since` is a usage error, before any read
     let since = since.map(|s| parse_since(s, now_epoch())).transpose()?;
@@ -136,7 +181,8 @@ pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<Out> {
         .into_iter()
         .filter_map(|(ticket, comments)| ticket_log(&ctx, &world.trust, ticket, &comments, since))
         .collect();
-    let report = retro(&logs);
+    let commits = read_base_commits(&ctx, &merged_refs(&logs));
+    let report = retro(&logs, commits.as_deref());
     let view = View {
         initiative: &ctx.cfg.initiative,
         main_repo: ctx.main_repo(),
@@ -332,6 +378,7 @@ pub fn render(v: &View, r: &Report) -> String {
         s.push_str(&event_lines(v, &x.events));
     }
     render_flow(r, &mut s);
+    render_outcome(v, r, &mut s);
     s
 }
 
@@ -445,6 +492,89 @@ fn render_flow(r: &Report, s: &mut String) {
     ));
 }
 
+/// The section "Outcome": whether merged work stayed, and how much the owner had to do.
+fn render_outcome(v: &View, r: &Report, s: &mut String) {
+    let o = &r.outcome;
+    s.push_str(&format!(
+        "\nOutcome\n  merged tickets: {}\n  came back after the merge: {} of {}{}\n",
+        o.merged,
+        o.came_back.len(),
+        o.merged,
+        percent(o.came_back.len(), o.merged)
+    ));
+    s.push_str(&event_lines(v, &o.came_back));
+    let y = &o.reverted;
+    if y.read {
+        let closes: Vec<Event> = y.reverts.iter().map(|x| x.close.clone()).collect();
+        s.push_str(&format!(
+            "  reverted on the default branch: {} of {}{} (the merged tickets whose close note names a merge commit or a PR)\n",
+            closes.len(),
+            y.known,
+            percent(closes.len(), y.known)
+        ));
+        s.push_str(&event_lines(v, &closes));
+    } else {
+        s.push_str(&format!(
+            "  reverted on the default branch: not read (the read of the commits failed, or a repo has more than {} commits in the period; a later --since makes the period shorter)\n",
+            REVERT_PAGES * 100
+        ));
+    }
+    let comments = o.owner_comments.map_or(String::new(), |c| {
+        format!(
+            "; comments on such a ticket: median {}, p90 {}",
+            c.median_s, c.p90_s
+        )
+    });
+    s.push_str(&format!(
+        "  tickets with an owner comment: {} of {}{}{comments}\n",
+        o.owner_touched,
+        r.tickets,
+        percent(o.owner_touched, r.tickets)
+    ));
+    let wait = o
+        .owner_wait
+        .map_or("no answered question".to_string(), |w| {
+            format!(
+                "median {:.1} h, p90 {:.1} h ({} question(s))",
+                hours(w.median_s),
+                hours(w.p90_s),
+                w.tickets
+            )
+        });
+    s.push_str(&format!(
+        "  wait for the answer to a question to the owner: {wait}\n"
+    ));
+}
+
+/// `report.outcome` of the JSON. An event of `reverted` is the close note, with the commit that
+/// reverts the merge (`revert`).
+fn outcome_json(r: &Report) -> Value {
+    let o = &r.outcome;
+    let reverts: Vec<Value> = o
+        .reverted
+        .reverts
+        .iter()
+        .map(|x| {
+            let mut e = event_json(&x.close);
+            e["revert"] = json!({"sha": x.sha, "at": format_ts(x.at)});
+            e
+        })
+        .collect();
+    json!({
+        "merged": o.merged,
+        "came_back": events_json(&o.came_back),
+        "reverted": {"read": o.reverted.read, "known": o.reverted.known,
+                     "count": reverts.len(), "events": reverts},
+        "owner": {
+            "touched": o.owner_touched,
+            "comments": o.owner_comments.map_or(Value::Null, |c| json!({
+                "tickets": c.tickets, "median": c.median_s, "p90": c.p90_s})),
+            "wait": o.owner_wait.map_or(Value::Null, |w| json!({
+                "questions": w.tickets, "median_h": hours(w.median_s), "p90_h": hours(w.p90_s)})),
+        },
+    })
+}
+
 fn event_json(e: &Event) -> Value {
     json!({"ticket": e.ticket.to_string(), "issue": e.ticket.issue, "url": e.url,
            "at": format_ts(e.at), "from": e.from, "to": e.to})
@@ -520,6 +650,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                      "late_notes": events_json(&f.late_notes),
                      "assign_to_done": spread_json(f.assign_to_done),
                      "done_to_close": spread_json(f.done_to_close)},
+            "outcome": outcome_json(r),
         },
     })
 }
@@ -527,7 +658,9 @@ pub fn render_json(v: &View, r: &Report) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::retro::{Andon, ClassRow, Flow, RefusalRow, Round, VerifyStats};
+    use crate::retro::{
+        Andon, ClassRow, Flow, Outcome, RefusalRow, Revert, Reverted, Round, VerifyStats,
+    };
 
     const VIEW: View = View {
         initiative: "t",
@@ -607,6 +740,30 @@ mod tests {
                 ..Flow::default()
             },
             merged_unassigned: vec![event("a/b", 11, 111), event("a/b", 12, 121)],
+            outcome: Outcome {
+                merged: 3,
+                came_back: vec![event("a/b", 7, 74)],
+                reverted: Reverted {
+                    read: true,
+                    known: 2,
+                    reverts: vec![Revert {
+                        close: event("a/c", 2, 22),
+                        sha: "0123456789abcdef".into(),
+                        at: 7200,
+                    }],
+                },
+                owner_touched: 2,
+                owner_comments: Some(Spread {
+                    tickets: 2,
+                    median_s: 1,
+                    p90_s: 3,
+                }),
+                owner_wait: Some(Spread {
+                    tickets: 3,
+                    median_s: 7200,
+                    p90_s: 18000,
+                }),
+            },
         }
     }
 
@@ -629,7 +786,11 @@ mod tests {
             "  done-needs-pr: 1\n    #7 https://github.com/a/b/issues/7#issuecomment-73\n",
             "  reassigned tickets: 1\n  dropped tickets: 1\n  dropped with a merged PR: 1\n  closes: dropped 1, merged 2\n  late notes: 0\n",
             "  assignment to first done: median 2.1 h, p90 7.9 h (3 ticket(s))\n",
-            "  first done to close: no ticket\n",
+            "  first done to close: no ticket\n\nOutcome\n  merged tickets: 3\n",
+            "  came back after the merge: 1 of 3 (33%)\n    #7 https://github.com/a/b/issues/7#issuecomment-74\n",
+            "  reverted on the default branch: 1 of 2 (50%) (the merged tickets whose close note names a merge commit or a PR)\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-22\n",
+            "  tickets with an owner comment: 2 of 4 (50%); comments on such a ticket: median 1, p90 3\n",
+            "  wait for the answer to a question to the owner: median 2.0 h, p90 5.0 h (3 question(s))\n",
         ] {
             assert!(t.contains(want), "missing {want:?} in:\n{t}");
         }
@@ -714,7 +875,7 @@ mod tests {
         };
         let t = render(&VIEW, &five);
         assert!(!t.contains("more (--json lists all)"), "{t}");
-        assert_eq!(t.matches("#issuecomment-").count(), 5 + 1 + 1, "{t}");
+        assert_eq!(t.matches("#issuecomment-").count(), 5 + 1 + 1 + 2, "{t}");
         // the JSON keeps every event
         let j = render_json(&VIEW, &many);
         assert_eq!(j["report"]["classes"][0]["count"], 7);
@@ -753,6 +914,53 @@ mod tests {
         };
         let t = render(&VIEW, &plain);
         assert!(t.contains("  first verify passed: 2 of 3 (67%)\n"), "{t}");
+    }
+
+    #[test]
+    fn the_outcome_says_when_the_reverts_were_not_read_and_when_nothing_was_measured() {
+        // the commits were not read: no count, and the way to a shorter period
+        let unread = Report {
+            outcome: Outcome {
+                reverted: Reverted {
+                    read: false,
+                    known: 2,
+                    reverts: vec![],
+                },
+                ..report().outcome
+            },
+            ..report()
+        };
+        let t = render(&VIEW, &unread);
+        assert!(
+            t.contains("  reverted on the default branch: not read (the read of the commits failed, or a repo has more than 1000 commits in the period; a later --since makes the period shorter)\n"),
+            "{t}"
+        );
+        let j = render_json(&VIEW, &unread);
+        assert_eq!(
+            j["report"]["outcome"]["reverted"],
+            json!({"read": false, "known": 2, "count": 0, "events": []})
+        );
+        // no merged ticket, no owner comment, no answered question
+        let none = Report {
+            outcome: Outcome {
+                reverted: Reverted {
+                    read: true,
+                    ..Reverted::default()
+                },
+                ..Outcome::default()
+            },
+            ..report()
+        };
+        let t = render(&VIEW, &none);
+        assert!(
+            t.ends_with("\nOutcome\n  merged tickets: 0\n  came back after the merge: 0 of 0\n  reverted on the default branch: 0 of 0 (the merged tickets whose close note names a merge commit or a PR)\n  tickets with an owner comment: 0 of 4 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
+            "{t}"
+        );
+        let o = &render_json(&VIEW, &none)["report"]["outcome"];
+        assert_eq!(
+            o["owner"],
+            json!({"touched": 0, "comments": null, "wait": null})
+        );
     }
 
     #[test]
@@ -835,6 +1043,24 @@ mod tests {
         assert_eq!(
             r["flow"]["assign_to_done"],
             json!({"tickets": 3, "median_h": 2.1, "p90_h": 7.9})
+        );
+        let o = &r["outcome"];
+        assert_eq!(o["merged"], 3);
+        assert_eq!(o["came_back"]["count"], 1);
+        assert_eq!(o["came_back"]["events"][0]["issue"], 7);
+        assert_eq!(
+            o["reverted"],
+            json!({"read": true, "known": 2, "count": 1, "events": [{
+                "ticket": "a/c#2", "issue": 2,
+                "url": "https://github.com/a/c/issues/2#issuecomment-22",
+                "at": "1970-01-01T01:00:00Z", "from": "agent-a@host-a", "to": "agent-b@host-b",
+                "revert": {"sha": "0123456789abcdef", "at": "1970-01-01T02:00:00Z"}}]})
+        );
+        assert_eq!(
+            o["owner"],
+            json!({"touched": 2,
+                   "comments": {"tickets": 2, "median": 1, "p90": 3},
+                   "wait": {"questions": 3, "median_h": 2.0, "p90_h": 5.0}})
         );
     }
 

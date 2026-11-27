@@ -185,6 +185,32 @@ impl FakeBoard {
             .push((path.to_string(), date.to_string()));
     }
 
+    /// A commit on the default branch with this sha and message, dated `at` (Unix seconds).
+    pub fn commit(&self, sha: &str, message: &str, at: i64) {
+        self.st
+            .lock()
+            .unwrap()
+            .commits
+            .push((sha.to_string(), format_ts(at), message.to_string()));
+    }
+
+    /// From now on the commit list of a repo (`GET commits`) comes in pages of `n` commits
+    /// with `Link: rel="next"`.
+    pub fn page_commits(&self, n: usize) {
+        self.st.lock().unwrap().commits_page_size = Some(n.max(1));
+    }
+
+    /// From now on `GET commits` answers this HTTP status (a token that may not read the
+    /// code).
+    pub fn fail_commits(&self, status: u16) {
+        self.st.lock().unwrap().commits_status = Some(status);
+    }
+
+    /// The sha of the merge commit of PR `number`, as the fake names it.
+    pub fn merge_commit_of(&self, number: u64) -> String {
+        merge_sha(number)
+    }
+
     /// Branch `crew/<agent>/<issue>-it` with one commit and a PR "Closes #<issue>".
     pub fn pr_for(&self, issue: u64, agent: &str) -> Pull {
         let mut st = self.st.lock().unwrap();
@@ -759,8 +785,13 @@ fn repo_json(st: &State, repo: &str) -> Value {
            "url": format!("{}/repos/{repo}", st.base)})
 }
 
+/// The sha of the merge commit of PR `number`.
+fn merge_sha(number: u64) -> String {
+    format!("{:040x}", 0xabc0_u128 + u128::from(number))
+}
+
 fn pull_json(st: &State, p: &Pr) -> Value {
-    let merge_sha = format!("{:040x}", 0xabc0_u128 + u128::from(p.number));
+    let merge_sha = merge_sha(p.number);
     json!({
         "url": format!("{}/repos/{}/pulls/{}", st.base, p.repo, p.number),
         "id": 9000 + p.number,
@@ -917,10 +948,8 @@ pub(super) fn put_merge(st: &mut State, repo: &str, num: &str, body: &str) -> Re
     p.merged = true;
     p.merged_by = Some("fake-crew".to_string());
     p.state = "closed";
-    ok(
-        json!({"sha": format!("{:040x}", 0xabc0_u128 + u128::from(n)),
-              "merged": true, "message": "Pull Request successfully merged"}),
-    )
+    ok(json!({"sha": merge_sha(n),
+              "merged": true, "message": "Pull Request successfully merged"}))
 }
 
 /// `DELETE /repos/{repo}/git/refs/heads/{branch}`: 422 if the ref does not exist.
@@ -939,16 +968,31 @@ pub(super) fn delete_branch(st: &mut State, repo: &str, branch: &str) -> Resp {
 }
 
 /// `GET /repos/{repo}/commits?sha=&path=&since=&per_page=`: the commits of the default branch
-/// that changed `path` (or a file below it) after `since`.
+/// that changed `path` (or a file below it) after `since`. Without `path`: also the commits of
+/// [`FakeBoard::commit`] at or after `since`, newest first.
 pub(super) fn get_commits(st: &State, query: &str) -> Resp {
+    if let Some(status) = st.commits_status {
+        return Resp::json(status, r#"{"message":"fake: no commits for you"}"#);
+    }
     let arg = |name: &str| -> Option<&str> {
         query
             .split('&')
             .find_map(|kv| kv.strip_prefix(&format!("{name}=")))
     };
     let path = arg("path").unwrap_or("");
-    let since = arg("since").unwrap_or("");
-    let list: Vec<Value> = st
+    let since = percent_decode(arg("since").unwrap_or(""));
+    let since = since.as_str();
+    let mut plain: Vec<&(String, String, String)> = st
+        .commits
+        .iter()
+        .filter(|(_, d, _)| path.is_empty() && d.as_str() >= since)
+        .collect();
+    plain.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut list: Vec<Value> = plain
+        .into_iter()
+        .map(|(sha, d, m)| json!({"sha": sha, "commit": {"committer": {"date": d}, "message": m}}))
+        .collect();
+    let by_path: Vec<Value> = st
         .base_commits
         .iter()
         .filter(|(p, d)| {
@@ -957,6 +1001,7 @@ pub(super) fn get_commits(st: &State, query: &str) -> Resp {
         })
         .map(|(p, d)| json!({"sha": "c0ffee", "commit": {"committer": {"date": d}, "message": p}}))
         .collect();
+    list.extend(by_path);
     ok(Value::Array(list))
 }
 

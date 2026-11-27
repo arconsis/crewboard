@@ -71,6 +71,7 @@ agent: a retrospective looks for classes of causes, and a ranking of agents hide
 | Andon | The questions to the owner, to the coordinator and to another agent. The round-limit stops (text: `round-limit stops`, JSON: `andon.round_limit_stops`): the questions to the owner that a coordinator posted at the [round limit](tickets.md#round-limit), found by their fixed first line. Each stop is also a question to the owner. The `blocked` and the parked messages. The question to the owner that is still open, for each ticket that has not ended. |
 | Refusals mentioned | For each [refusal id](../../reference/refusals.md) that a dev agent names as a whole word in a `question`, `blocked` or `report` message: the count and the messages. A refusal of the CLI is not on the board, so this is its only trace. |
 | Flow | The reassigned tickets, the dropped tickets, the tickets [dropped with a merged PR](#dropped-with-a-merged-pr), the closes by kind, the late notes. The median and the 90th percentile of the hours from the first assignment to the first `done`, and from the first `done` to the close. |
+| Outcome | The merged tickets. How many of them came back after the merge, and how many a commit of the default branch reverts. The tickets with an owner comment, and the wait for the answer to a question to the owner. [Outcome](#outcome) has the definitions. |
 
 The median of an even number of values is the mean of the two middle values. The 90th
 percentile is the value at position `ceil(0.9 n)` of the sorted values. A close is counted for
@@ -92,12 +93,70 @@ delivered all the same, so the report does not hide it among the drops:
   assignment. Such an issue is no ticket. It is in this number and in no other.
 
 Both numbers count only an issue that the log still shows as Dropped, and only the note that
-dropped it. Both read only the signed note; `retro` asks GitHub for no PR. A drop note without
+dropped it. Both read only the signed note. `retro` asks GitHub for no PR, and it asks for
+commits only to find a revert ([Outcome](#outcome)). A drop note without
 these lines, as every build before this one wrote it, is a plain drop. Both numbers rank no
 agent.
 
 When the period has no ticket, the text prints the line of the merged work without an
 assignment only when that number is not 0. The exit code stays 1.
+
+### Outcome
+
+A merge is not proof that the work was right. This section counts what the log and the default
+branch show after the merge, and how much the owner had to do. Like every section, it counts
+tickets and names no agent.
+
+A **merged ticket** (JSON: `outcome.merged`) is a ticket with at least one close that says the
+PR is merged (`merge`, `close`, `close --verified`), or with a drop whose note records a merged
+PR. A merged ticket that was dropped later is still a merged ticket.
+
+- **Came back** (text: `came back after the merge`, JSON: `outcome.came_back`): the merged
+  tickets that a message opened again after such a close. The messages that open an ended
+  ticket are those of the ticket log
+  ([Status flow and writers](tickets.md#status-flow-and-writers)): an owner move, and from a
+  coordinator a board announcement, an assignment, a reassign or a failed verify. The event is
+  the first such message. A ticket counts one time. The share is of the merged tickets. A plain
+  drop that was opened again does not count: that is a changed decision, not wrong work.
+- **Reverted** (text: `reverted on the default branch`, JSON: `outcome.reverted`): the merged
+  tickets whose merge a commit of the default branch reverts. The close note of a merge has
+  the lines `pr:` and `merge-commit:`. A commit reverts the merge when its message has one of
+  these texts:
+  - `This reverts commit <sha>`, and `<sha>` is the merge commit of the note or its first 12
+    hex digits or more;
+  - a line that starts with `Reverts <owner>/<repo>#<n>` or `Reverts #<n>`, and this is the PR
+    of the note. `#<n>` without a repo is a PR of the repo of the commit.
+
+  The commit and the PR are in the same repo. The share is of the merged tickets whose close
+  note names a PR or a merge commit (JSON: `known`). A ticket counts one time; the event is the
+  close note, and in JSON it has the earliest commit that reverts the merge
+  (`revert.sha`, `revert.at`). `retro` reads the commits of the default branch of each repo
+  with such a note, from the time of the earliest of these notes ([Cost](#cost)). When this
+  read fails or the list is too long, the report prints all the same. The line then says
+  `not read` and names `--since`, the JSON has `reverted.read: false`, and the count says
+  nothing. A report without a merged ticket needs no read, and `read` is `true`.
+- **Owner comments** (text: `tickets with an owner comment`, JSON: `outcome.owner.touched`
+  and `outcome.owner.comments`): the tickets with at least one comment of the owner account
+  without a crew header, of all tickets of the report. A command of the owner (`/crew ...`) is
+  such a comment. Then the median and the 90th percentile of the number of these comments on
+  a ticket that has one. The median of an even number of tickets is rounded down.
+- **Owner wait** (text: `wait for the answer to a question to the owner`, JSON:
+  `outcome.owner.wait`): for each question to the owner of the section Andon, the hours from
+  the question to the first later message that closes it: a comment of the owner, or an answer
+  of a coordinator with the line `withdraws: question`. The median and the 90th percentile are
+  over the questions. A question that no message closed is left out; the section Andon lists
+  the open ones.
+
+Known limits:
+
+- With `--since`, a revert of a ticket that has no agent message in the period is not seen.
+- A revert that was made before the close note was posted is not seen.
+- A revert that a later commit reverts again still counts.
+- A close note without the lines `pr:` and `merge-commit:` (the note of `close --verified`)
+  gives no revert.
+- An answer that the owner gives outside the ticket is not in the log. Such a question counts
+  as open, or its wait ends at a later comment of the owner.
+- A revert PR that was never merged, and a later ticket that repairs the work, are not counted.
 
 ### Classes of a verify fail
 
@@ -153,6 +212,14 @@ registry issue (one more for each 100 comments after the first 100) and the agen
 
 An edited comment of the owner account costs one more request for its editors, as in every
 command that reads comments.
+
+For the reverts of the section [Outcome](#outcome): one request for each 100 commits of the
+default branch of each repo that has a merged ticket, from the time of the earliest close note
+of a merge in that repo. This read follows at most 10 pages for each repo, that is 1000
+commits. It is the only read of commits, and `retro` reads no PR. A report without a merged
+ticket sends no such request. This read is soft: when it fails, or when a repo has more than
+1000 commits in that time, the report prints without the count of reverts (exit code as
+before), and the line names `--since` as the way to a shorter period.
 
 One list read follows at most 50 pages, that is 5000 comments. When a repo has more comments,
 `retro` without `--since` prints no report: a part of the log would give wrong numbers. It ends
