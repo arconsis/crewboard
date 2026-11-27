@@ -1081,3 +1081,99 @@ fn a_done_or_a_verify_whose_check_is_not_red_writes_nothing_and_leaves_no_work_t
         );
     }
 }
+
+/// A commit in the middle changes a protected check script and the head restores it: the diff
+/// of the whole change shows no protected path, and the red run must not run that script.
+#[test]
+fn a_protected_file_that_differs_on_the_red_commit_stops_the_run_before_any_code_of_it() {
+    let (k, _b, _url) = case_taken("the checks pass");
+    let origin = k.work.parent().unwrap().join("origin").join(REPO);
+    let base = k.sha.clone();
+    let ran = k.work.parent().unwrap().join("ran-on-the-middle-commit");
+    let script = std::fs::read_to_string(origin.join("check.sh")).unwrap();
+    std::fs::write(
+        origin.join("check.sh"),
+        format!("#!/bin/sh\necho x > '{}'\nexit 1\n", ran.display()),
+    )
+    .unwrap();
+    git(&origin, &["commit", "-q", "-am", "the script fails"]);
+    let middle = git(&origin, &["rev-parse", "HEAD"]);
+    std::fs::write(origin.join("check.sh"), script).unwrap();
+    std::fs::write(origin.join("fixed"), "x\n").unwrap();
+    std::fs::write(origin.join("later.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        origin.join("later.sh"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "the fix"]);
+    let head = git(&origin, &["rev-parse", "HEAD"]);
+    git(&k.work, &["pull", "-q", "--ff-only"]);
+    let draft = k.work.join("draft.md");
+    std::fs::write(
+        &draft,
+        "---\nowner: fake-owner\nprotected_paths: [check.sh]\nchecks:\n  - script: ./check.sh one\n  - later: ./later.sh\n---\n",
+    )
+    .unwrap();
+    let empty = k.work.parent().unwrap().join("no-config");
+    std::fs::create_dir_all(&empty).unwrap();
+    let file = draft.to_string_lossy().into_owned();
+
+    let o = check(
+        &k,
+        &empty,
+        &[
+            "--authority-file",
+            &file,
+            "script",
+            "--must-fail-at",
+            &middle,
+        ],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr.contains(&format!(
+            "a protected file differs between {} and {} (check.sh)",
+            &middle[..12],
+            &head[..12]
+        )),
+        "{}",
+        o.all()
+    );
+    // no code of the middle commit ran, and no run directory was made
+    assert!(!ran.exists(), "{}", o.all());
+    assert!(run_dirs(&k).is_empty(), "{:?}", run_dirs(&k));
+    assert_eq!(work_trees(&k), 1);
+
+    // the first commit has the same script as the head: the rule lets the red run start (the
+    // script passes there, so the check is not red)
+    let o = check(
+        &k,
+        &empty,
+        &["--authority-file", &file, "script", "--must-fail-at", &base],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-red"), "{}", o.all());
+    assert!(!ran.exists(), "{}", o.all());
+
+    // a program that the red commit does not have: no proof, and the text names the option
+    let o = check(
+        &k,
+        &empty,
+        &["--authority-file", &file, "later", "--must-fail-at", &base],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr.contains(&format!(
+            "check later cannot start on the commit {base} of --must-fail-at"
+        )) && o.stderr.contains("Name another commit")
+            && !o.stderr.contains("host setup"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(work_trees(&k), 1);
+}

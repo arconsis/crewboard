@@ -90,8 +90,10 @@ Events, Leaving, Extensions.
 - A local-run `done` whose Gate names a command that AUTHORITY.md lists under `checks`: do not
   rerun it by hand. `verify <n> --run-check <name>` runs it on a clean checkout of the head and
   writes the result. You still read the parts of the Gate that are not a command.
-- `red at <sha>` in a tool line means: the tool saw the check fail on that commit, then pass on
-  the head. For your own proof, add `--must-fail-at <rev>` to `verify <n> --run-check <name>`.
+- `red at <sha>` in a line that starts with `tool-run` means: the tool saw the check fail on
+  that commit, then pass on the head. For your own proof, add `--must-fail-at <sha>` to
+  `verify <n> --run-check <name>`. Give the SHA: a rev such as `HEAD~1` is read in the checkout
+  of `--work-dir`, not on the PR head.
 - A ticket that only those checks decide: write its Gate as `Gate: checks: <name>, <name>` and
   nothing else. A headless coordinator then verifies it without you. One more word makes the
   Gate prose again.
