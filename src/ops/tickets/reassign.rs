@@ -1,6 +1,8 @@
 //! `reassign`: the coordinator moves a ticket to another agent, or the duties loop reassigns it.
 
-use super::assign_checks::{CapOverride, check_assignable, check_capabilities, copy_signed};
+use super::assign_checks::{
+    CapOverride, check_assignable, check_capabilities, copy_signed, sync_gate_field,
+};
 use super::{
     Me, agent_label_lines, load_world_cached, me_of, post, remember, sync_needs_owner, to_agent,
     work_write_ctx, work_write_ctx_of, write_work,
@@ -146,6 +148,16 @@ pub fn reassign(
             ),
         )?;
         out.push_str(&format!("assignment message {}\n", p.url));
+        // the field shows the signed Gate
+        if let Some(g) = &lines.gate {
+            out.push_str(&sync_gate_field(
+                ac,
+                &t.item_id,
+                t.item.get(Field::Gate),
+                (g, "signed Gate"),
+                &agent_writer,
+            )?);
+        }
         out.push_str(&lines.notes);
     }
     remember(ac, &t, target, new_agent.as_ref().map(AgentName::as_str));

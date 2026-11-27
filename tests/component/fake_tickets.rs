@@ -2333,9 +2333,12 @@ fn assign_signs_the_gate_and_reassign_copies_it_forward() {
         "{}",
         first[0]
     );
-    // the board field keeps the first Gate line, as before
+    // the board field holds the Gate as it is signed: both lines, not `ci` alone
     let item = fake.item_of_issue(t).unwrap();
-    assert_eq!(field(&fake, &item, "Gate").as_deref(), Some("ci"));
+    assert_eq!(
+        field(&fake, &item, "Gate").as_deref(),
+        Some("ci | run the demo by hand")
+    );
     // reassign (same ticket, still Ready): the new assignment message has the gate line again
     run_ok(
         &fake,

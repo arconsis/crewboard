@@ -8,7 +8,7 @@
 //! assignment checks (so that a refused `--assign` creates nothing), then the writes.
 
 use super::assign::assign;
-use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
+use super::assign_checks::{CapOverride, check_assignable, check_capabilities, sync_gate_field};
 use super::board_put::{Adoption, put_on_board};
 use super::pr_evidence::fetch_pr;
 use super::{Me, load_world_cached, me_of, work_write_ctx, write_work};
@@ -294,18 +294,22 @@ pub(super) fn adopt_info(
             .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
         out.push_str("Status set to Backlog\n");
     }
-    // A ticket with a signed Gate shows that one in the field: the body is not signed.
-    let (field_gate, source) = match crate::ticket::signed_gate(&msgs) {
-        Some(signed) => (
-            check_text_field(&signed).is_ok().then_some(signed),
-            "signed Gate",
+    // A ticket with a signed Gate shows that one in the field: the body is not signed. Without
+    // one the field shows what an assignment will sign: every Gate line of the body.
+    let (shown, source) = match crate::ticket::signed_gate(&msgs) {
+        Some(signed) => (signed, "signed Gate"),
+        None => (
+            crate::ticket::gate_line_of(&info.body).unwrap_or(gate),
+            "body",
         ),
-        None => (Some(gate), "body"),
     };
-    if let Some(g) = field_gate.filter(|g| item.get(Field::Gate) != Some(g.as_str())) {
-        write_work(ac, &item_id, Field::Gate, FieldValue::Text(&g), &wc)?;
-        out.push_str(&format!("Gate field set from the {source}\n"));
-    }
+    out.push_str(&sync_gate_field(
+        ac,
+        &item_id,
+        item.get(Field::Gate),
+        (&shown, source),
+        &wc,
+    )?);
     let mut cache = ac.load_cache();
     cache
         .index

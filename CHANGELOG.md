@@ -72,9 +72,12 @@ Fixed:
   first assignment of a ticket reads the body, and `assign` prints what it signs
   (`signed from the body: ...`). `ticket split` gives the new ticket the signed Gate of the old
   ticket, not the Gate line of its body. When the body has another Gate or CI line, `assign`
-  and `reassign --to` print a warning, and `assign` and `ticket adopt` write the signed Gate
-  into the `Gate` field. An `assign` of a ticket that has an Agent or a Status past Backlog
-  but no valid assignment message (deleted or edited) still signs the body, and warns.
+  and `reassign --to` print a warning. `assign`, `reassign --to` and `ticket adopt` write the
+  signed Gate into the `Gate` field when the field has another value. The field holds the
+  Gate as it is signed: every Gate line, joined with ` | ` (`assign` wrote only the first
+  line). An `assign` of a ticket that has an Agent or a Status past Backlog, but no valid
+  assignment message in its log (never posted, deleted, edited or not valid), still signs the
+  body, and warns.
 
 ## v0.12.0 (2026-11-27)
 
