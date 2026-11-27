@@ -22,10 +22,12 @@ Added:
   signed question to the owner and the label `needs-owner`. Until a release, `take` and `done`
   of the dev end with `status-answer-missing`. Any comment of the owner on the stopped ticket
   releases it, so the owner writes the decision in that comment; the coordinator's `unblock`
-  releases it too. For a drop the coordinator closes the ticket with `close --why`. After the
-  release, or after a reassign, the count starts again. A failed `verify` whose only cause is a
-  moved PR head does not count, and one `done` gives at most one round. A `verify` after a
-  failed write finishes the stop and posts no second report. The headless `tick` follows the
+  releases it too. For a drop the coordinator closes the ticket with `close --why`; for a
+  split, release first, then `ticket split`. After the release, a reassign or a new assignment
+  the count starts again. A failed `verify` whose only cause is a moved PR head does not count.
+  Every failed `verify` that counts is one round; a second failed `verify` for the same
+  delivery counts too. A `verify` after a failed write finishes the stop and posts no second
+  report. The headless `tick` follows the
   same limit. `retro` counts the stops (`round-limit stops`). Two new ids guard the status
   table: `status-verify-rounds-spent` and `status-verify-rounds-left`. A note of `verify` with
   a line that starts with `case:` ends with `text-reads-as-act`.

@@ -244,8 +244,18 @@ const FAILED_KEY: &str = "failed";
 
 /// The line `failed: <text>` of one failure, with its line end: the one writer of the line, for
 /// the signed result and for the answer that `verify` prints.
+///
+/// A failure text is one line: its parts come from CI and from the PR (job names, messages of
+/// the API), and a line break in one would start a line that reads as a key of the result
+/// (`case:`, `verify:`). The note of a failed Gate check is the text of the coordinator; it keeps
+/// its lines, and `verify` takes no note with a line of a key that the tool writes.
 pub fn failed_line(f: &VerifyFailure) -> String {
-    format!("{FAILED_KEY}: {f}\n")
+    let text = f.to_string();
+    let text = match f {
+        VerifyFailure::GateCheck { .. } => text,
+        _ => text.replace(['\r', '\n'], " "),
+    };
+    format!("{FAILED_KEY}: {text}\n")
 }
 
 /// The text of every `failed:` line of a verify result, in order.
@@ -434,6 +444,29 @@ mod tests {
             assert_eq!(failed_lines(&body), [text.as_str()]);
             assert_eq!(fail_classes(&body), [v.class()]);
         }
+    }
+
+    #[test]
+    fn a_failure_text_from_ci_is_one_line_and_a_gate_note_keeps_its_lines() {
+        // a job name with a line break must not start a line that reads as a key of the result
+        let red = VerifyFailure::CiNotGreen {
+            sha: "abc".into(),
+            red: vec!["build\ncase: round limit 9 of 9; x".into(), "t\r\nu".into()],
+        };
+        let line = failed_line(&red);
+        assert_eq!(line.matches('\n').count(), 1, "{line:?}");
+        assert!(line.ends_with('\n') && !line.contains('\r'));
+        assert_eq!(fail_class_of(failed_lines(&line)[0]), FailClass::CiRed);
+        let finding = VerifyFailure::CiFinding {
+            message: "run 9\nverify: pass".into(),
+            rule: "evidence-ci-missing".into(),
+        };
+        assert_eq!(failed_line(&finding).lines().count(), 1);
+        // the note of the coordinator keeps its lines
+        let note = VerifyFailure::GateCheck {
+            note: "part 2 is missing\nsee the log".into(),
+        };
+        assert_eq!(failed_line(&note).lines().count(), 2);
     }
 
     #[test]

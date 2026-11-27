@@ -491,6 +491,29 @@ fn a_ticket_that_was_split_before_the_stop_takes_no_done_without_a_release() {
     );
     // the split proof still holds, but the stop comes first
     assert_no_way_back(&fake, &b, &d);
+    // a second split of the stopped ticket is refused: release first, then split
+    let _ = fake.poll_json(&c);
+    let before = crate::support::cli::writes(&fake);
+    let o = run_refused(
+        &fake,
+        &c,
+        &[
+            "ticket",
+            "split",
+            &ts,
+            "--title",
+            "IT rounds split, part C",
+            "--body-file",
+            file.to_str().unwrap(),
+        ],
+        "status-answer-missing",
+    );
+    assert!(
+        o.stderr.contains("release it first, then split"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(crate::support::cli::writes(&fake), before);
 
     // after the release the `done` of the split ticket passes again
     let _ = fake.poll_json(&c);

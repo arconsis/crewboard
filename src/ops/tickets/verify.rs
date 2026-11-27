@@ -278,8 +278,8 @@ struct VerifyFacts<'a> {
 struct RoundFacts {
     /// `max_rounds` of AUTHORITY.md.
     limit: u32,
-    /// The rounds that the ticket has spent, without a round for the `done` of this verify
-    /// ([`crate::ticket::Rounds::spent_without`]).
+    /// The rounds that the ticket has spent ([`crate::ticket::Rounds::spent`]); this verify adds
+    /// its own.
     prior: usize,
     /// The question of the round limit is open on the ticket already.
     question_open: bool,
@@ -557,7 +557,7 @@ fn stop_move(f: &VerifyFacts<'_>, s: RoundStop) -> Result<FailMove, Refusal> {
 /// The line of the answer for a ticket that the round limit stopped.
 fn stop_line(rounds: u32, limit: u32, assignee: &str) -> String {
     format!(
-        "Status moved to Blocked: the round limit stopped the ticket ({rounds} failed verifies, max_rounds {limit}). It does not go back to {assignee}. The owner decides: a comment of the owner on the ticket releases it. `crewboard unblock` releases it too, and you can run `reassign` or `close --why`. For a split, release the ticket first, then run `ticket split`\n"
+        "Status moved to Blocked: the round limit stopped the ticket ({rounds} failed verifies, max_rounds {limit}). It does not go back to {assignee}. The owner decides: any comment of the owner on the ticket releases it, so the decision belongs in that comment. `crewboard unblock` and `reassign` release it too; `close --why` drops it. For a split, release the ticket first, then run `ticket split`\n"
     )
 }
 
@@ -608,6 +608,26 @@ pub(super) fn stop_unfinished(t: &Ticket) -> bool {
         .ok()
         .and_then(|from| stop_to_finish(&t.msgs, t.agent(), t.issue, from))
         .is_some()
+}
+
+/// Finish the stop of the loaded ticket when one is left to finish and the caller is a
+/// coordinator; `None` when there is none, and then nothing was written.
+fn finish_if_stopped(ac: &AgentCtx, l: &VerifyLoad) -> CbResult<Option<String>> {
+    if !l.me.actor.is_coordinator() {
+        return Ok(None);
+    }
+    match stop_to_finish(&l.t.msgs, l.t.agent(), l.n, l.from) {
+        Some(f) => finish_stop(ac, l, f, &SystemClock).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The entry of the headless `tick` for a stop that is not finished: it reads the ticket again
+/// and only finishes the stop. `None`: nothing is left to finish (the stop ended meanwhile), and
+/// nothing was written. It never judges evidence, so it cannot pass a ticket.
+pub(super) fn finish_stop_only(ac: &AgentCtx, issue_arg: &str) -> CbResult<Option<String>> {
+    let l = load_verify(ac, issue_arg)?;
+    finish_if_stopped(ac, &l)
 }
 
 /// The writes of a stop after the verify result: the question to the owner unless it is open,
@@ -805,7 +825,7 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
         question_open: question_open(&t.msgs, t.agent()).is_some(),
         rounds: pre.auth.max_rounds.map(|limit| RoundFacts {
             limit,
-            prior: rounds.spent_without(pre.done_comment),
+            prior: rounds.spent(),
             question_open: rounds.question_open,
         }),
     };
@@ -893,10 +913,8 @@ pub fn verify(
     // A stop at the round limit that is not finished comes first: before the check of an open
     // question to the owner (the question of the stop may be the open one) and before any read
     // of the PR. It writes no judgment, so a headless coordinator does it too.
-    if l.me.actor.is_coordinator()
-        && let Some(f) = stop_to_finish(&l.t.msgs, l.t.agent(), l.n, l.from)
-    {
-        return finish_stop(ac, &l, f, &SystemClock);
+    if let Some(out) = finish_if_stopped(ac, &l)? {
+        return Ok(out);
     }
     let va = VerifyArgs {
         note,
@@ -1497,16 +1515,6 @@ mod tests {
         assert_eq!(stop_to_finish(&msgs, None, 12, Status::Review), None);
         // the result of another issue number does not answer this `done`
         assert_eq!(stop_to_finish(&msgs, dev, 13, Status::Review), None);
-    }
-
-    #[test]
-    fn a_second_result_for_the_same_done_spends_no_second_round() {
-        // the facts of a second run: one round is spent, and it is the round of this `done`
-        let p = gate_fail_plan(rounds(2, 0), None);
-        assert_eq!(p.round_stop, None);
-        // a first result for a new `done` after one round: the last round of 2
-        let p = gate_fail_plan(rounds(2, 1), None);
-        assert_eq!(p.round_stop.map(|s| s.rounds), Some(2));
     }
 
     #[test]

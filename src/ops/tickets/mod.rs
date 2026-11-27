@@ -333,7 +333,7 @@ fn check_not_stopped(t: &Ticket) -> Result<(), Refusal> {
     Err(Refusal::new(
         ids::STATUS_ANSWER_MISSING,
         format!(
-            "{} is stopped at the round limit (max_rounds of AUTHORITY.md): the owner decides, and the ticket does not go back to its agent before that. It needs an owner comment or `crewboard unblock {}` by the coordinator. Do not ask again and deliver no fix: wait for the answer and read it; take the ticket when it tells you to go on.",
+            "{} is stopped at the round limit (max_rounds of AUTHORITY.md): the owner decides, and the ticket does not go back to its agent before that. It needs an owner comment, or `crewboard unblock {}` or a reassign by the coordinator. Do not ask again and deliver no fix: wait for the answer and read it; take the ticket when it tells you to go on.",
             t.key(),
             t.issue
         ),

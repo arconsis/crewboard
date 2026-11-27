@@ -118,6 +118,17 @@ fn plan_split(
         ));
     }
     let old_key = old.key();
+    // A ticket that the round limit stopped is split after its release: the `done` of the
+    // finished part is possible only then (spec/tickets#round-limit).
+    if crate::ticket::round_limit_stopped(&old.msgs) {
+        return Err(CbError::refused(
+            ids::STATUS_ANSWER_MISSING,
+            format!(
+                "{old_key} is stopped at the round limit (max_rounds of AUTHORITY.md): release it first, then split. An owner comment on the ticket releases it, and so does `crewboard unblock {}`. Nothing was written",
+                old.issue
+            ),
+        ));
+    }
     let agent = old.agent().map(str::to_string);
     // A rerun repairs a split that failed halfway: reuse the ticket of the earlier run (the
     // link line in the old body, else an open issue with the same title and back link).

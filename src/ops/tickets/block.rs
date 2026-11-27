@@ -64,14 +64,18 @@ struct UnblockPlan {
 
 /// The answer that `unblock` posts. When the latest blocking message is a question to the owner,
 /// a plain answer would not unblock the ticket (`answer_after_block`), so the answer withdraws the
-/// question with the line that `protocol::acts` writes. Otherwise it is the plain answer.
+/// question with the line that `protocol::acts` writes. The same holds for a ticket that the
+/// round limit stopped (spec/tickets#round-limit). Otherwise it is the plain answer.
 fn plan_unblock(
     msgs: &[VMsg],
     assignee: &str,
     text: &str,
     unread_line: Option<&str>,
 ) -> UnblockPlan {
-    let withdraws = blocked_by_owner_question(msgs, Some(assignee));
+    // A ticket that the round limit stopped is released only by an answer that withdraws the
+    // question, also when a `blocked` message of the agent is the latest blocking message.
+    let withdraws =
+        blocked_by_owner_question(msgs, Some(assignee)) || crate::ticket::round_limit_stopped(msgs);
     let text = if withdraws {
         withdraw_body(text.trim())
     } else {
@@ -289,6 +293,49 @@ mod tests {
         // the latest block is the question
         let msgs = [blocked(1), question(2)];
         assert!(plan_unblock(&msgs, DEV, "go", None).withdraws);
+    }
+
+    #[test]
+    fn a_ticket_that_the_round_limit_stopped_is_unblocked_by_a_withdrawn_question() {
+        use crate::protocol::acts::{round_limit_case, round_limit_question};
+        let coord = || agent("claude@a", Role::Coordinator);
+        let report = msg(
+            1,
+            coord(),
+            DEV,
+            Some(Kind::Report),
+            &format!(
+                "verify: fail\nfailed: x\ncase: {}\n",
+                round_limit_case(2, 2)
+            ),
+        );
+        let round_question = msg(
+            2,
+            coord(),
+            "owner",
+            Some(Kind::Question),
+            &round_limit_question(2, 2, "u"),
+        );
+        // the usual stop: the question is the latest blocking message
+        let msgs = [report.clone(), round_question.clone()];
+        assert!(plan_unblock(&msgs, DEV, "go", None).withdraws);
+        // a `blocked` message of the agent after the question: a plain answer would say
+        // "unblocked" and release nothing, so the answer still withdraws
+        let msgs = [report.clone(), round_question, blocked(3)];
+        let plan = plan_unblock(&msgs, DEV, "go", None);
+        assert!(plan.withdraws);
+        assert!(plan_unblocks(
+            &msgs,
+            "claude@a",
+            Role::Coordinator,
+            DEV,
+            &plan.body
+        ));
+        let mut after = msgs.to_vec();
+        after.push(msg(4, coord(), DEV, Some(Kind::Answer), &plan.body));
+        assert!(!crate::ticket::round_limit_stopped(&after));
+        // the stop whose question was not posted
+        assert!(plan_unblock(&[report, blocked(3)], DEV, "go", None).withdraws);
     }
 
     #[test]
