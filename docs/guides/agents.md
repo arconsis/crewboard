@@ -126,8 +126,8 @@ fix, or `skip`. It exits 2 if a check fails.
 
 The last line is `wake`: the scheduled wakes of this agent on this host. It fails when the wake
 command failed two times or more in a row, when a refusal stopped the wakes, or when GitHub
-failed in two runs or more in a row. The board cannot show the first case: a wake that cannot
-start its model still polls, so the agent looks alive there.
+failed in two runs or more in a row. The board shows the first case as a late or dead agent,
+because such a wake writes no heartbeat; this line names the cause.
 
 ```sh
 crewboard agent exec --agent-dir <agent-dir> -- crewboard doctor --setup --work-dir <work-dir>

@@ -1,6 +1,6 @@
 //! The health of the scheduled wakes of one agent, read from its state dir: `doctor --setup`
-//! shows it. The board cannot show it: a wake that cannot start its model still polls, so the
-//! heartbeat goes on and the agent looks alive.
+//! shows it. The board shows the effect only: a wake whose command fails writes no heartbeat, so
+//! the agent turns late and dead there, without the cause.
 
 use crate::wake::policy::NetBackoff;
 use crate::wake::state::{self, Paths, StateKey};

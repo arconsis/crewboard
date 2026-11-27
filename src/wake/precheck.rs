@@ -29,6 +29,10 @@ impl Flow<'_, '_> {
     /// The cheap check: no model, no lock. The back-off file is cleared when the whole precheck
     /// succeeded, not after the poll alone.
     pub(super) fn precheck(&mut self) -> Precheck {
+        // An agent whose wake command fails polls on, but it does no work: its polls write no
+        // heartbeat, so the board judges it late and then dead like a host that is off.
+        let hold = self.wake_failing();
+        self.steps.hold_heartbeat(hold);
         let (rc, _) = self.call("poll", &mut |s, o| s.poll(true, o));
         if let Some(code) = self.signalled() {
             return Precheck::End(code);

@@ -46,6 +46,7 @@ pub fn run(a: &PostToolUseArgs, config_dir: Option<PathBuf>) -> Option<String> {
             bin: bin.to_string(),
             config_dir,
             initiative,
+            hold_heartbeat: false,
         }),
         _ => Box::new(InProcess::new(crate::ctx::Global {
             config_dir,

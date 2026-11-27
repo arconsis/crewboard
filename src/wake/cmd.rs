@@ -92,6 +92,7 @@ fn make_steps(s: &Settings, global: &crate::ctx::Global) -> Box<dyn Steps> {
             bin: bin.to_string(),
             config_dir: s.config_dir.clone(),
             initiative: s.initiative.clone(),
+            hold_heartbeat: false,
         }),
         _ => Box::new(InProcess::new(global.clone())),
     }

@@ -2,6 +2,17 @@
 
 This file lists the changes of crewboard, one section for each release.
 
+## Unreleased
+
+Changed:
+
+- A heartbeat now means "can work", not "can poll". When the wake command of a scheduled agent
+  failed two times or more in a row, `crewboard wake` still polls, but its polls write no
+  heartbeat (`poll --hold-heartbeat`). The agent turns late and then dead on the board like a
+  host that is off: the coordinator assigns nothing to it, and its tickets go back to Backlog
+  after five heartbeat intervals. The first wake command that ends without a failure starts
+  the heartbeat again. Before, such an agent looked alive for days and kept its tickets.
+
 ## v0.11.0 (2026-11-26)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board, and no existing

@@ -51,11 +51,15 @@ fn f1_failed_wakes_in_a_row_pause_the_next_wakes_and_tell_the_coordinator_once()
         rig.log()
     );
     assert_eq!(st.count("say "), 0, "nobody is told before the third");
+    // the first two runs wrote the heartbeat: one failed wake can be a limit or a restart
+    assert_eq!(st.holds, [false, false]);
 
-    // in the pause: the run polls (the heartbeat goes on) and starts no command
+    // in the pause: the run polls, but it writes no heartbeat any more (the agent does no
+    // work, so it must not look alive), and it starts no command
     let polls = st.count("poll --quiet");
     assert_eq!(rig.run(&mut st, &args), 0);
     assert_eq!(st.count("poll --quiet"), polls + 1);
+    assert_eq!(st.holds, [false, false, true]);
     assert_eq!(rig.wakes(), 2);
     assert!(!rig.lock().exists());
 

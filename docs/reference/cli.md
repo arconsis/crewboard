@@ -1813,6 +1813,9 @@ Options:
       --reset-cursor
           Replace a damaged cursor with "now"
 
+      --hold-heartbeat
+          Write no heartbeat in this cycle. `crewboard wake` passes it while its wake command fails, so that an agent that cannot work turns late and then dead on the board
+
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
 

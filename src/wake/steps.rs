@@ -42,6 +42,9 @@ impl StepRc {
 pub trait Steps {
     /// `poll [--quiet]`: 0 events, 1 none, else an error. Without `quiet` the cursor moves.
     fn poll(&mut self, quiet: bool, out: &mut Vec<u8>) -> StepRc;
+    /// From now on the polls write no heartbeat (`true`), or write it again (`false`). The
+    /// wake asks for it while its wake command fails.
+    fn hold_heartbeat(&mut self, _hold: bool) {}
     /// `mine --quiet`: 0 the agent has work to do now, 1 it has none.
     fn mine_quiet(&mut self) -> StepRc;
     /// `mine`: the text of the own tickets.
@@ -78,11 +81,16 @@ const HEADLESS_SAY: &str = "refused [rule=headless-scope]: `say` changes the boa
 pub struct InProcess {
     global: Global,
     ac: Option<AgentCtx>,
+    hold_heartbeat: bool,
 }
 
 impl InProcess {
     pub fn new(global: Global) -> InProcess {
-        InProcess { global, ac: None }
+        InProcess {
+            global,
+            ac: None,
+            hold_heartbeat: false,
+        }
     }
 
     /// Run `f` with the context; turn its result into a [`StepRc`].
@@ -119,6 +127,10 @@ fn plain<T>(r: crate::error::CbResult<T>) -> Result<T, (crate::error::CbError, S
 }
 
 impl Steps for InProcess {
+    fn hold_heartbeat(&mut self, hold: bool) {
+        self.hold_heartbeat = hold;
+    }
+
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc {
         match std::fs::read_to_string(events) {
             Ok(t) => {
@@ -150,6 +162,7 @@ impl Steps for InProcess {
             json: false,
             quiet,
             reset_cursor: false,
+            hold_heartbeat: self.hold_heartbeat,
         };
         match self.with(|ac| ops::watch::poll(ac, opts, out)) {
             Ok(exit) => StepRc {
@@ -249,6 +262,8 @@ pub struct Subprocess {
     pub bin: String,
     pub config_dir: Option<PathBuf>,
     pub initiative: Option<String>,
+    /// The polls write no heartbeat ([`Steps::hold_heartbeat`]).
+    pub hold_heartbeat: bool,
 }
 
 /// The longest a heartbeat call through another binary may take. A heartbeat that hangs must not
@@ -312,6 +327,10 @@ pub fn code_of(st: std::process::ExitStatus) -> u8 {
 }
 
 impl Steps for Subprocess {
+    fn hold_heartbeat(&mut self, hold: bool) {
+        self.hold_heartbeat = hold;
+    }
+
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc {
         let e = events.to_string_lossy();
         self.run(&["acted", "--events-file", &e, "--list"], &[], out)
@@ -341,11 +360,14 @@ impl Steps for Subprocess {
     }
 
     fn poll(&mut self, quiet: bool, out: &mut Vec<u8>) -> StepRc {
+        let mut args = vec!["poll"];
         if quiet {
-            self.run(&["poll", "--quiet"], &[], out)
-        } else {
-            self.run(&["poll"], &[], out)
+            args.push("--quiet");
         }
+        if self.hold_heartbeat {
+            args.push("--hold-heartbeat");
+        }
+        self.run(&args, &[], out)
     }
 
     fn mine_quiet(&mut self) -> StepRc {
@@ -396,6 +418,7 @@ mod tests {
             bin: "sleep".into(),
             config_dir: None,
             initiative: None,
+            hold_heartbeat: false,
         };
         let t0 = Instant::now();
         let rc = sub.run_within(
@@ -415,6 +438,7 @@ mod tests {
             bin: "sh".into(),
             config_dir: None,
             initiative: None,
+            hold_heartbeat: false,
         };
         let mut out = Vec::new();
         let rc = sub.run_within(
@@ -435,6 +459,7 @@ mod tests {
             bin: "/nonexistent/crewboard".into(),
             config_dir: None,
             initiative: None,
+            hold_heartbeat: false,
         };
         let mut out = Vec::new();
         let rc = sub.run(&["poll"], &[], &mut out);
