@@ -191,7 +191,7 @@ pub const WAKE_TELL_RUN: u64 = 3;
 
 /// The file `wake-fail` after one more wake command that failed: the same count and the same
 /// growing pause as the net back-off (none after the first, then 300 s doubled, at most 1 h).
-/// During the pause the run still polls (the heartbeat goes on); it starts no wake command.
+/// During the pause the run still polls, without a heartbeat; it starts no wake command.
 pub fn wake_failed(prev: NetBackoff, now: i64) -> NetBackoff {
     net_failed(prev, now)
 }

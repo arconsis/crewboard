@@ -226,6 +226,13 @@ impl Flow<'_, '_> {
             .is_some_and(|b| b.pauses(self.clock.now()))
     }
 
+    /// Did the wake command fail two times or more in a row ([`health::FAILING_FROM`])?
+    pub(super) fn wake_failing(&self) -> bool {
+        state::read_text(&self.s.paths.wake_fail)
+            .map(|t| NetBackoff::parse(&t))
+            .is_some_and(|b| b.fails >= crate::wake::health::FAILING_FROM)
+    }
+
     /// The wake command ended by itself with exit 0, or at its budget: it runs.
     pub(super) fn wake_ran(&self) {
         best_effort_cleanup(std::fs::remove_file(&self.s.paths.wake_fail));

@@ -1500,3 +1500,25 @@ fn the_ci_of_a_crew_pr_on_a_later_page_of_the_open_pr_list_is_seen() {
     );
     assert!(s.board.unhandled().is_empty(), "{:?}", s.board.unhandled());
 }
+
+#[test]
+fn a_poll_that_holds_the_heartbeat_writes_none_and_the_next_plain_poll_writes_it_again() {
+    let s = LateBoard::new("In Progress");
+    let old = format_ts(now_epoch() - 2_400);
+    s.board.set_item(&s.dev.item_id, "Heartbeat", &old);
+    // the wake passes --hold-heartbeat while its wake command fails
+    let o = s
+        .board
+        .run(&s.dev.dir, &["poll", "--quiet", "--hold-heartbeat"]);
+    assert!(o.code <= 1, "{}", o.all());
+    assert_eq!(
+        s.board.item_field(&s.dev.item_id, "Heartbeat").as_deref(),
+        Some(old.as_str())
+    );
+    let o = s.board.run(&s.dev.dir, &["poll", "--quiet"]);
+    assert!(o.code <= 1, "{}", o.all());
+    assert_ne!(
+        s.board.item_field(&s.dev.item_id, "Heartbeat").as_deref(),
+        Some(old.as_str())
+    );
+}

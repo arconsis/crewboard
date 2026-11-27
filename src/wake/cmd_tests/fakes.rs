@@ -9,6 +9,8 @@ pub(super) struct Scripted {
     pub(super) plan: VecDeque<(u8, String, String)>,
     pub(super) mine: VecDeque<(u8, String)>,
     pub(super) calls: Vec<String>,
+    /// What the wake asked of the heartbeat, one entry per run ([`Steps::hold_heartbeat`]).
+    pub(super) holds: Vec<bool>,
     /// Runs at the start of each call that pops the plan (a test sets a signal here).
     pub(super) hook: Option<Box<dyn Fn()>>,
     /// The answer of `acted --list`, and the receipts that `acted --since` gives (one per
@@ -66,6 +68,9 @@ impl Scripted {
 }
 
 impl Steps for Scripted {
+    fn hold_heartbeat(&mut self, hold: bool) {
+        self.holds.push(hold);
+    }
     fn poll(&mut self, quiet: bool, out: &mut Vec<u8>) -> StepRc {
         self.calls.push(if quiet {
             "poll --quiet".into()

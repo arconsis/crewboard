@@ -810,6 +810,10 @@ pub enum WatchCmd {
         /// Replace a damaged cursor with "now".
         #[arg(long)]
         reset_cursor: bool,
+        /// Write no heartbeat in this cycle. `crewboard wake` passes it while its wake command
+        /// fails, so that an agent that cannot work turns late and then dead on the board.
+        #[arg(long)]
+        hold_heartbeat: bool,
         #[command(flatten)]
         sel: Sel,
     },

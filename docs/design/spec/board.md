@@ -170,6 +170,16 @@ and the last change of its item, and is never `dead` without a known age. There 
 no pong: a message cannot prove more than a fresh heartbeat does, because the same poll writes
 both ([Retired kinds](messages.md#retired-kinds)).
 
+**A heartbeat means "can work", not "can poll".** A scheduled agent polls from a wrapper
+(`crewboard wake`) and works in a wake command that starts its model. When the wake command
+failed two times or more in a row (a login of the runtime that ended, a missing program), the
+wrapper still polls, but its polls write no heartbeat (`poll --hold-heartbeat`). The agent then
+turns `late` and `dead` like a host that is off: the coordinator assigns nothing to it, and its
+tickets go back to `Backlog`. The first wake command that ends without a failure starts the
+heartbeat again. One failed wake command changes nothing: it can be a limit of the model or a
+restart. The one message to the coordinator at the third failed wake may write one more
+heartbeat.
+
 ### Views
 
 `init` creates these views through the REST endpoint

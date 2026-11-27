@@ -247,6 +247,7 @@ fn monitor_cmd(cli: &Cli, m: &MonitorArgs) -> Outcome {
                     json: w.json,
                     quiet: false,
                     reset_cursor: w.reset_cursor,
+                    hold_heartbeat: false,
                 },
                 log: m.log.clone(),
             };
@@ -285,6 +286,7 @@ fn watch_once(
         json,
         quiet: false,
         reset_cursor,
+        hold_heartbeat: false,
     };
     match ops::watch::watch(
         &ac,
@@ -338,6 +340,7 @@ pub(super) fn dispatch(cli: &Cli, c: &WatchCmd) -> Outcome {
             quiet,
             json,
             reset_cursor,
+            hold_heartbeat,
             sel,
         } => {
             let ac = match AgentCtx::load(&global(cli, sel, false)) {
@@ -348,6 +351,7 @@ pub(super) fn dispatch(cli: &Cli, c: &WatchCmd) -> Outcome {
                 json: *json,
                 quiet: *quiet,
                 reset_cursor: *reset_cursor,
+                hold_heartbeat: *hold_heartbeat,
             };
             match ops::watch::poll(&ac, opts, &mut std::io::stdout()) {
                 Ok(exit) => Outcome {

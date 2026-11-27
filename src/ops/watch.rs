@@ -428,6 +428,10 @@ pub struct PollOpts {
     /// Peek: report, but do not print events and do not move the cursor.
     pub quiet: bool,
     pub reset_cursor: bool,
+    /// Write no heartbeat in this cycle. The wake wrapper asks for it while its wake command
+    /// fails: an agent that polls but cannot work must not look alive
+    /// (spec/board#heartbeat-interval).
+    pub hold_heartbeat: bool,
 }
 
 /// Result of one cycle.
@@ -450,6 +454,7 @@ fn check_state_and_heartbeat(
     me: &str,
     my_item: &crate::items::ItemSnapshot,
     now: i64,
+    hold_heartbeat: bool,
 ) -> CbResult<()> {
     let state = my_item.get(Field::State);
     let departure = world.reg.agents.get(me).and_then(|e| e.departure);
@@ -477,7 +482,8 @@ fn check_state_and_heartbeat(
         ),
         _ => {}
     }
-    if state.is_some_and(heartbeat_state)
+    if !hold_heartbeat
+        && state.is_some_and(heartbeat_state)
         && heartbeat_due(
             my_item.get(Field::Heartbeat).and_then(parse_ts),
             now,
@@ -717,7 +723,7 @@ pub fn cycle(
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
-    check_state_and_heartbeat(ac, &world, &me, my_item, now)?;
+    check_state_and_heartbeat(ac, &world, &me, my_item, now, opts.hold_heartbeat)?;
     let read = read_cursor(ac, cache, my_item, opts, now)?;
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();
