@@ -59,6 +59,7 @@ pub(super) fn dispatch(cli: &Cli, c: &DevCmd) -> Outcome {
             runs,
             local_run,
             run_check,
+            must_fail_at,
             work_dir,
             sel,
         } => {
@@ -87,6 +88,7 @@ pub(super) fn dispatch(cli: &Cli, c: &DevCmd) -> Outcome {
                     repo_dir: &dir,
                     log_root,
                     unattended: false,
+                    must_fail_at: must_fail_at.as_deref(),
                 });
                 ops::tickets::done(
                     &ac,

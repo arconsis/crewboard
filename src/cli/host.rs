@@ -266,6 +266,7 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
         HostCmd::Check {
             names,
             rev,
+            must_fail_at,
             work_dir,
             authority_file,
             sel,
@@ -289,6 +290,7 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
                 &ops::tickets::CheckArgs {
                     names,
                     rev,
+                    must_fail_at: must_fail_at.as_deref(),
                     repo_dir: &dir,
                     log_root: &log_root,
                     authority_file: authority_file.as_deref(),

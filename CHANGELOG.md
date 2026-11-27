@@ -27,6 +27,13 @@ Added:
   writes the local-run line of the delivery itself (`local-gate: tool-run <host>: ...`). No
   model types the result of the dev. A check that fails is refused with `check-failed`, and
   nothing is written: the ticket stays In Progress.
+- `--must-fail-at <rev>` for `check <name>`, `done --run-check` and `verify --run-check`: prove
+  that a check can fail. Each named check runs on the commit that `<rev>` names first and must
+  exit with a code that is not 0 there. Then it runs on the tested commit and must pass. A
+  check that exits 0 on the first commit is refused with the new id `check-not-red`, and no
+  run on the tested commit starts. The commit of `<rev>` must be an ancestor of the tested
+  commit. `check` prints one `red` line for each check. The tool line of `done` and `verify`
+  gets the clause `; red at <sha12>`.
 - `max_rounds: <N>` in `AUTHORITY.md`: a round limit for repair (default: off). The Nth failed
   `verify` of a ticket does not send it back to the dev. The ticket goes to Blocked with a
   signed question to the owner and the label `needs-owner`. Until a release, `take` and `done`

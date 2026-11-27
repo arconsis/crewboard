@@ -863,6 +863,9 @@ Options:
       --run-check <NAME>
           Only with `ci_mode: local`, in place of --local-run: run this check of AUTHORITY.md (`checks`) on a clean checkout of the head of the PR, and write the local-run line from the result. Repeat for more checks. A check that does not exit 0 is refused with `check-failed`, and nothing is written
 
+      --must-fail-at <REV>
+          With --run-check, for a fix: each check runs on this commit first (a rev of the checkout, an ancestor of the head of the PR) and must fail there, then on the head. A check that exits 0 on this commit is refused with `check-not-red`. The line of the tool then says `red at <sha>`
+
       --work-dir <WORK_DIR>
           A git checkout of the repo of the PR, for --run-check (default: this directory)
 
@@ -1214,6 +1217,9 @@ Options:
 
       --run-check <NAME>
           Run this check of AUTHORITY.md (`checks`) yourself on a clean checkout of the head of the done, and record the result as the local run (repeatable; `ci_mode: local`). The tool writes the line; you type no result. A check that does not exit 0 is refused with `check-failed` and nothing is written. Not with --local-run or --fail; not for a headless coordinator
+
+      --must-fail-at <REV>
+          With --run-check: each check runs on this commit first (a rev of the checkout, an ancestor of the head of the done) and must fail there, then on the head. A check that exits 0 on this commit is refused with `check-not-red`. The line of the tool then says `red at <sha>`
 
       --work-dir <WORK_DIR>
           With --run-check: a git checkout of the repo of the PR (default: the current directory). The checks run in a new work tree, not in this directory
@@ -1663,6 +1669,9 @@ Options:
           The commit to test, as git names it (default `HEAD`)
           
           [default: HEAD]
+
+      --must-fail-at <REV>
+          Prove that the named checks can fail: each one runs on this commit first (an ancestor of the tested commit) and must fail there, then on the tested commit. A check that exits 0 on this commit is refused with `check-not-red`. Needs a name
 
       --work-dir <WORK_DIR>
           A git checkout of the repo (default: this directory)

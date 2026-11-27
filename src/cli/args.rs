@@ -459,6 +459,12 @@ pub enum DevCmd {
         /// with `check-failed`, and nothing is written.
         #[arg(long = "run-check", value_name = "NAME", conflicts_with = "local_run")]
         run_check: Vec<String>,
+        /// With --run-check, for a fix: each check runs on this commit first (a rev of the
+        /// checkout, an ancestor of the head of the PR) and must fail there, then on the head.
+        /// A check that exits 0 on this commit is refused with `check-not-red`. The line of
+        /// the tool then says `red at <sha>`.
+        #[arg(long = "must-fail-at", value_name = "REV", requires = "run_check")]
+        must_fail_at: Option<String>,
         /// A git checkout of the repo of the PR, for --run-check (default: this directory).
         #[arg(long = "work-dir", requires = "run_check")]
         work_dir: Option<PathBuf>,
@@ -663,6 +669,12 @@ pub enum ReviewCmd {
         /// a headless coordinator.
         #[arg(long = "run-check", value_name = "NAME", conflicts_with_all = ["local_run", "fail"])]
         run_check: Vec<String>,
+        /// With --run-check: each check runs on this commit first (a rev of the checkout, an
+        /// ancestor of the head of the done) and must fail there, then on the head. A check
+        /// that exits 0 on this commit is refused with `check-not-red`. The line of the tool
+        /// then says `red at <sha>`.
+        #[arg(long = "must-fail-at", value_name = "REV", requires = "run_check")]
+        must_fail_at: Option<String>,
         /// With --run-check: a git checkout of the repo of the PR (default: the current
         /// directory). The checks run in a new work tree, not in this directory.
         #[arg(long, requires = "run_check")]
@@ -1088,6 +1100,11 @@ pub enum HostCmd {
         /// The commit to test, as git names it (default `HEAD`).
         #[arg(long, default_value = "HEAD")]
         rev: String,
+        /// Prove that the named checks can fail: each one runs on this commit first (an
+        /// ancestor of the tested commit) and must fail there, then on the tested commit. A
+        /// check that exits 0 on this commit is refused with `check-not-red`. Needs a name.
+        #[arg(long = "must-fail-at", value_name = "REV")]
+        must_fail_at: Option<String>,
         /// A git checkout of the repo (default: this directory).
         #[arg(long = "work-dir")]
         work_dir: Option<PathBuf>,

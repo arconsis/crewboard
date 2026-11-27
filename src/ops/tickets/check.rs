@@ -27,6 +27,9 @@ pub struct CheckArgs<'a> {
     pub names: &'a [String],
     /// The commit to test, as git names it (`HEAD`, a branch, a SHA).
     pub rev: &'a str,
+    /// `--must-fail-at`: the commit on which each named check must fail first
+    /// (spec/ci#a-check-that-must-be-red-first).
+    pub must_fail_at: Option<&'a str>,
     /// A git checkout of the repo.
     pub repo_dir: &'a Path,
     /// Where the logs of all runs are kept.
@@ -107,16 +110,34 @@ fn unset_env(names: &[String]) -> Vec<&str> {
         .collect()
 }
 
-/// The report of a run in which every check passed. Pure.
-fn report(ran: &[run_checks::Ran], sha: &str, from: &str, log_dir: &Path) -> String {
+/// The report of a run in which every check passed, after the red run when there was one. Pure.
+fn report(
+    ran: &[run_checks::Ran],
+    red: Option<&run_checks::Red>,
+    sha: &str,
+    from: &str,
+    log_dir: &Path,
+) -> String {
+    let twelve = |s: &str| s.chars().take(12).collect::<String>();
     let mut out = String::new();
+    let mut first = String::new();
+    if let Some(red) = red {
+        let at = twelve(&red.sha);
+        for r in &red.ran {
+            out.push_str(&format!(
+                "red   {}: rc={} {}s at {at}\n",
+                r.name, r.rc, r.secs
+            ));
+        }
+        first = format!(" and failed first on {at}");
+    }
     for r in ran {
         out.push_str(&format!("ok    {}: rc={} {}s\n", r.name, r.rc, r.secs));
     }
-    let short: String = sha.chars().take(12).collect();
+    let short = twelve(sha);
     let n = ran.len();
     out.push_str(&format!(
-        "{n} check{} passed on a clean checkout of {short}. Checks from {from}. Logs: {}. Nothing was written\n",
+        "{n} check{} passed on a clean checkout of {short}{first}. Checks from {from}. Logs: {}. Nothing was written\n",
         if n == 1 { "" } else { "s" },
         log_dir.display()
     ));
@@ -134,6 +155,16 @@ pub fn check(g: &Global, a: &CheckArgs<'_>) -> CbResult<String> {
     })?;
     // the commit first: a typo in `--rev` costs no request
     let sha = run_checks::commit_of(&top, a.rev).map_err(CbError::usage)?;
+    // `--must-fail-at`: also before any request. The run resolves the same commit again.
+    let red = match a.must_fail_at {
+        Some(_) if a.names.is_empty() => {
+            return Err(CbError::usage(
+                "--must-fail-at: name the checks that must be red (crewboard check <name> --must-fail-at <rev>)",
+            ));
+        }
+        Some(rev) => Some(run_checks::red_commit(&top, rev, &sha)?),
+        None => None,
+    };
     let (auth, authority, from) = source(g, a.authority_file)?;
     let checks = wanted(&auth.checks, a.names, &from)?;
     // only for the commit of HEAD: for another commit the open changes say nothing
@@ -163,9 +194,16 @@ pub fn check(g: &Global, a: &CheckArgs<'_>) -> CbResult<String> {
         unattended: a.unattended,
         fetch_pr: None,
         after_fail: "",
+        must_fail_at: red.as_deref(),
     };
     let passed = run_checks::run_job(&top, &job, &checks, a.log_root)?;
-    Ok(report(&passed.ran, &sha, &from, &passed.log_dir))
+    Ok(report(
+        &passed.ran,
+        passed.red.as_ref(),
+        &sha,
+        &from,
+        &passed.log_dir,
+    ))
 }
 
 #[cfg(test)]
@@ -223,15 +261,26 @@ mod tests {
             secs: 2,
             end: run_checks::End::Exited,
         }];
-        let t = report(
-            &ran,
-            "0123456789abcdef0123456789abcdef01234567",
-            "the file A.md",
-            Path::new("/s/logs"),
-        );
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let t = report(&ran, None, sha, "the file A.md", Path::new("/s/logs"));
         assert_eq!(
             t,
             "ok    fmt: rc=0 2s\n1 check passed on a clean checkout of 0123456789ab. Checks from the file A.md. Logs: /s/logs. Nothing was written\n"
+        );
+        // with a red run: its lines come first, and the last line names both commits
+        let red = run_checks::Red {
+            sha: "fedcba9876543210fedcba9876543210fedcba98".to_string(),
+            ran: vec![run_checks::Ran {
+                name: "fmt".to_string(),
+                rc: 1,
+                secs: 3,
+                end: run_checks::End::Exited,
+            }],
+        };
+        let t = report(&ran, Some(&red), sha, "the file A.md", Path::new("/s/logs"));
+        assert_eq!(
+            t,
+            "red   fmt: rc=1 3s at fedcba987654\nok    fmt: rc=0 2s\n1 check passed on a clean checkout of 0123456789ab and failed first on fedcba987654. Checks from the file A.md. Logs: /s/logs. Nothing was written\n"
         );
     }
 }
