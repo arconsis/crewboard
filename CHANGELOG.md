@@ -6,6 +6,11 @@ This file lists the changes of crewboard, one section for each release.
 
 Added:
 
+- `daily_digest: true` in `AUTHORITY.md`: the first headless `tick` of each UTC day posts one
+  project status update. The tool writes it from facts that the tick read anyway: the tickets
+  by Status, the agents that are late or dead, and the Review tickets that wait for a person,
+  with the reason for each. The health value follows a fixed rule (off-track when an agent is
+  dead, at-risk when an agent is late or a ticket waits). No model writes it. Off by default.
 - `retro` has a section `Repeated faults`: the review fails that are rework, by the tag of
   their note. The coordinator starts the note of `verify --fail` with one tag in brackets
   (`[formatter] ...`); a failed check of the tool has the tag `check-<name>`. A tag with three
