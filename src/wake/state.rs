@@ -29,10 +29,12 @@ pub struct StateKey<'a> {
     pub initiative: Option<&'a str>,
 }
 
-/// `<$XDG_STATE_HOME or ~/.local/state>/crewboard`. An empty variable counts as unset. `None`
-/// when neither variable is there.
+/// `<$XDG_STATE_HOME or ~/.local/state>/crewboard`. An empty variable counts as unset, and so
+/// does a relative path (the XDG rule: a relative path is not valid; it would also mean another
+/// directory for each program that reads it from another working directory). `None` when
+/// neither variable is there.
 pub fn state_root(xdg_state_home: Option<&str>, home: Option<&str>) -> Option<PathBuf> {
-    let base = match xdg_state_home.filter(|s| !s.is_empty()) {
+    let base = match xdg_state_home.filter(|s| Path::new(s).has_root()) {
         Some(x) => PathBuf::from(x),
         None => PathBuf::from(home.filter(|s| !s.is_empty())?)
             .join(".local")
@@ -367,6 +369,12 @@ mod tests {
             Some(PathBuf::from("/h/.local/state/crewboard"))
         );
         assert_eq!(state_root(None, None), None);
+        // a relative path is not valid: it counts as unset
+        assert_eq!(
+            state_root(Some("rel/state"), Some("/h")),
+            state_root(None, Some("/h"))
+        );
+        assert_eq!(state_root(Some("rel/state"), None), None);
         assert_eq!(state_root(Some(""), Some("")), None);
     }
 

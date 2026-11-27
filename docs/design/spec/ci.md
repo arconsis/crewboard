@@ -395,8 +395,9 @@ of exactly one commit, the same environment, the same time limit, the same logs.
    does not exit 0. A name that `checks` does not have is `check-unknown`, also a file without
    `checks`.
 4. **The source.** `AUTHORITY.md` on the default branch, read fresh. `--authority-file <file>`
-   reads `checks`, `check_env`, `check_timeout` and `protected_paths` from a local file. No
-   board and no token are read then.
+   reads `checks`, `check_env`, `check_timeout` and `protected_paths` from a local file, as a
+   path from the current directory. No board and no token are read then, and no request is
+   sent.
 5. **The result.** One line for each check that passed, then one line with the commit, the
    source and the directory of the logs. A check that fails or runs longer than its limit is
    `check-failed`, with the last lines of its log. A check that cannot start, or a run that a
@@ -405,4 +406,8 @@ of exactly one commit, the same environment, the same time limit, the same logs.
    `protected_paths`.
 6. **It writes nothing.** No comment, no board field, no state. A pass is backpressure, not
    proof: the caller runs it on its own host. It is no evidence of a `done` and no part of a
-   `verify`. A headless config dir may run it.
+   `verify`.
+7. **Under a scope.** A headless config dir, or a wake that a scheduler started, may run
+   `check` as `tick` runs a typed Gate: no check runs when a word of its command line is a
+   file of the repo outside `protected_paths` (`check-not-run`). `--authority-file` is refused
+   there with `headless-scope`: a model can write that file, and a draft is owner work.
