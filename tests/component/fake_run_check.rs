@@ -784,7 +784,8 @@ fn a_done_whose_check_fails_writes_nothing_and_the_ticket_stays_in_progress() {
     let other = "0123456789abcdef0123456789abcdef01234567";
     let o = done_run(&k, &b, &url, &["--sha", other, "--run-check", "marker"]);
     assert_eq!(o.code, 2, "{}", o.all());
-    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(o.stderr.contains("rule=evidence-head-moved"), "{}", o.all());
+    assert!(!o.stderr.contains("check marker: running"), "{}", o.all());
     let o = done_run(
         &k,
         &b,
@@ -799,5 +800,34 @@ fn a_done_whose_check_fails_writes_nothing_and_the_ticket_stays_in_progress() {
     assert_eq!(o.code, 64, "{}", o.all());
     assert_eq!(writes(&k.fake), w, "a refused done wrote to GitHub");
     assert_eq!(k.fake.comments_of(n).len(), before);
+    assert_eq!(work_trees(&k), 1);
+}
+
+/// No code of a PR runs before `done` knows that the PR is the PR of this ticket and this
+/// agent, and a second `done` of the same head costs no run.
+#[test]
+fn done_runs_no_check_for_a_pr_that_it_refuses_anyway() {
+    let (k, b, url) = case_taken("the checks pass");
+    // a PR of another branch whose head is a commit that the checks would pass
+    let other = k
+        .fake
+        .pr_on_branch("someone/else", &format!("Closes #{}", k.ts));
+    k.fake.set_pr_head(other.number, &k.sha);
+    let o = done_run(&k, &b, &other.url, &["--run-check", "marker"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("rule=evidence-branch-name"),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stderr.contains("check marker: running"), "{}", o.all());
+
+    // the first done lands; the same done again is `status-no-change`, without a run
+    let o = done_run(&k, &b, &url, &["--run-check", "marker"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let o = done_run(&k, &b, &url, &["--run-check", "marker"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=status-no-change"), "{}", o.all());
+    assert!(!o.stderr.contains("check marker: running"), "{}", o.all());
     assert_eq!(work_trees(&k), 1);
 }

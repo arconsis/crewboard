@@ -504,9 +504,35 @@ fn plan_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<DonePlan
     let mut pre = precheck_done(ac, a, l)?;
     let p = read_done_pr(ac, a, l, &pre)?;
     if let Some(run) = a.run {
-        pre.local_gate = Some(run_checks_for_done(ac, a, l, &pre, &p, run)?);
+        // Every refusal of `done` that needs no run comes before the run: the decision is made
+        // once with a stand-in line and thrown away. So no code of a PR runs that is not the
+        // PR of this ticket and this agent (closed, not linked, a foreign branch), and a second
+        // `done` of the same head costs no run.
+        pre.local_gate = Some(STAND_IN_LINE.to_string());
+        let c = read_done_ci(ac, l, &pre, &p)?;
+        decide_with(ac, a, l, &pre, &p, &c)?;
+        pre.local_gate = Some(run_checks_for_done(ac, l, &pre, &p, run)?);
+        // The run took time: a ticket that moved meanwhile gets no delivery, also when this
+        // `done` writes no Status (a re-delivery in Review).
+        super::check_status_unchanged(ac, &l.t.item_id, &l.t.key(), l.from, None)?;
     }
     let c = read_done_ci(ac, l, &pre, &p)?;
+    decide_with(ac, a, l, &pre, &p, &c)
+}
+
+/// The local-run line of the decision that `done --run-check` makes before its run. It is
+/// never written.
+const STAND_IN_LINE: &str = "tool-run: the checks have not run yet";
+
+/// [`decide_done`] on what `done` has read.
+fn decide_with(
+    ac: &AgentCtx,
+    a: &DoneArgs<'_>,
+    l: &DoneLoad,
+    pre: &DonePre,
+    p: &DonePr,
+    c: &DoneCi,
+) -> CbResult<DonePlan> {
     let prefix = pre.auth.branch_prefix();
     Ok(decide_done(&DoneFacts {
         ticket_key: l.t.key(),
@@ -540,30 +566,18 @@ fn plan_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<DonePlan
 }
 
 /// `done --run-check`: run the checks on a clean checkout of the head of the PR. `Ok` is the
-/// local-run line of the tool. It runs after every refusal that needs no run (the writer, the
-/// state, the PR, the route) and before the first write. A check that fails is `check-failed`,
-/// and nothing is written.
+/// local-run line of the tool. [`plan_done`] calls it after every refusal that needs no run
+/// (the writer, the state, the PR, the route, the evidence rules of the PR) and before the
+/// first write. A check that fails is `check-failed`, and nothing is written.
 fn run_checks_for_done(
     ac: &AgentCtx,
-    a: &DoneArgs<'_>,
     l: &DoneLoad,
     pre: &DonePre,
     p: &DonePr,
     run: &super::run_checks::RunArgs<'_>,
 ) -> CbResult<String> {
     let head = &p.pr.head_sha;
-    // the commit that is tested is the commit that is delivered: `--sha` must name it
-    if let Some(sha) = a.sha
-        && !sha.eq_ignore_ascii_case(head)
-    {
-        return Err(Refusal::new(
-            ids::CHECK_NOT_RUN,
-            format!(
-                "the checks did not run: the head of the PR is {head}, and --sha names {sha}. Push your commit, then run done again. Nothing was written"
-            ),
-        )
-        .into());
-    }
+    // `--sha`, when given, names this head: the decision before the run refused another one
     let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
     let key = l.t.key();
     let target = super::run_checks::Target {

@@ -422,9 +422,13 @@ line, so the record says what the model claims. `done <n> --pr <url> --run-check
    runs](#checks-that-the-tool-runs), item 3): a new work tree of exactly the head of the PR,
    fetched from `origin`, no shell, the cut-down environment, the time limit. A change that is
    not pushed is not tested.
-2. **When.** After every refusal of `done` that needs no run (the writer, the status of the
-   ticket, the PR, the route) and before the first write. `--sha`, when given, must name the
-   head of the PR; else nothing runs (`check-not-run`).
+2. **When.** After every refusal of `done` that needs no run and before the first write: the
+   writer, the status of the ticket, the route, and the evidence rules of the PR (open, linked
+   to the ticket, the branch of this agent, a new head for a second `done`). So no code runs
+   of a PR that is not the PR of this ticket and this agent. `--sha`, when given, must name the
+   head of the PR; else nothing runs (`evidence-head-moved`, as without the option). After the run the Status of the ticket
+   is read again: a ticket that moved meanwhile gets no delivery
+   (`status-changed-meanwhile`), and a head that moved is `evidence-head-moved`.
 3. **The line.** When every check exits 0, the `done` has `local-gate: tool-run <host>: <name>
    rc=0 <n>s; clean checkout of <sha12>; logs <dir>`. A typed `--local-run` text cannot start
    with `tool-run`. The two options do not go together (a usage error).
@@ -432,6 +436,8 @@ line, so the record says what the model claims. `done <n> --pr <url> --run-check
    the ticket stays In Progress, and the dev fixes the cause, pushes and runs `done` again.
    `check-unknown` for a name that `checks` does not have, before any read of the PR.
    `local-gate-not-enabled` in `ci_mode: ci`.
-5. **What it proves.** The dev host ran these commands on this commit, and no model typed the
-   result. It is still the run of the maker: the coordinator verifies as for every local-run
-   delivery, with its own `--run-check` or `--local-run`.
+5. **What it proves.** The tool on the dev host ran these command lines on this commit, and
+   no model typed the result. It is still the run of the maker, on a host that the maker
+   controls: the programs come from the `PATH` of that host, and the checkout is made with the
+   git settings of its work dir. The coordinator verifies as for every local-run delivery,
+   with its own `--run-check` or `--local-run`.
