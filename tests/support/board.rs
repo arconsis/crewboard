@@ -119,6 +119,13 @@ struct State {
     files: BTreeMap<(String, String), String>,
     /// `(path, ISO date)` of commits on the default branch (`GET commits?path=&since=`).
     base_commits: Vec<(String, String)>,
+    /// `(sha, ISO date, message)` of commits on the default branch that changed no file the
+    /// fake knows ([`FakeBoard::commit`]): `GET commits?since=` lists them, newest first.
+    commits: Vec<(String, String, String)>,
+    /// The page size of the commit list ([`FakeBoard::page_commits`]).
+    commits_page_size: Option<usize>,
+    /// The HTTP status that `GET commits` answers instead of the list.
+    commits_status: Option<u16>,
     /// `(repo, path)` -> HTTP status that `GET contents` answers instead of the file.
     file_errors: BTreeMap<(String, String), u16>,
     /// `(repo, label)` -> color.
@@ -277,6 +284,9 @@ fn new_state(base: &str) -> State {
         branches: Vec::new(),
         files: BTreeMap::new(),
         base_commits: Vec::new(),
+        commits: Vec::new(),
+        commits_page_size: None,
+        commits_status: None,
         file_errors: BTreeMap::new(),
         labels: BTreeMap::new(),
         next_sha: 1,
@@ -363,6 +373,9 @@ impl FakeBoard {
                 }
                 if let Some(n) = st.feed_page_size {
                     resp = one_page(&st.base, r, resp, n, is_comment_feed);
+                }
+                if let Some(n) = st.commits_page_size {
+                    resp = one_page(&st.base, r, resp, n, is_commit_list);
                 }
                 if let Some(s) = &st.scopes {
                     resp.headers.push(("x-oauth-scopes".into(), s.clone()));
@@ -1387,6 +1400,12 @@ fn pageable(path: &str) -> bool {
 fn is_comment_feed(path: &str) -> bool {
     let seg: Vec<&str> = path.split('/').collect();
     matches!(seg.as_slice(), ["", "repos", _, _, "issues", "comments"])
+}
+
+/// The commit list of a repo, which [`FakeBoard::page_commits`] cuts into pages.
+fn is_commit_list(path: &str) -> bool {
+    let seg: Vec<&str> = path.split('/').collect();
+    matches!(seg.as_slice(), ["", "repos", _, _, "commits"])
 }
 
 /// Page `page=` (default 1) of a list answer of a path that `wanted` names, `size` items, with

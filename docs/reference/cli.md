@@ -1362,7 +1362,7 @@ Options:
 ```text
 Print a retrospective report from the signed log.
 
-Any reader of the board (the owner, the coordinator): count the verified signed messages of the tickets and print why work went back (verify fails by class), where it stopped (questions, blocks), which refusals the dev agents named and how long the steps took. A dropped ticket whose drop note names a merged PR has its own count. It counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
+Any reader of the board (the owner, the coordinator): count the verified signed messages of the tickets and print why work went back (verify fails by class), where it stopped (questions, blocks), which refusals the dev agents named and how long the steps took. A dropped ticket whose drop note names a merged PR has its own count. The section Outcome says how many merged tickets came back or were reverted on the default branch, and how much the owner had to answer. It counts classes and ranks no agent. It writes nothing. Exit 1: no ticket with a signed assignment.
 
 Usage: crewboard retro [OPTIONS]
 

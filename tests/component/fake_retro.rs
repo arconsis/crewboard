@@ -248,7 +248,11 @@ fn a_comment_that_only_looks_like_a_signed_message_counts_nowhere() {
     let other = fake.ticket_issue("IT retro no ticket", "Goal: none.\n", &["crew:work"]);
     fake.comment_at(other, "mallory", "which API? done-needs-pr", now, now);
 
-    let after = report(&retro(&fake, &c.dir, &["--json"]));
+    let mut after = report(&retro(&fake, &c.dir, &["--json"]));
+    // the plain comment of the owner account is an owner comment, and nothing else
+    assert_eq!(before["outcome"]["owner"]["touched"], 0);
+    assert_eq!(after["outcome"]["owner"]["touched"], 1);
+    after["outcome"]["owner"] = before["outcome"]["owner"].clone();
     assert_eq!(after, before);
     assert_eq!(after["verify"]["fails"], 2);
     assert!(
@@ -321,10 +325,12 @@ fn since_reads_the_changed_comments_and_then_the_whole_log_of_each_ticket() {
     let of_issue = |r: &&Req, n: u64| r.path.contains(&format!("/issues/{n}/comments"));
     assert_eq!(all.iter().filter(feed).count(), 1, "one page of the feed");
     assert!(!all.iter().any(|r| of_issue(&r, t1) || of_issue(&r, t2)));
-    // the count of this board: a change of it needs a reason (docs/design/spec/retro.md#cost)
+    // the count of this board: a change of it needs a reason (docs/design/spec/retro.md#cost).
+    // Both tickets are merged, so the commits of the default branch are read: one page
+    assert_eq!(all.iter().filter(|r| commits(r)).count(), 1);
     assert_eq!(
         all.len(),
-        READS,
+        READS + 1,
         "{:#?}",
         all.iter().map(|r| &r.path).collect::<Vec<_>>()
     );
@@ -337,7 +343,8 @@ fn since_reads_the_changed_comments_and_then_the_whole_log_of_each_ticket() {
     assert_eq!(since.iter().filter(feed).count(), 1);
     assert_eq!(since.iter().filter(|r| of_issue(r, t1)).count(), 1);
     assert_eq!(since.iter().filter(|r| of_issue(r, t2)).count(), 1);
-    assert_eq!(since.len(), READS + 2);
+    assert_eq!(since.iter().filter(|r| commits(r)).count(), 1);
+    assert_eq!(since.len(), READS + 1 + 2);
     let (a, b_) = (report(&o), report(&full));
     assert_eq!(a, b_, "the same tickets give the same report");
     let v: Value = serde_json::from_str(o.stdout.trim()).unwrap();
@@ -487,9 +494,208 @@ fn a_feed_of_more_than_one_page_is_read_whole_and_a_feed_over_the_limit_names_si
     assert_eq!(report(&o), one_page);
 }
 
-/// The reads of `retro` without `--since` on a board whose feed fits one page: the login of
-/// the token, the board, AUTHORITY.md, the registry issue, the agent items and the feed.
+/// The reads of `retro` without `--since` on a board whose feed fits one page and that has no
+/// merged ticket: the login of the token, the board, AUTHORITY.md, the registry issue, the
+/// agent items and the feed.
 const READS: usize = 6;
+
+/// A read of the commit list of a repo.
+fn commits(r: &Req) -> bool {
+    r.path.contains("/commits?since=")
+}
+
+/// The value of the line `key: value` of the close note of ticket `t`.
+fn close_note_value(fake: &FakeBoard, t: u64, key: &str) -> String {
+    fake.comments_of(t)
+        .into_iter()
+        .filter(|(_, _, body)| body.contains("\nmerge-commit: "))
+        .find_map(|(_, _, body)| {
+            body.lines()
+                .find_map(|l| l.strip_prefix(&format!("{key}: ")).map(str::to_string))
+        })
+        .unwrap()
+}
+
+/// Ticket 1 is merged by the coordinator, ticket 2 by the owner. A commit of the default
+/// branch reverts the merge commit of ticket 1, a second one the PR of ticket 2. The owner
+/// moves ticket 1 back.
+#[test]
+fn the_outcome_counts_a_reverted_merge_and_a_ticket_that_came_back() {
+    let (fake, c, b) = crew();
+    let (t1, t2) = two_tickets(&fake, &c, &b);
+    let now = crewboard::clock::now_epoch();
+
+    // control: no revert, nothing came back, no owner comment
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.ends_with("\nOutcome\n  merged tickets: 2\n  came back after the merge: 0 of 2 (0%)\n  reverted on the default branch: 0 of 2 (0%) (the merged tickets whose close note names a merge commit or a PR)\n  tickets with an owner comment: 0 of 2 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
+        "{}",
+        o.all()
+    );
+
+    let merge_commit = close_note_value(&fake, t1, "merge-commit");
+    assert_eq!(merge_commit.len(), 40, "{merge_commit}");
+    let pr2 = close_note_value(&fake, t2, "pr");
+    let pr2 = pr2.rsplit('/').next().unwrap();
+    fake.commit("1111111", "A change that reverts nothing", now + 50);
+    fake.commit(
+        "2222222",
+        &format!("Revert \"IT\"\n\nThis reverts commit {merge_commit}.\n"),
+        now + 60,
+    );
+    fake.commit(
+        "3333333",
+        &format!("Revert \"IT\"\n\nReverts #{pr2}"),
+        now + 70,
+    );
+    // a commit that is older than the merges is not in the list that retro asks for
+    fake.commit("4444444", &format!("Reverts #{pr2}"), now - 86400);
+    fake.comment_at(t1, OWNER, "/crew move Ready", now, now);
+
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let text = &o.stdout;
+    for want in [
+        format!("  came back after the merge: 1 of 2 (50%)\n    #{t1} http://"),
+        format!("  reverted on the default branch: 2 of 2 (100%) (the merged tickets whose close note names a merge commit or a PR)\n    #{t2} http://"),
+        "  tickets with an owner comment: 1 of 2 (50%); comments on such a ticket: median 1, p90 1\n"
+            .to_string(),
+    ] {
+        assert!(text.contains(&want), "missing {want:?} in:\n{text}");
+    }
+    assert!(!text.contains(&b.name) && !text.contains(&c.name), "{text}");
+    // one read of the commits, and it starts at the earliest close note of a merge
+    let reads: Vec<Req> = fake.requests()[from..].to_vec();
+    assert_eq!(reads.iter().filter(|r| commits(r)).count(), 1);
+    assert_eq!(reads.len(), READS + 1);
+
+    let r = report(&retro(&fake, &c.dir, &["--json"]));
+    let out = &r["outcome"];
+    assert_eq!(out["merged"], 2);
+    assert_eq!(out["came_back"]["count"], 1);
+    assert_eq!(out["came_back"]["events"][0]["issue"], t1);
+    assert_eq!(out["came_back"]["events"][0]["from"], "owner");
+    assert_eq!(
+        (
+            &out["reverted"]["read"],
+            &out["reverted"]["known"],
+            &out["reverted"]["count"]
+        ),
+        (&Value::from(true), &Value::from(2), &Value::from(2))
+    );
+    let reverts: Vec<(u64, &str)> = out["reverted"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["issue"].as_u64().unwrap(),
+                e["revert"]["sha"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(reverts, [(t1, "2222222"), (t2, "3333333")]);
+    // the event is the close note of the merge
+    let close = fake
+        .comments_of(t1)
+        .into_iter()
+        .find(|(_, _, body)| body.contains("\nmerge-commit: "))
+        .map(|(id, _, _)| id)
+        .unwrap();
+    assert!(
+        out["reverted"]["events"][0]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("#issuecomment-{close}")),
+        "{out}"
+    );
+    assert_eq!(out["owner"]["touched"], 1);
+    no_unhandled(&fake);
+}
+
+/// The read of the commits is soft. When it fails, or when the list has more than 10 pages,
+/// the report prints as before, with the exit code 0, and says that the reverts were not read.
+#[test]
+fn a_commit_read_that_fails_or_is_too_long_leaves_the_report_and_names_since() {
+    let (fake, c, b) = crew();
+    two_tickets(&fake, &c, &b);
+    let mut full = report(&retro(&fake, &c.dir, &["--json"]));
+    assert_eq!(full["outcome"]["reverted"]["read"], true);
+    let not_read = "  reverted on the default branch: not read (the read of the commits failed, or a repo has more than 1000 commits in the period; a later --since makes the period shorter)\n";
+
+    // ten pages are read whole
+    let now = crewboard::clock::now_epoch();
+    fake.page_commits(1);
+    for n in 0..10 {
+        fake.commit(&format!("{n:07}"), "a change", now + 60 + n);
+    }
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(!o.stdout.contains("not read"), "{}", o.all());
+    let pages = |from: usize| {
+        fake.requests()[from..]
+            .iter()
+            .filter(|r| r.path.contains("/commits?"))
+            .count()
+    };
+    assert_eq!(pages(from), 10);
+
+    // an eleventh page exists: ten requests and no more, and no count of reverts
+    fake.commit("abcdef0", "one more", now + 100);
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains(not_read), "{}", o.all());
+    assert_eq!(pages(from), 10);
+
+    // the read fails: the same line, the same exit code, and every other number as before
+    fake.page_commits(100);
+    fake.fail_commits(404);
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stdout.contains(not_read), "{}", o.all());
+    assert!(o.stderr.is_empty(), "{}", o.all());
+    let soft = report(&retro(&fake, &c.dir, &["--json"]));
+    assert_eq!(
+        soft["outcome"]["reverted"],
+        serde_json::json!({"read": false, "known": 2, "count": 0, "events": []})
+    );
+    full["outcome"]["reverted"] = soft["outcome"]["reverted"].clone();
+    assert_eq!(soft, full);
+    no_unhandled(&fake);
+}
+
+/// Without a merged ticket there is nothing to revert: `retro` does not ask for the commits.
+#[test]
+fn a_report_without_a_merged_ticket_reads_no_commit() {
+    let (fake, c, b) = crew();
+    let body = format!("Goal: integration test ticket.\n\n{GATE}CI: none\n");
+    let t = fake.ticket_issue("IT retro plain drop", &body, &["crew:work"]);
+    run_ok(&fake, &c, &["assign", &t.to_string(), "--to", &b.name]);
+    run_ok(&fake, &c, &["close", &t.to_string(), "--why", "not needed"]);
+    // a commit read would fail
+    fake.fail_commits(500);
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &["--json"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let reads: Vec<Req> = fake.requests()[from..].to_vec();
+    assert!(
+        !reads.iter().any(|r| r.path.contains("/commits")),
+        "{reads:#?}"
+    );
+    assert_eq!(reads.len(), READS);
+    let out = &report(&o)["outcome"];
+    assert_eq!(out["merged"], 0);
+    // nothing had to be read, so the count 0 is a fact
+    assert_eq!(
+        out["reverted"],
+        serde_json::json!({"read": true, "known": 0, "count": 0, "events": []})
+    );
+    no_unhandled(&fake);
+}
 
 /// Three drops. Ticket 1 has a PR that the crew account merged without a verify: the drop note
 /// records the PR, and the report counts the ticket as dropped with a merged PR. Ticket 2 is a
