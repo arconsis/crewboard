@@ -31,6 +31,9 @@ find goes into a `report` to the coordinator.
 
 - Before `done`, run every review check of the Gate yourself. Run the repo checks that earlier
   send-backs added. Paste their output.
+- `AUTHORITY.md` has `checks`: commit, then run `crewboard check`. It runs them on a clean
+  checkout of your commit, as the coordinator's `verify --run-check` does. Fix what fails before
+  `done`. A pass is no evidence.
 - Make the evidence readable for the coordinator. Paste the decisive lines into the `done` note
   or the PR: the result line, the counts, and the line that shows a test FAILS before the fix
   when the Gate asks for it. A log path on your own host is no evidence.

@@ -56,6 +56,9 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         Command::Host(HostCmd::Hook { .. }) => Allow,
         // `repeat` runs a command of the repo and records evidence; it writes no board field
         Command::Host(HostCmd::Repeat(_)) => Allow,
+        // `check` runs commands of AUTHORITY.md, as `tick` does for a typed Gate, and writes
+        // nothing
+        Command::Host(HostCmd::Check { .. }) => Allow,
         // local work: `exec` and `env` set up a shell, `with-env` runs a command that its own
         // guard judges
         Command::Host(HostCmd::Agent {
@@ -249,6 +252,8 @@ mod tests {
         (&["hook", "post-tool-use", "--every", "0"], true),
         // the gate runs a command of the repo and writes no board field
         (&["repeat", "--times", "1", "--", "true"], true),
+        // it runs commands of AUTHORITY.md, as `tick` does, and writes nothing
+        (&["check", "fmt"], true),
         // local work: a shell setup, or a command that its own guard judges
         (&["agent", "env"], true),
         // it writes the env file of the agent account: a model must not change it

@@ -1062,6 +1062,31 @@ pub enum HostCmd {
     /// result lines, and must run on one commit. `crewboard repeat --help` prints the full text.
     #[command(display_order = 42, after_help = REPEAT_MORE)]
     Repeat(RepeatArgs),
+    /// Run checks of AUTHORITY.md on a clean checkout of a commit.
+    ///
+    /// Any: run the named `checks` of AUTHORITY.md (all of them without a name) as `verify
+    /// --run-check` runs them: without a shell, in a new work tree of exactly one commit, with
+    /// the cut-down environment and the time limit of the file. A dev runs it before `done`. The
+    /// owner tries the checks of a draft with --authority-file. It writes nothing, and a pass is
+    /// no evidence of a `done` or a `verify`. Changes that no commit holds are not tested.
+    #[command(display_order = 43)]
+    Check {
+        /// The names of the checks, in the order to run them (default: every check of the
+        /// file, in its order). The run stops at the first check that fails.
+        names: Vec<String>,
+        /// The commit to test, as git names it (default `HEAD`).
+        #[arg(long, default_value = "HEAD")]
+        rev: String,
+        /// A git checkout of the repo (default: this directory).
+        #[arg(long = "work-dir")]
+        work_dir: Option<PathBuf>,
+        /// Read `checks`, `check_env`, `check_timeout` and `protected_paths` from this file
+        /// and not from AUTHORITY.md on the default branch. No board is read then.
+        #[arg(long = "authority-file")]
+        authority_file: Option<PathBuf>,
+        #[command(flatten)]
+        sel: Sel,
+    },
     /// Set up and run one agent on this host.
     ///
     /// Any: run a command as one agent. `exec` runs CMD with the environment of an agent dir (the
@@ -1070,7 +1095,7 @@ pub enum HostCmd {
     /// `eval`. `with-env` runs CMD with the token of the env file `--env-file`. Unix only. `add` and
     /// `shim` set an agent up. `profile` shows or changes what the agent declares, `token` stores
     /// the token of the agent account on this host, and `selftest` proves that the agent sees events.
-    #[command(display_order = 43)]
+    #[command(display_order = 44)]
     Agent {
         #[command(subcommand)]
         action: AgentAction,
@@ -1088,6 +1113,7 @@ impl HostCmd {
             HostCmd::Wake { .. } => "wake",
             HostCmd::Hook { .. } => "hook",
             HostCmd::Repeat(_) => "repeat",
+            HostCmd::Check { .. } => "check",
             HostCmd::Agent { action } => match action {
                 AgentAction::Profile { .. } => "agent profile",
                 AgentAction::Token { .. } => "agent token",

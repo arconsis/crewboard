@@ -263,6 +263,32 @@ pub(super) fn dispatch(cli: &Cli, c: &HostCmd) -> Outcome {
             check: *check,
         }),
         HostCmd::Repeat(a) => repeat_cmd(cli, a),
+        HostCmd::Check {
+            names,
+            rev,
+            work_dir,
+            authority_file,
+            sel,
+        } => {
+            let dir = work_dir
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| PathBuf::from("."));
+            let log_root = match super::check_log_root() {
+                Ok(r) => r,
+                Err(e) => return fail(e),
+            };
+            done(ops::tickets::check(
+                &global(cli, sel, false),
+                &ops::tickets::CheckArgs {
+                    names,
+                    rev,
+                    repo_dir: &dir,
+                    log_root: &log_root,
+                    authority_file: authority_file.as_deref(),
+                },
+            ))
+        }
         HostCmd::Doctor {
             repo_move: true,
             sel,

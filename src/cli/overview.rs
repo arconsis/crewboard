@@ -49,6 +49,7 @@ pub const EXTENSIONS: &[(&str, &[&str])] = &[
     ("Owner tools", &["audit", "move"]),
     ("Reports and upkeep", &["report-status", "retro", "prune"]),
     ("Heavy jobs on a shared host", &["lock", "repeat"]),
+    ("Checks of the project", &["check"]),
 ];
 
 /// Commands that a scheduler, a wrapper script or a Monitor tool calls. They are hidden from the
@@ -66,7 +67,7 @@ pub const SCHEDULER: &[(&str, &[&str])] = &[
 const EXTENSIONS_LINE: &str = "audit, move, report-status, prune, lock, repeat";
 /// The extensions that only `help extensions` lists: the overview line has no room for them.
 #[cfg(test)]
-const NOT_ON_THE_LINE: &[&str] = &["retro"];
+const NOT_ON_THE_LINE: &[&str] = &["retro", "check"];
 /// The commands that the overview names for `help scheduler`.
 const SCHEDULER_LINE: &str = "wake, poll, tick, heartbeat (called by schedulers)";
 
