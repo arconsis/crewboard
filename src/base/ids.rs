@@ -297,7 +297,7 @@ catalog! {
         STATUS_GATE_MISSING = "status-gate-missing" :
             "A move to Ready needs a Gate.";
         STATUS_ANSWER_MISSING = "status-answer-missing" :
-            "A Blocked ticket is taken only after an answer to the block.";
+            "A Blocked ticket is taken only after an answer to the block; a ticket that the round limit stopped waits for its release.";
         STATUS_EVIDENCE_MISSING = "status-evidence-missing" :
             "A delivery needs complete evidence: PR, head SHA and CI.";
         STATUS_DONE_FINAL = "status-done-final" :

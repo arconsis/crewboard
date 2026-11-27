@@ -198,7 +198,7 @@ pub fn withdraws_question(m: &VMsg) -> bool {
 
 /// Does `m` close an open question to the owner? An owner message does, and so does a coordinator
 /// `answer` that [`withdraws_question`]. The same two release a ticket that the round limit
-/// stopped ([`super::rework_rounds`]).
+/// stopped ([`super::fold_rounds`]).
 pub fn closes_question(m: &VMsg) -> bool {
     is_owner(m) || withdraws_question(m)
 }

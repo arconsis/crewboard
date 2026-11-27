@@ -107,6 +107,11 @@ fn plan_take(
         },
         _ => ctx.plain(),
     };
+    // A ticket that the round limit stopped waits for the owner, also when this agent parked it
+    // before the stop (a park needs no answer).
+    if t.agent() == Some(me.name.as_str()) {
+        super::check_not_stopped(&t)?;
+    }
     if let Err(r) = check_status_transition(Some(from), Status::InProgress, me.actor, &tr) {
         if from == Status::Backlog && r.rule == ids::STATUS_UNKNOWN_TRANSITION {
             return Err(backlog_refusal(&t));

@@ -323,6 +323,23 @@ fn facts(t: &Ticket, me: &Me, status: Status) -> TicketFacts {
     }
 }
 
+/// The round limit stopped the ticket, and nothing released it (spec/tickets#round-limit): the
+/// ticket does not go back to its agent. `take` and `done` of the assignee run this check, so an
+/// old park message or a split before the stop opens no way around the owner.
+fn check_not_stopped(t: &Ticket) -> Result<(), Refusal> {
+    if !crate::ticket::round_limit_stopped(&t.msgs) {
+        return Ok(());
+    }
+    Err(Refusal::new(
+        ids::STATUS_ANSWER_MISSING,
+        format!(
+            "{} is stopped at the round limit (max_rounds of AUTHORITY.md): the owner decides, and the ticket does not go back to its agent before that. It needs an owner comment or `crewboard unblock {}` by the coordinator. Do not ask again and deliver no fix: wait for the answer and read it; take the ticket when it tells you to go on.",
+            t.key(),
+            t.issue
+        ),
+    ))
+}
+
 /// The checks of `verify` and `merge` before any read about the PR: a headless coordinator
 /// never acts on a ticket with an open question to the owner. A coordinator's ticket in Review
 /// needs a `done` that is not on the owner route. Then the writer, the status and the open

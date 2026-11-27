@@ -102,7 +102,9 @@ Events, Leaving, Extensions.
   for it: the signed `verify: fail` reports are the record of the rework.
 - `verify` answers `the round limit stopped the ticket`: the owner set `max_rounds`, and the
   ticket is Blocked with a question to the owner. Do not send it back. Wait for the owner's
-  comment; then the dev runs `take`. Run `unblock <n>` only when you have a new plan for the dev.
+  comment and do what it says: for a drop run `close --why`; for a split release first, then
+  `ticket split`. Run `unblock <n>` only when you have a new plan for the dev. A `verify` that
+  answers `this run finishes the stop` repaired a failed write; it is no new round.
 - `verify --fail` works only on a ticket in Review (`verify-needs-review`). A finding on a ticket
   in Ready or In Progress (no `done` yet) is no send-back. Tell the agent:
   `crewboard say <n> --to <agent> --kind request --body "<finding>"`. Run `verify` after its `done`.

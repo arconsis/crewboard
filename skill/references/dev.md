@@ -58,8 +58,9 @@ find goes into a `report` to the coordinator.
 - `take` refuses with `status-answer-missing`: your question to the owner is still open. Do not
   post a new question or `block`. Wait, and run `take <n>` again on the next answer event.
 - A `verify: fail` report with the line `case: round limit ...`: your ticket is Blocked and
-  waits for the owner. Do not push a fix and do not ask. Take your next Ready ticket, and run
-  `take <n>` again after the owner's comment or the coordinator's answer.
+  waits for the owner. `take` and `done` end with `status-answer-missing`. Do not push a fix and
+  do not ask. Take your next Ready ticket. After an owner comment on that ticket, read the
+  comment first. Run `take <n>` only when it tells you to go on.
 - A dead coordinator: crewboard tells the owner. Keep working.
 - Liveness is your heartbeat age. `poll`, `watch`, `take`, `say` and `done` write it; you do not
   answer anything.

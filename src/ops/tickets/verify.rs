@@ -25,7 +25,7 @@ use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::{
     EvidenceMsg, FailClass, VerifyFailure, counts_as_round, failed_line, is_local_gate,
-    round_limit_case, round_limit_question, verify_body,
+    round_limit_case, round_limit_case_of, round_limit_question, verify_body,
 };
 use crate::protocol::names::{Kind, Re, To};
 use crate::rules::Actor;
@@ -37,7 +37,7 @@ use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_loader::Ticket;
 use crate::ticket::{
-    ci_none_declared, latest_done, question_open, rework_rounds, round_limit_question_open,
+    VMsg, ci_none_declared, fold_rounds, latest_done, question_open, verify_report,
 };
 
 /// `verify <issue> [--body ...]` (coordinator): spec/tickets#verification-by-the-coordinator steps
@@ -278,7 +278,8 @@ struct VerifyFacts<'a> {
 struct RoundFacts {
     /// `max_rounds` of AUTHORITY.md.
     limit: u32,
-    /// The rounds that the ticket has spent so far, without this verify ([`rework_rounds`]).
+    /// The rounds that the ticket has spent, without a round for the `done` of this verify
+    /// ([`crate::ticket::Rounds::spent_without`]).
     prior: usize,
     /// The question of the round limit is open on the ticket already.
     question_open: bool,
@@ -549,11 +550,140 @@ fn stop_move(f: &VerifyFacts<'_>, s: RoundStop) -> Result<FailMove, Refusal> {
     Ok(FailMove {
         to: Status::Blocked,
         order: None,
-        line: format!(
-            "Status moved to Blocked: the round limit stopped the ticket ({} failed verifies, max_rounds {}). It does not go back to {}. The owner decides: a comment of the owner on the ticket releases it, and {} then runs `take`. You can also run `crewboard unblock`, `reassign`, `ticket split` or `close --why`\n",
-            s.rounds, s.limit, f.assignee, f.assignee
-        ),
+        line: stop_line(s.rounds, s.limit, f.assignee),
     })
+}
+
+/// The line of the answer for a ticket that the round limit stopped.
+fn stop_line(rounds: u32, limit: u32, assignee: &str) -> String {
+    format!(
+        "Status moved to Blocked: the round limit stopped the ticket ({rounds} failed verifies, max_rounds {limit}). It does not go back to {assignee}. The owner decides: a comment of the owner on the ticket releases it. `crewboard unblock` releases it too, and you can run `reassign` or `close --why`. For a split, release the ticket first, then run `ticket split`\n"
+    )
+}
+
+/// A stop at the round limit that an earlier `verify` did not finish: the verify result is in
+/// the log, and a later write failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StopFinish {
+    limit: u32,
+    rounds: u32,
+    /// The comment of the verify result that stopped the ticket.
+    report: u64,
+    /// The question of the round limit is not open: post it.
+    ask: bool,
+}
+
+/// Is a stop at the round limit left to finish? It is when the ticket is in Review, the round
+/// limit stopped it with no release since, and the latest verify result for the latest `done` is
+/// the result that stopped it. Then a `verify` posts no new result (the judgment is in the log)
+/// and does only the writes that are missing. Pure.
+fn stop_to_finish(
+    msgs: &[VMsg],
+    assignee: Option<&str>,
+    issue: u64,
+    from: Status,
+) -> Option<StopFinish> {
+    if from != Status::Review {
+        return None;
+    }
+    let rounds = fold_rounds(msgs);
+    if !rounds.stopped {
+        return None;
+    }
+    let (done, _) = latest_done(msgs, assignee?)?;
+    let (report, pass) = verify_report(msgs, done, issue)?;
+    let (spent, limit) = round_limit_case_of(&report.body).filter(|_| !pass)?;
+    Some(StopFinish {
+        limit,
+        rounds: spent,
+        report: report.comment_id,
+        ask: !rounds.question_open,
+    })
+}
+
+/// Does `verify` only finish a stop at the round limit on this ticket ([`stop_to_finish`])? The
+/// headless `tick` asks, because it runs no `verify` for a `done` that has a result.
+pub(super) fn stop_unfinished(t: &Ticket) -> bool {
+    t.status()
+        .ok()
+        .and_then(|from| stop_to_finish(&t.msgs, t.agent(), t.issue, from))
+        .is_some()
+}
+
+/// The writes of a stop after the verify result: the question to the owner unless it is open,
+/// the label `needs-owner`, then Status Blocked. The question comes before the Status write, and
+/// the label right after the question: nothing adds a missing label later, so a failed write
+/// must not leave an open question without it. Returns the lines of the answer.
+fn stop_writes(
+    ac: &AgentCtx,
+    t: &Ticket,
+    clock: &dyn Clock,
+    s: RoundStop,
+    report_url: &str,
+) -> CbResult<String> {
+    let mut out = String::new();
+    if s.ask {
+        let q = post_with(
+            ac,
+            t,
+            clock,
+            To::Owner,
+            Kind::Question,
+            Re::None,
+            &round_limit_question(s.rounds, s.limit, report_url),
+        )?;
+        out.push_str(&format!(
+            "round limit: question to the owner {} ({})\n",
+            q.id, q.url
+        ));
+    } else {
+        out.push_str("round limit: the question to the owner is open already\n");
+    }
+    out.push_str(&needs_owner_lines(ac, &t.repo, t.issue, true));
+    super::set_select_status(ac, &t.item_id, Status::Blocked)?;
+    remember(ac, t, Status::Blocked, t.agent());
+    Ok(out)
+}
+
+/// Finish a stop at the round limit ([`stop_to_finish`]): no new verify result, only the writes
+/// that are missing.
+fn finish_stop(
+    ac: &AgentCtx,
+    l: &VerifyLoad,
+    f: StopFinish,
+    clock: &dyn Clock,
+) -> CbResult<String> {
+    let t = &l.t;
+    let ctx = Transition::AfterVerify {
+        verify: Some(false),
+        assignee_busy: false,
+        rounds_spent: true,
+    };
+    check_status_transition(Some(l.from), Status::Blocked, l.me.actor, &ctx)?;
+    super::check_status_unchanged(ac, &t.item_id, &t.key(), l.from, Some(Status::Blocked))?;
+    let report_url = t
+        .comments
+        .iter()
+        .find(|c| c.id == f.report)
+        .map(|c| c.url.clone())
+        .unwrap_or_default();
+    let stop = RoundStop {
+        limit: f.limit,
+        rounds: f.rounds,
+        ask: f.ask,
+    };
+    let mut out = format!(
+        "verify for {}: the round limit stopped this ticket in an earlier run (result message {}, {report_url}). No new result message; this run finishes the stop\n",
+        t.key(),
+        f.report
+    );
+    out.push_str(&stop_writes(ac, t, clock, stop, &report_url)?);
+    out.push_str(&stop_line(
+        f.rounds,
+        f.limit,
+        t.agent().unwrap_or("its agent"),
+    ));
+    Ok(out)
 }
 
 /// The move after a failed verify, checked against the status table and the field rules.
@@ -650,6 +780,7 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
     }
     let gate_failed = va.gate_failed || failed_check.is_some();
     let note = failed_check.as_deref().unwrap_or(va.note);
+    let rounds = fold_rounds(&t.msgs);
     let facts = VerifyFacts {
         ticket_key: t.key(),
         assignee: &pre.assignee,
@@ -674,8 +805,8 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
         question_open: question_open(&t.msgs, t.agent()).is_some(),
         rounds: pre.auth.max_rounds.map(|limit| RoundFacts {
             limit,
-            prior: rework_rounds(&t.msgs),
-            question_open: round_limit_question_open(&t.msgs, t.agent()),
+            prior: rounds.spent_without(pre.done_comment),
+            question_open: rounds.question_open,
         }),
     };
     let findings = verify_failures(&facts, &|| {
@@ -726,28 +857,12 @@ fn act_verify(
         "{}result message {} ({})\n{}",
         p.first_line, posted.id, posted.url, p.rest
     );
-    if let Some(s) = &p.round_stop {
-        // The question comes before the Status write, and the label right after the question:
-        // nothing adds a missing label later, so a failed write below must not leave an open
-        // question without it. A second run posts no second question.
-        if s.ask {
-            let q = post_with(
-                ac,
-                t,
-                clock,
-                To::Owner,
-                Kind::Question,
-                Re::None,
-                &round_limit_question(s.rounds, s.limit, &posted.url),
-            )?;
-            out.push_str(&format!(
-                "round limit: question to the owner {} ({})\n",
-                q.id, q.url
-            ));
-        } else {
-            out.push_str("round limit: the question to the owner is open already\n");
-        }
-        out.push_str(&needs_owner_lines(ac, &t.repo, t.issue, true));
+    if let (Some(s), Some(m)) = (p.round_stop, &p.fail_move) {
+        // A write that fails here leaves a stop that the next `verify` finishes
+        // ([`stop_to_finish`]): the result is in the log, so that run posts no second one.
+        out.push_str(&stop_writes(ac, t, clock, s, &posted.url)?);
+        out.push_str(&m.line);
+        return Ok(out);
     }
     if let Some(m) = &p.fail_move {
         super::set_select_status(ac, &t.item_id, m.to)?;
@@ -775,6 +890,14 @@ pub fn verify(
     run: Option<&RunArgs<'_>>,
 ) -> CbResult<String> {
     let l = load_verify(ac, issue_arg)?;
+    // A stop at the round limit that is not finished comes first: before the check of an open
+    // question to the owner (the question of the stop may be the open one) and before any read
+    // of the PR. It writes no judgment, so a headless coordinator does it too.
+    if l.me.actor.is_coordinator()
+        && let Some(f) = stop_to_finish(&l.t.msgs, l.t.agent(), l.n, l.from)
+    {
+        return finish_stop(ac, &l, f, &SystemClock);
+    }
     let va = VerifyArgs {
         note,
         runs,
@@ -1236,6 +1359,12 @@ mod tests {
         );
         assert!(m.line.contains("The owner decides"), "{}", m.line);
         assert!(
+            m.line
+                .contains("For a split, release the ticket first, then run `ticket split`"),
+            "{}",
+            m.line
+        );
+        assert!(
             p.body
                 .contains("case: round limit 3 of 3; the owner decides\n"),
             "{}",
@@ -1290,6 +1419,94 @@ mod tests {
         f.question_open = false;
         let findings = verify_failures(&f, &|| String::new());
         assert!(!decide_verify(&f, findings, None).unwrap().clear_needs_owner);
+    }
+
+    #[test]
+    fn a_stop_that_is_not_finished_needs_only_the_missing_writes() {
+        use crate::protocol::acts::{round_limit_case, round_limit_question, withdraw_body};
+        use crate::protocol::names::Re;
+        let coord = || crate::testkit::agent("claude@a", Role::Coordinator);
+        let done = |id: u64| {
+            crate::testkit::msg(
+                id,
+                crate::testkit::agent("hermes@b", Role::Dev),
+                "coordinator",
+                Some(Kind::Done),
+                &format!("Done.\npr: {PR_URL}\nsha: {SHA}\nci: none\n"),
+            )
+        };
+        let report = |id: u64, done: u64, case: Option<&str>| VMsg {
+            re: Re::Comment {
+                issue: 12,
+                comment: done,
+            },
+            ..crate::testkit::msg(
+                id,
+                coord(),
+                "hermes@b",
+                Some(Kind::Report),
+                &format!(
+                    "verify: fail\nfailed: Gate check by the coordinator: x\n{}",
+                    case.map(|c| format!("case: {c}\n")).unwrap_or_default()
+                ),
+            )
+        };
+        let question = |id: u64| {
+            crate::testkit::msg(
+                id,
+                coord(),
+                "owner",
+                Some(Kind::Question),
+                &round_limit_question(3, 2, "u"),
+            )
+        };
+        let case = round_limit_case(3, 2);
+        let dev = Some("hermes@b");
+        let finish = |msgs: &[VMsg], from| stop_to_finish(msgs, dev, 12, from);
+        // the result is posted, the question is not: ask, with the numbers of the result
+        let msgs = vec![done(1), report(2, 1, Some(&case))];
+        assert_eq!(
+            finish(&msgs, Status::Review),
+            Some(StopFinish {
+                limit: 2,
+                rounds: 3,
+                report: 2,
+                ask: true
+            })
+        );
+        // the question is posted too: only the label and the Status are left
+        let mut asked = msgs.clone();
+        asked.push(question(3));
+        assert_eq!(finish(&asked, Status::Review).map(|f| f.ask), Some(false));
+        // nothing to finish: the ticket is Blocked already, or the stop was released
+        assert_eq!(finish(&asked, Status::Blocked), None);
+        let mut released = asked.clone();
+        released.push(crate::testkit::msg(
+            4,
+            coord(),
+            "hermes@b",
+            Some(Kind::Answer),
+            &withdraw_body("go on"),
+        ));
+        assert_eq!(finish(&released, Status::Review), None);
+        // a plain fail, a newer `done` without a result, and no assignee: a normal verify
+        assert_eq!(finish(&[done(1), report(2, 1, None)], Status::Review), None);
+        let mut newer = msgs.clone();
+        newer.push(done(5));
+        assert_eq!(finish(&newer, Status::Review), None);
+        assert_eq!(stop_to_finish(&msgs, None, 12, Status::Review), None);
+        // the result of another issue number does not answer this `done`
+        assert_eq!(stop_to_finish(&msgs, dev, 13, Status::Review), None);
+    }
+
+    #[test]
+    fn a_second_result_for_the_same_done_spends_no_second_round() {
+        // the facts of a second run: one round is spent, and it is the round of this `done`
+        let p = gate_fail_plan(rounds(2, 0), None);
+        assert_eq!(p.round_stop, None);
+        // a first result for a new `done` after one round: the last round of 2
+        let p = gate_fail_plan(rounds(2, 1), None);
+        assert_eq!(p.round_stop.map(|s| s.rounds), Some(2));
     }
 
     #[test]

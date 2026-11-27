@@ -502,7 +502,10 @@ pub fn run(ac: &AgentCtx) -> CbResult<MineView> {
                     }
                     Some(s) => {
                         o.question_open = question_open(&msgs, Some(me)).is_some();
+                        // a ticket that the round limit stopped waits for the owner, also
+                        // when the agent parked it before the stop
                         if s == Status::Blocked
+                            && !crate::ticket::round_limit_stopped(&msgs)
                             && let Some(n) = parked_for(&msgs, me)
                         {
                             parked.insert(r.key(), n);

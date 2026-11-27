@@ -121,6 +121,11 @@ fn precheck_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<Done
     // head stays `status-no-change`, before any read.
     let redelivery = l.from == Status::Review;
     let facts = facts(&l.t, &l.me, l.from);
+    // A ticket that the round limit stopped takes no delivery before a release, also when the
+    // coordinator split it before the stop (`Blocked -> Review` needs no take).
+    if facts.actor_is_assignee {
+        super::check_not_stopped(&l.t)?;
+    }
     writer_precheck(
         l.from,
         l.me.actor,
