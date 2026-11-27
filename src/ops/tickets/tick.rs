@@ -676,6 +676,8 @@ fn one_checks(
         repo_dir: &c.repo_dir,
         log_root: &c.log_root,
         unattended: true,
+        // a typed Gate has no form for a red run
+        must_fail_at: None,
     };
     let note = "tick: the Gate names checks only; the tool ran them on a clean checkout";
     match verify(ac, key, note, &[], false, None, Some(&run)) {

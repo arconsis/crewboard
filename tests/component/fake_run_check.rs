@@ -9,7 +9,7 @@ use crewboard::rules::Role;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const CHECKS: &str = "ci_mode: local\ncheck_env: [IT_WORDS]\ncheck_timeout: 2\nchecks:\n  - slow: sleep 30\n  - missing: no-such-program-of-this-test\n  - env: sh -c 'test \"$IT_WORDS\" = abc && test -z \"$IT_OTHER\"'\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n";
+const CHECKS: &str = "ci_mode: local\ncheck_env: [IT_WORDS]\ncheck_timeout: 2\nchecks:\n  - slow: sleep 30\n  - missing: no-such-program-of-this-test\n  - env: sh -c 'test \"$IT_WORDS\" = abc && test -z \"$IT_OTHER\"'\n  - marker: sh -c 'test -f marker && echo ok-from-check'\n  - clean: sh -c 'test ! -e untracked && test -z \"$GH_TOKEN\"'\n  - script: ./check.sh one\n  - red: sh -c 'echo boom; exit 3'\n  - fixed: sh -c 'test -f fixed'\n";
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new("git")
@@ -238,7 +238,7 @@ fn an_unknown_check_a_typed_tool_line_and_a_foreign_checkout_are_refused_before_
     assert!(o.stderr.contains("rule=check-unknown"), "{}", o.all());
     assert!(
         o.stderr
-            .contains("AUTHORITY.md has: slow, missing, env, marker, clean, script, red"),
+            .contains("AUTHORITY.md has: slow, missing, env, marker, clean, script, red, fixed"),
         "{}",
         o.all()
     );
@@ -830,4 +830,254 @@ fn done_runs_no_check_for_a_pr_that_it_refuses_anyway() {
     assert!(o.stderr.contains("rule=status-no-change"), "{}", o.all());
     assert!(!o.stderr.contains("check marker: running"), "{}", o.all());
     assert_eq!(work_trees(&k), 1);
+}
+
+/// [`case_taken`] with a fix: the head of the PR is a second commit, which adds the file
+/// `fixed`. The check `fixed` fails on the first commit and passes on the second. The last
+/// value is the first commit.
+fn case_fix() -> (Case, Agent, String, String) {
+    let (mut k, b, url) = case_taken("the checks pass");
+    let origin = k.work.parent().unwrap().join("origin").join(REPO);
+    std::fs::write(origin.join("fixed"), "x\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "the fix"]);
+    let first = std::mem::replace(&mut k.sha, git(&origin, &["rev-parse", "HEAD"]));
+    k.fake.set_pr_head(k.pr, &k.sha);
+    git(&k.work, &["pull", "-q", "--ff-only"]);
+    (k, b, url, first)
+}
+
+/// The directories of the runs.
+fn run_dirs(k: &Case) -> Vec<PathBuf> {
+    std::fs::read_dir(k.state.join("crewboard").join("check-runs"))
+        .map(|d| d.map(|e| e.unwrap().path()).collect())
+        .unwrap_or_default()
+}
+
+/// The line of the ticket that starts with `start`.
+fn line_of(k: &Case, start: &str) -> String {
+    k.fake
+        .comments_of(k.ts.parse().unwrap())
+        .into_iter()
+        .flat_map(|(_, _, b)| b.lines().map(str::to_string).collect::<Vec<_>>())
+        .rfind(|l| l.starts_with(start))
+        .unwrap_or_else(|| panic!("no line starts with {start}"))
+}
+
+/// `--must-fail-at` (spec/ci#a-check-that-must-be-red-first): the check runs on the red commit
+/// first and must fail there, then on the tested commit.
+#[test]
+fn check_with_must_fail_at_runs_red_first_and_prints_the_red_line() {
+    let (k, _b, _url, first) = case_fix();
+    let o = check(&k, &k.c.dir, &["fixed", "--must-fail-at", "HEAD~1"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let red = o
+        .stdout
+        .find("red   fixed: rc=1 ")
+        .unwrap_or_else(|| panic!("no red line: {}", o.all()));
+    let ok = o.stdout.find("ok    fixed: rc=0 ").expect("an ok line");
+    assert!(red < ok, "{}", o.all());
+    assert!(
+        o.stdout.contains(&format!("s at {}\n", &first[..12])),
+        "{}",
+        o.all()
+    );
+    let last = o.stdout.lines().last().unwrap();
+    assert!(
+        last.starts_with(&format!(
+            "1 check passed on a clean checkout of {} and failed first on {}. Checks from ",
+            &k.sha[..12],
+            &first[..12]
+        )),
+        "{last}"
+    );
+    // the two runs have logs of their own in one directory, and both work trees are gone
+    let runs = run_dirs(&k);
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert!(runs[0].join("fixed.red.log").is_file());
+    assert!(runs[0].join("fixed.log").is_file());
+    assert!(!runs[0].join("tree").exists() && !runs[0].join("tree-red").exists());
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn a_check_that_passes_on_the_red_commit_is_not_red_and_no_green_run_happens() {
+    let (k, _b, _url, first) = case_fix();
+    let w = writes(&k.fake);
+    let green_run = format!("running on {}", &k.sha[..12]);
+    // `marker` passes on both commits
+    let o = check(&k, &k.c.dir, &["marker", "--must-fail-at", &first]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-red"), "{}", o.all());
+    assert!(
+        o.stderr.contains("check marker exited 0")
+            && o.stderr.contains(&first)
+            && o.stderr.contains("does not prove the change"),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stderr.contains(&green_run), "{}", o.all());
+    assert!(!o.stdout.contains("ok    marker"), "{}", o.all());
+    // every red run comes first: `fixed` is red, `marker` is not, and no check runs green
+    let o = check(&k, &k.c.dir, &["fixed", "marker", "--must-fail-at", &first]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-red"), "{}", o.all());
+    assert!(
+        o.stderr.contains("check fixed: rc=1") && !o.stderr.contains(&green_run),
+        "{}",
+        o.all()
+    );
+    // a check that the time limit stops on the red commit shows nothing: not red, not failed
+    let o = check(&k, &k.c.dir, &["slow", "--must-fail-at", &first]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr.contains("does not show that the check can fail"),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stderr.contains(&green_run), "{}", o.all());
+    // a check that is red on the red commit and fails on the tested one is a failed check
+    let o = check(&k, &k.c.dir, &["red", "--must-fail-at", &first]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-failed"), "{}", o.all());
+    assert_eq!(writes(&k.fake), w);
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn a_red_commit_outside_the_history_and_a_bad_use_of_must_fail_at_run_nothing() {
+    let (k, b, url, first) = case_fix();
+    let n = k.ts.parse().unwrap();
+    let before = k.fake.comments_of(n).len();
+    let w = writes(&k.fake);
+    // a commit without a parent, with the files of the first commit: `fixed` fails on it
+    let tree = format!("{first}^{{tree}}");
+    let side = git(&k.work, &["commit-tree", &tree, "-m", "side"]);
+    let o = check(&k, &k.c.dir, &["fixed", "--must-fail-at", &side]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(o.stderr.contains("is no ancestor"), "{}", o.all());
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "fixed", "--must-fail-at", &side],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(o.stderr.contains("is no ancestor"), "{}", o.all());
+    // usage errors: no name, the tested commit itself, a rev that names no commit, and the
+    // option without --run-check
+    let o = check(&k, &k.c.dir, &["--must-fail-at", &first]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(
+        o.stderr.contains("name the checks that must be red"),
+        "{}",
+        o.all()
+    );
+    let o = check(&k, &k.c.dir, &["fixed", "--must-fail-at", "HEAD"]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(o.stderr.contains("names the tested commit"), "{}", o.all());
+    let o = check(&k, &k.c.dir, &["fixed", "--must-fail-at", "no-such-rev"]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(
+        o.stderr.contains("no-such-rev names no commit"),
+        "{}",
+        o.all()
+    );
+    let o = done_run(&k, &b, &url, &["--must-fail-at", &first]);
+    assert_eq!(o.code, 64, "{}", o.all());
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "fixed", "--must-fail-at", &k.sha],
+    );
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(o.stderr.contains("names the tested commit"), "{}", o.all());
+    // nothing ran, and nothing was written
+    assert!(run_dirs(&k).is_empty(), "{:?}", run_dirs(&k));
+    assert_eq!(writes(&k.fake), w);
+    assert_eq!(k.fake.comments_of(n).len(), before);
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn done_and_verify_with_must_fail_at_write_the_line_with_the_red_commit() {
+    let (k, b, url, first) = case_fix();
+    let clause = format!(
+        "; red at {}; clean checkout of {}",
+        &first[..12],
+        &k.sha[..12]
+    );
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "fixed", "--must-fail-at", &first],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    let line = line_of(&k, "local-gate:");
+    assert!(
+        line.starts_with("local-gate: tool-run fake-b: fixed rc=0 ") && line.contains(&clause),
+        "{line}"
+    );
+    // the coordinator proves the same on its host; the rev is one of its checkout
+    let o = verify(&k, &["--run-check", "fixed", "--must-fail-at", "HEAD~1"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let line = line_of(&k, "coordinator-local-gate:");
+    assert!(
+        line.starts_with("coordinator-local-gate: tool-run fake-c: fixed rc=0 ")
+            && line.contains(&clause),
+        "{line}"
+    );
+    assert_eq!(work_trees(&k), 1);
+}
+
+#[test]
+fn a_done_or_a_verify_whose_check_is_not_red_writes_nothing_and_leaves_no_work_tree() {
+    let (k, b, url, first) = case_fix();
+    let n = k.ts.parse().unwrap();
+    let before = k.fake.comments_of(n).len();
+    let w = writes(&k.fake);
+    let green_run = format!("running on {}", &k.sha[..12]);
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &[
+            "--run-check",
+            "fixed",
+            "--run-check",
+            "marker",
+            "--must-fail-at",
+            &first,
+        ],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-red"), "{}", o.all());
+    assert!(o.stderr.contains("check marker exited 0"), "{}", o.all());
+    assert!(!o.stderr.contains(&green_run), "{}", o.all());
+    assert_eq!(writes(&k.fake), w, "a refused done wrote to GitHub");
+    assert_eq!(k.fake.comments_of(n).len(), before);
+    assert_eq!(work_trees(&k), 1);
+    // the delivery lands without the option; the verify with a check that is not red is refused
+    let o = done_run(&k, &b, &url, &["--run-check", "fixed"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let before = k.fake.comments_of(n).len();
+    let w = writes(&k.fake);
+    let o = verify(&k, &["--run-check", "marker", "--must-fail-at", &first]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-red"), "{}", o.all());
+    assert!(!o.stderr.contains(&green_run), "{}", o.all());
+    assert_eq!(writes(&k.fake), w, "a refused verify wrote to GitHub");
+    assert_eq!(k.fake.comments_of(n).len(), before);
+    assert_eq!(work_trees(&k), 1);
+    for run in run_dirs(&k) {
+        assert!(
+            !run.join("tree").exists() && !run.join("tree-red").exists(),
+            "{run:?}"
+        );
+    }
 }

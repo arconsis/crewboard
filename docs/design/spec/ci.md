@@ -377,6 +377,8 @@ protected_paths: [Makefile]
    --work-dir` runs the checks itself for a ticket whose signed Gate is `checks: <name>, ...`
    and nothing else; it verifies, and it never merges such a ticket
    ([Headless coordinator](agents.md#headless-coordinator), 5a).
+8. **A fix.** `verify --run-check <name> --must-fail-at <rev>` also proves that the check can
+   fail: see [A check that must be red first](#a-check-that-must-be-red-first).
 
 ### Checks before a delivery
 
@@ -411,6 +413,8 @@ of exactly one commit, the same environment, the same time limit, the same logs.
    `check` as `tick` runs a typed Gate: no check runs when a word of its command line is a
    file of the repo outside `protected_paths` (`check-not-run`). `--authority-file` is refused
    there with `headless-scope`: a model can write that file, and a draft is owner work.
+8. **A fix.** `check <name> --must-fail-at <rev>` also proves that the named checks can fail:
+   see [A check that must be red first](#a-check-that-must-be-red-first).
 
 ### Checks in a delivery
 
@@ -441,3 +445,56 @@ line, so the record says what the model claims. `done <n> --pr <url> --run-check
    controls: the programs come from the `PATH` of that host, and the checkout is made with the
    git settings of its work dir. The coordinator verifies as for every local-run delivery,
    with its own `--run-check` or `--local-run`.
+6. **A fix.** `--must-fail-at <rev>` proves that the checks can fail: see
+   [A check that must be red first](#a-check-that-must-be-red-first).
+
+### A check that must be red first
+
+A check that cannot fail proves nothing. For a fix, the proof has two parts: the check fails on
+the commit without the fix, and it passes on the commit with the fix. `--must-fail-at <rev>`
+makes the tool show both parts. `check`, `done --run-check` and `verify --run-check` take it.
+
+The words: the *red commit* is the commit that `<rev>` names. The *tested commit* is the commit
+of the command: `--rev` (default `HEAD`) for `check`, the head of the PR for `done` and
+`verify`. The *red run* is the run on the red commit. The *green run* is the run on the tested
+commit.
+
+1. **The names.** The option needs named checks. `check --must-fail-at` without a name is a
+   usage error. With `done` and `verify` the option needs `--run-check`.
+2. **The red commit.** The tool reads `<rev>` in the checkout of `--work-dir`, after the fetch
+   of the tested commit. A rev that names no commit is a usage error (exit 64). A rev that
+   names the tested commit is a usage error too. The red commit must be an ancestor of the
+   tested commit. A commit outside that history proves nothing about the change, so the run
+   ends with `check-not-run`. Nothing more is fetched: an ancestor comes with the tested
+   commit.
+3. **Two runs.** Each named check runs two times: first the red run, then the green run. All
+   red runs come first, in the order of the names. Both runs follow the same rules (see
+   [Checks that the tool runs](#checks-that-the-tool-runs), item 3): a new work tree of
+   exactly one commit, no shell, the cut-down environment, the time limit. Each run has a work
+   tree of its own, and the tool removes both. The logs are in one run directory:
+   `<name>.red.log` for the red run and `<name>.log` for the green run. The warning for a
+   command word outside `protected_paths` applies to each run.
+4. **A check that is red.** The check exits with a code that is not 0 on the red commit. Then
+   the next red run starts, and after the last one the green run.
+5. **A check that is not red.** A check that exits 0 on the red commit ends the command with
+   the refusal `check-not-red`. The text names the check and the red commit. No green run
+   starts, and nothing is written. The check does not prove the change: name a check that
+   fails on the red commit, or name the commit on which this check fails.
+6. **No result.** A check that runs into the time limit on the red commit is not red. The same
+   is true for a check that cannot start and for a check that a signal ends (an exit code from
+   129 to 192 reads as a signal). These cases show nothing about the commit, so they are
+   `check-not-run`.
+7. **The green run.** It is the run without the option. A check that fails is `check-failed`.
+8. **The result of `check`.** One line for each red run comes first: `red   <name>: rc=<n>
+   <s>s at <sha12>`. Then the `ok` lines follow. The last line names the tested commit and the
+   red commit.
+9. **The result of `done` and `verify`.** The line of the tool has the clause `; red at
+   <sha12>` after the checks: `tool-run <host>: <name> rc=0 <n>s; red at <sha12>; clean
+   checkout of <sha12>; logs <dir>`. A line that is too long drops the logs first, as without
+   the option. The clause stays in every form of the line.
+10. **What it proves.** On this host, each named check failed on the red commit and passed on
+    the tested commit. It does not prove that the red commit is the right one: the caller
+    names it. The coordinator reads the clause and can run the same proof with its own
+    `verify --run-check --must-fail-at`.
+11. **Unattended.** `tick` does not use the option, and a typed Gate has no form for it.
+    `verify --run-check` is refused under the headless scope, with or without the option.

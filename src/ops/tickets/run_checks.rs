@@ -60,6 +60,9 @@ pub struct RunArgs<'a> {
     /// its command line is a file of the checkout that no protected path covers, and a check
     /// that fails is a failed verify of the same `done` (not a refusal).
     pub unattended: bool,
+    /// `--must-fail-at`: the commit on which each check must fail first, as typed
+    /// (spec/ci#a-check-that-must-be-red-first).
+    pub must_fail_at: Option<&'a str>,
 }
 
 /// What the checks run for: the ticket and the commit of its `done`.
@@ -100,11 +103,16 @@ pub(super) struct Job<'a> {
     pub fetch_pr: Option<u64>,
     /// What the refusal of a failed check says after the log (the next step of the caller).
     pub after_fail: &'a str,
+    /// `--must-fail-at`: a rev of the checkout. Each check runs on that commit first and must
+    /// exit with a code that is not 0 there (the red run).
+    pub must_fail_at: Option<&'a str>,
 }
 
-/// A run in which every check exited 0.
+/// A run in which every check exited 0 on the commit of the job.
 pub(super) struct Passed {
     pub ran: Vec<Ran>,
+    /// The red run of `--must-fail-at`: every check failed on that commit first.
+    pub red: Option<Red>,
     /// The directory of the logs of this run.
     pub log_dir: PathBuf,
 }
@@ -117,6 +125,21 @@ pub(super) struct Ran {
     pub secs: u64,
     /// The check did not exit by itself with a code.
     pub end: End,
+}
+
+/// The red run: the commit, as a full SHA, and the checks that failed on it.
+pub(super) struct Red {
+    pub sha: String,
+    pub ran: Vec<Ran>,
+}
+
+/// What a run on one commit must show.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Want {
+    /// Every check exits 0.
+    Green,
+    /// Every check exits with a code that is not 0: the check can fail.
+    Red,
 }
 
 /// How a check ended.
@@ -170,9 +193,19 @@ pub(super) fn pick<'a>(checks: &'a [Check], names: &[String]) -> Result<Vec<&'a 
 }
 
 /// The local-run line of a tool run in which every check passed. Pure. It fits [`MAX_TEXT`]: a
-/// line that is too long names the count of the checks, not each one.
-pub(super) fn tool_text(host: &str, sha: &str, ran: &[Ran], log_dir: &Path) -> String {
+/// line that is too long names the count of the checks, not each one. `red` is the commit of the
+/// red run: its clause stays in every form of the line.
+pub(super) fn tool_text(
+    host: &str,
+    sha: &str,
+    ran: &[Ran],
+    red: Option<&str>,
+    log_dir: &Path,
+) -> String {
     let short: String = sha.chars().take(12).collect();
+    let red = red.map_or_else(String::new, |r| {
+        format!("; red at {}", r.chars().take(12).collect::<String>())
+    });
     let each = ran
         .iter()
         .map(|r| format!("{} rc={} {}s", r.name, r.rc, r.secs))
@@ -184,9 +217,9 @@ pub(super) fn tool_text(host: &str, sha: &str, ran: &[Ran], log_dir: &Path) -> S
     // could read as one more result.
     let tail =
         if dir.chars().any(char::is_control) || dir.contains([',', ';']) || dir.contains(" rc=") {
-            format!("; clean checkout of {short}")
+            format!("{red}; clean checkout of {short}")
         } else {
-            format!("; clean checkout of {short}; logs {dir}")
+            format!("{red}; clean checkout of {short}; logs {dir}")
         };
     let text = format!("{TOOL_RUN_PREFIX}{host}: {each}{tail}");
     if text.len() <= MAX_TEXT {
@@ -197,7 +230,7 @@ pub(super) fn tool_text(host: &str, sha: &str, ran: &[Ran], log_dir: &Path) -> S
         return text;
     }
     format!(
-        "{TOOL_RUN_PREFIX}{host}: {} checks rc=0; clean checkout of {short}",
+        "{TOOL_RUN_PREFIX}{host}: {} checks rc=0{red}; clean checkout of {short}",
         ran.len()
     )
 }
@@ -256,14 +289,9 @@ impl Drop for Tree<'_> {
     }
 }
 
-/// Make the clean checkout of `sha` in `repo`. With `fetch_pr`, the commit is fetched from
+/// Make sure that the commit `sha` is in `repo`. With `fetch_pr`, the commit is fetched from
 /// `origin` first (it is the head of that PR); without it, the commit is one of `repo`.
-fn checkout<'a>(
-    repo: &'a Path,
-    fetch_pr: Option<u64>,
-    sha: &str,
-    log_dir: &Path,
-) -> Result<Tree<'a>, String> {
+fn bring_commit(repo: &Path, fetch_pr: Option<u64>, sha: &str) -> Result<(), String> {
     // The commit of a PR from a branch of the repo is fetched by its SHA; the head ref of the PR
     // is the second way (a fork, or a server that does not give a commit by SHA).
     // Whether the commit is here is decided after the fetches, not by their exit codes.
@@ -284,7 +312,12 @@ fn checkout<'a>(
             format!("the commit {sha} is not in {}", repo.display())
         }
     })?;
-    let dir = log_dir.join("tree");
+    Ok(())
+}
+
+/// Make the clean checkout of `sha` in `repo`, as the new directory `dir`. The commit is in
+/// `repo` (see [`bring_commit`]).
+fn checkout<'a>(repo: &'a Path, sha: &str, dir: PathBuf) -> Result<Tree<'a>, String> {
     let text = dir.to_string_lossy().into_owned();
     git(
         repo,
@@ -464,9 +497,16 @@ pub(super) fn run(
         unattended: args.unattended,
         fetch_pr: Some(t.pr),
         after_fail: t.after_fail,
+        must_fail_at: args.must_fail_at,
     };
     let passed = run_job(&top, &job, checks, args.log_root)?;
-    let text = tool_text(ac.name.host(), t.sha, &passed.ran, &passed.log_dir);
+    let text = tool_text(
+        ac.name.host(),
+        t.sha,
+        &passed.ran,
+        passed.red.as_ref().map(|r| r.sha.as_str()),
+        &passed.log_dir,
+    );
     // the line goes into a signed message: the check of every note
     crate::ops::say::check_body_text(&text)?;
     Ok(text)
@@ -502,18 +542,73 @@ pub(super) fn has_open_changes(top: &Path) -> bool {
     git(top, &["status", "--porcelain"]).is_ok_and(|s| !s.is_empty())
 }
 
+/// The commit of `--must-fail-at <rev>` in the checkout `top`, as a full SHA: another commit
+/// than `tested`, and an ancestor of it. A rev that names no commit, or that names the tested
+/// commit, is a usage error. A commit outside the history of the tested one is `check-not-run`.
+pub(super) fn red_commit(top: &Path, rev: &str, tested: &str) -> CbResult<String> {
+    let red = commit_of(top, rev).map_err(|e| CbError::usage(format!("--must-fail-at: {e}")))?;
+    if red.eq_ignore_ascii_case(tested) {
+        return Err(CbError::usage(format!(
+            "--must-fail-at {rev} names the tested commit {}: name an earlier commit, on which the check must fail",
+            &red[..12]
+        )));
+    }
+    if git(top, &["merge-base", "--is-ancestor", &red, tested]).is_err() {
+        return Err(not_run(format!(
+            "the commit {} of --must-fail-at is no ancestor of the tested commit {}, and a check that fails outside the history of a change proves nothing about that change",
+            &red[..12],
+            tested.chars().take(12).collect::<String>()
+        )));
+    }
+    Ok(red)
+}
+
 /// Run `checks` in a new work tree of the commit of `job`, made from the checkout `top`. `Ok`:
 /// every check exited 0. A check that fails is the refusal `check-failed`; a run that the host
-/// or the setup stops is `check-not-run`. The work tree is removed in every case; the logs stay.
+/// or the setup stops is `check-not-run`. With `must_fail_at`, every check runs on that commit
+/// first, in a work tree of its own, and one that exits 0 there is `check-not-red`; no check
+/// runs on the commit of the job then. The work trees are removed in every case; the logs stay.
 pub(super) fn run_job(
     top: &Path,
     job: &Job<'_>,
     checks: &[&Check],
     log_root: &Path,
 ) -> CbResult<Passed> {
+    bring_commit(top, job.fetch_pr, job.sha).map_err(not_run)?;
+    // after the fetch: the red commit is an ancestor of the tested one, so it is here now
+    let red_sha = match job.must_fail_at {
+        Some(rev) => Some(red_commit(top, rev, job.sha)?),
+        None => None,
+    };
     let log_dir = make_log_dir(log_root, job.key, job.sha).map_err(not_run)?;
     catch_stop_signals();
-    let tree = checkout(top, job.fetch_pr, job.sha, &log_dir).map_err(not_run)?;
+    let red = match red_sha {
+        Some(sha) => {
+            let ran = run_on(top, job, checks, &log_dir, &sha, Want::Red)?;
+            Some(Red { sha, ran })
+        }
+        None => None,
+    };
+    let ran = run_on(top, job, checks, &log_dir, job.sha, Want::Green)?;
+    Ok(Passed { ran, red, log_dir })
+}
+
+/// One run of `checks` on the commit `sha`, in a work tree of its own under `log_dir`. `Ok`:
+/// every check ended as `want` says. The work tree is removed in every case.
+fn run_on(
+    top: &Path,
+    job: &Job<'_>,
+    checks: &[&Check],
+    log_dir: &Path,
+    sha: &str,
+    want: Want,
+) -> CbResult<Vec<Ran>> {
+    // a check name has no `.`, so the log of a red run never has the name of another log
+    let (tree_name, log_end, note) = match want {
+        Want::Green => ("tree", "log", ""),
+        Want::Red => ("tree-red", "red.log", " (it must fail there)"),
+    };
+    let tree = checkout(top, sha, log_dir.join(tree_name)).map_err(not_run)?;
     let open: Vec<String> = checks
         .iter()
         .flat_map(|c| unprotected_files(job.authority, job.protected_paths, &tree.dir, c))
@@ -530,8 +625,8 @@ pub(super) fn run_job(
     }
     let mut ran: Vec<Ran> = Vec::new();
     for c in checks {
-        let log = log_dir.join(format!("{}.log", c.name));
-        eprintln!("check {}: running on {} ...", c.name, &job.sha[..12]);
+        let log = log_dir.join(format!("{}.{log_end}", c.name));
+        eprintln!("check {}: running on {}{note} ...", c.name, &sha[..12]);
         let r = run_one(&tree.dir, c, &log, job.env, job.timeout);
         eprintln!("check {}: rc={} after {}s", r.name, r.rc, r.secs);
         if stop_signal().is_some() {
@@ -547,33 +642,83 @@ pub(super) fn run_job(
                 log.display()
             )));
         }
-        if r.rc != 0 || r.end == End::TimedOut {
-            let how = if r.end == End::TimedOut {
-                format!(
-                    "ran longer than its limit of {}s and was stopped",
-                    job.timeout
-                )
-            } else {
-                format!("exited {}", r.rc)
-            };
-            let tail = log_tail(&log);
-            return Err(Refusal::new(
-                ids::CHECK_FAILED,
-                format!(
-                    "check {} {how} on a clean checkout of {} ({}s). Log: {}{tail}{}",
-                    r.name,
-                    job.sha,
-                    r.secs,
-                    log.display(),
-                    job.after_fail
-                ),
-            )
-            .into());
+        match want {
+            Want::Green => green_end(job, &r, &log)?,
+            Want::Red => red_end(job, &r, sha, &log)?,
         }
         ran.push(r);
     }
-    drop(tree);
-    Ok(Passed { ran, log_dir })
+    Ok(ran)
+}
+
+/// The end of a check on the tested commit: it exited 0, or the refusal `check-failed`.
+fn green_end(job: &Job<'_>, r: &Ran, log: &Path) -> CbResult<()> {
+    if r.rc == 0 && r.end != End::TimedOut {
+        return Ok(());
+    }
+    let how = if r.end == End::TimedOut {
+        format!(
+            "ran longer than its limit of {}s and was stopped",
+            job.timeout
+        )
+    } else {
+        format!("exited {}", r.rc)
+    };
+    let tail = log_tail(log);
+    Err(Refusal::new(
+        ids::CHECK_FAILED,
+        format!(
+            "check {} {how} on a clean checkout of {} ({}s). Log: {}{tail}{}",
+            r.name,
+            job.sha,
+            r.secs,
+            log.display(),
+            job.after_fail
+        ),
+    )
+    .into())
+}
+
+/// The end of a check on the commit of `--must-fail-at`: it exited with a code that is not 0.
+/// A check that exits 0 there is the refusal `check-not-red`. A check that the time limit or a
+/// signal stops shows nothing about the commit: `check-not-run`.
+fn red_end(job: &Job<'_>, r: &Ran, sha: &str, log: &Path) -> CbResult<()> {
+    if r.end == End::TimedOut {
+        return Err(not_run(format!(
+            "check {} ran longer than its limit of {}s on {sha} (--must-fail-at) and was stopped, and that does not show that the check can fail (see {})",
+            r.name,
+            job.timeout,
+            log.display()
+        )));
+    }
+    if killed_by_signal(r.rc) {
+        return Err(not_run(format!(
+            "a signal ended check {} on {sha} (--must-fail-at; rc={}), and that does not show that the check can fail (see {})",
+            r.name,
+            r.rc,
+            log.display()
+        )));
+    }
+    if r.rc != 0 {
+        return Ok(());
+    }
+    Err(Refusal::new(
+        ids::CHECK_NOT_RED,
+        format!(
+            "check {} exited 0 on a clean checkout of {sha} (--must-fail-at) ({}s). A check that passes without the change does not prove the change. Log: {}. No check ran on {}. Nothing was written. Name a check that fails on that commit, or the commit on which this check fails",
+            r.name,
+            r.secs,
+            log.display(),
+            job.sha
+        ),
+    )
+    .into())
+}
+
+/// Is the code the one of a child that a signal ended (128 + the number of the signal, as the
+/// runner reports it)? A check that exits with such a code by itself reads the same.
+fn killed_by_signal(rc: i32) -> bool {
+    (129..=192).contains(&rc)
 }
 
 /// The last lines of a log, for the refusal text (the log may hold text of the PR: it is shown
@@ -641,19 +786,71 @@ mod tests {
                 .collect()
         };
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        let t = tool_text("host-a", sha, &ran(2), Path::new("/s/runs/x"));
+        let t = tool_text("host-a", sha, &ran(2), None, Path::new("/s/runs/x"));
         assert!(t.starts_with("tool-run host-a: check-number-0 rc=0 7s, check-number-1 rc=0 7s; clean checkout of 0123456789ab; logs "), "{t}");
-        let long = tool_text("host-a", sha, &ran(40), Path::new("/s/runs/x"));
+        let long = tool_text("host-a", sha, &ran(40), None, Path::new("/s/runs/x"));
         assert!(long.len() <= MAX_TEXT, "{}", long.len());
         assert!(long.contains("40 checks rc=0"), "{long}");
-        let odd = tool_text("host-a", sha, &ran(1), Path::new("/s/a\nfailed: x"));
+        let odd = tool_text("host-a", sha, &ran(1), None, Path::new("/s/a\nfailed: x"));
         assert!(!odd.contains('\n') && !odd.contains("logs"), "{odd}");
         let deep = "/x".repeat(300);
-        let no_logs = tool_text("host-a", sha, &ran(40), Path::new(&deep));
+        let no_logs = tool_text("host-a", sha, &ran(40), None, Path::new(&deep));
         assert!(
             no_logs.len() <= MAX_TEXT && !no_logs.contains("logs"),
             "{no_logs}"
         );
+    }
+
+    #[test]
+    fn the_text_names_the_red_commit_after_the_checks_and_keeps_it_in_every_short_form() {
+        let ran = |n: usize| -> Vec<Ran> {
+            (0..n)
+                .map(|i| Ran {
+                    name: format!("check-number-{i}"),
+                    rc: 0,
+                    secs: 12,
+                    end: End::Exited,
+                })
+                .collect()
+        };
+        let sha = "fedcba9876543210fedcba9876543210fedcba98";
+        let red = Some("0123456789abcdef0123456789abcdef01234567");
+        let one = [Ran {
+            name: "tests".into(),
+            rc: 0,
+            secs: 12,
+            end: End::Exited,
+        }];
+        assert_eq!(
+            tool_text("host-a", sha, &one, red, Path::new("/s/runs/x")),
+            "tool-run host-a: tests rc=0 12s; red at 0123456789ab; clean checkout of fedcba987654; logs /s/runs/x"
+        );
+        // too long: the count of the checks, and the red clause stays
+        let long = tool_text("host-a", sha, &ran(40), red, Path::new("/s/runs/x"));
+        assert_eq!(
+            long,
+            "tool-run host-a: 40 checks rc=0; red at 0123456789ab; clean checkout of fedcba987654; logs /s/runs/x"
+        );
+        // still too long: the logs go first
+        let deep = "/x".repeat(300);
+        let no_logs = tool_text("host-a", sha, &ran(40), red, Path::new(&deep));
+        assert_eq!(
+            no_logs,
+            "tool-run host-a: 40 checks rc=0; red at 0123456789ab; clean checkout of fedcba987654"
+        );
+        // a path that could read as a result: no logs, and the red clause stays
+        let odd = tool_text("host-a", sha, &one, red, Path::new("/s/a; b"));
+        assert_eq!(
+            odd,
+            "tool-run host-a: tests rc=0 12s; red at 0123456789ab; clean checkout of fedcba987654"
+        );
+    }
+
+    #[test]
+    fn a_code_of_a_signal_is_not_a_red_result() {
+        assert!(killed_by_signal(137) && killed_by_signal(143) && killed_by_signal(129));
+        assert!(!killed_by_signal(1) && !killed_by_signal(127) && !killed_by_signal(128));
+        assert!(!killed_by_signal(255));
     }
 
     #[test]
