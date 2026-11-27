@@ -11,7 +11,7 @@ end lists the other crates of `Cargo.lock`.
 
 ## Licenses in use
 
-- Apache License 2.0: 119 crates
+- Apache License 2.0: 123 crates
 - MIT License: 28 crates
 - Unicode License v3: 19 crates
 - BSD 3-Clause "New" or "Revised" License: 4 crates
@@ -260,7 +260,11 @@ Used by:
 Used by:
 
 - windows-link 0.2.1 (https://github.com/microsoft/windows-rs)
+- windows-sys 0.52.0 (https://github.com/microsoft/windows-rs)
 - windows-sys 0.61.2 (https://github.com/microsoft/windows-rs)
+- windows-targets 0.52.6 (https://github.com/microsoft/windows-rs)
+- windows_x86_64_gnu 0.52.6 (https://github.com/microsoft/windows-rs)
+- windows_x86_64_msvc 0.52.6 (https://github.com/microsoft/windows-rs)
 
 ```text
                                  Apache License
@@ -893,14 +897,14 @@ Used by:
 
 Used by:
 
-- clap 4.6.7 (https://github.com/clap-rs/clap)
-- clap_builder 4.6.7 (https://github.com/clap-rs/clap)
-- clap_derive 4.6.7 (https://github.com/clap-rs/clap)
+- clap 4.6.10 (https://github.com/clap-rs/clap)
+- clap_builder 4.6.10 (https://github.com/clap-rs/clap)
+- clap_derive 4.6.9 (https://github.com/clap-rs/clap)
 - clap_lex 1.1.1 (https://github.com/clap-rs/clap)
 - serde_spanned 1.1.3 (https://github.com/toml-rs/toml)
-- toml 1.2.1+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml 1.2.3+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_datetime 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
-- toml_parser 1.1.5+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_parser 1.1.7+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_writer 1.2.0+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ```text
@@ -2840,9 +2844,9 @@ Used by:
 - openssl-probe 0.2.1 (https://github.com/rustls/openssl-probe)
 - percent-encoding 2.3.2 (https://github.com/servo/rust-url/)
 - pkg-config 0.3.34 (https://github.com/rust-lang/pkg-config-rs)
-- regex-automata 0.4.18 (https://github.com/rust-lang/regex)
-- regex-syntax 0.8.11 (https://github.com/rust-lang/regex)
-- regex 1.13.1 (https://github.com/rust-lang/regex)
+- regex-automata 0.4.19 (https://github.com/rust-lang/regex)
+- regex-syntax 0.8.12 (https://github.com/rust-lang/regex)
+- regex 1.13.2 (https://github.com/rust-lang/regex)
 - rustc_version 0.4.1 (https://github.com/djc/rustc-version-rs)
 - rustls-native-certs 0.8.5 (https://github.com/rustls/rustls-native-certs)
 - rustls 0.23.46 (https://github.com/rustls/rustls)
@@ -3720,7 +3724,7 @@ Used by:
 - serde_json 1.0.154 (https://github.com/serde-rs/json)
 - shlex 2.0.1 (https://github.com/comex/rust-shlex)
 - syn 2.0.119 (https://github.com/dtolnay/syn)
-- syn 3.0.9 (https://github.com/dtolnay/syn)
+- syn 3.0.10 (https://github.com/dtolnay/syn)
 - sync_wrapper 1.0.2 (https://github.com/Actyx/sync_wrapper)
 - unicode-ident 1.0.27 (https://github.com/dtolnay/unicode-ident)
 - utf8parse 0.2.2 (https://github.com/alacritty/vte)
@@ -5631,15 +5635,11 @@ dependencies (tests) and crates of other targets.
 - web-time 1.1.0 (not shipped)
 - webpki-root-certs 1.0.11 (not shipped)
 - winapi-util 0.1.11 (not shipped)
-- windows-sys 0.52.0 (not shipped)
-- windows-targets 0.52.6 (not shipped)
 - windows_aarch64_gnullvm 0.52.6 (not shipped)
 - windows_aarch64_msvc 0.52.6 (not shipped)
 - windows_i686_gnu 0.52.6 (not shipped)
 - windows_i686_gnullvm 0.52.6 (not shipped)
 - windows_i686_msvc 0.52.6 (not shipped)
-- windows_x86_64_gnu 0.52.6 (not shipped)
 - windows_x86_64_gnullvm 0.52.6 (not shipped)
-- windows_x86_64_msvc 0.52.6 (not shipped)
 - zerocopy 0.8.63 (not shipped)
 - zerocopy-derive 0.8.63 (not shipped)
