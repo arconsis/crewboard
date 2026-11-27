@@ -2,7 +2,14 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.12.0 (2026-11-27)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board. One behaviour
+changes for a scheduled agent: when its wake command failed two times or more in a row, it
+writes no heartbeat, so it turns late and then dead, and its tickets go back to Backlog (see
+"Changed"). Before the upgrade, run `crewboard doctor --setup` for each scheduled agent: its
+`wake` line shows a wake command that fails now. The other parts are off until the owner sets
+a key (`daily_digest`) or the coordinator uses them (tags in the note of `verify --fail`).
 
 Added:
 
