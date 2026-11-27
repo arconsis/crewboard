@@ -217,6 +217,7 @@ limits it. The prompt does not.
    | `init`, `join`, `approve` | refused (owner and setup) |
    | `lock take`, `release`, `status`, `break`, `ci-*` | allowed (files of the host, no board write) |
    | `lock run <dir>` | allowed only for a lock dir that the wake names with `--host-lock` (`CREWBOARD_LOCK_RUN_DIRS`); else refused with `lock-run-not-granted` ([host lock](host-lock.md)) |
+   | `repeat` | allowed only with `--lock <dir>` for a lock dir that the wake names with `--host-lock`, as `lock run`; else refused with `lock-run-not-granted` |
    | `verify --run`, `merge --run` | refused (a named run belongs to a Gate that is not CI only) |
    | `verify --fail` | refused (a failed Gate check is a judgment of the interactive coordinator) |
    | `verify --local-run` | refused (a local run is a judgment of the interactive coordinator, [Local run](ci.md#local-run-ci_mode-local)) |

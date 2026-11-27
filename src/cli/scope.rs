@@ -54,7 +54,8 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         // the events hook of a wake only reads the board (`poll`) and appends to the agent's own
         // events file; a headless config dir may run it
         Command::Host(HostCmd::Hook { .. }) => Allow,
-        // `repeat` runs a command of the repo and records evidence; it writes no board field
+        // `repeat` runs a command of the repo and records evidence; it writes no board field.
+        // Under a scope it needs the grant of `lock run` (`repeat_cmd::scope_grant`)
         Command::Host(HostCmd::Repeat(_)) => Allow,
         // local work: `exec` and `env` set up a shell, `with-env` runs a command that its own
         // guard judges

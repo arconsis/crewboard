@@ -64,6 +64,7 @@ Optional. Use one only when the ticket, `take` or the wake prompt names it.
 - Profiles: a `Needs:` line lists what the agent must have. A `capability-override` note means
   that you lack a tag. If that stops you, `block` at once. Claim no tag that you cannot back up.
 - A Gate of N runs: `crewboard repeat --times N -- <command>`, then paste its result block.
+  In a scheduled wake, `repeat` needs `--lock <lock-dir>` (shared-hosts reference).
 - A heavy job or a long Gate on a host with a lock: read the
   shared-hosts reference (linked in SKILL.md) first.
 - The owner route: `take` prints a `route:` line. Follow it. Do not `block`.
