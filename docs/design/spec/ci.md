@@ -411,3 +411,27 @@ of exactly one commit, the same environment, the same time limit, the same logs.
    `check` as `tick` runs a typed Gate: no check runs when a word of its command line is a
    file of the repo outside `protected_paths` (`check-not-run`). `--authority-file` is refused
    there with `headless-scope`: a model can write that file, and a draft is owner work.
+
+### Checks in a delivery
+
+In `ci_mode: local` a `done` needs the local run of the dev. `--local-run` takes it as a typed
+line, so the record says what the model claims. `done <n> --pr <url> --run-check <name>`
+(repeatable; `--work-dir`) removes the claim: the tool runs the checks and writes the line.
+
+1. **The run.** It is the run of `verify --run-check` (see [Checks that the tool
+   runs](#checks-that-the-tool-runs), item 3): a new work tree of exactly the head of the PR,
+   fetched from `origin`, no shell, the cut-down environment, the time limit. A change that is
+   not pushed is not tested.
+2. **When.** After every refusal of `done` that needs no run (the writer, the status of the
+   ticket, the PR, the route) and before the first write. `--sha`, when given, must name the
+   head of the PR; else nothing runs (`check-not-run`).
+3. **The line.** When every check exits 0, the `done` has `local-gate: tool-run <host>: <name>
+   rc=0 <n>s; clean checkout of <sha12>; logs <dir>`. A typed `--local-run` text cannot start
+   with `tool-run`. The two options do not go together (a usage error).
+4. **A check that fails.** `check-failed`, with the last lines of the log. Nothing is written:
+   the ticket stays In Progress, and the dev fixes the cause, pushes and runs `done` again.
+   `check-unknown` for a name that `checks` does not have, before any read of the PR.
+   `local-gate-not-enabled` in `ci_mode: ci`.
+5. **What it proves.** The dev host ran these commands on this commit, and no model typed the
+   result. It is still the run of the maker: the coordinator verifies as for every local-run
+   delivery, with its own `--run-check` or `--local-run`.

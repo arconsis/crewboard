@@ -529,8 +529,11 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             .into());
         }
         let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
+        let after_fail = format!(
+            "\nNothing was written. To send the ticket back: crewboard verify {} --fail --body \"<what failed>\"",
+            l.n
+        );
         let target = super::run_checks::Target {
-            issue: l.n,
             key: &t.key(),
             sha: &pre.ev.sha,
             repo: &pre.pr_url.repo,
@@ -538,6 +541,7 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             protected_paths: &pre.auth.protected_paths,
             env: &pre.auth.check_env,
             timeout: pre.auth.check_timeout,
+            after_fail: &after_fail,
         };
         match super::run_checks::run(ac, &target, &checks, run) {
             Ok(line) => pre.coordinator_gate = Some(line),

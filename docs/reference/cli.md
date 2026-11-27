@@ -860,6 +860,12 @@ Options:
       --local-run <LOCAL_RUN>
           Only while AUTHORITY.md has `ci_mode: local` (the owner switched CI off): what the local run did, as one line of at most 400 bytes: "<host>: <command> rc=0, log <path>". Required then; the CI of the head is not judged. Refused with `local-gate-not-enabled` in `ci_mode: ci`
 
+      --run-check <NAME>
+          Only with `ci_mode: local`, in place of --local-run: run this check of AUTHORITY.md (`checks`) on a clean checkout of the head of the PR, and write the local-run line from the result. Repeat for more checks. A check that does not exit 0 is refused with `check-failed`, and nothing is written
+
+      --work-dir <WORK_DIR>
+          A git checkout of the repo of the PR, for --run-check (default: this directory)
+
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
 

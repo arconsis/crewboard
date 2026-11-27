@@ -92,7 +92,7 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
     if looks_like_tool_run(t) {
         return Err(Refusal::new(
             ids::LOCAL_GATE_INVALID,
-            "--local-run must not start with `tool-run`, in any spelling, or with a word that has a character outside printable ASCII: `tool-run` marks a line that crewboard wrote after it ran the checks itself (verify --run-check <name>)",
+            "--local-run must not start with `tool-run`, in any spelling, or with a word that has a character outside printable ASCII: `tool-run` marks a line that crewboard wrote after it ran the checks itself (--run-check <name> of done or verify)",
         )
         .into());
     }
@@ -106,13 +106,26 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
 pub(super) fn local_gate_for_done(
     auth: &crate::authority::Authority,
     arg: Option<&str>,
+    will_run: bool,
 ) -> CbResult<Option<String>> {
+    // `--run-check`: the tool makes the line after its run (`run_checks`); none is typed.
+    if will_run {
+        if !auth.ci_mode.is_local() {
+            return Err(local_gate_not_enabled().into());
+        }
+        if arg.is_some() {
+            return Err(crate::error::CbError::usage(
+                "--run-check and --local-run are two ways to give the local run: use one",
+            ));
+        }
+        return Ok(None);
+    }
     match (auth.ci_mode.is_local(), arg) {
         (false, Some(_)) => Err(local_gate_not_enabled().into()),
         (false, None) => Ok(None),
         (true, None) => Err(Refusal::new(
             ids::LOCAL_GATE_MISSING,
-            "AUTHORITY.md has `ci_mode: local`: done needs --local-run \"<host>: <command> rc=0, log <path>\" (the CI of the head is not judged)",
+            "AUTHORITY.md has `ci_mode: local`: done needs --local-run \"<host>: <command> rc=0, log <path>\", or --run-check <name> for a check of AUTHORITY.md that the tool runs (the CI of the head is not judged)",
         )
         .into()),
         (true, Some(t)) => check_local_gate_text(t).map(Some),
@@ -243,22 +256,25 @@ mod tests {
     #[test]
     fn done_follows_ci_mode_for_the_local_gate_flag() {
         // ci mode: no flag is fine, the flag is refused
-        assert_eq!(local_gate_for_done(&auth(false), None).unwrap(), None);
         assert_eq!(
-            rule_of(local_gate_for_done(&auth(false), Some(GATE))),
+            local_gate_for_done(&auth(false), None, false).unwrap(),
+            None
+        );
+        assert_eq!(
+            rule_of(local_gate_for_done(&auth(false), Some(GATE), false)),
             "local-gate-not-enabled"
         );
         // local mode: the flag is required and is the evidence
         assert_eq!(
-            rule_of(local_gate_for_done(&auth(true), None)),
+            rule_of(local_gate_for_done(&auth(true), None, false)),
             "local-gate-missing"
         );
         assert_eq!(
-            local_gate_for_done(&auth(true), Some(&format!("  {GATE} \n"))).unwrap(),
+            local_gate_for_done(&auth(true), Some(&format!("  {GATE} \n")), false).unwrap(),
             Some(GATE.to_string())
         );
         assert_eq!(
-            rule_of(local_gate_for_done(&auth(true), Some("  "))),
+            rule_of(local_gate_for_done(&auth(true), Some("  "), false)),
             "local-gate-missing"
         );
     }

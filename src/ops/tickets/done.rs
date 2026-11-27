@@ -56,6 +56,9 @@ pub struct DoneArgs<'a> {
     /// `--local-run`: the local gate of the dev, for `ci_mode: local`
     /// (spec/ci#local-run-ci_mode-local).
     pub local_gate: Option<&'a str>,
+    /// `--run-check`: the tool runs these checks of AUTHORITY.md on a clean checkout of the PR
+    /// head and writes the local-run line itself (spec/ci#checks-in-a-delivery).
+    pub run: Option<&'a super::run_checks::RunArgs<'a>>,
 }
 
 /// What `done` has loaded before it decides: the arguments, the agent and the ticket.
@@ -129,7 +132,11 @@ fn precheck_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<Done
     let auth = crate::ctx::load_authority(&ac.ctx)?;
     auth.check_open_pr()?;
     // spec/ci#local-run-ci_mode-local: `--local-run` follows `ci_mode`, before any write.
-    let local_gate = local_gate_for_done(&auth, a.local_gate)?;
+    let local_gate = local_gate_for_done(&auth, a.local_gate, a.run.is_some())?;
+    // a name that `checks` does not have is refused before any read of the PR
+    if let Some(run) = a.run {
+        super::run_checks::pick(&auth.checks, run.names)?;
+    }
     let declared = ci_none_declared(&l.t.msgs, &l.t.info.body);
     // A PR of a repo outside the initiative is refused before any call to that repo.
     check_pr_in_initiative(&ac.ctx.cfg.repos, &l.pr_url)?;
@@ -494,8 +501,11 @@ fn ci_warning(ci: &CiFacts, local_gate: bool) -> String {
 
 /// Read everything `done` needs and decide: no write.
 fn plan_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<DonePlan> {
-    let pre = precheck_done(ac, a, l)?;
+    let mut pre = precheck_done(ac, a, l)?;
     let p = read_done_pr(ac, a, l, &pre)?;
+    if let Some(run) = a.run {
+        pre.local_gate = Some(run_checks_for_done(ac, a, l, &pre, &p, run)?);
+    }
     let c = read_done_ci(ac, l, &pre, &p)?;
     let prefix = pre.auth.branch_prefix();
     Ok(decide_done(&DoneFacts {
@@ -527,6 +537,46 @@ fn plan_done(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad) -> CbResult<DonePlan
         protected_paths: &pre.auth.protected_paths,
         unread_line: l.unread_line.as_deref(),
     })?)
+}
+
+/// `done --run-check`: run the checks on a clean checkout of the head of the PR. `Ok` is the
+/// local-run line of the tool. It runs after every refusal that needs no run (the writer, the
+/// state, the PR, the route) and before the first write. A check that fails is `check-failed`,
+/// and nothing is written.
+fn run_checks_for_done(
+    ac: &AgentCtx,
+    a: &DoneArgs<'_>,
+    l: &DoneLoad,
+    pre: &DonePre,
+    p: &DonePr,
+    run: &super::run_checks::RunArgs<'_>,
+) -> CbResult<String> {
+    let head = &p.pr.head_sha;
+    // the commit that is tested is the commit that is delivered: `--sha` must name it
+    if let Some(sha) = a.sha
+        && !sha.eq_ignore_ascii_case(head)
+    {
+        return Err(Refusal::new(
+            ids::CHECK_NOT_RUN,
+            format!(
+                "the checks did not run: the head of the PR is {head}, and --sha names {sha}. Push your commit, then run done again. Nothing was written"
+            ),
+        )
+        .into());
+    }
+    let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
+    let key = l.t.key();
+    let target = super::run_checks::Target {
+        key: &key,
+        sha: head,
+        repo: &l.pr_url.repo,
+        pr: l.pr_url.number,
+        protected_paths: &pre.auth.protected_paths,
+        env: &pre.auth.check_env,
+        timeout: pre.auth.check_timeout,
+        after_fail: "\nNothing was written. Fix the cause, push, and run done again",
+    };
+    super::run_checks::run(ac, &target, &checks, run)
 }
 
 /// Perform the writes of a [`DonePlan`], in order, and return the answer.
