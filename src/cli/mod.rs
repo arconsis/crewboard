@@ -93,6 +93,20 @@ fn global(cli: &Cli, sel: &Sel, insecure_one_account: bool) -> Global {
     }
 }
 
+/// Where the logs of `verify --run-check` and `check` are kept: `check-runs` in the state dir of
+/// crewboard. A host without a home has none: a directory in the shared temp dir is no place
+/// for a checkout that code runs in.
+fn check_log_root() -> Result<std::path::PathBuf, crate::error::CbError> {
+    let env = |k: &str| std::env::var(k).ok();
+    crate::wake::state::state_root(env("XDG_STATE_HOME").as_deref(), env("HOME").as_deref())
+        .map(|r| r.join("check-runs"))
+        .ok_or_else(|| {
+            crate::error::CbError::config(
+                "the logs of the checks are kept in the state dir of crewboard, and HOME is not set",
+            )
+        })
+}
+
 /// Does the command read the token? Those that do not must work when the env file is broken,
 /// so that `doctor` can report it and `agent exec` can start a shell.
 fn needs_env_file(c: &Command) -> bool {

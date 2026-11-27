@@ -61,6 +61,16 @@ pub use crate::ctx::{
     load_world, new_client, new_owner_client, require_agent, require_owner,
 };
 
+/// The context of a reader of the board, as `status` opens it: a joined agent reads with its own
+/// config and token, anyone else (the owner) with the board config of the config dir and the
+/// token of the caller. No role is asked for.
+pub(crate) fn open_reader(g: &Global) -> CbResult<Ctx> {
+    match AgentCtx::load(g) {
+        Ok(ac) => Ok(ac.ctx),
+        Err(_) => Ctx::load(new_client()?, resolve_board_config(g)?, g.dir()?),
+    }
+}
+
 /// Find the board config for a command that is not an agent command (owner approve):
 /// `--initiative-file`, else the agent config or board config in the config dir, else
 /// `./.crewboard.toml`.

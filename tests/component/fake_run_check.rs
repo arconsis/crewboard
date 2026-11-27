@@ -529,3 +529,150 @@ fn the_headless_tick_runs_no_check_whose_file_a_pr_can_change_and_no_program_tha
     }
     assert_eq!(writes(&k.fake), before);
 }
+
+fn check(k: &Case, dir: &Path, args: &[&str]) -> Out {
+    let mut all = vec!["check"];
+    all.extend_from_slice(args);
+    k.fake.run_env(
+        dir,
+        &k.work,
+        &all,
+        &[
+            ("XDG_STATE_HOME", &k.state.to_string_lossy()),
+            ("IT_WORDS", "abc"),
+            ("IT_OTHER", "not listed"),
+        ],
+    )
+}
+
+/// `crewboard check` (spec/ci#checks-before-a-delivery): the run of `verify --run-check` on a
+/// commit of the caller, without a ticket and without a write.
+#[test]
+fn check_runs_the_named_checks_on_a_clean_checkout_of_head_and_writes_nothing() {
+    let k = case();
+    let n = k.ts.parse().unwrap();
+    let before = k.fake.comments_of(n).len();
+    let w = writes(&k.fake);
+    {
+        let o = check(&k, &k.c.dir, &["marker", "clean", "script", "env"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(
+            o.stdout.contains("ok    marker: rc=0 ")
+                && o.stdout.contains("ok    clean: rc=0 ")
+                && o.stdout.contains("ok    script: rc=0 ")
+                && o.stdout.contains("ok    env: rc=0 "),
+            "{}",
+            o.all()
+        );
+        let last = o.stdout.lines().last().unwrap();
+        assert!(
+            last.starts_with(&format!(
+                "4 checks passed on a clean checkout of {}. Checks from AUTHORITY.md on the default branch of ",
+                &k.sha[..12]
+            )) && last.ends_with("Nothing was written"),
+            "{last}"
+        );
+        // the checkout of the caller has a file that no commit holds: the note says so
+        assert!(
+            o.stderr.contains("has changes that no commit holds"),
+            "{}",
+            o.all()
+        );
+    }
+    assert_eq!(writes(&k.fake), w, "check wrote to GitHub");
+    assert_eq!(k.fake.comments_of(n).len(), before);
+    assert_eq!(work_trees(&k), 1, "the work tree of the run is removed");
+}
+
+#[test]
+fn check_without_a_name_runs_every_check_in_order_and_stops_at_the_first_that_fails() {
+    let k = case();
+    // the first check of the file is `slow`, and the limit of the file is 2 seconds
+    let o = check(&k, &k.c.dir, &[]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-failed"), "{}", o.all());
+    assert!(
+        o.stderr
+            .contains("check slow ran longer than its limit of 2s"),
+        "{}",
+        o.all()
+    );
+    // no later check ran, and the text names no ticket to send back
+    assert!(!o.stderr.contains("check missing:"), "{}", o.all());
+    assert!(!o.stderr.contains("crewboard verify"), "{}", o.all());
+    assert_eq!(work_trees(&k), 1);
+
+    let o = check(&k, &k.c.dir, &["red"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("check red exited 3") && o.stderr.contains("| boom"),
+        "{}",
+        o.all()
+    );
+    let o = check(&k, &k.c.dir, &["nope"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-unknown"), "{}", o.all());
+}
+
+#[test]
+fn check_tries_the_checks_of_a_draft_file_without_a_board_and_takes_a_rev() {
+    let k = case();
+    // a second commit without the marker: `--rev` picks the commit that is tested
+    std::fs::remove_file(k.work.join("marker")).unwrap();
+    git(&k.work, &["commit", "-q", "-am", "no marker"]);
+    let draft = k.work.join("draft.md");
+    std::fs::write(
+        &draft,
+        "---\nowner: fake-owner\nchecks:\n  - has: sh -c 'test -f marker'\n  - words: sh -c 'test -z \"$IT_WORDS\"'\ncheck_env: [IT_NOT_SET]\n---\n",
+    )
+    .unwrap();
+    // a config dir without any board config: the file is the only source
+    let empty = k.work.parent().unwrap().join("no-config");
+    std::fs::create_dir_all(&empty).unwrap();
+    let file = draft.to_string_lossy().into_owned();
+    let requests = k.fake.requests().len();
+    {
+        let o = check(&k, &empty, &["--authority-file", &file, "--rev", &k.sha]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert!(
+            o.stdout.contains(&format!(
+                "2 checks passed on a clean checkout of {}. Checks from the file ",
+                &k.sha[..12]
+            )),
+            "{}",
+            o.all()
+        );
+        // a name of check_env that this process does not have is named
+        assert!(
+            o.stderr.contains("check_env names IT_NOT_SET"),
+            "{}",
+            o.all()
+        );
+    }
+    assert_eq!(
+        k.fake.requests().len(),
+        requests,
+        "a draft file needs no board"
+    );
+    // HEAD has no marker
+    let o = check(&k, &empty, &["--authority-file", &file, "has"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("check has exited 1"), "{}", o.all());
+    // a rev that names no commit is a usage error, and nothing runs
+    let o = check(
+        &k,
+        &empty,
+        &["--authority-file", &file, "--rev", "no-such-rev"],
+    );
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert!(
+        o.stderr.contains("no-such-rev names no commit"),
+        "{}",
+        o.all()
+    );
+    // a file without front matter has no checks
+    std::fs::write(&draft, "no front matter\n").unwrap();
+    let o = check(&k, &empty, &["--authority-file", &file]);
+    assert_ne!(o.code, 0, "{}", o.all());
+    assert!(o.stderr.contains("has no front matter"), "{}", o.all());
+}

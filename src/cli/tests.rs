@@ -77,6 +77,7 @@ const ARGV: &[(&str, &[&str])] = &[
     ("update", &["update", "--check"]),
     ("wake", &["wake", "--print-state-dir", "--initiative", "x"]),
     ("repeat", &["repeat", "--times", "1", "--", "true"]),
+    ("check", &["check", "fmt"]),
     ("hook", &["hook", "post-tool-use", "--every", "0"]),
     (
         "agent",
