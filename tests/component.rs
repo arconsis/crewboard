@@ -134,6 +134,8 @@ mod fake_repo_transfer;
 mod fake_request_budget;
 #[path = "component/fake_retro.rs"]
 mod fake_retro;
+#[path = "component/fake_round_limit.rs"]
+mod fake_round_limit;
 #[cfg(unix)]
 #[path = "component/fake_run_check.rs"]
 mod fake_run_check;

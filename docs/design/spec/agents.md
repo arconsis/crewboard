@@ -352,6 +352,14 @@ limits it. The prompt does not.
    That is a fact, not a judgment, so it needs no Gate rule. It costs one PR read for
    each Review ticket that has a `done`, and no read for a ticket that `close` ends
    (the PR is read already).
+
+   The tick's `verify` follows the [round limit](tickets.md#round-limit) of `AUTHORITY.md`
+   (`max_rounds`, default: off). A failed verify of the tick is a round, because CI or a check
+   of the tool failed. At the limit the tick posts the signed `question` to the owner, sets
+   the label `needs-owner` and moves the ticket to Blocked. That is a fact, not a judgment: the
+   count comes from the signed reports, and the limit comes from the owner. The question is the
+   one that `verify` writes; a question that a coordinator types (`ask`) stays outside the
+   headless scope. The ticket is then not in Review, so the next tick does nothing with it.
    8a. **The daily digest.** With `daily_digest: true` in `AUTHORITY.md` (default: off), the
    first tick of a UTC day posts one project status update
    ([Status updates](board.md#status-updates)). No model writes it. Its text has the facts that

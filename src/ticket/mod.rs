@@ -12,12 +12,14 @@
 //!   events that a change of rows causes.
 //! - [`queue_order`]: the queue of an agent: when `Order` alone decides, the end of a queue, the
 //!   plan of the `migrate` step.
+//! - [`rounds`]: the rounds of repair that a ticket has spent (spec/tickets#round-limit).
 //! - [`log`]: the status that the signed log shows, against the board.
 
 mod evidence;
 pub(crate) mod log;
 mod messages;
 mod queue_order;
+mod rounds;
 mod rows;
 
 pub use crate::protocol::acts::{Act, kv};
@@ -25,6 +27,7 @@ pub use crate::rules::text::{body_field, body_fields};
 pub use evidence::*;
 pub use messages::*;
 pub use queue_order::*;
+pub use rounds::*;
 pub use rows::*;
 
 /// The label of a ticket issue (spec/tickets#ticket-content).

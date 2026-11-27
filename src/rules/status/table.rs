@@ -21,6 +21,7 @@ pub(super) struct Profile {
     pub(super) own_block: BlockReason,
     pub(super) split_off_proven: bool,
     pub(super) assignee_busy: bool,
+    pub(super) rounds_spent: bool,
     pub(super) new_head: bool,
     pub(super) done_reason: Option<DoneReason>,
 }
@@ -36,6 +37,7 @@ const NONE: Profile = Profile {
     own_block: BlockReason::Plain,
     split_off_proven: false,
     assignee_busy: false,
+    rounds_spent: false,
     new_head: false,
     done_reason: None,
 };
@@ -75,6 +77,14 @@ fn fact_profiles() -> Vec<(&'static str, Profile)> {
             Profile {
                 verify: Some(false),
                 assignee_busy: true,
+                ..ALL_OK
+            },
+        ),
+        (
+            "verify_failed_rounds_spent",
+            Profile {
+                verify: Some(false),
+                rounds_spent: true,
                 ..ALL_OK
             },
         ),
@@ -267,10 +277,12 @@ fn transition(p: &Profile, from: Option<Status>, to: Status) -> Transition {
         (Some(Review), InProgress) => Transition::AfterVerify {
             verify: p.verify,
             assignee_busy: p.assignee_busy,
+            rounds_spent: p.rounds_spent,
         },
-        (Some(Review), Ready) if p.verify == Some(false) => Transition::AfterVerify {
+        (Some(Review), Ready | Blocked) if p.verify == Some(false) => Transition::AfterVerify {
             verify: p.verify,
             assignee_busy: p.assignee_busy,
+            rounds_spent: p.rounds_spent,
         },
         (Some(_), Ready | Backlog) => Transition::Reassign {
             justified: p.reassign_justified,

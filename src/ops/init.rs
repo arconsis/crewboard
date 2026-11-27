@@ -150,6 +150,7 @@ protected: [main]\n\
 # check_env: [APP_TEST_DATA]        # more variables of the host that a check gets (names only)\n\
 # check_timeout: 1h                 # the time limit of one check\n\
 # daily_digest: true                # the headless tick posts one project status update per day\n\
+# max_rounds: 3                     # after 3 failed verifies a ticket goes to the owner, not back to the dev\n\
 # former_repos:                     # after a repo transfer or rename: the old name and an exclusive cutoff\n\
 #   - {{ name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }}\n\
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules\n\

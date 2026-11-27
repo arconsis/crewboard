@@ -148,6 +148,9 @@ pub struct Round {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Andon {
     pub questions_owner: Vec<Event>,
+    /// Those of `questions_owner` that a coordinator posted at the round limit
+    /// (spec/tickets#round-limit): the fixed first line says so.
+    pub round_limit_stops: Vec<Event>,
     pub questions_coordinator: Vec<Event>,
     /// Questions to a named agent or to all.
     pub questions_other: Vec<Event>,
@@ -308,6 +311,8 @@ struct TicketFacts {
     reassigns: Vec<Event>,
     late: Vec<Event>,
     questions_owner: Vec<Event>,
+    /// The questions of the round limit: of a coordinator, with the fixed first line.
+    round_limit_stops: Vec<Event>,
     questions_coordinator: Vec<Event>,
     questions_other: Vec<Event>,
     blocked: Vec<Event>,
@@ -418,7 +423,12 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
                 f.dones.push(m.created);
             }
             (Some(Kind::Question), _) => match m.to.as_str() {
-                "owner" => f.questions_owner.push(ev()),
+                "owner" => {
+                    f.questions_owner.push(ev());
+                    if coordinator && crate::protocol::acts::round_limit_rounds(&m.body).is_some() {
+                        f.round_limit_stops.push(ev());
+                    }
+                }
                 "coordinator" => f.questions_coordinator.push(ev()),
                 _ => f.questions_other.push(ev()),
             },
@@ -461,7 +471,8 @@ fn mark_accepted(verifies: &mut [Verified], steps: &[Step]) {
         let Step::Fail(i) = *step else {
             continue;
         };
-        if verifies[i].classes != [FailClass::HeadMoved] {
+        // a fail that is a round of repair is never an artifact of the flow
+        if crate::protocol::acts::counts_as_round(&verifies[i].classes) {
             continue;
         }
         verifies[i].accepted = match steps.get(at + 1) {
@@ -635,6 +646,8 @@ fn andon(logs: &[&TicketLog], facts: &[TicketFacts]) -> Andon {
     let mut a = Andon::default();
     for (log, f) in logs.iter().zip(facts) {
         a.questions_owner.extend(f.questions_owner.iter().cloned());
+        a.round_limit_stops
+            .extend(f.round_limit_stops.iter().cloned());
         a.questions_coordinator
             .extend(f.questions_coordinator.iter().cloned());
         a.questions_other.extend(f.questions_other.iter().cloned());

@@ -287,12 +287,16 @@ pub enum Transition {
         /// See [`TicketFacts::split_off_proven`]. Only `Blocked -> Review` reads it.
         split_off_proven: bool,
     },
-    /// After a failed verify: `Review -> In Progress` and `Review -> Ready`.
+    /// After a failed verify: `Review -> In Progress` and `Review -> Ready`, and at the round
+    /// limit `Review -> Blocked`.
     AfterVerify {
         /// Result of `verify`: `None` = not run, `Some(true)` = passed, `Some(false)` = failed.
         verify: Option<bool>,
         /// The assignee has another ticket In Progress.
         assignee_busy: bool,
+        /// This failed verify spends the last round of the ticket (`max_rounds` of AUTHORITY.md,
+        /// spec/tickets#round-limit): the ticket goes to the owner, not back to the agent.
+        rounds_spent: bool,
     },
     /// `reassign`: any status to Ready with a new agent, or to Backlog without one.
     Reassign {
@@ -645,6 +649,18 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
             coordinator("Review -> Ready (failed verify)")?;
             after_verify(to, tr)
         }
+        // A failed verify at the round limit: the ticket waits for the owner
+        (
+            Some(Review),
+            Blocked,
+            Transition::AfterVerify {
+                verify: Some(false),
+                ..
+            },
+        ) => {
+            coordinator("Review -> Blocked (failed verify at the round limit)")?;
+            after_verify(to, tr)
+        }
         // `close --why`: the coordinator drops a ticket that has not ended (an ended one is
         // refused above).
         (Some(_), Dropped, Transition::Drop) => coordinator("close --why (-> Dropped)"),
@@ -663,8 +679,15 @@ fn table_move(from: Option<Status>, to: Status, actor: Actor, tr: &Transition) -
 }
 
 /// The move of the coordinator after a verify from Review: Done after a pass; after a fail In
-/// Progress for an idle agent or Ready for a busy one.
+/// Progress for an idle agent or Ready for a busy one, and Blocked at the round limit.
 fn after_verify(to: Status, tr: &Transition) -> Verdict {
+    let rounds_left = |rounds_spent: bool| {
+        require(
+            !rounds_spent,
+            ids::STATUS_VERIFY_ROUNDS_SPENT,
+            "the ticket is at its round limit (max_rounds): a failed verify moves it to Blocked for the owner (Review -> Blocked)",
+        )
+    };
     match (to, *tr) {
         (Status::Done, Transition::Close { verify, .. }) => require(
             verify == Some(true),
@@ -676,12 +699,14 @@ fn after_verify(to: Status, tr: &Transition) -> Verdict {
             Transition::AfterVerify {
                 verify,
                 assignee_busy,
+                rounds_spent,
             },
         ) => require(
             verify == Some(false),
             ids::STATUS_VERIFY_FAILED_REQUIRED,
             "Review -> In Progress needs a failed verify",
         )
+        .and_then(|()| rounds_left(rounds_spent))
         .and_then(|()| {
             require(
                 !assignee_busy,
@@ -694,11 +719,26 @@ fn after_verify(to: Status, tr: &Transition) -> Verdict {
             Transition::AfterVerify {
                 verify: Some(false),
                 assignee_busy,
+                rounds_spent,
+            },
+        ) => rounds_left(rounds_spent).and_then(|()| {
+            require(
+                assignee_busy,
+                ids::STATUS_VERIFY_REQUEUE_AGENT_IDLE,
+                "the agent has no other ticket In Progress: a failed verify moves the ticket to In Progress",
+            )
+        }),
+        (
+            Status::Blocked,
+            Transition::AfterVerify {
+                verify: Some(false),
+                rounds_spent,
+                ..
             },
         ) => require(
-            assignee_busy,
-            ids::STATUS_VERIFY_REQUEUE_AGENT_IDLE,
-            "the agent has no other ticket In Progress: a failed verify moves the ticket to In Progress",
+            rounds_spent,
+            ids::STATUS_VERIFY_ROUNDS_LEFT,
+            "Review -> Blocked needs a failed verify at the round limit (max_rounds); below it a failed verify moves the ticket back to its agent",
         ),
         _ => Err(Refusal::new(
             ids::STATUS_UNKNOWN_TRANSITION,
@@ -783,6 +823,7 @@ mod tests {
             own_block: BlockReason::Plain,
             split_off_proven: false,
             assignee_busy: false,
+            rounds_spent: false,
             // only a re-delivery in Review reads it; its test sets it
             new_head: false,
             // only `close` reads it; its test sets it
@@ -830,6 +871,57 @@ mod tests {
             rule(Some(Review), Ready, COORD, &reassign),
             "status-reassign-reason"
         );
+    }
+
+    #[test]
+    fn a_failed_verify_at_the_round_limit_moves_to_blocked_and_nowhere_else() {
+        let failed = TicketCtx {
+            verify: Some(false),
+            ..all_ok()
+        };
+        let spent = TicketCtx {
+            rounds_spent: true,
+            ..failed
+        };
+        let spent_busy = TicketCtx {
+            assignee_busy: true,
+            ..spent
+        };
+        // at the limit: Blocked passes for an idle and for a busy agent, the way back is refused
+        for ctx in [&spent, &spent_busy] {
+            assert!(check_status_transition(Some(Review), Blocked, COORD, ctx).is_ok());
+            for back in [InProgress, Ready] {
+                assert_eq!(
+                    rule(Some(Review), back, COORD, ctx),
+                    "status-verify-rounds-spent"
+                );
+            }
+        }
+        // below the limit: Blocked is refused, the way back is as before
+        assert_eq!(
+            rule(Some(Review), Blocked, COORD, &failed),
+            "status-verify-rounds-left"
+        );
+        assert!(check_status_transition(Some(Review), InProgress, COORD, &failed).is_ok());
+        // only the coordinator, and only after a failed verify
+        assert_eq!(
+            rule(Some(Review), Blocked, DEV, &spent),
+            "status-wrong-writer"
+        );
+        let passed = TicketCtx {
+            verify: Some(true),
+            ..spent
+        };
+        let unset = TicketCtx {
+            verify: None,
+            ..spent
+        };
+        for ctx in [&passed, &unset] {
+            assert_eq!(
+                rule(Some(Review), Blocked, COORD, ctx),
+                "status-unknown-transition"
+            );
+        }
     }
 
     #[test]
