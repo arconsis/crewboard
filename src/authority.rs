@@ -35,7 +35,7 @@ use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 15] = [
+pub const ENFORCED_KEYS: [&str; 16] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -50,6 +50,7 @@ pub const ENFORCED_KEYS: [&str; 15] = [
     "checks",
     "check_env",
     "check_timeout",
+    "daily_digest",
     "former_repos",
 ];
 
@@ -83,6 +84,8 @@ pub struct Authority {
     pub check_env: Vec<String>,
     /// The time limit of one check, in seconds ([`DEFAULT_CHECK_TIMEOUT`] without the key).
     pub check_timeout: u64,
+    /// The headless `tick` posts one project status update per day (default: no).
+    pub daily_digest: bool,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
@@ -136,6 +139,7 @@ impl Default for Authority {
             checks: Vec::new(),
             check_env: Vec::new(),
             check_timeout: DEFAULT_CHECK_TIMEOUT,
+            daily_digest: false,
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -415,6 +419,7 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
             }
             "coordinator_may_split_tickets" => a.coordinator_may_split_tickets = parse_bool(k, v)?,
             "coordinator_may_merge" => a.coordinator_may_merge = parse_bool(k, v)?,
+            "daily_digest" => a.daily_digest = parse_bool(k, v)?,
             "dev_may_open_prs" => a.dev_may_open_prs = parse_bool(k, v)?,
             "dev_branch_prefix" => {
                 let p = unquote(v);
@@ -933,7 +938,8 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 "coordinator_may_create_tickets"
                 | "coordinator_may_split_tickets"
                 | "coordinator_may_merge"
-                | "dev_may_open_prs" => "true",
+                | "dev_may_open_prs"
+                | "daily_digest" => "true",
                 "protected" | "ci_ignore" | "protected_paths" | "check_env" => "[a]",
                 "former_repos" | "checks" => "[]",
                 "ci_mode" => "ci",

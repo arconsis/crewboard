@@ -221,6 +221,10 @@ a short text) after each milestone and at least once a day while agents are acti
 (`createProjectV2StatusUpdate`). GitHub shows the token user as the creator, so the
 first line of the text names the agent: `from=<agent name>`.
 
+A headless coordinator posts the daily one itself when the owner sets `daily_digest: true`: the
+tool writes it from the facts of a `tick`, with a health value by a fixed rule
+([Headless coordinator](agents.md#headless-coordinator), 8a).
+
 ### Built-in project workflows
 
 A new GitHub Project has built-in workflows, and all six are on by default: "Item
@@ -407,6 +411,7 @@ protected: [main]
 #   - tests: make test
 # check_env: [APP_TEST_DATA]        # optional: more variables of the host that a check gets
 # check_timeout: 1h                 # optional: the time limit of one check
+# daily_digest: true                # optional: one project status update per day by the headless tick
 # former_repos:                     # optional: after a repo transfer or rename, see messages.md
 #   - { name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules
@@ -431,6 +436,7 @@ the enforced keys.
 | `protected` | `done`: a PR from a protected branch is no evidence (`evidence-branch-protected`) |
 | `protected_paths` | `verify` PASS, `close --verified`, `merge`, `tick`: more paths that only the owner merges, added to the built-in seven (`protected-path-owner-merge`); see below |
 | `ci_ignore`, `ci_mode` | the CI judgement of `done`, `verify` and `merge` ([CI](ci.md)) |
+| `daily_digest` | `tick`: one project status update per day, written by the tool ([Headless coordinator](agents.md#headless-coordinator), 8a) |
 | `check_timeout` | `verify --run-check`: the time limit of one check (`90s`, `30m`, `2h`; default one hour) |
 | `check_env` | `verify --run-check`: the names of more environment variables that a check gets ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |
 | `checks` | `verify --run-check`: the named commands that the tool runs itself on a clean checkout of the PR head ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |

@@ -197,6 +197,10 @@ pub struct TickState {
     /// the ticket is the truth, and a lost cache costs one read, not a second `info`.
     #[serde(default)]
     pub merged_told: BTreeMap<String, String>,
+    /// The UTC day (`YYYY-MM-DD`) on which the tick last looked at the daily digest. One look
+    /// per day: the tick then reads `daily_digest` of AUTHORITY.md and posts when it is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest_day: Option<String>,
 }
 
 /// The owner-route safety net.

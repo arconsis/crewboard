@@ -54,6 +54,8 @@ mod fake_ci_ignore;
 mod fake_close;
 #[path = "component/fake_deleted_note.rs"]
 mod fake_deleted_note;
+#[path = "component/fake_digest.rs"]
+mod fake_digest;
 #[path = "component/fake_doctor_setup.rs"]
 mod fake_doctor_setup;
 #[path = "component/fake_done_events.rs"]
