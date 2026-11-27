@@ -4,6 +4,15 @@ This file lists the changes of crewboard, one section for each release.
 
 ## Unreleased
 
+Added:
+
+- `retro` has a section `Repeated faults`: the review fails that are rework, by the tag of
+  their note. The coordinator starts the note of `verify --fail` with one tag in brackets
+  (`[formatter] ...`); a failed check of the tool has the tag `check-<name>`. A tag with three
+  fails or more is a candidate for a rule. `retro --json` has `tags`. The new guide
+  [From a repeated fault to a rule](docs/guides/lessons.md) says how the owner turns one into
+  a check, a protected path or a line of `AUTHORITY.md`. The tool writes no rule itself.
+
 Changed:
 
 - A heartbeat now means "can work", not "can poll". When the wake command of a scheduled agent
