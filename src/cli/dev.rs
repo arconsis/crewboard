@@ -58,6 +58,8 @@ pub(super) fn dispatch(cli: &Cli, c: &DevCmd) -> Outcome {
             override_unread,
             runs,
             local_run,
+            run_check,
+            work_dir,
             sel,
         } => {
             // spec/ci#local-run-ci_mode-local: a blank or bad text is refused before any read.
@@ -66,7 +68,26 @@ pub(super) fn dispatch(cli: &Cli, c: &DevCmd) -> Outcome {
             {
                 return fail(e);
             }
+            // `--run-check`: the tool runs the checks inside `done`, in a new work tree
+            let dir = work_dir
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let log_root = if run_check.is_empty() {
+                None
+            } else {
+                match super::check_log_root() {
+                    Ok(r) => Some(r),
+                    Err(e) => return fail(e),
+                }
+            };
             done(AgentCtx::load(&global(cli, sel, false)).and_then(|ac| {
+                let run = log_root.as_deref().map(|log_root| ops::tickets::RunArgs {
+                    names: run_check,
+                    repo_dir: &dir,
+                    log_root,
+                    unattended: false,
+                });
                 ops::tickets::done(
                     &ac,
                     ops::tickets::DoneArgs {
@@ -78,6 +99,7 @@ pub(super) fn dispatch(cli: &Cli, c: &DevCmd) -> Outcome {
                         ignore_events: *override_unread,
                         runs,
                         local_gate: local_run.as_deref(),
+                        run: run.as_ref(),
                     },
                 )
             }))

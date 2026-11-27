@@ -12,6 +12,11 @@ Added:
   the checks of a draft with `--authority-file <file>`, before the file is on the default
   branch; no board is read then. `--rev` picks the commit (default `HEAD`). It writes nothing,
   and a pass is no evidence of a `done` or a `verify`.
+- `done --run-check <name>` (repeatable, with `ci_mode: local`, in place of `--local-run`): the
+  tool runs the named checks of `AUTHORITY.md` on a clean checkout of the head of the PR and
+  writes the local-run line of the delivery itself (`local-gate: tool-run <host>: ...`). No
+  model types the result of the dev. A check that fails is refused with `check-failed`, and
+  nothing is written: the ticket stays In Progress.
 
 Changed:
 

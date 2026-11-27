@@ -48,6 +48,27 @@ fn case() -> Case {
 
 /// [`case`] with the Gate line of the ticket.
 fn case_gate(gate: &str) -> Case {
+    let (k, b, url) = case_taken(gate);
+    let o = k.fake.run(
+        &b.dir,
+        &[
+            "done",
+            &k.ts,
+            "--pr",
+            &url,
+            "--sha",
+            &k.sha,
+            "--local-run",
+            "host-b: ./check.sh one rc=0, log /tmp/x.log",
+        ],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    k
+}
+
+/// A ticket In Progress with an open PR whose head is a real commit, before any `done`: the
+/// case, the dev agent and the URL of the PR.
+fn case_taken(gate: &str) -> (Case, Agent, String) {
     let tmp = tempfile::tempdir().unwrap();
     let origin = tmp.path().join("origin").join(REPO);
     std::fs::create_dir_all(&origin).unwrap();
@@ -91,31 +112,22 @@ fn case_gate(gate: &str) -> Case {
     assert_eq!(fake.run(&b.dir, &["take", &ts]).code, 0);
     let pr = fake.pr_for(t, &b.name);
     fake.set_pr_head(pr.number, &sha);
-    let o = fake.run(
-        &b.dir,
-        &[
-            "done",
-            &ts,
-            "--pr",
-            &pr.url,
-            "--sha",
-            &sha,
-            "--local-run",
-            "host-b: ./check.sh one rc=0, log /tmp/x.log",
-        ],
-    );
-    assert_eq!(o.code, 0, "{}", o.all());
     let state = tmp.path().join("state");
-    Case {
-        fake,
-        c,
-        ts,
-        work,
-        state,
-        sha,
-        pr: pr.number,
-        _tmp: tmp,
-    }
+    let url = pr.url.clone();
+    (
+        Case {
+            fake,
+            c,
+            ts,
+            work,
+            state,
+            sha,
+            pr: pr.number,
+            _tmp: tmp,
+        },
+        b,
+        url,
+    )
 }
 
 fn verify(k: &Case, extra: &[&str]) -> Out {
@@ -699,5 +711,93 @@ fn check_under_a_wake_runs_no_check_whose_file_a_pr_can_change() {
         &[("XDG_STATE_HOME", &state), ("CREWBOARD_WAKE", "1")],
     );
     assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(work_trees(&k), 1);
+}
+
+fn done_run(k: &Case, b: &Agent, url: &str, extra: &[&str]) -> Out {
+    let mut args = vec!["done", k.ts.as_str(), "--pr", url];
+    args.extend_from_slice(extra);
+    k.fake.run_env(
+        &b.dir,
+        &k.work,
+        &args,
+        &[
+            ("XDG_STATE_HOME", &k.state.to_string_lossy()),
+            ("IT_WORDS", "abc"),
+        ],
+    )
+}
+
+/// `done --run-check` (spec/ci#checks-in-a-delivery): the tool runs the checks on a clean
+/// checkout of the head of the PR and writes the local-run line of the delivery itself.
+#[test]
+fn done_runs_the_checks_and_writes_the_line_of_the_delivery_itself() {
+    let (k, b, url) = case_taken("the checks pass");
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "marker", "--run-check", "clean"],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    let body = k
+        .fake
+        .comments_of(k.ts.parse().unwrap())
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .find(|b| b.lines().any(|l| l.starts_with("local-gate:")))
+        .unwrap_or_else(|| panic!("no done with a gate line: {}", o.all()));
+    let line = body.lines().find(|l| l.starts_with("local-gate:")).unwrap();
+    assert!(
+        line.starts_with("local-gate: tool-run fake-b: marker rc=0 ")
+            && line.contains("clean rc=0"),
+        "{line}"
+    );
+    assert!(
+        line.contains(&format!("clean checkout of {}", &k.sha[..12])),
+        "{line}"
+    );
+    assert_eq!(work_trees(&k), 1, "the work tree of the run is removed");
+    // the coordinator verifies this delivery as every local-run delivery
+    let o = verify(&k, &["--run-check", "marker"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+}
+
+#[test]
+fn a_done_whose_check_fails_writes_nothing_and_the_ticket_stays_in_progress() {
+    let (k, b, url) = case_taken("the checks pass");
+    let n = k.ts.parse().unwrap();
+    let before = k.fake.comments_of(n).len();
+    let w = writes(&k.fake);
+    let o = done_run(&k, &b, &url, &["--run-check", "red"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-failed"), "{}", o.all());
+    assert!(
+        o.stderr.contains("check red exited 3") && o.stderr.contains("run done again"),
+        "{}",
+        o.all()
+    );
+    // an unknown name, a commit that is not the head, and both ways at once: no run, no write
+    let o = done_run(&k, &b, &url, &["--run-check", "nope"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-unknown"), "{}", o.all());
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    let o = done_run(&k, &b, &url, &["--sha", other, "--run-check", "marker"]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &[
+            "--run-check",
+            "marker",
+            "--local-run",
+            "host-b: x rc=0, log /tmp/x",
+        ],
+    );
+    assert_eq!(o.code, 64, "{}", o.all());
+    assert_eq!(writes(&k.fake), w, "a refused done wrote to GitHub");
+    assert_eq!(k.fake.comments_of(n).len(), before);
     assert_eq!(work_trees(&k), 1);
 }
