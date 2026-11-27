@@ -12,9 +12,10 @@ Added:
   `Reverts #<n>` against the `merge-commit:` and `pr:` lines of the close note). It also counts
   the tickets with an owner comment and the wait for the answer to a question to the owner.
   For the reverts, `retro` reads the commits of the default branch: at most 10 pages for each
-  repo, and none when no ticket is merged. When this read fails, the report prints and says
-  that the reverts were not read. `retro --json` has `outcome`. Spec:
-  `docs/design/spec/retro.md`.
+  repo, and none when no ticket is merged. When the read of a repo fails, or its list has more
+  than 10 pages, the report prints, leaves the tickets of that repo out of the count and names
+  the repo with the cause. A former name of the main repo counts as the main repo.
+  `retro --json` has `outcome`. Spec: `docs/design/spec/retro.md`.
 - `crewboard check [<name>...]`: run the `checks` of `AUTHORITY.md` on a clean checkout of your
   own commit, as `verify --run-check` runs them, without a ticket. A dev runs it before `done`,
   so a fault of a machine check costs minutes and not a round through Review. The owner tries

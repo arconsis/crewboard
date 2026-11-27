@@ -194,30 +194,95 @@ pub struct Flow {
     pub done_to_close: Option<Spread>,
 }
 
-/// A merge that a signed close note of a ticket records: the lines `pr:` and `merge-commit:` of
-/// the note of a merge, of a close after an owner merge, or of a drop with a merged PR. A note
-/// with neither line gives no `MergedRef`.
+/// A merge that the signed log of a ticket records: the lines `pr:` and `merge-commit:` of the
+/// note of a merge, of a close after an owner merge, or of a drop with a merged PR. A note of a
+/// merge without a `pr:` line (`close --verified`) takes the PR of the latest `done` before it.
+/// A close with no PR and no merge commit gives no `MergedRef`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedRef {
     /// The close note.
     pub close: Event,
-    /// The repo of the PR; the repo of the ticket when the note names no PR.
+    /// The repo of the PR, as the message names it (it may be a former name); the repo of the
+    /// ticket when no PR is known.
     pub repo: String,
     /// The number of the PR.
     pub pr: Option<u64>,
     /// The full sha of the merge commit, in lower case. `None` when the note has no sha
     /// (`merge-commit: unknown`).
     pub merge_commit: Option<String>,
+    /// From when on a commit can revert this merge: the creation time of the latest `done`
+    /// before the close note, or of the close note when the log has no `done` before it.
+    pub since: i64,
+}
+
+/// The names of the repos of the initiative. Plain data of the config, so this module needs
+/// no config.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepoNames {
+    /// The repos of the initiative, by their current names.
+    pub repos: Vec<String>,
+    /// A former name of a repo, and its current name.
+    pub former: Vec<(String, String)>,
+}
+
+impl RepoNames {
+    /// The current name of the repo that `name` names, in the spelling of `repos`. `None`:
+    /// `name` is no repo of the initiative.
+    pub fn current(&self, name: &str) -> Option<&str> {
+        let name = self
+            .former
+            .iter()
+            .find(|(old, _)| old.eq_ignore_ascii_case(name))
+            .map_or(name, |(_, now)| now.as_str());
+        self.repos
+            .iter()
+            .find(|r| r.eq_ignore_ascii_case(name))
+            .map(String::as_str)
+    }
+}
+
+/// The commits of the default branch of `repo` that the report needs: those from `since` on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    /// The current name of the repo.
+    pub repo: String,
+    /// The earliest [`MergedRef::since`] of the merges in this repo.
+    pub since: i64,
 }
 
 /// One commit of the default branch of a repo, as the caller read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BaseCommit {
-    pub repo: String,
     pub sha: String,
     /// The commit time, Unix seconds.
     pub at: i64,
     pub message: String,
+}
+
+/// Why the commits of a repo are not known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadFault {
+    /// The list is longer than the caller reads.
+    Cut,
+    /// The read failed. The text is a short cause (`HTTP 404`, `bad answer`).
+    Failed(String),
+}
+
+/// What the caller read for one [`Window`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoCommits {
+    /// The repo of the window.
+    pub repo: String,
+    pub commits: Result<Vec<BaseCommit>, ReadFault>,
+}
+
+/// A repo whose commits are not known: its merged tickets are in no number of [`Reverted`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    pub repo: String,
+    pub fault: ReadFault,
+    /// The start of the window.
+    pub since: i64,
 }
 
 /// A merged ticket whose merge a later commit reverts.
@@ -233,12 +298,23 @@ pub struct Revert {
 /// The merged tickets that a commit of the default branch reverts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reverted {
-    /// The caller passed the commits. `false`: they were not read, and `reverts` says nothing.
-    pub read: bool,
-    /// Merged tickets with a [`MergedRef`]: the tickets that a revert can be found for.
+    /// Merged tickets with a [`MergedRef`] in a repo whose commits were read: the tickets
+    /// that a revert was looked up for.
     pub known: usize,
+    /// Merged tickets whose every [`MergedRef`] is in a repo that is none of the initiative:
+    /// not looked up.
+    pub outside: usize,
+    /// The repos with a merge whose commits were not read. Empty: every needed repo was read.
+    pub unread: Vec<Unread>,
     /// At most one per ticket, in ticket order.
     pub reverts: Vec<Revert>,
+}
+
+impl Reverted {
+    /// The commits of every repo with a merge were read.
+    pub fn read(&self) -> bool {
+        self.unread.is_empty()
+    }
 }
 
 /// Whether merged work was right, and how much the owner had to do.
@@ -251,7 +327,7 @@ pub struct Outcome {
     /// opened it.
     pub came_back: Vec<Event>,
     pub reverted: Reverted,
-    /// Tickets with at least one owner comment.
+    /// Tickets with at least one owner comment after their first assignment.
     pub owner_touched: usize,
     /// The owner comments per ticket of `owner_touched`. The values of this [`Spread`] are
     /// counts, not seconds.
@@ -392,7 +468,7 @@ struct TicketFacts {
     merge_refs: Vec<MergedRef>,
     /// The first message that opened the ticket again after such a close.
     came_back: Option<Event>,
-    /// The headerless comments of the owner.
+    /// The headerless comments of the owner from the first assignment on.
     owner_comments: usize,
     /// For each answered question to the owner: the seconds to the message that closed it.
     owner_waits: Vec<i64>,
@@ -433,6 +509,8 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
     let mut steps: Vec<Step> = Vec::new();
     // The creation times of the questions to the owner that no message has closed yet.
     let mut asked: Vec<i64> = Vec::new();
+    // The latest `done` of the assignee so far: its creation time and its PR.
+    let mut last_done: Option<Delivery> = None;
     for m in &log.msgs {
         if closes_question(m) {
             f.owner_waits
@@ -446,7 +524,8 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
             *closed = false;
         };
         let Sender::Agent { name, role } = &m.sender else {
-            f.owner_comments += 1;
+            // the talk before the first assignment is not work on the ticket
+            f.owner_comments += usize::from(f.assigned.is_some());
             if let Ok(Some(OwnerCommand::Move { .. })) = owner_cmd::parse(&m.body) {
                 opens(&mut f, &mut closed);
             }
@@ -510,7 +589,13 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
                 }
                 if is_merge_close(k) || drop_with_pr {
                     f.merged = true;
-                    f.merge_refs.extend(merged_ref(log, ev(), &m.body));
+                    f.merge_refs.extend(merged_ref(
+                        log,
+                        ev(),
+                        &m.body,
+                        last_done.as_ref(),
+                        is_merge_close(k),
+                    ));
                 }
             }
             // a late note is a report to the owner, of the coordinator or of a dev agent
@@ -518,6 +603,10 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
             (_, Act::Late { .. }) if m.to == "owner" => f.late.push(ev()),
             (Some(Kind::Done), _) if by_assignee && parse_evidence(&m.body).is_some() => {
                 f.dones.push(m.created);
+                last_done = Some(Delivery {
+                    at: m.created,
+                    pr: parse_evidence(&m.body).and_then(|e| pr_of(&e.pr)),
+                });
             }
             (Some(Kind::Question), _) => match m.to.as_str() {
                 "owner" => {
@@ -566,9 +655,25 @@ fn pr_of(url: &str) -> Option<(String, u64)> {
     (!repo.is_empty() && !owner.is_empty()).then(|| (format!("{owner}/{repo}"), number))
 }
 
-/// What the close note `body` records about the merge.
-fn merged_ref(log: &TicketLog, close: Event, body: &str) -> Option<MergedRef> {
-    let pr = kv(body, "pr").and_then(|url| pr_of(&url));
+/// A `done` of the assignee: its creation time, and the repo and the number of its PR.
+struct Delivery {
+    at: i64,
+    pr: Option<(String, u64)>,
+}
+
+/// What the close note `body` records about the merge. `delivery` is the latest `done` before
+/// the note: the window starts there. With `pr_of_delivery`, a note without a `pr:` line takes
+/// the PR of that `done`.
+fn merged_ref(
+    log: &TicketLog,
+    close: Event,
+    body: &str,
+    delivery: Option<&Delivery>,
+    pr_of_delivery: bool,
+) -> Option<MergedRef> {
+    let pr = kv(body, "pr")
+        .and_then(|url| pr_of(&url))
+        .or_else(|| delivery.filter(|_| pr_of_delivery)?.pr.clone());
     let merge_commit = kv(body, "merge-commit")
         .map(|s| s.to_ascii_lowercase())
         .filter(|s| is_sha(s));
@@ -576,6 +681,7 @@ fn merged_ref(log: &TicketLog, close: Event, body: &str) -> Option<MergedRef> {
         return None;
     }
     Some(MergedRef {
+        since: delivery.map_or(close.at, |d| d.at.min(close.at)),
         close,
         repo: pr
             .as_ref()
@@ -585,23 +691,14 @@ fn merged_ref(log: &TicketLog, close: Event, body: &str) -> Option<MergedRef> {
     })
 }
 
-/// The merges that the close notes of the tickets of `logs` record: what a revert is looked
-/// for. An issue without a signed assignment gives none.
-pub fn merged_refs(logs: &[TicketLog]) -> Vec<MergedRef> {
-    logs.iter()
-        .map(facts_of)
-        .filter(|f| f.assigned.is_some())
-        .flat_map(|f| f.merge_refs)
-        .collect()
-}
-
 /// What a commit message says that the commit reverts.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Reverts {
-    /// The hex digits after each `This reverts commit `, in lower case.
+    /// The hex digits after each `This reverts commit `, anywhere in the message, in lower
+    /// case.
     shas: Vec<String>,
-    /// The PR of each line `Reverts <owner>/<repo>#<n>` or `Reverts #<n>`. Without a repo, the
-    /// PR is in the repo of the commit.
+    /// The PR of each line that starts with `Reverts <owner>/<repo>#<n>`, `Reverts #<n>` or
+    /// `Reverts <PR URL>`. Without a repo, the PR is in the repo of the commit.
     prs: Vec<(Option<String>, u64)>,
 }
 
@@ -625,8 +722,12 @@ fn reverts_named(message: &str) -> Reverts {
                 .trim()
                 .strip_prefix("Reverts ")?
                 .split_whitespace()
-                .next()?;
-            let (repo, n) = word.trim_end_matches(['.', ',']).split_once('#')?;
+                .next()?
+                .trim_end_matches(['.', ',', ')', ':', ';']);
+            if word.contains("/pull/") {
+                return pr_of(word).map(|(repo, n)| (Some(repo), n));
+            }
+            let (repo, n) = word.split_once('#')?;
             let n = n.parse().ok()?;
             match repo {
                 "" => Some((None, n)),
@@ -638,45 +739,81 @@ fn reverts_named(message: &str) -> Reverts {
     Reverts { shas, prs }
 }
 
-/// Does the commit `c`, whose message names `named`, revert the merge `r`? Both are in the same
-/// repo. A sha matches when one is a prefix of the other ([`MIN_SHA_PREFIX`] digits or more).
-fn reverts(c: &BaseCommit, named: &Reverts, r: &MergedRef) -> bool {
-    if !c.repo.eq_ignore_ascii_case(&r.repo) {
-        return false;
-    }
-    let by_sha = r.merge_commit.as_ref().is_some_and(|full| {
-        named
-            .shas
-            .iter()
-            .any(|s| full.starts_with(s.as_str()) || s.starts_with(full.as_str()))
-    });
+/// Does a commit of `repo`, whose message names `named`, revert the merge `r` of the same
+/// repo? The sha of the message is the merge commit or a prefix of it ([`MIN_SHA_PREFIX`]
+/// digits or more).
+fn reverts(named: &Reverts, r: &MergedRef, repo: &str, names: &RepoNames) -> bool {
+    let by_sha = r
+        .merge_commit
+        .as_ref()
+        .is_some_and(|full| named.shas.iter().any(|s| full.starts_with(s.as_str())));
     let by_pr = r.pr.is_some_and(|n| {
-        named.prs.iter().any(|(repo, m)| {
+        named.prs.iter().any(|(of, m)| {
             *m == n
-                && repo
-                    .as_ref()
-                    .is_none_or(|x| x.eq_ignore_ascii_case(&r.repo))
+                && of.as_ref().is_none_or(|x| {
+                    names
+                        .current(x)
+                        .is_some_and(|c| c.eq_ignore_ascii_case(repo))
+                })
         })
     });
     by_sha || by_pr
 }
 
-/// The outcome numbers. `commits` are the commits of the default branches since the earliest
-/// close of [`merged_refs`]; `None`: the caller did not read them.
-fn outcome(facts: &[TicketFacts], commits: Option<&[BaseCommit]>) -> Outcome {
-    let named: Vec<(&BaseCommit, Reverts)> = commits
-        .unwrap_or_default()
+/// The repos whose commits the report needs, in the order of `names.repos`: each repo of the
+/// initiative with a merge, from the earliest start of such a merge.
+fn windows(refs: &[&MergedRef], names: &RepoNames) -> Vec<Window> {
+    names
+        .repos
         .iter()
-        .map(|c| (c, reverts_named(&c.message)))
-        .filter(|(_, n)| *n != Reverts::default())
+        .filter_map(|repo| {
+            let since = refs
+                .iter()
+                .filter(|r| names.current(&r.repo) == Some(repo.as_str()))
+                .map(|r| r.since)
+                .min()?;
+            Some(Window {
+                repo: repo.clone(),
+                since,
+            })
+        })
+        .collect()
+}
+
+/// The outcome numbers. `lists` holds what the caller read for each of [`windows`]; a window
+/// without a list counts as a failed read.
+fn outcome(facts: &[TicketFacts], names: &RepoNames, lists: &[RepoCommits]) -> Outcome {
+    let list_of = |repo: &str| lists.iter().find(|l| l.repo.eq_ignore_ascii_case(repo));
+    // the commits that revert something, by repo
+    let named: Vec<(&str, Vec<(&BaseCommit, Reverts)>)> = lists
+        .iter()
+        .filter_map(|l| {
+            let commits = l.commits.as_ref().ok()?;
+            let reverting = commits
+                .iter()
+                .map(|c| (c, reverts_named(&c.message)))
+                .filter(|(_, n)| *n != Reverts::default())
+                .collect();
+            Some((l.repo.as_str(), reverting))
+        })
         .collect();
-    let mut out = Outcome {
-        reverted: Reverted {
-            read: commits.is_some(),
-            ..Reverted::default()
-        },
-        ..Outcome::default()
-    };
+    let mut out = Outcome::default();
+    let refs: Vec<&MergedRef> = facts.iter().flat_map(|f| &f.merge_refs).collect();
+    out.reverted.unread = windows(&refs, names)
+        .into_iter()
+        .filter_map(|w| {
+            let fault = match list_of(&w.repo).map(|l| &l.commits) {
+                Some(Ok(_)) => return None,
+                Some(Err(fault)) => fault.clone(),
+                None => ReadFault::Failed("no read".to_string()),
+            };
+            Some(Unread {
+                repo: w.repo,
+                fault,
+                since: w.since,
+            })
+        })
+        .collect();
     let (mut comments, mut waits) = (Vec::new(), Vec::new());
     for f in facts {
         if f.owner_comments > 0 {
@@ -692,12 +829,36 @@ fn outcome(facts: &[TicketFacts], commits: Option<&[BaseCommit]>) -> Outcome {
         if f.merge_refs.is_empty() {
             continue;
         }
-        out.reverted.known += 1;
-        let earliest = named
+        // the merges in a repo of the initiative, each with the current name of its repo
+        let inside: Vec<(&MergedRef, &str)> = f
+            .merge_refs
             .iter()
-            .filter_map(|(c, n)| {
-                let r = f.merge_refs.iter().find(|r| reverts(c, n, r))?;
-                Some((*c, r))
+            .filter_map(|r| Some((r, names.current(&r.repo)?)))
+            .collect();
+        if inside.is_empty() {
+            out.reverted.outside += 1;
+            continue;
+        }
+        // (the merge, the commits of its repo that revert something)
+        let read: Vec<_> = inside
+            .iter()
+            .filter_map(|(r, repo)| {
+                let (_, commits) = named.iter().find(|(l, _)| l.eq_ignore_ascii_case(repo))?;
+                Some((*r, *repo, commits))
+            })
+            .collect();
+        if read.is_empty() {
+            // every merge of the ticket is in a repo that was not read
+            continue;
+        }
+        out.reverted.known += 1;
+        let earliest = read
+            .iter()
+            .flat_map(|(r, repo, commits)| {
+                commits
+                    .iter()
+                    .filter(move |(_, n)| reverts(n, r, repo, names))
+                    .map(move |(c, _)| (*c, *r))
             })
             .min_by_key(|(c, _)| c.at);
         if let Some((c, r)) = earliest {
@@ -926,12 +1087,19 @@ fn andon(logs: &[&TicketLog], facts: &[TicketFacts]) -> Andon {
     a
 }
 
-/// The report of `logs`: one entry per issue, each with its counted messages in comment order.
-/// An issue without a signed assignment of a coordinator is no ticket and counts nowhere, with
-/// one exception: its drop notice with a merged PR is in `merged_unassigned`, and only there.
-/// `commits` are the commits of the default branches that may revert a merge ([`merged_refs`]
-/// says which merges); `None` when the caller did not read them.
-pub fn retro(logs: &[TicketLog], commits: Option<&[BaseCommit]>) -> Report {
+/// The logs of a period, folded one time: the tickets with what their logs say.
+pub struct Folded<'a> {
+    /// The issues with a signed assignment of a coordinator.
+    tickets: Vec<&'a TicketLog>,
+    /// What the log of each ticket says, in the order of `tickets`.
+    facts: Vec<TicketFacts>,
+    merged_unassigned: Vec<Event>,
+}
+
+/// Fold `logs`: one entry per issue, each with its counted messages in comment order. An issue
+/// without a signed assignment of a coordinator is no ticket and counts nowhere, with one
+/// exception: its drop notice with a merged PR is in `merged_unassigned`, and only there.
+pub fn fold(logs: &[TicketLog]) -> Folded<'_> {
     let (mut tickets, mut facts): (Vec<&TicketLog>, Vec<TicketFacts>) = (Vec::new(), Vec::new());
     let mut merged_unassigned = Vec::new();
     for log in logs {
@@ -943,30 +1111,53 @@ pub fn retro(logs: &[TicketLog], commits: Option<&[BaseCommit]>) -> Report {
             merged_unassigned.extend(ended_drop_with_pr(log, &f).cloned());
         }
     }
-    let times = || {
-        tickets
-            .iter()
-            .flat_map(|l| &l.msgs)
-            .filter(|m| m.sender != Sender::Owner)
-            .map(|m| m.created)
-    };
-    Report {
-        tickets: tickets.len(),
-        delivered: facts.iter().filter(|f| !f.dones.is_empty()).count(),
-        messages: times().count(),
-        outside_window: tickets.iter().map(|l| l.outside_window).sum(),
-        first: times().min(),
-        last: times().max(),
-        verify: verify_stats(&facts),
-        gates: gate_stats(&facts),
-        classes: class_rows(&facts),
-        tags: tag_rows(&facts),
-        rounds: rounds(&tickets, &facts),
-        andon: andon(&tickets, &facts),
-        refusals: refusal_rows(&facts),
-        flow: flow(&tickets, &facts),
+    Folded {
+        tickets,
+        facts,
         merged_unassigned,
-        outcome: outcome(&facts, commits),
+    }
+}
+
+impl Folded<'_> {
+    /// The merges that the logs of the tickets record: what a revert is looked up for.
+    pub fn merged_refs(&self) -> Vec<&MergedRef> {
+        self.facts.iter().flat_map(|f| &f.merge_refs).collect()
+    }
+
+    /// The commits that [`Folded::report`] needs: one window for each repo of the initiative
+    /// with a merge. A former name counts as its current repo.
+    pub fn windows(&self, names: &RepoNames) -> Vec<Window> {
+        windows(&self.merged_refs(), names)
+    }
+
+    /// The report. `lists` holds what the caller read for each of [`Folded::windows`].
+    pub fn report(&self, names: &RepoNames, lists: &[RepoCommits]) -> Report {
+        let (tickets, facts) = (&self.tickets, &self.facts);
+        let times = || {
+            tickets
+                .iter()
+                .flat_map(|l| &l.msgs)
+                .filter(|m| m.sender != Sender::Owner)
+                .map(|m| m.created)
+        };
+        Report {
+            tickets: tickets.len(),
+            delivered: facts.iter().filter(|f| !f.dones.is_empty()).count(),
+            messages: times().count(),
+            outside_window: tickets.iter().map(|l| l.outside_window).sum(),
+            first: times().min(),
+            last: times().max(),
+            verify: verify_stats(facts),
+            gates: gate_stats(facts),
+            classes: class_rows(facts),
+            tags: tag_rows(facts),
+            rounds: rounds(tickets, facts),
+            andon: andon(tickets, facts),
+            refusals: refusal_rows(facts),
+            flow: flow(tickets, facts),
+            merged_unassigned: self.merged_unassigned.clone(),
+            outcome: outcome(facts, names, lists),
+        }
     }
 }
 
