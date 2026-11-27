@@ -8,102 +8,96 @@ use super::{Act, VMsg, closes_question};
 use crate::protocol::acts::{
     counts_as_round, fail_classes, is_round_limit_fail, round_limit_rounds,
 };
-use crate::protocol::names::{Kind, Re};
-use std::collections::BTreeSet;
+use crate::protocol::names::Kind;
 
-/// What the signed log says about the round limit of one ticket ([`fold_rounds`]).
+/// What the signed log says about the round limit of one ticket ([`fold_rounds`]). It is a
+/// state machine with one step per message ([`Rounds::step`]); the status fold
+/// ([`super::log::fold_ticket`]) runs the same step, so both agree on when a ticket is stopped.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Rounds {
-    /// The `done` comments that a failed verify that counts answers. Two results for one `done`
-    /// are one round: a second run of `verify` after a failed write spends no round.
-    answered: BTreeSet<u64>,
-    /// The failed verifies that count and name no `done` (no `re`): each is a round of its own.
-    loose: usize,
-    /// The question of the round limit is open: a coordinator asked the owner with the fixed
-    /// first line, and no message that closes a question came after it.
+    /// The rounds that the ticket has spent since the count started: one for each failed verify
+    /// that counts, whatever `done` it answers. The log alone cannot tell a second run of
+    /// `verify` from a verify after a `done` that its author deleted, so both are a round.
+    spent: usize,
+    /// The question of this stop is open: a coordinator asked the owner with the fixed first
+    /// line, and no message that closes a question, no reassign and no assignment came after it.
     pub question_open: bool,
-    /// The round limit stopped the ticket, and nothing released it. The stop starts with the
-    /// verify result that has the `case:` line of the round limit, or with the question. It ends
-    /// with a release or with a reassign.
+    /// The round limit stopped the ticket, and nothing ended the stop.
     pub stopped: bool,
 }
 
 impl Rounds {
     /// The rounds that the ticket has spent.
     pub fn spent(&self) -> usize {
-        self.answered.len() + self.loose
+        self.spent
     }
 
-    /// The rounds that the ticket has spent, without a round for the `done` in comment
-    /// `done_comment`: what a verify of that `done` adds its own round to.
-    pub fn spent_without(&self, done_comment: u64) -> usize {
-        self.spent() - usize::from(self.answered.contains(&done_comment))
-    }
-
+    /// The stop ends and the count starts again.
     fn restart(&mut self) {
-        self.answered.clear();
-        self.loose = 0;
+        self.spent = 0;
+        self.stopped = false;
+        self.question_open = false;
     }
-}
 
-/// Fold the verified messages of one ticket, in comment order.
-///
-/// - A round is a failed verify of a coordinator that counts: every fail, except one whose only
-///   class is `head-moved` ([`counts_as_round`]). One round per `done` ([`Rounds::spent`]).
-/// - A release is a message that closes a question to the owner ([`closes_question`]: an owner
-///   message, or a coordinator `answer` that withdraws a question) while the question of the
-///   round limit is open. It ends the stop, and the count starts again. The same message at any
-///   other time releases nothing: an owner comment during normal repair keeps the count.
-/// - A reassign notice of a coordinator ends the stop and starts the count again: a new agent
-///   does not inherit the rounds. It closes no question.
-pub fn fold_rounds(msgs: &[VMsg]) -> Rounds {
-    let mut r = Rounds::default();
-    for m in msgs {
+    /// One message of the log, in comment order.
+    ///
+    /// - A round is a failed verify of a coordinator that counts: every fail, except one whose
+    ///   only class is `head-moved` ([`counts_as_round`]). A second failed verify for the same
+    ///   `done` counts too.
+    /// - A stop starts with the verify result that has the `case:` line of the round limit, or
+    ///   with the question of the round limit of a coordinator.
+    /// - A stop ends, and the count starts again, with a message that closes a question to the
+    ///   owner while the stop is on ([`closes_question`]: an owner message, which an owner move
+    ///   is too, or a coordinator `answer` that withdraws a question).
+    /// - A reassign notice and an assignment of a coordinator end a stop and start the count
+    ///   again at any time: a new agent does not inherit the rounds.
+    /// - The same closing message while no stop is on changes nothing: an owner comment during
+    ///   normal repair keeps the count.
+    pub fn step(&mut self, m: &VMsg) {
         if closes_question(m) {
-            if r.question_open {
-                r.restart();
-                r.stopped = false;
+            if self.stopped {
+                self.restart();
             }
-            r.question_open = false;
-            continue;
+            self.question_open = false;
+            return;
         }
         if !m.sender.actor().is_coordinator() {
-            continue;
+            return;
         }
         match m.act() {
-            Act::Reassigned => {
-                r.restart();
-                r.stopped = false;
-            }
+            Act::Reassigned | Act::Assignment { .. } => self.restart(),
             Act::Verify { pass: false } => {
                 if counts_as_round(&fail_classes(&m.body)) {
-                    match m.re {
-                        Re::Comment { comment, .. } => {
-                            r.answered.insert(comment);
-                        }
-                        _ => r.loose += 1,
-                    }
+                    self.spent += 1;
                 }
                 if is_round_limit_fail(&m.body) {
-                    r.stopped = true;
+                    self.stopped = true;
                 }
             }
             _ if m.kind == Some(Kind::Question)
                 && m.to == "owner"
                 && round_limit_rounds(&m.body).is_some() =>
             {
-                r.question_open = true;
-                r.stopped = true;
+                self.question_open = true;
+                self.stopped = true;
             }
             _ => {}
         }
     }
+}
+
+/// Fold the verified messages of one ticket, in comment order ([`Rounds::step`]).
+pub fn fold_rounds(msgs: &[VMsg]) -> Rounds {
+    let mut r = Rounds::default();
+    for m in msgs {
+        r.step(m);
+    }
     r
 }
 
-/// Did the round limit stop the ticket, with no release since? Then the ticket does not go back
-/// to its agent: `take` and `done` of the assignee are refused, also for a ticket that the agent
-/// parked or that the coordinator split before the stop.
+/// Did the round limit stop the ticket, with no end of the stop since? Then the ticket does not
+/// go back to its agent: `take` and `done` of the assignee are refused, also for a ticket that
+/// the agent parked or that the coordinator split before the stop.
 pub fn round_limit_stopped(msgs: &[VMsg]) -> bool {
     fold_rounds(msgs).stopped
 }
@@ -112,6 +106,7 @@ pub fn round_limit_stopped(msgs: &[VMsg]) -> bool {
 mod tests {
     use super::*;
     use crate::protocol::acts::{round_limit_case, round_limit_question, withdraw_body};
+    use crate::protocol::names::Re;
     use crate::rules::Role;
     use crate::testkit::{agent, msg};
 
@@ -210,27 +205,26 @@ mod tests {
     }
 
     #[test]
-    fn two_results_for_one_done_are_one_round_and_a_result_without_re_is_its_own() {
-        // a second run of `verify` for the same `done` spends no second round
+    fn every_counting_result_is_a_round_whatever_done_it_answers() {
+        // a second run of `verify` for the same `done`: two rounds
+        assert_eq!(rework_rounds(&[review_fail(10), review_fail(10)]), 2);
         let msgs = [review_fail(10), review_fail(10), review_fail(11)];
-        let r = fold_rounds(&msgs);
-        assert_eq!(r.spent(), 2);
-        // a verify of the `done` 11 adds no round, a verify of a new `done` adds one
-        assert_eq!(r.spent_without(11), 1);
-        assert_eq!(r.spent_without(12), 2);
-        // a head-moved-only result and a counting result for one `done`: one round
+        assert_eq!(rework_rounds(&msgs), 3);
+        // a head-moved-only result is free, also next to a counting result for the same `done`
         assert_eq!(
             rework_rounds(&[fail_for(10, HEAD_MOVED), review_fail(10)]),
             1
         );
-        // no `re`: each result is a round
+        assert_eq!(
+            rework_rounds(&[fail_for(10, HEAD_MOVED), fail_for(10, HEAD_MOVED)]),
+            0
+        );
+        // a result without `re` is a round too
         let loose = || VMsg {
             re: Re::None,
             ..review_fail(0)
         };
-        let msgs = [loose(), loose(), review_fail(10)];
-        assert_eq!(rework_rounds(&msgs), 3);
-        assert_eq!(fold_rounds(&msgs).spent_without(10), 2);
+        assert_eq!(rework_rounds(&[loose(), loose(), review_fail(10)]), 3);
     }
 
     #[test]
@@ -318,21 +312,53 @@ mod tests {
         assert!(round_limit_stopped(&msgs));
     }
 
+    fn assignment() -> VMsg {
+        by(
+            COORD,
+            Role::Coordinator,
+            DEV,
+            Kind::Request,
+            "Assigned to you: t\ngate: g\n",
+        )
+    }
+
+    #[test]
+    fn a_done_that_its_author_deleted_gives_no_free_round() {
+        let dev = |kind: Kind, body: &str| by(DEV, Role::Dev, "coordinator", kind, body);
+        // the dev delivered again and deleted that `done`: the next result answers the older
+        // `done` again. With or without a message of the dev between the two results, it is a
+        // round.
+        let msgs = [assignment(), review_fail(10), review_fail(10)];
+        assert_eq!(rework_rounds(&msgs), 2);
+        for kind in [Kind::Ack, Kind::Done, Kind::Blocked] {
+            let msgs = [
+                assignment(),
+                review_fail(10),
+                dev(kind, "x"),
+                review_fail(10),
+            ];
+            assert_eq!(rework_rounds(&msgs), 2, "{kind:?}");
+        }
+    }
+
     #[test]
     fn a_stop_starts_with_the_result_also_when_its_question_is_missing() {
         // the write of the question failed: the ticket is stopped, no question is open
         let msgs = [review_fail(10), stop_fail(11)];
         let r = fold_rounds(&msgs);
         assert_eq!((r.spent(), r.stopped, r.question_open), (2, true, false));
-        // an owner comment now answers no question of the limit: it releases nothing
-        let msgs = [review_fail(10), stop_fail(11), owner("What is this?")];
-        let r = fold_rounds(&msgs);
-        assert_eq!((r.spent(), r.stopped), (2, true));
+        // sequence A: an owner move in that window ends the stop, and so does any owner comment
+        for text in ["/crew move In Progress", "Go on."] {
+            let msgs = [review_fail(10), stop_fail(11), owner(text)];
+            let r = fold_rounds(&msgs);
+            assert_eq!((r.spent(), r.stopped), (0, false), "{text}");
+        }
     }
 
     #[test]
-    fn a_reassign_ends_the_stop_and_starts_the_count_again_but_closes_no_question() {
-        // the duty that returns the ticket of a dead agent posts the notice only
+    fn a_reassign_and_an_assignment_end_the_stop_and_start_the_count_again() {
+        // the duty that returns the ticket of a dead agent posts the notice only: the stop
+        // ends, and the old question is not the question of a later stop
         let msgs = [
             review_fail(10),
             stop_fail(11),
@@ -340,11 +366,25 @@ mod tests {
             reassigned(),
         ];
         let r = fold_rounds(&msgs);
-        assert_eq!((r.spent(), r.stopped, r.question_open), (0, false, true));
-        // the new agent has its own rounds
+        assert_eq!((r.spent(), r.stopped, r.question_open), (0, false, false));
+        // the new agent has its own rounds, and its stop asks the owner again
         let mut msgs = msgs.to_vec();
-        msgs.push(review_fail(12));
-        assert_eq!(rework_rounds(&msgs), 1);
+        msgs.extend([assignment(), review_fail(12), stop_fail(13)]);
+        let r = fold_rounds(&msgs);
+        assert_eq!((r.spent(), r.stopped, r.question_open), (2, true, false));
+        // sequence B: a reassign to the same agent (the withdrawn question, the notice, the
+        // assignment, in any order of the first two)
+        for first_two in [[withdraw(), reassigned()], [reassigned(), withdraw()]] {
+            let mut msgs = vec![review_fail(10), stop_fail(11), round_question()];
+            msgs.extend(first_two);
+            msgs.push(assignment());
+            let r = fold_rounds(&msgs);
+            assert_eq!((r.spent(), r.stopped, r.question_open), (0, false, false));
+        }
+        // an assignment alone (the owner moved the ticket to Backlog before) ends a stop too
+        let msgs = [review_fail(10), stop_fail(11), assignment()];
+        let r = fold_rounds(&msgs);
+        assert_eq!((r.spent(), r.stopped), (0, false));
         // a reassign during normal repair starts the count again too
         assert_eq!(rework_rounds(&[review_fail(10), reassigned()]), 0);
         // the notice of a dev agent is no reassign

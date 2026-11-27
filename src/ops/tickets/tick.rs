@@ -563,12 +563,17 @@ fn is_in_work(status: Option<&str>) -> bool {
 /// One Review ticket: its line or lines.
 fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) -> CbResult<String> {
     // A stop at the round limit that an earlier run did not finish (the result is in the log, a
-    // later write failed): `verify` posts no result and does only the writes that are missing.
-    // That is no judgment, so no Gate rule applies.
+    // later write failed): only the writes that are missing, and no result. That is no judgment,
+    // so no Gate rule applies. The entry reads the ticket again and never judges: a stop that
+    // ended meanwhile gets a line, and the next tick sees the ticket as any other.
     if super::verify::stop_unfinished(t) {
-        return match verify(ac, key, "", &[], false, None, None) {
-            Ok(v) => Ok(v),
-            Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
+        return match super::verify::finish_stop_only(ac, key) {
+            Ok(Some(v)) => Ok(v),
+            Ok(None) => Ok(left(
+                key,
+                "its stop at the round limit ended while this tick ran; nothing was written",
+            )),
+            Err(CbError::Refused(r)) => Ok(left(key, &format!("the stop was not finished: {r}"))),
             Err(e) => Err(e),
         };
     }

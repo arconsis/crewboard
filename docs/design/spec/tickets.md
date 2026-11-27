@@ -315,10 +315,16 @@ from the signed `verify: fail` reports of the ticket. No board field holds the c
 
 - Every failed `verify` counts, with one exception: a fail whose only failure is a moved PR head
   does not count.
-- One `done` gives at most one round. Two reports that answer the same `done` are one round. A
-  report that names no `done` is a round of its own.
+- Each such failed `verify` is one round, whatever `done` it answers. A second failed `verify`
+  for the same delivery counts too. So a `done` that its author deletes gives no free round. The
+  cost: when a coordinator runs a failed `verify` again after a failed Status write below the
+  limit, the second report is one more round.
 - These do not count: a `done` (a re-delivery in Review is no round), a passed `verify`, a
   `merge` that sends the work back, and a request of the coordinator with `say --kind request`.
+
+A known limit: a fail whose only failure is a moved PR head is free by decision. A head that
+moves after each `done` therefore gets failed verifies without rounds. The coordinator sees
+these fails in `retro` (class `head-moved`).
 
 **The stop.** The limit stops a ticket when a failed `verify` counts and it is round N or a
 later round. Then `verify` does not send the ticket back. It does these writes, in order:
@@ -327,7 +333,8 @@ later round. Then `verify` does not send the ticket back. It does these writes, 
    `round limit <rounds> of <N>; the owner decides`.
 2. A signed `question` to the owner. Its first line is `round limit: <rounds> failed verifies`.
    The question names the limit, the URL of the report and the options of the owner: redirect,
-   split, drop. `verify` posts no second question while this question is open.
+   split, drop. `verify` posts no second question while the question of this stop is open. A
+   question of an earlier stop that a reassign ended is not the question of this stop.
 3. The label `needs-owner`.
 4. Status Blocked. `verify` writes no `Order`, and the ticket keeps its agent.
 
@@ -335,45 +342,61 @@ The answer of `verify` has one line that says that the round limit stopped the t
 the owner can do. A note of `verify` must not have a line that starts with `case:`
 (`text-reads-as-act`): `verify` writes that line itself.
 
-**A stopped ticket does not go back to its agent.** From the report of step 1 until a release,
-`take` and `done` of the assignee end with `status-answer-missing`, and the text names the round
-limit. This holds also for a ticket that the agent parked before the stop, and for a ticket that
-the coordinator split before the stop. `mine` shows the ticket as `Blocked, waits for the owner`,
-not as parked. `status` shows it as any Blocked ticket with a question to the owner.
+**A stopped ticket does not go back to its agent.** The stop starts with the report of step 1,
+or with the question of step 2, and lasts until it ends (below). In that time `take` and `done`
+of the assignee end with `status-answer-missing`, and the text names the round limit. This holds
+also for a ticket that the agent parked before the stop, and for a ticket that the coordinator
+split before the stop. `ticket split` of a stopped ticket ends with the same id: release first,
+then split. `mine` shows the ticket as `Blocked, waits for the owner`, not as parked and not as
+answered. `status` shows it as any Blocked ticket with a question to the owner. The status that
+`status` and `audit` expect from the log uses the same rule, so an `ack` or a `done` that
+somebody signed by hand during a stop shows as drift.
 
 **A stop that is not finished.** A write of the steps 2 to 4 can fail. Then the report is on the
 ticket and the ticket is still in Review. The next `verify` of the ticket finishes the stop: it
 posts no new report, and it does only the writes that are missing (the question when it is not
 open, the label, Status Blocked). Its answer says that it finished the stop. A plain `verify`,
-`verify --fail` and the `verify` of the headless `tick` all do this. The open question of the
-stop does not hold this run back. It spends no round.
+`verify --fail` and the headless `tick` all do this. The open question of the stop does not
+hold this run back. It posts no report, so it spends no round. The `tick` uses an entry that only finishes a stop: it
+reads the ticket again, and when the stop ended meanwhile it writes nothing and judges nothing.
 
 **The release.** Two messages release a stopped ticket. They are the two messages that close a
 question to the owner ([Status flow and writers](#status-flow-and-writers)), and they release
-only while the question of the round limit is open:
+only while the stop is on:
 
 - A comment of the owner on the ticket. Any owner comment on the stopped ticket releases it, so
-  the owner writes the decision in that comment. The assignee reads it and runs `take` when it
-  says to go on.
-- A signed `answer` of the coordinator that takes the question back. `unblock` posts it.
+  the owner writes the decision in that comment. An owner move (`/crew move`) is such a comment.
+  This holds also in the short time in which the report is posted and the question is not. The
+  assignee reads the comment and runs `take` when it says to go on.
+- A signed `answer` of the coordinator that takes the question back. `unblock` posts it for
+  every stopped ticket, also when a `blocked` message of the agent is the latest blocking
+  message.
 
 After the release of a stop the count starts at zero, and the ticket has N new rounds. The same
-messages at another time release nothing and keep the count: an owner comment during normal
+messages while no stop is on release nothing and keep the count: an owner comment during normal
 repair, or an `unblock` of a question of the dev agent.
 
 **The owner's options.**
 
 - Redirect: the owner's comment says what to do differently. The assignee then runs `take`.
-- Split: release the ticket first (owner comment or `unblock`), then run `ticket split`. The
-  `done` of the finished part is possible only after the release.
+- Split: release the ticket first (owner comment or `unblock`), then run `ticket split`. Before
+  the release `ticket split` ends with `status-answer-missing`, because the `done` of the
+  finished part is possible only after the release.
 - Drop: the coordinator runs `close --why`. An owner comment alone closes nothing.
 
-**Reassign.** A reassign starts the count at zero: a new agent does not inherit the rounds. The
-coordinator's [`reassign`](#reassign) also takes an open question back when the ticket has an
-agent, so it releases the stop. The duty that returns the tickets of a dead agent to Backlog
-posts the reassign notice only. It ends the stop, but the question stays open and the label
-stays. The new agent can work and deliver. A plain `verify` still needs the owner's answer:
-until then it ends with `verify-owner-question-open`.
+**Reassign and assign.** A reassign notice and an assignment of a coordinator end a stop and
+start the count at zero, at any time: a new agent does not inherit the rounds.
+
+- The coordinator's [`reassign`](#reassign) posts the notice. When the ticket has an agent and a
+  question is open, it also takes that question back. With `--to` the same agent or a new agent
+  gets the assignment, and it takes the ticket from Ready.
+- The duty that returns the tickets of an agent to Backlog posts the notice only. It runs for
+  an agent that is dead, and for an agent that stops or leaves the crew. The stop ends, but the
+  question to the owner stays open and the label stays. A coordinator must assign the ticket
+  again; an agent that left needs a new join, which the owner approves. The new agent can work
+  and deliver. A plain `verify` still needs the owner's answer: until then it ends with
+  `verify-owner-question-open`. A later stop of the ticket posts its own question.
+- An assignment alone ends a stop too, for example after the owner moved the ticket to Backlog.
 
 **A change of the key** changes no ticket by itself:
 

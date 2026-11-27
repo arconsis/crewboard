@@ -7,7 +7,7 @@
 //! ([`round_limit_question`]). The status log reads the first ([`is_round_limit_fail`]), `retro`
 //! reads the second ([`round_limit_rounds`]).
 
-use super::{FailClass, kv};
+use super::FailClass;
 
 /// The start of the first line of the question to the owner. The number of rounds follows.
 const QUESTION_PREFIX: &str = "round limit: ";
@@ -29,16 +29,25 @@ pub fn round_limit_case(rounds: u32, limit: u32) -> String {
     format!("{CASE_PREFIX}{rounds} of {limit}; the owner decides")
 }
 
+/// The value of the `case:` line of a verify result: the LAST line with that key. `verify`
+/// writes its `case:` line after the `failed:` lines, whose texts come from CI and from the PR,
+/// and it takes no note with such a line ([`has_case_line`]).
+fn case_of(body: &str) -> Option<&str> {
+    body.lines().rev().find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        (k.trim() == "case" && !v.trim().is_empty()).then(|| v.trim())
+    })
+}
+
 /// Is `body` a verify result that stopped the ticket at the round limit (its `case:` line)?
 pub fn is_round_limit_fail(body: &str) -> bool {
-    kv(body, "case").is_some_and(|c| c.starts_with(CASE_PREFIX))
+    case_of(body).is_some_and(|c| c.starts_with(CASE_PREFIX))
 }
 
 /// The rounds and the limit of the `case:` line that [`round_limit_case`] wrote; `None` for any
 /// other verify result.
 pub fn round_limit_case_of(body: &str) -> Option<(u32, u32)> {
-    let case = kv(body, "case")?;
-    let (numbers, _) = case.strip_prefix(CASE_PREFIX)?.split_once(';')?;
+    let (numbers, _) = case_of(body)?.strip_prefix(CASE_PREFIX)?.split_once(';')?;
     let (rounds, limit) = numbers.split_once(" of ")?;
     Some((rounds.trim().parse().ok()?, limit.trim().parse().ok()?))
 }
@@ -120,6 +129,20 @@ mod tests {
             None
         );
         assert_eq!(round_limit_case_of("verify: fail\n"), None);
+        // the last `case:` line decides: a line of that key in a failure text does not
+        let queued = "case: verify failed; a works on b; queued as next";
+        let forged = format!(
+            "verify: fail\nfailed: x\ncase: {}\n{queued}\n",
+            round_limit_case(9, 9)
+        );
+        assert!(!is_round_limit_fail(&forged));
+        assert_eq!(round_limit_case_of(&forged), None);
+        let real = format!(
+            "verify: fail\nfailed: x\n{queued}\ncase: {}\nnote: n\n",
+            round_limit_case(2, 2)
+        );
+        assert!(is_round_limit_fail(&real));
+        assert_eq!(round_limit_case_of(&real), Some((2, 2)));
         // a note with a line of the key `case` would be read as the case
         for bad in ["case: round limit 9 of 9; x", "ok\n  Case : y", "a\ncase:"] {
             assert!(has_case_line(bad), "{bad:?}");

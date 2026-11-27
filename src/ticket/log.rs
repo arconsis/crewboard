@@ -67,14 +67,13 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
     let mut agent: Option<String> = None;
     let mut status = Expected::Unknown;
     let mut closed = false;
-    // The round limit stopped the ticket (spec/tickets#round-limit): until a message closes the
-    // question, or the coordinator assigns the ticket again, an `ack` or a `done` of the
-    // assignee moves nothing. A signed resume in that time shows as drift.
-    let mut stopped = false;
+    // The round limit stopped the ticket (spec/tickets#round-limit): until the stop ends, an
+    // `ack` or a `done` of the assignee moves nothing. A signed resume in that time shows as
+    // drift. The step is the one of the round count, so both agree on when a ticket is stopped.
+    let mut rounds = crate::ticket::Rounds::default();
     for m in msgs {
-        if crate::ticket::closes_question(m) {
-            stopped = false;
-        }
+        rounds.step(m);
+        let stopped = rounds.stopped;
         if m.sender == Sender::Owner {
             if let Ok(Some(OwnerCommand::Move { status: s })) = owner_cmd::parse(&m.body) {
                 // a move never names Done or Dropped (`owner_cmd::move_target`), so it never
@@ -94,11 +93,10 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
         if coordinator {
             match act {
                 Act::Closed(_) => closed = true,
-                Act::Assignment { .. } | Act::Reassigned => {
-                    closed = false;
-                    stopped = false;
-                }
-                Act::BoardAnnounce | Act::Verify { pass: false } => closed = false,
+                Act::BoardAnnounce
+                | Act::Assignment { .. }
+                | Act::Reassigned
+                | Act::Verify { pass: false } => closed = false,
                 _ => {}
             }
         }
@@ -121,7 +119,6 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
                 if coordinator && crate::protocol::acts::is_round_limit_fail(&m.body) =>
             {
                 status = Expected::Is(Status::Blocked);
-                stopped = true;
             }
             (_, Act::Verify { pass: false }) if coordinator => {
                 status = Expected::OneOf(vec![Status::InProgress, Status::Ready]);

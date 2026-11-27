@@ -72,9 +72,13 @@ A later wire version may carry the act in a signed header field.
 
 Two texts of the [round limit](tickets.md#round-limit) are no acts of their own. The same module
 writes and reads them. The verify result at the limit has the line
-`case: round limit <rounds> of <N>; the owner decides`, and the status log reads it. The
-`question` to the owner has the first line `round limit: <rounds> failed verifies`, and `retro`
-reads it. Both count only from a coordinator.
+`case: round limit <rounds> of <N>; the owner decides`. The `question` to the owner has the first
+line `round limit: <rounds> failed verifies`. Both count only from a coordinator. The stop of a
+ticket and its release are read from these two lines: by `take`, `done`, `ticket split`,
+`unblock`, `mine` and `verify`, by the status that `status` and `audit` expect from the log, and
+by `retro`. The reader takes the last `case:` line of a verify result. `verify` writes that line
+after the `failed:` lines, each failure text from CI or from the PR is one line, and a note of
+`verify` with a `case:` line is not accepted.
 
 Because the act is only text, a writer of free text must not produce it by accident. `say` and
 `block --why` refuse a body that parses to an act (`protocol::acts::reserved_for`, also
