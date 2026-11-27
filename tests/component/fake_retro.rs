@@ -3,7 +3,10 @@
 //! looks like a verify result counts nowhere.
 
 use crate::support::Req;
-use crate::support::board::{Agent, FakeBoard, INITIATIVE, OWNER, Out};
+use crate::support::board::{Agent, FakeBoard, INITIATIVE, OWNER, Out, REPO};
+
+/// The clause after the count of the reverted tickets.
+const KNOWN: &str = "(the merged tickets with a known PR or merge commit)";
 use crate::support::cli::{GATE, crew, no_unhandled, run_ok, writes};
 use crewboard::protocol::names::Kind;
 use serde_json::Value;
@@ -529,7 +532,7 @@ fn the_outcome_counts_a_reverted_merge_and_a_ticket_that_came_back() {
     let o = retro(&fake, &c.dir, &[]);
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(
-        o.stdout.ends_with("\nOutcome\n  merged tickets: 2\n  came back after the merge: 0 of 2 (0%)\n  reverted on the default branch: 0 of 2 (0%) (the merged tickets whose close note names a merge commit or a PR)\n  tickets with an owner comment: 0 of 2 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
+        o.stdout.ends_with("\nOutcome\n  merged tickets: 2\n  came back after the merge: 0 of 2 (0%)\n  reverted on the default branch: 0 of 2 (0%) (the merged tickets with a known PR or merge commit)\n  tickets with an owner comment: 0 of 2 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
         "{}",
         o.all()
     );
@@ -559,7 +562,7 @@ fn the_outcome_counts_a_reverted_merge_and_a_ticket_that_came_back() {
     let text = &o.stdout;
     for want in [
         format!("  came back after the merge: 1 of 2 (50%)\n    #{t1} http://"),
-        format!("  reverted on the default branch: 2 of 2 (100%) (the merged tickets whose close note names a merge commit or a PR)\n    #{t2} http://"),
+        format!("  reverted on the default branch: 2 of 2 (100%) (the merged tickets with a known PR or merge commit)\n    #{t2} http://"),
         "  tickets with an owner comment: 1 of 2 (50%); comments on such a ticket: median 1, p90 1\n"
             .to_string(),
     ] {
@@ -581,10 +584,17 @@ fn the_outcome_counts_a_reverted_merge_and_a_ticket_that_came_back() {
         (
             &out["reverted"]["read"],
             &out["reverted"]["known"],
+            &out["reverted"]["outside"],
             &out["reverted"]["count"]
         ),
-        (&Value::from(true), &Value::from(2), &Value::from(2))
+        (
+            &Value::from(true),
+            &Value::from(2),
+            &Value::from(0),
+            &Value::from(2)
+        )
     );
+    assert_eq!(out["reverted"]["unread"], serde_json::json!([]));
     let reverts: Vec<(u64, &str)> = out["reverted"]["events"]
         .as_array()
         .unwrap()
@@ -616,14 +626,16 @@ fn the_outcome_counts_a_reverted_merge_and_a_ticket_that_came_back() {
 }
 
 /// The read of the commits is soft. When it fails, or when the list has more than 10 pages,
-/// the report prints as before, with the exit code 0, and says that the reverts were not read.
+/// the report prints as before, with the exit code 0, and names the repo with the cause.
 #[test]
 fn a_commit_read_that_fails_or_is_too_long_leaves_the_report_and_names_since() {
     let (fake, c, b) = crew();
     two_tickets(&fake, &c, &b);
     let mut full = report(&retro(&fake, &c.dir, &["--json"]));
     assert_eq!(full["outcome"]["reverted"]["read"], true);
-    let not_read = "  reverted on the default branch: not read (the read of the commits failed, or a repo has more than 1000 commits in the period; a later --since makes the period shorter)\n";
+    // the tickets of a repo that was not read are in no number of the line
+    let none =
+        format!("  reverted on the default branch: 0 of 0 {KNOWN}\n  reverts not read in {REPO}: ");
 
     // ten pages are read whole
     let now = crewboard::clock::now_epoch();
@@ -648,21 +660,65 @@ fn a_commit_read_that_fails_or_is_too_long_leaves_the_report_and_names_since() {
     let from = fake.requests().len();
     let o = retro(&fake, &c.dir, &[]);
     assert_eq!(o.code, 0, "{}", o.all());
-    assert!(o.stdout.contains(not_read), "{}", o.all());
+    assert!(
+        o.stdout
+            .contains(&format!("{none}more than 1000 commits since 2"))
+            && o.stdout.contains("Z; a later --since may shorten it\n"),
+        "{}",
+        o.all()
+    );
     assert_eq!(pages(from), 10);
 
-    // the read fails: the same line, the same exit code, and every other number as before
+    // the read fails: the cause without a hint to --since, the same exit code, nothing on
+    // stderr, and every other number as before
     fake.page_commits(100);
     fake.fail_commits(404);
     let o = retro(&fake, &c.dir, &[]);
     assert_eq!(o.code, 0, "{}", o.all());
-    assert!(o.stdout.contains(not_read), "{}", o.all());
-    assert!(o.stderr.is_empty(), "{}", o.all());
-    let soft = report(&retro(&fake, &c.dir, &["--json"]));
-    assert_eq!(
-        soft["outcome"]["reverted"],
-        serde_json::json!({"read": false, "known": 2, "count": 0, "events": []})
+    assert!(
+        o.stdout.contains(&format!(
+            "{none}the read failed (HTTP 404); the commits since 2"
+        )),
+        "{}",
+        o.all()
     );
+    assert!(!o.stdout.contains("--since"), "{}", o.all());
+    assert!(o.stderr.is_empty(), "{}", o.all());
+    // a failure that other reads repeat: this read is sent one time, with no line on stderr
+    fake.fail_commits(503);
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains("the read failed (HTTP 503)"),
+        "{}",
+        o.all()
+    );
+    assert!(o.stderr.is_empty(), "{}", o.all());
+    assert_eq!(pages(from), 1);
+    fake.fail_commits(404);
+    let soft = report(&retro(&fake, &c.dir, &["--json"]));
+    let y = &soft["outcome"]["reverted"];
+    assert_eq!(
+        (&y["read"], &y["known"], &y["outside"], &y["count"]),
+        (
+            &Value::from(false),
+            &Value::from(0),
+            &Value::from(0),
+            &Value::from(0)
+        )
+    );
+    assert_eq!(y["unread"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        (&y["unread"][0]["repo"], &y["unread"][0]["reason"]),
+        (
+            &Value::from(REPO),
+            &Value::from("the read failed (HTTP 404)")
+        )
+    );
+    // the window starts at the delivery, which is before the close note
+    let since = crewboard::clock::parse_ts(y["unread"][0]["since"].as_str().unwrap()).unwrap();
+    assert!(since <= now && since > now - 3600, "{y}");
     full["outcome"]["reverted"] = soft["outcome"]["reverted"].clone();
     assert_eq!(soft, full);
     no_unhandled(&fake);
@@ -692,7 +748,158 @@ fn a_report_without_a_merged_ticket_reads_no_commit() {
     // nothing had to be read, so the count 0 is a fact
     assert_eq!(
         out["reverted"],
-        serde_json::json!({"read": true, "known": 0, "count": 0, "events": []})
+        serde_json::json!({"read": true, "known": 0, "outside": 0, "unread": [], "count": 0,
+                           "events": []})
+    );
+    no_unhandled(&fake);
+}
+
+const OTHER: &str = "fake-owner/other-repo";
+
+/// An assigned ticket with a hand-signed merge note for PR `pr` of `repo`. Returns the issue.
+fn merged_in(fake: &FakeBoard, c: &Agent, b: &Agent, repo: &str, pr: u64) -> u64 {
+    let t = fake.ticket_issue(
+        "IT retro merged",
+        "Goal: a merged ticket.\n",
+        &["crew:work"],
+    );
+    let note = crewboard::protocol::acts::merged_body(
+        &format!("https://github.com/{repo}/pull/{pr}"),
+        "abc",
+        "squash",
+        &fake.merge_commit_of(pr),
+        "crew/x",
+        None,
+    );
+    let assign = "Assigned to you: merged\ngate: g\n";
+    fake.signed_now(&c.key, &c.name, &b.name, Kind::Request, t, assign);
+    fake.signed_now(&c.key, &c.name, &b.name, Kind::Info, t, &note);
+    t
+}
+
+/// Two repos, and in each a merged PR with the same number. A commit of the second repo
+/// reverts its PR: the ticket of the first repo is not hit. When the read of the first repo
+/// fails, the second repo still counts. A PR of a repo outside the crew is not looked up.
+#[test]
+fn each_repo_has_its_own_commits_and_its_own_read() {
+    let (fake, c, b) = crew();
+    fake.add_agent_repo(&c, OTHER);
+    let here = merged_in(&fake, &c, &b, REPO, 7);
+    let there = merged_in(&fake, &c, &b, OTHER, 7);
+    let outside = merged_in(&fake, &c, &b, "elsewhere/repo", 7);
+    let now = crewboard::clock::now_epoch();
+    fake.commit_in(OTHER, "5555555", "Revert \"IT\"\n\nReverts #7", now + 60);
+
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains(&format!(
+            "  reverted on the default branch: 1 of 2 (50%) {KNOWN}; 1 in a repo outside the crew, not looked up\n    #{there} http://"
+        )),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stdout.contains("reverts not read"), "{}", o.all());
+    // one read for each repo of the crew with a merge, none for the repo outside
+    let reads: Vec<Req> = fake.requests()[from..].to_vec();
+    let read_of = |repo: &str| {
+        reads
+            .iter()
+            .filter(|r| r.path.contains(&format!("/repos/{repo}/commits?since=")))
+            .count()
+    };
+    assert_eq!(
+        (read_of(REPO), read_of(OTHER), read_of("elsewhere/repo")),
+        (1, 1, 0)
+    );
+    let y = report(&retro(&fake, &c.dir, &["--json"]))["outcome"]["reverted"].clone();
+    assert_eq!(y["events"].as_array().unwrap().len(), 1);
+    assert_eq!(y["events"][0]["issue"], there);
+
+    // the first repo cannot be read: its ticket leaves both numbers, the second repo counts
+    fake.fail_commits_in(REPO, 404);
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(o.stderr.is_empty(), "{}", o.all());
+    assert!(
+        o.stdout.contains(&format!(
+            "  reverted on the default branch: 1 of 1 (100%) {KNOWN}; 1 in a repo outside the crew, not looked up\n    #{there} http://"
+        )) && o.stdout.contains(&format!(
+            "\n  reverts not read in {REPO}: the read failed (HTTP 404); the commits since 2"
+        )),
+        "{}",
+        o.all()
+    );
+    let y = report(&retro(&fake, &c.dir, &["--json"]))["outcome"]["reverted"].clone();
+    assert_eq!(
+        (&y["read"], &y["known"], &y["outside"], &y["count"]),
+        (
+            &Value::from(false),
+            &Value::from(1),
+            &Value::from(1),
+            &Value::from(1)
+        )
+    );
+    assert_eq!(y["unread"][0]["repo"], REPO);
+    assert_eq!(y["events"][0]["issue"], there);
+    assert!(here != there && outside != there);
+    no_unhandled(&fake);
+}
+
+/// The repo moved. The close notes of the time before name their PR under the former name.
+/// With that name in `former_repos`, a revert in the repo of today is found.
+#[test]
+fn a_close_note_under_a_former_repo_name_is_looked_up_in_the_current_repo() {
+    const NEW: &str = "new-owner/new-repo";
+    let (fake, c, b) = crew();
+    let (t1, _t2) = two_tickets(&fake, &c, &b);
+    let pr = close_note_value(&fake, t1, "pr");
+    assert!(pr.contains(REPO), "{pr}");
+    let merge_commit = close_note_value(&fake, t1, "merge-commit");
+    let now = crewboard::clock::now_epoch();
+
+    fake.rename_repo(NEW);
+    fake.retarget_agent(&c, NEW);
+    let listed = format!(
+        "\nformer_repos:\n  - {{ name: {REPO}, until: {} }}\n---\n\n",
+        crewboard::clock::format_ts(now + 3600)
+    );
+    assert!(MERGE_AUTHORITY.contains("\n---\n\n"));
+    fake.file_in(
+        NEW,
+        "AUTHORITY.md",
+        &MERGE_AUTHORITY.replace("\n---\n\n", &listed),
+    );
+    fake.commit_in(
+        NEW,
+        "6666666",
+        &format!("Revert \"IT\"\n\nThis reverts commit {merge_commit}.\n"),
+        now + 60,
+    );
+
+    let from = fake.requests().len();
+    let o = retro(&fake, &c.dir, &[]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.contains(&format!(
+            "  reverted on the default branch: 1 of 2 (50%) {KNOWN}\n    #{t1} http://"
+        )),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stdout.contains("outside the crew"), "{}", o.all());
+    // the commits are asked for under the name of today
+    let reads: Vec<Req> = fake.requests()[from..].to_vec();
+    let asked: Vec<&str> = reads
+        .iter()
+        .filter(|r| commits(r))
+        .map(|r| r.path.as_str())
+        .collect();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].starts_with(&format!("/repos/{NEW}/commits?since=")),
+        "{asked:?}"
     );
     no_unhandled(&fake);
 }

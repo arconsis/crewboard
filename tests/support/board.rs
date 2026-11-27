@@ -119,13 +119,14 @@ struct State {
     files: BTreeMap<(String, String), String>,
     /// `(path, ISO date)` of commits on the default branch (`GET commits?path=&since=`).
     base_commits: Vec<(String, String)>,
-    /// `(sha, ISO date, message)` of commits on the default branch that changed no file the
-    /// fake knows ([`FakeBoard::commit`]): `GET commits?since=` lists them, newest first.
-    commits: Vec<(String, String, String)>,
+    /// `(repo, sha, ISO date, message)` of commits on the default branch of a repo that changed
+    /// no file the fake knows ([`FakeBoard::commit_in`]): `GET commits?since=` lists them,
+    /// newest first.
+    commits: Vec<(String, String, String, String)>,
     /// The page size of the commit list ([`FakeBoard::page_commits`]).
     commits_page_size: Option<usize>,
-    /// The HTTP status that `GET commits` answers instead of the list.
-    commits_status: Option<u16>,
+    /// repo -> the HTTP status that `GET commits` answers instead of the list.
+    commits_status: BTreeMap<String, u16>,
     /// `(repo, path)` -> HTTP status that `GET contents` answers instead of the file.
     file_errors: BTreeMap<(String, String), u16>,
     /// `(repo, label)` -> color.
@@ -286,7 +287,7 @@ fn new_state(base: &str) -> State {
         base_commits: Vec::new(),
         commits: Vec::new(),
         commits_page_size: None,
-        commits_status: None,
+        commits_status: BTreeMap::new(),
         file_errors: BTreeMap::new(),
         labels: BTreeMap::new(),
         next_sha: 1,
@@ -835,6 +836,15 @@ impl FakeBoard {
             .insert((repo.to_string(), path.to_string()), text.to_string());
     }
 
+    /// The agent's config now names `repo` as one more repo of the initiative, after the main
+    /// repo.
+    pub fn add_agent_repo(&self, who: &Agent, repo: &str) {
+        let cd = ConfigDir(who.dir.clone());
+        let mut a = cd.load_agent_auto(None).unwrap();
+        a.board.repos.push(repo.to_string());
+        cd.save_agent(&a).unwrap();
+    }
+
     /// The agent's config now names `repo` as its main repo (the host config change of the
     /// runbook).
     pub fn retarget_agent(&self, who: &Agent, repo: &str) {
@@ -1353,7 +1363,9 @@ fn route(st: &mut State, r: &Req) -> Resp {
         ("GET", ["", "repos", o, n, "contents", file @ ..]) => {
             tickets::get_contents(st, &format!("{o}/{n}"), &file.join("/"), query)
         }
-        ("GET", ["", "repos", _, _, "commits"]) => tickets::get_commits(st, query),
+        ("GET", ["", "repos", o, n, "commits"]) => {
+            tickets::get_commits(st, &format!("{o}/{n}"), query)
+        }
         ("GET", ["", "repos", _, _, "actions", "runs"]) => tickets::get_workflow_runs(st, query),
         ("GET", ["", "repos", o, n, "actions", "runs", id]) => {
             tickets::get_workflow_run(st, &format!("{o}/{n}"), id)

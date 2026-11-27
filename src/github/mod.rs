@@ -589,8 +589,9 @@ impl Client {
             || {
                 let body = json!({"query": query, "variables": variables});
                 let url = self.url("graphql")?;
-                let resp =
-                    self.send_limited(|| self.request(reqwest::Method::POST, &url).json(&body))?;
+                let resp = self.send_limited(true, || {
+                    self.request(reqwest::Method::POST, &url).json(&body)
+                })?;
                 let status = resp.status().as_u16();
                 let text = resp
                     .text()
@@ -600,9 +601,11 @@ impl Client {
         )
     }
 
-    /// Send, and wait out a rate limit answer (at most 3 times, at most 60 s each).
+    /// Send, and wait out a rate limit answer (at most 3 times, at most 60 s each). Without
+    /// `patient` it never waits: a rate limit answer is the error at once.
     fn send_limited(
         &self,
+        patient: bool,
         build: impl Fn() -> reqwest::blocking::RequestBuilder,
     ) -> Result<reqwest::blocking::Response, GhError> {
         let mut tries = 0;
@@ -630,7 +633,7 @@ impl Client {
                             .unwrap_or(0);
                         (reset - crate::clock::now_epoch()).clamp(1, 3600) as u64
                     });
-                    if tries < 3 && wait <= 60 {
+                    if patient && tries < 3 && wait <= 60 {
                         tries += 1;
                         self.sleep(Duration::from_secs(wait + 1));
                         continue;
@@ -658,10 +661,10 @@ impl Client {
             retry_transient(
                 TRANSIENT_ATTEMPTS,
                 |d| self.sleep(d),
-                || self.rest_once(&method, path, body, etag),
+                || self.rest_once(&method, path, body, etag, true),
             )
         } else {
-            self.rest_once(&method, path, body, etag)
+            self.rest_once(&method, path, body, etag, true)
         }
     }
 
@@ -671,13 +674,14 @@ impl Client {
         path: &str,
         body: Option<&Value>,
         etag: Option<&str>,
+        patient: bool,
     ) -> Result<Conditional, GhError> {
         retry_conflict(
-            3,
+            if patient { 3 } else { 0 },
             |d| self.sleep(d),
             || {
                 let url = self.url(path)?;
-                let resp = self.send_limited(|| {
+                let resp = self.send_limited(patient, || {
                     let mut r = self.request(method.clone(), &url);
                     if let Some(b) = body {
                         r = r.json(b);
@@ -750,6 +754,15 @@ impl Client {
 
     pub fn get(&self, path: &str) -> Result<Rest, GhError> {
         match self.rest_inner(reqwest::Method::GET, path, None, None)? {
+            Conditional::Modified(r) => Ok(r),
+            Conditional::NotModified => Err(GhError::Shape("304 without If-None-Match".into())),
+        }
+    }
+
+    /// A GET that is sent one time: no repeat after a transient failure, no wait for a rate
+    /// limit, and so no line on stderr. For a read that the caller can do without.
+    pub fn get_once(&self, path: &str) -> Result<Rest, GhError> {
+        match self.rest_once(&reqwest::Method::GET, path, None, None, false)? {
             Conditional::Modified(r) => Ok(r),
             Conditional::NotModified => Err(GhError::Shape("304 without If-None-Match".into())),
         }

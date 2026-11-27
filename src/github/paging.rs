@@ -24,16 +24,32 @@ pub fn paged(client: &Client, path: &str, max_pages: usize) -> Result<Paged, GhE
     paged_from(client, client.get(path)?, max_pages)
 }
 
+/// Like [`paged`], with every page read one time ([`Client::get_once`]): no repeat and no wait.
+/// For a read that the caller can do without.
+pub fn paged_once(client: &Client, path: &str, max_pages: usize) -> Result<Paged, GhError> {
+    pages(client.get_once(path)?, max_pages, |url| {
+        client.get_once(url)
+    })
+}
+
 /// Like [`paged`], for a first page that the caller read already (for example a conditional
 /// GET). Later pages are read without the ETag.
 pub fn paged_from(client: &Client, first: Rest, max_pages: usize) -> Result<Paged, GhError> {
+    pages(first, max_pages, |url| client.get(url))
+}
+
+fn pages(
+    first: Rest,
+    max_pages: usize,
+    get: impl Fn(&str) -> Result<Rest, GhError>,
+) -> Result<Paged, GhError> {
     let mut next = first.link_next.clone();
     let mut pages = vec![first];
     while pages.len() < max_pages.max(1) {
         let Some(url) = next.take() else {
             break;
         };
-        let page = client.get(&url)?;
+        let page = get(&url)?;
         next = page.link_next.clone();
         pages.push(page);
     }

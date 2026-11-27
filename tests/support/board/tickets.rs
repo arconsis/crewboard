@@ -185,13 +185,20 @@ impl FakeBoard {
             .push((path.to_string(), date.to_string()));
     }
 
-    /// A commit on the default branch with this sha and message, dated `at` (Unix seconds).
+    /// A commit on the default branch of the repo [`REPO`] with this sha and message, dated
+    /// `at` (Unix seconds).
     pub fn commit(&self, sha: &str, message: &str, at: i64) {
-        self.st
-            .lock()
-            .unwrap()
-            .commits
-            .push((sha.to_string(), format_ts(at), message.to_string()));
+        self.commit_in(REPO, sha, message, at);
+    }
+
+    /// [`FakeBoard::commit`] for the default branch of `repo`.
+    pub fn commit_in(&self, repo: &str, sha: &str, message: &str, at: i64) {
+        self.st.lock().unwrap().commits.push((
+            repo.to_string(),
+            sha.to_string(),
+            format_ts(at),
+            message.to_string(),
+        ));
     }
 
     /// From now on the commit list of a repo (`GET commits`) comes in pages of `n` commits
@@ -200,10 +207,19 @@ impl FakeBoard {
         self.st.lock().unwrap().commits_page_size = Some(n.max(1));
     }
 
-    /// From now on `GET commits` answers this HTTP status (a token that may not read the
-    /// code).
+    /// From now on `GET commits` of the repo [`REPO`] answers this HTTP status (a token that
+    /// may not read the code).
     pub fn fail_commits(&self, status: u16) {
-        self.st.lock().unwrap().commits_status = Some(status);
+        self.fail_commits_in(REPO, status);
+    }
+
+    /// [`FakeBoard::fail_commits`] for `repo`. The other repos answer as before.
+    pub fn fail_commits_in(&self, repo: &str, status: u16) {
+        self.st
+            .lock()
+            .unwrap()
+            .commits_status
+            .insert(repo.to_string(), status);
     }
 
     /// The sha of the merge commit of PR `number`, as the fake names it.
@@ -969,10 +985,10 @@ pub(super) fn delete_branch(st: &mut State, repo: &str, branch: &str) -> Resp {
 
 /// `GET /repos/{repo}/commits?sha=&path=&since=&per_page=`: the commits of the default branch
 /// that changed `path` (or a file below it) after `since`. Without `path`: also the commits of
-/// [`FakeBoard::commit`] at or after `since`, newest first.
-pub(super) fn get_commits(st: &State, query: &str) -> Resp {
-    if let Some(status) = st.commits_status {
-        return Resp::json(status, r#"{"message":"fake: no commits for you"}"#);
+/// [`FakeBoard::commit_in`] of `repo` at or after `since`, newest first.
+pub(super) fn get_commits(st: &State, repo: &str, query: &str) -> Resp {
+    if let Some(status) = st.commits_status.get(repo) {
+        return Resp::json(*status, r#"{"message":"fake: no commits for you"}"#);
     }
     let arg = |name: &str| -> Option<&str> {
         query
@@ -982,15 +998,15 @@ pub(super) fn get_commits(st: &State, query: &str) -> Resp {
     let path = arg("path").unwrap_or("");
     let since = percent_decode(arg("since").unwrap_or(""));
     let since = since.as_str();
-    let mut plain: Vec<&(String, String, String)> = st
+    let mut plain: Vec<&(String, String, String, String)> = st
         .commits
         .iter()
-        .filter(|(_, d, _)| path.is_empty() && d.as_str() >= since)
+        .filter(|(r, _, d, _)| r == repo && path.is_empty() && d.as_str() >= since)
         .collect();
-    plain.sort_by(|a, b| b.1.cmp(&a.1));
+    plain.sort_by(|a, b| b.2.cmp(&a.2));
     let mut list: Vec<Value> = plain
         .into_iter()
-        .map(|(sha, d, m)| json!({"sha": sha, "commit": {"committer": {"date": d}, "message": m}}))
+        .map(|(_, sha, d, m)| json!({"sha": sha, "commit": {"committer": {"date": d}, "message": m}}))
         .collect();
     let by_path: Vec<Value> = st
         .base_commits

@@ -9,14 +9,11 @@
 //! issue), because the report needs the whole log of a ticket.
 //!
 //! The section "Outcome" needs the commits of the default branch, to find a revert: one request
-//! per 100 commits of each repo with a merged ticket, since the earliest close note of a merge,
-//! at most [`REVERT_PAGES`] pages per repo. This read is soft: when it fails or the list is
-//! longer, the report prints and says that the reverts were not read. No merged ticket: no
-//! request.
-//!
-//! One list read follows at most `github::paging::MAX_PAGES` pages (5000 comments). A feed that
-//! is longer ends the command with a usage error that names `--since`; no partial report is
-//! printed, because its numbers would be wrong.
+//! per 100 commits of each repo with a merged ticket, from the delivery of the earliest such
+//! merge, at most [`REVERT_PAGES`] pages per repo. This read is soft, and each repo is judged
+//! on its own: when the read of a repo fails or its list is longer, the report prints and
+//! names the repo with the cause. Each page is asked for one time, without a repeat and
+//! without a wait for a rate limit. No merged ticket: no request.
 
 use super::audit::parse_since;
 use super::{Ctx, Global, load_world};
@@ -26,9 +23,12 @@ use crate::comments::Comment;
 use crate::error::{CbError, CbResult};
 use crate::feed;
 use crate::github::GhError;
-use crate::github::paging::{MAX_PAGES, paged};
+use crate::github::paging::{MAX_PAGES, paged_once};
 use crate::registry::{CREW_PREFIX, Trust};
-use crate::retro::{BaseCommit, Event, MergedRef, Report, Spread, TicketLog, merged_refs, retro};
+use crate::retro::{
+    BaseCommit, Event, ReadFault, RepoCommits, RepoNames, Report, Spread, TicketLog, Unread,
+    Window, fold,
+};
 use crate::state::StateCache;
 use crate::ticket::{Sender, out_of_window_messages, verified_messages};
 use serde_json::{Value, json};
@@ -136,40 +136,57 @@ fn ticket_log(
 /// The most pages of commits that `retro` reads of one repo (100 commits each).
 pub const REVERT_PAGES: usize = 10;
 
-/// The commits of the default branch of each repo of the initiative that has a merge of
-/// `refs`, since the earliest close note of such a merge. `None` when a read fails or a list
-/// has more than [`REVERT_PAGES`] pages: the report then says that the reverts were not read.
-/// No merge: no request.
-fn read_base_commits(ctx: &Ctx, refs: &[MergedRef]) -> Option<Vec<BaseCommit>> {
-    let mut out = Vec::new();
-    for repo in &ctx.cfg.repos {
-        let Some(since) = refs
+/// The names of the repos of the initiative: the repos of the config, and each former name of
+/// the main repo (`former_repos` of AUTHORITY.md) with the name of the main repo. A close note
+/// that was signed under a former name names its PR under that name.
+fn repo_names(ctx: &Ctx) -> RepoNames {
+    RepoNames {
+        repos: ctx.cfg.repos.clone(),
+        former: ctx
+            .cfg
+            .former_repos
             .iter()
-            .filter(|r| r.repo.eq_ignore_ascii_case(repo))
-            .map(|r| r.close.at)
-            .min()
-        else {
-            continue;
-        };
-        let path = format!(
-            "repos/{repo}/commits?since={}&per_page=100",
-            format_ts(since)
-        );
-        let list = paged(&ctx.client, &path, REVERT_PAGES).ok()?;
-        if list.truncated {
-            return None;
-        }
-        for c in list.items("commits").ok()? {
+            .map(|f| (f.name.clone(), ctx.main_repo().to_string()))
+            .collect(),
+    }
+}
+
+/// The short cause of a failed read, for the report.
+fn fault_of(e: &GhError) -> ReadFault {
+    ReadFault::Failed(match e {
+        GhError::Http { status, .. } => format!("HTTP {status}"),
+        GhError::Auth(_) => "HTTP 401".to_string(),
+        GhError::Network(_) => "no connection".to_string(),
+        _ => "bad answer".to_string(),
+    })
+}
+
+/// The commits of the default branch of the repo of `w`, from `w.since` on. A list of more than
+/// [`REVERT_PAGES`] pages is cut: no part of it counts.
+fn read_window(ctx: &Ctx, w: &Window) -> Result<Vec<BaseCommit>, ReadFault> {
+    let path = format!(
+        "repos/{}/commits?since={}&per_page=100",
+        w.repo,
+        format_ts(w.since)
+    );
+    let list = paged_once(&ctx.client, &path, REVERT_PAGES).map_err(|e| fault_of(&e))?;
+    if list.truncated {
+        return Err(ReadFault::Cut);
+    }
+    let bad = || ReadFault::Failed("bad answer".to_string());
+    list.items("commits")
+        .map_err(|_| bad())?
+        .into_iter()
+        .map(|c| {
             let text = |at: &str| c.pointer(at).and_then(Value::as_str);
-            out.push(BaseCommit {
-                repo: repo.to_string(),
+            Some(BaseCommit {
                 sha: text("/sha")?.to_string(),
                 at: parse_ts(text("/commit/committer/date")?)?,
                 message: text("/commit/message")?.to_string(),
-            });
-        }
-    }
-    Some(out)
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(bad)
 }
 
 pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<Out> {
@@ -181,8 +198,17 @@ pub fn run(g: &Global, json_out: bool, since: Option<&str>) -> CbResult<Out> {
         .into_iter()
         .filter_map(|(ticket, comments)| ticket_log(&ctx, &world.trust, ticket, &comments, since))
         .collect();
-    let commits = read_base_commits(&ctx, &merged_refs(&logs));
-    let report = retro(&logs, commits.as_deref());
+    let (folded, names) = (fold(&logs), repo_names(&ctx));
+    // soft: a repo whose commits cannot be read is named in the report
+    let lists: Vec<RepoCommits> = folded
+        .windows(&names)
+        .iter()
+        .map(|w| RepoCommits {
+            repo: w.repo.clone(),
+            commits: read_window(&ctx, w),
+        })
+        .collect();
+    let report = folded.report(&names, &lists);
     let view = View {
         initiative: &ctx.cfg.initiative,
         main_repo: ctx.main_repo(),
@@ -504,19 +530,35 @@ fn render_outcome(v: &View, r: &Report, s: &mut String) {
     ));
     s.push_str(&event_lines(v, &o.came_back));
     let y = &o.reverted;
-    if y.read {
-        let closes: Vec<Event> = y.reverts.iter().map(|x| x.close.clone()).collect();
-        s.push_str(&format!(
-            "  reverted on the default branch: {} of {}{} (the merged tickets whose close note names a merge commit or a PR)\n",
-            closes.len(),
-            y.known,
-            percent(closes.len(), y.known)
-        ));
-        s.push_str(&event_lines(v, &closes));
+    let closes: Vec<Event> = y.reverts.iter().map(|x| x.close.clone()).collect();
+    let outside = if y.outside == 0 {
+        String::new()
     } else {
+        format!("; {} in a repo outside the crew, not looked up", y.outside)
+    };
+    s.push_str(&format!(
+        "  reverted on the default branch: {} of {}{} (the merged tickets with a known PR or merge commit){outside}\n",
+        closes.len(),
+        y.known,
+        percent(closes.len(), y.known)
+    ));
+    s.push_str(&event_lines(v, &closes));
+    for u in &y.unread {
         s.push_str(&format!(
-            "  reverted on the default branch: not read (the read of the commits failed, or a repo has more than {} commits in the period; a later --since makes the period shorter)\n",
-            REVERT_PAGES * 100
+            "  reverts not read in {}: {}\n",
+            u.repo,
+            match &u.fault {
+                ReadFault::Cut => format!(
+                    "{} since {}; a later --since may shorten it",
+                    unread_reason(u),
+                    format_ts(u.since)
+                ),
+                ReadFault::Failed(_) => format!(
+                    "{}; the commits since {} were asked for",
+                    unread_reason(u),
+                    format_ts(u.since)
+                ),
+            }
         ));
     }
     let comments = o.owner_comments.map_or(String::new(), |c| {
@@ -546,6 +588,14 @@ fn render_outcome(v: &View, r: &Report, s: &mut String) {
     ));
 }
 
+/// Why the commits of a repo are not known, in words.
+fn unread_reason(u: &Unread) -> String {
+    match &u.fault {
+        ReadFault::Cut => format!("more than {} commits", REVERT_PAGES * 100),
+        ReadFault::Failed(cause) => format!("the read failed ({cause})"),
+    }
+}
+
 /// `report.outcome` of the JSON. An event of `reverted` is the close note, with the commit that
 /// reverts the merge (`revert`).
 fn outcome_json(r: &Report) -> Value {
@@ -563,8 +613,13 @@ fn outcome_json(r: &Report) -> Value {
     json!({
         "merged": o.merged,
         "came_back": events_json(&o.came_back),
-        "reverted": {"read": o.reverted.read, "known": o.reverted.known,
-                     "count": reverts.len(), "events": reverts},
+        "reverted": {
+            "read": o.reverted.read(), "known": o.reverted.known,
+            "outside": o.reverted.outside,
+            "unread": o.reverted.unread.iter().map(|u| json!({
+                "repo": u.repo, "reason": unread_reason(u), "since": format_ts(u.since)}))
+                .collect::<Vec<_>>(),
+            "count": reverts.len(), "events": reverts},
         "owner": {
             "touched": o.owner_touched,
             "comments": o.owner_comments.map_or(Value::Null, |c| json!({
@@ -659,7 +714,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
 mod tests {
     use super::*;
     use crate::retro::{
-        Andon, ClassRow, Flow, Outcome, RefusalRow, Revert, Reverted, Round, VerifyStats,
+        Andon, ClassRow, Flow, Outcome, RefusalRow, Revert, Reverted, Round, Unread, VerifyStats,
     };
 
     const VIEW: View = View {
@@ -744,13 +799,13 @@ mod tests {
                 merged: 3,
                 came_back: vec![event("a/b", 7, 74)],
                 reverted: Reverted {
-                    read: true,
                     known: 2,
                     reverts: vec![Revert {
                         close: event("a/c", 2, 22),
                         sha: "0123456789abcdef".into(),
                         at: 7200,
                     }],
+                    ..Reverted::default()
                 },
                 owner_touched: 2,
                 owner_comments: Some(Spread {
@@ -788,7 +843,7 @@ mod tests {
             "  assignment to first done: median 2.1 h, p90 7.9 h (3 ticket(s))\n",
             "  first done to close: no ticket\n\nOutcome\n  merged tickets: 3\n",
             "  came back after the merge: 1 of 3 (33%)\n    #7 https://github.com/a/b/issues/7#issuecomment-74\n",
-            "  reverted on the default branch: 1 of 2 (50%) (the merged tickets whose close note names a merge commit or a PR)\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-22\n",
+            "  reverted on the default branch: 1 of 2 (50%) (the merged tickets with a known PR or merge commit)\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-22\n",
             "  tickets with an owner comment: 2 of 4 (50%); comments on such a ticket: median 1, p90 3\n",
             "  wait for the answer to a question to the owner: median 2.0 h, p90 5.0 h (3 question(s))\n",
         ] {
@@ -917,50 +972,87 @@ mod tests {
     }
 
     #[test]
-    fn the_outcome_says_when_the_reverts_were_not_read_and_when_nothing_was_measured() {
-        // the commits were not read: no count, and the way to a shorter period
-        let unread = Report {
+    fn the_outcome_names_each_repo_that_was_not_read_with_its_cause() {
+        // one repo is cut, one failed, and one ticket is in a repo outside the crew; the repo
+        // that was read still has its count
+        let part = Report {
             outcome: Outcome {
                 reverted: Reverted {
-                    read: false,
-                    known: 2,
-                    reverts: vec![],
+                    outside: 1,
+                    unread: vec![
+                        Unread {
+                            repo: "a/b".into(),
+                            fault: ReadFault::Cut,
+                            since: 3600,
+                        },
+                        Unread {
+                            repo: "a/d".into(),
+                            fault: ReadFault::Failed("HTTP 404".into()),
+                            since: 7200,
+                        },
+                    ],
+                    ..report().outcome.reverted
                 },
                 ..report().outcome
             },
             ..report()
         };
-        let t = render(&VIEW, &unread);
+        let t = render(&VIEW, &part);
         assert!(
-            t.contains("  reverted on the default branch: not read (the read of the commits failed, or a repo has more than 1000 commits in the period; a later --since makes the period shorter)\n"),
+            t.contains("  reverted on the default branch: 1 of 2 (50%) (the merged tickets with a known PR or merge commit); 1 in a repo outside the crew, not looked up\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-22\n  reverts not read in a/b: more than 1000 commits since 1970-01-01T01:00:00Z; a later --since may shorten it\n  reverts not read in a/d: the read failed (HTTP 404); the commits since 1970-01-01T02:00:00Z were asked for\n  tickets with an owner comment"),
             "{t}"
         );
-        let j = render_json(&VIEW, &unread);
+        let y = &render_json(&VIEW, &part)["report"]["outcome"]["reverted"];
         assert_eq!(
-            j["report"]["outcome"]["reverted"],
-            json!({"read": false, "known": 2, "count": 0, "events": []})
+            (&y["read"], &y["known"], &y["outside"], &y["count"]),
+            (&json!(false), &json!(2), &json!(1), &json!(1))
+        );
+        assert_eq!(
+            y["unread"],
+            json!([
+                {"repo": "a/b", "reason": "more than 1000 commits",
+                 "since": "1970-01-01T01:00:00Z"},
+                {"repo": "a/d", "reason": "the read failed (HTTP 404)",
+                 "since": "1970-01-01T02:00:00Z"}])
         );
         // no merged ticket, no owner comment, no answered question
         let none = Report {
-            outcome: Outcome {
-                reverted: Reverted {
-                    read: true,
-                    ..Reverted::default()
-                },
-                ..Outcome::default()
-            },
+            outcome: Outcome::default(),
             ..report()
         };
         let t = render(&VIEW, &none);
         assert!(
-            t.ends_with("\nOutcome\n  merged tickets: 0\n  came back after the merge: 0 of 0\n  reverted on the default branch: 0 of 0 (the merged tickets whose close note names a merge commit or a PR)\n  tickets with an owner comment: 0 of 4 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
+            t.ends_with("\nOutcome\n  merged tickets: 0\n  came back after the merge: 0 of 0\n  reverted on the default branch: 0 of 0 (the merged tickets with a known PR or merge commit)\n  tickets with an owner comment: 0 of 4 (0%)\n  wait for the answer to a question to the owner: no answered question\n"),
             "{t}"
         );
         let o = &render_json(&VIEW, &none)["report"]["outcome"];
         assert_eq!(
+            o["reverted"],
+            json!({"read": true, "known": 0, "outside": 0, "unread": [], "count": 0,
+                   "events": []})
+        );
+        assert_eq!(
             o["owner"],
             json!({"touched": 0, "comments": null, "wait": null})
         );
+    }
+
+    #[test]
+    fn the_cause_of_a_failed_read_is_short() {
+        let http = |status| GhError::Http {
+            status,
+            message: "long text".into(),
+            accepted_permissions: None,
+        };
+        let cause = |e: GhError| match fault_of(&e) {
+            ReadFault::Failed(c) => c,
+            ReadFault::Cut => unreachable!(),
+        };
+        assert_eq!(cause(http(404)), "HTTP 404");
+        assert_eq!(cause(http(429)), "HTTP 429");
+        assert_eq!(cause(GhError::Auth("x".into())), "HTTP 401");
+        assert_eq!(cause(GhError::Network("x".into())), "no connection");
+        assert_eq!(cause(GhError::Shape("x".into())), "bad answer");
     }
 
     #[test]
@@ -1050,7 +1142,8 @@ mod tests {
         assert_eq!(o["came_back"]["events"][0]["issue"], 7);
         assert_eq!(
             o["reverted"],
-            json!({"read": true, "known": 2, "count": 1, "events": [{
+            json!({"read": true, "known": 2, "outside": 0, "unread": [], "count": 1,
+                   "events": [{
                 "ticket": "a/c#2", "issue": 2,
                 "url": "https://github.com/a/c/issues/2#issuecomment-22",
                 "at": "1970-01-01T01:00:00Z", "from": "agent-a@host-a", "to": "agent-b@host-b",

@@ -7,9 +7,36 @@ const DEV: &str = "agent-b@host-b";
 const OTHER_DEV: &str = "agent-c@host-c";
 const HOUR: i64 = 3600;
 
-/// The report without the commits of the default branch: the reverts are not read.
+/// The repos of the initiative of these tests: a/b, which had the name old/b, and a/c.
+fn names() -> RepoNames {
+    RepoNames {
+        repos: vec!["a/b".into(), "a/c".into()],
+        former: vec![("old/b".into(), "a/b".into())],
+    }
+}
+
+/// The report when every repo with a merge was read and has no commit.
 fn retro(logs: &[TicketLog]) -> Report {
-    super::retro(logs, None)
+    let folded = fold(logs);
+    let lists: Vec<RepoCommits> = folded
+        .windows(&names())
+        .into_iter()
+        .map(|w| list(&w.repo, vec![]))
+        .collect();
+    folded.report(&names(), &lists)
+}
+
+/// The report with these commit lists.
+fn retro_with(logs: &[TicketLog], lists: &[RepoCommits]) -> Report {
+    fold(logs).report(&names(), lists)
+}
+
+/// The commits of `repo`, read whole.
+fn list(repo: &str, commits: Vec<BaseCommit>) -> RepoCommits {
+    RepoCommits {
+        repo: repo.into(),
+        commits: Ok(commits),
+    }
 }
 
 /// The messages of one issue under construction: the comment ids count up, and each message is
@@ -1062,8 +1089,12 @@ const MERGE_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// The notice of `merge` for PR `pr` of the repo a/b, with the merge commit [`MERGE_SHA`].
 fn merge_note(pr: u64) -> String {
+    merge_note_in("a/b", pr)
+}
+
+fn merge_note_in(repo: &str, pr: u64) -> String {
     crate::protocol::acts::merged_body(
-        &format!("https://github.com/a/b/pull/{pr}"),
+        &format!("https://github.com/{repo}/pull/{pr}"),
         "abc",
         "squash",
         MERGE_SHA,
@@ -1072,9 +1103,8 @@ fn merge_note(pr: u64) -> String {
     )
 }
 
-fn commit(repo: &str, hour: i64, message: &str) -> BaseCommit {
+fn commit(hour: i64, message: &str) -> BaseCommit {
     BaseCommit {
-        repo: repo.into(),
         sha: format!("c{hour}"),
         at: hour * HOUR,
         message: message.into(),
@@ -1165,20 +1195,32 @@ fn the_owner_numbers_count_the_owner_comments_and_the_wait_for_an_answer() {
     let no_ticket = Log::new(5)
         .dev(1, "owner", Kind::Question, "early")
         .owner(2, "no");
+    // the talk before the first assignment is not work on the ticket
+    let before = Log::new(6)
+        .owner(0, "an idea")
+        .owner(1, "more of it")
+        .assign(2);
+    // a comment after the close is: the owner had to look at the ticket again
+    let after = Log::new(7)
+        .assign(0)
+        .merged(1)
+        .owner(2, "this broke the build");
     let r = retro(&[
         answered.build(),
         withdrawn.build(),
         open.build(),
         untouched.build(),
         no_ticket.build(),
+        before.build(),
+        after.build(),
     ]);
     let o = &r.outcome;
-    assert_eq!((r.tickets, o.owner_touched), (4, 2));
-    // the touched tickets have 2 and 1 owner comments
+    assert_eq!((r.tickets, o.owner_touched), (6, 3));
+    // the touched tickets have 2, 1 and 1 owner comments
     assert_eq!(
         o.owner_comments,
         Some(Spread {
-            tickets: 2,
+            tickets: 3,
             median_s: 1,
             p90_s: 2
         })
@@ -1196,21 +1238,46 @@ fn the_owner_numbers_count_the_owner_comments_and_the_wait_for_an_answer() {
     assert_eq!(r.andon.open_questions.len(), 1);
 }
 
+/// Each ref as `<issue> close=<hour> <repo> pr=<n> sha=<known> since=<hour>`.
+fn short(refs: &[&MergedRef]) -> Vec<String> {
+    refs.iter()
+        .map(|r| {
+            format!(
+                "{} close={} {} pr={} sha={} since={}",
+                r.close.ticket.issue,
+                r.close.at / HOUR,
+                r.repo,
+                r.pr.unwrap_or(0),
+                r.merge_commit.as_deref() == Some(MERGE_SHA),
+                r.since / HOUR
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn the_merge_refs_are_the_pr_and_the_merge_commit_of_the_close_notes() {
+    // no `done` in the log: the window starts at the close note
     let merged = Log::new(1).assign(0).coord(3, Kind::Info, &merge_note(7));
-    // an owner merge whose commit GitHub did not name: the PR alone
+    // an owner merge whose commit GitHub did not name: the PR of the note, not that of the
+    // `done`. The window starts at the `done`: the owner merged before the close note
     let owner_merged = crate::protocol::acts::owner_merged_body(
         "https://github.com/a/c/pull/9",
         None,
         Some("pr: https://github.com/x/y/pull/1"),
     );
-    let by_owner = Log::new(2).assign(0).coord(4, Kind::Info, &owner_merged);
+    let by_owner = Log::new(2)
+        .assign(0)
+        .done(1)
+        .coord(4, Kind::Info, &owner_merged);
     let drop = Log::new(3).assign(0).coord(5, Kind::Info, DROP_WITH_PR);
-    // no ref: a merge note without the lines, a plain drop, a note on an issue without an
-    // assignment, and the note text of a dev agent
+    // no ref: a merge note without the lines and without a `done`, a plain drop after a
+    // `done`, a note on an issue without an assignment, and the note text of a dev agent
     let bare = Log::new(4).assign(0).merged(1);
-    let plain_drop = Log::new(5).assign(0).coord(1, Kind::Info, "dropped: no\n");
+    let plain_drop = Log::new(5)
+        .assign(0)
+        .done(1)
+        .coord(2, Kind::Info, "dropped: no\n");
     let unassigned = Log::new(6).coord(1, Kind::Info, &merge_note(8));
     let by_dev = Log::new(7)
         .assign(0)
@@ -1224,84 +1291,236 @@ fn the_merge_refs_are_the_pr_and_the_merge_commit_of_the_close_notes() {
         unassigned.build(),
         by_dev.build(),
     ];
-    let refs = merged_refs(&logs);
-    let short: Vec<_> = refs
-        .iter()
-        .map(|r| {
-            (
-                r.close.ticket.issue,
-                r.close.at / HOUR,
-                r.repo.as_str(),
-                r.pr,
-                r.merge_commit.as_deref(),
-            )
-        })
-        .collect();
+    let folded = fold(&logs);
     assert_eq!(
-        short,
+        short(&folded.merged_refs()),
         [
-            (1, 3, "a/b", Some(7), Some(MERGE_SHA)),
-            (2, 4, "a/c", Some(9), None),
+            "1 close=3 a/b pr=7 sha=true since=3",
+            "2 close=4 a/c pr=9 sha=false since=1",
             // the sha `abc` of the drop note is too short to be compared
-            (3, 5, "a/b", Some(7), None),
+            "3 close=5 a/b pr=7 sha=false since=5",
         ]
     );
-    // the ticket without a ref is a merged ticket, but no revert can be found for it
-    let o = super::retro(&logs, Some(&[])).outcome;
-    assert_eq!((o.merged, o.reverted.known, o.reverted.read), (4, 3, true));
-    assert!(o.reverted.reverts.is_empty());
-    // without the commits the count says nothing
+    // one window for each repo with a merge, from the earliest start
+    assert_eq!(
+        folded.windows(&names()),
+        [
+            Window {
+                repo: "a/b".into(),
+                since: 3 * HOUR
+            },
+            Window {
+                repo: "a/c".into(),
+                since: HOUR
+            },
+        ]
+    );
+    // the ticket without a ref is a merged ticket, but no revert can be looked up for it
     let o = retro(&logs).outcome;
-    assert_eq!((o.reverted.known, o.reverted.read), (3, false));
+    assert_eq!(
+        (o.merged, o.reverted.known, o.reverted.read()),
+        (4, 3, true)
+    );
+    assert!(o.reverted.reverts.is_empty());
+    // no ticket with a merge: no window
+    assert!(fold(&logs[3..]).windows(&names()).is_empty());
 }
 
 #[test]
-fn a_revert_matches_by_the_sha_a_prefix_of_it_or_the_pr_number_of_the_same_repo() {
+fn a_merge_close_without_a_pr_line_takes_the_pr_of_the_latest_done_before_it() {
+    // `close --verified` writes no `pr:` line; the `done` before it names the PR
+    let verified = Log::new(1)
+        .assign(0)
+        .done(1)
+        .fail(2, &[review("x")])
+        .done(3)
+        .pass(4)
+        .coord(6, Kind::Info, "Closed after a passed verify\n");
+    assert_eq!(
+        crate::protocol::acts::closed_verified_body(),
+        "Closed after a passed verify."
+    );
+    // a `done` after the close is not the delivery of this close
+    let late_done = Log::new(2)
+        .assign(0)
+        .coord(1, Kind::Info, "Closed after a passed verify\n")
+        .owner(2, "/crew move Ready")
+        .done(3);
+    let logs = [verified.build(), late_done.build()];
+    let folded = fold(&logs);
+    // the window starts at the latest `done` before the close
+    assert_eq!(
+        short(&folded.merged_refs()),
+        ["1 close=6 a/b pr=7 sha=false since=3"]
+    );
+    // such a ticket is known, and a revert of its PR counts
+    let lists = [list("a/b", vec![commit(9, "Reverts #7")])];
+    let y = folded.report(&names(), &lists).outcome.reverted;
+    assert_eq!((y.known, y.reverts.len()), (1, 1));
+    assert_eq!(y.reverts[0].close.url, url(105));
+}
+
+#[test]
+fn a_revert_matches_by_the_sha_a_prefix_of_it_or_the_pr_of_the_same_repo() {
     let log = || {
         [Log::new(1)
             .assign(0)
             .coord(3, Kind::Info, &merge_note(7))
             .build()]
     };
-    let reverted = |c: &[BaseCommit]| super::retro(&log(), Some(c)).outcome.reverted.reverts;
+    let reverted = |c: Vec<BaseCommit>| {
+        retro_with(&log(), &[list("a/b", c)])
+            .outcome
+            .reverted
+            .reverts
+    };
     let by_sha = format!("Revert \"t\"\n\nThis reverts commit {MERGE_SHA}.\n");
-    let hit = reverted(&[commit("a/b", 9, &by_sha)]);
+    let hit = reverted(vec![commit(9, &by_sha)]);
     assert_eq!(hit.len(), 1);
     // the event is the close note; the commit is the revert
     assert_eq!(hit[0].close.url, url(101));
     assert_eq!((hit[0].sha.as_str(), hit[0].at), ("c9", 9 * HOUR));
-    // a prefix of 12 hex digits, in upper case
-    let prefix = format!("This reverts commit {}", MERGE_SHA[..12].to_uppercase());
-    assert_eq!(reverted(&[commit("a/b", 9, &prefix)]).len(), 1);
-    // 11 digits are too few, and another sha is another commit
+    // a prefix of 12 hex digits, in upper case, anywhere in the message
+    let prefix = format!("x. This reverts commit {})", MERGE_SHA[..12].to_uppercase());
+    assert_eq!(reverted(vec![commit(9, &prefix)]).len(), 1);
+    // 11 digits are too few, another sha is another commit, and so is a longer one
     let short = format!("This reverts commit {}", &MERGE_SHA[..11]);
-    assert!(reverted(&[commit("a/b", 9, &short)]).is_empty());
+    assert!(reverted(vec![commit(9, &short)]).is_empty());
     let other = format!("This reverts commit {}0", &MERGE_SHA[..39][1..]);
-    assert!(reverted(&[commit("a/b", 9, &other)]).is_empty());
-    // the PR number, with and without the repo
+    assert!(reverted(vec![commit(9, &other)]).is_empty());
+    let longer = format!("This reverts commit {MERGE_SHA}0");
+    assert!(reverted(vec![commit(9, &longer)]).is_empty());
+    // the PR: its number, with and without the repo, its URL, a former name of the repo, and
+    // the signs that may follow it
     for text in [
         "Revert \"t\"\n\nReverts a/b#7",
         "Reverts #7\n",
         "  Reverts A/B#7.",
+        "Reverts https://github.com/a/b/pull/7",
+        "Reverts https://github.com/a/b/pull/7.",
+        "Reverts old/b#7",
+        "Reverts #7)",
+        "Reverts #7:",
+        "Reverts a/b#7;",
+        "Reverts #7, as agreed",
     ] {
-        assert_eq!(reverted(&[commit("a/b", 9, text)]).len(), 1, "{text}");
+        assert_eq!(reverted(vec![commit(9, text)]).len(), 1, "{text}");
     }
-    // not the PR of another repo, another number, or a word that only starts like one
+    // not the PR of another repo, another number, or a word that only starts like one; the
+    // line has to start with the word
     for text in [
         "Reverts a/c#7",
+        "Reverts https://github.com/a/c/pull/7",
+        "Reverts https://github.com/a/b/issues/7",
+        "Reverts x/y#7",
         "Reverts #70",
         "Reverts #7a",
         "Reverts b#7",
         "This Reverts #7",
         "mentions #7 and a/b#7",
     ] {
-        assert!(reverted(&[commit("a/b", 9, text)]).is_empty(), "{text}");
+        assert!(reverted(vec![commit(9, text)]).is_empty(), "{text}");
     }
-    // a commit of another repo names its own PR 7 and its own commits
-    assert!(reverted(&[commit("a/c", 9, "Reverts #7")]).is_empty());
-    assert!(reverted(&[commit("a/c", 9, &by_sha)]).is_empty());
+    // a commit of another repo names its own PR and its own commits
+    let elsewhere = [
+        list("a/b", vec![]),
+        list("a/c", vec![commit(9, "Reverts #7"), commit(9, &by_sha)]),
+    ];
+    let y = retro_with(&log(), &elsewhere).outcome.reverted;
+    assert_eq!((y.known, y.reverts.len()), (1, 0));
     // two reverts of one ticket: one ticket, the earliest commit
-    let two = [commit("a/b", 9, "Reverts #7"), commit("a/b", 6, &by_sha)];
-    let hit = reverted(&two);
+    let hit = reverted(vec![commit(9, "Reverts #7"), commit(6, &by_sha)]);
     assert_eq!((hit.len(), hit[0].sha.as_str()), (1, "c6"));
+}
+
+#[test]
+fn each_repo_is_judged_on_its_own_and_a_former_name_is_its_current_repo() {
+    // ticket 1: a PR of a/b. Ticket 2: a PR of a/c. Ticket 3: a PR that the note names under
+    // the former name of a/b. Ticket 4: a PR of a repo that is none of the initiative
+    let logs = [
+        Log::new(1)
+            .assign(0)
+            .done(1)
+            .coord(3, Kind::Info, &merge_note(7)),
+        Log::new(2)
+            .assign(0)
+            .coord(4, Kind::Info, &merge_note_in("a/c", 7)),
+        Log::new(3)
+            .assign(0)
+            .coord(5, Kind::Info, &merge_note_in("old/b", 5)),
+        Log::new(4)
+            .assign(0)
+            .coord(6, Kind::Info, &merge_note_in("x/y", 7)),
+    ]
+    .map(Log::build);
+    let folded = fold(&logs);
+    // the former name is in the window of its current repo; the foreign repo has no window
+    let windows = folded.windows(&names());
+    assert_eq!(
+        windows,
+        [
+            Window {
+                repo: "a/b".into(),
+                since: HOUR
+            },
+            Window {
+                repo: "a/c".into(),
+                since: 4 * HOUR
+            },
+        ]
+    );
+    let issues =
+        |y: &Reverted| -> Vec<u64> { y.reverts.iter().map(|x| x.close.ticket.issue).collect() };
+
+    // both repos read: PR 7 of a/c is reverted, PR 7 of a/b is not; the PR under the former
+    // name is found in a/b
+    let both = [
+        list("a/b", vec![commit(8, "Reverts #5")]),
+        list("a/c", vec![commit(9, "Reverts #7")]),
+    ];
+    let y = folded.report(&names(), &both).outcome.reverted;
+    assert_eq!((y.known, y.outside, y.read()), (3, 1, true));
+    assert_eq!(issues(&y), [2, 3]);
+
+    // the list of a/b is cut: its two tickets are in no number, a/c counts as before
+    let cut = [
+        RepoCommits {
+            repo: "a/b".into(),
+            commits: Err(ReadFault::Cut),
+        },
+        both[1].clone(),
+    ];
+    let y = folded.report(&names(), &cut).outcome.reverted;
+    assert_eq!((y.known, y.outside, y.read()), (1, 1, false));
+    assert_eq!(issues(&y), [2]);
+    assert_eq!(
+        y.unread,
+        [Unread {
+            repo: "a/b".into(),
+            fault: ReadFault::Cut,
+            since: HOUR
+        }]
+    );
+
+    // the read of a/c failed, and a window without a list counts as a failed read too
+    let failed = [RepoCommits {
+        repo: "a/c".into(),
+        commits: Err(ReadFault::Failed("HTTP 404".into())),
+    }];
+    let y = folded.report(&names(), &failed).outcome.reverted;
+    assert_eq!((y.known, y.outside, y.reverts.len()), (0, 1, 0));
+    let faults: Vec<_> = y
+        .unread
+        .iter()
+        .map(|u| (u.repo.as_str(), &u.fault))
+        .collect();
+    assert_eq!(
+        faults,
+        [
+            ("a/b", &ReadFault::Failed("no read".into())),
+            ("a/c", &ReadFault::Failed("HTTP 404".into())),
+        ]
+    );
+    // the other numbers of the outcome do not depend on the read
+    assert_eq!(folded.report(&names(), &failed).outcome.merged, 4);
 }
