@@ -310,6 +310,7 @@ pub fn render(v: &View, r: &Report) -> String {
         s.push_str(&format!("  {}: {}\n", c.class, c.events.len()));
         s.push_str(&event_lines(v, &c.events));
     }
+    render_tags(r, v, &mut s);
     s.push_str("\nRounds (the tickets with the most verify fails)\n");
     if r.rounds.is_empty() {
         s.push_str("  none\n");
@@ -335,6 +336,50 @@ pub fn render(v: &View, r: &Report) -> String {
     }
     render_flow(r, &mut s);
     s
+}
+
+/// The section "Repeated faults": the review fails by the tag of their note. A tag with
+/// [`crate::retro::REPEATED_FROM`] fails or more is a candidate for a rule of the owner.
+fn render_tags(r: &Report, v: &View, s: &mut String) {
+    let t = &r.tags;
+    if t.rows.is_empty() && t.untagged == 0 {
+        return;
+    }
+    s.push_str(&format!(
+        "\nRepeated faults (review fails by the tag of their note; {} or more of one tag is a candidate for a rule, see docs/guides/lessons.md)\n",
+        crate::retro::REPEATED_FROM
+    ));
+    let repeated: Vec<_> = t
+        .rows
+        .iter()
+        .filter(|x| x.events.len() >= crate::retro::REPEATED_FROM)
+        .collect();
+    if repeated.is_empty() {
+        s.push_str("  none\n");
+    }
+    for x in repeated {
+        s.push_str(&format!("  {}: {}\n", x.tag, x.events.len()));
+        s.push_str(&event_lines(v, &x.events));
+    }
+    let below: Vec<String> = t
+        .rows
+        .iter()
+        .filter(|x| x.events.len() < crate::retro::REPEATED_FROM)
+        .map(|x| format!("{} {}", x.tag, x.events.len()))
+        .collect();
+    if !below.is_empty() {
+        s.push_str(&format!(
+            "  below {}: {}\n",
+            crate::retro::REPEATED_FROM,
+            below.join(", ")
+        ));
+    }
+    if t.untagged > 0 {
+        s.push_str(&format!(
+            "  review fails without a tag: {} (the note of verify --fail starts with a tag in brackets, for example [formatter])\n",
+            t.untagged
+        ));
+    }
 }
 
 /// The section "Gates": how much of the work CI alone can decide.
@@ -452,6 +497,8 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                       "other": gate_json(&r.gates.other),
                       "unsigned": gate_json(&r.gates.unsigned)},
             "classes": r.classes.iter().map(|c| rows(c.class, &c.events)).collect::<Vec<_>>(),
+            "tags": {"untagged": r.tags.untagged,
+                     "rows": r.tags.rows.iter().map(|x| rows(&x.tag, &x.events)).collect::<Vec<_>>()},
             "rounds": r.rounds.iter().map(|x| json!({
                 "ticket": x.ticket.to_string(), "issue": x.ticket.issue, "fails": x.fails,
                 "url": x.latest.url})).collect::<Vec<_>>(),
@@ -521,6 +568,7 @@ mod tests {
                 tool_run_passes: 1,
             },
             gates: crate::retro::GateStats::default(),
+            tags: crate::retro::Tags::default(),
             classes: vec![
                 ClassRow {
                     class: "review",

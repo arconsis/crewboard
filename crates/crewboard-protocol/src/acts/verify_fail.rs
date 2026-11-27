@@ -258,6 +258,35 @@ pub fn failed_lines(body: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The first words of the failure note that `tick` writes for a check of the tool that failed
+/// (`verify --run-check` in an unattended run). The name of the check follows.
+pub const TOOL_CHECK_NOTE: &str = "the tool ran the checks of the Gate: check ";
+
+/// The tag of a review fail: what kind of fault it is, in one word. The coordinator starts the
+/// note of `verify --fail` with it in brackets (`[formatter] cargo fmt was not run`): lower-case
+/// letters, digits and `-`, at most 24. A failed check of the tool has the tag `check-<name>`.
+/// `None`: the fail is no review fail, or its note has no tag. `retro` counts by this word.
+pub fn review_tag(body: &str) -> Option<String> {
+    let note = failed_lines(body)
+        .into_iter()
+        .find_map(|l| l.strip_prefix(GATE_CHECK_PREFIX))?
+        .trim_start();
+    if let Some(rest) = note.strip_prefix(TOOL_CHECK_NOTE) {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+            .collect();
+        return (!name.is_empty()).then(|| format!("check-{name}"));
+    }
+    let tag = note.strip_prefix('[')?.split_once(']')?.0;
+    let ok = !tag.is_empty()
+        && tag.len() <= 24
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    ok.then(|| tag.to_string())
+}
+
 /// The classes of a failed verify result, sorted and without duplicates. A result without a
 /// `failed:` line carries only the free text of the coordinator: [`FailClass::Review`].
 pub fn fail_classes(body: &str) -> Vec<FailClass> {
@@ -315,6 +344,55 @@ mod tests {
                 note: s("Gate part 2 is missing"),
             },
         ]
+    }
+
+    #[test]
+    fn a_review_fail_has_the_tag_of_its_note_and_a_tool_check_has_the_name_of_the_check() {
+        let body = |note: &str| {
+            let e = EvidenceMsg {
+                pr: "https://github.com/o/r/pull/1".into(),
+                sha: "abc".into(),
+                ci: "none".into(),
+                ci_sources: None,
+                ci_runs: None,
+                local_gate: None,
+            };
+            let f = [VerifyFailure::GateCheck { note: note.into() }];
+            verify_body(false, &e, "abc", &f, "", None, None)
+        };
+        let tag = |note: &str| review_tag(&body(note));
+        assert_eq!(
+            tag("[formatter] cargo fmt was not run").as_deref(),
+            Some("formatter")
+        );
+        assert_eq!(tag("[scope-2]x").as_deref(), Some("scope-2"));
+        assert_eq!(
+            tag(
+                "the tool ran the checks of the Gate: check unit-tests exited 1 on a clean checkout"
+            )
+            .as_deref(),
+            Some("check-unit-tests")
+        );
+        for note in [
+            "Gate part 2 is missing",
+            "[Formatter] x",
+            "[] x",
+            "[a b] x",
+            "see [formatter]",
+        ] {
+            assert_eq!(tag(note), None, "{note}");
+        }
+        // a fail of a machine class has no tag
+        let e = EvidenceMsg {
+            pr: "https://github.com/o/r/pull/1".into(),
+            sha: "abc".into(),
+            ci: "none".into(),
+            ci_sources: None,
+            ci_runs: None,
+            local_gate: None,
+        };
+        let machine = verify_body(false, &e, "def", &[VerifyFailure::PrClosed], "", None, None);
+        assert_eq!(review_tag(&machine), None);
     }
 
     /// The position of a variant in `samples`. No catch-all arm.

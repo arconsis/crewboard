@@ -970,3 +970,41 @@ fn the_passes_that_the_tool_decided_are_counted_apart_from_typed_ones() {
     let y = retro(&logs).verify;
     assert_eq!((y.passes, y.tool_run_passes), (4, 2));
 }
+
+#[test]
+fn review_fails_are_counted_by_the_tag_of_their_note_and_three_of_one_tag_repeat() {
+    let fmt = || review("[formatter] cargo fmt was not run");
+    let logs = [
+        Log::new(1).assign(1).done(2).fail(3, &[fmt()]).done(4).pass(5).build(),
+        Log::new(2).assign(1).done(2).fail(3, &[fmt()]).build(),
+        Log::new(3)
+            .assign(1)
+            .done(2)
+            .fail(3, &[fmt()])
+            .done(4)
+            .fail(5, &[review("[scope] a file outside the scope")])
+            .build(),
+        // no tag, a machine class (not a review fail), and a failed check of the tool
+        Log::new(4).assign(1).done(2).fail(3, &[review("part 2 is missing")]).build(),
+        Log::new(5).assign(1).done(2).fail(3, &[red()]).build(),
+        Log::new(6)
+            .assign(1)
+            .done(2)
+            .fail(
+                3,
+                &[review(
+                    "the tool ran the checks of the Gate: check tests exited 1 on a clean checkout of abc",
+                )],
+            )
+            .build(),
+    ];
+    let t = retro(&logs).tags;
+    let rows: Vec<(&str, usize)> = t
+        .rows
+        .iter()
+        .map(|r| (r.tag.as_str(), r.events.len()))
+        .collect();
+    assert_eq!(rows, [("formatter", 3), ("check-tests", 1), ("scope", 1)]);
+    assert_eq!(t.untagged, 1);
+    assert!(t.rows[0].events.len() >= REPEATED_FROM);
+}

@@ -156,7 +156,7 @@ rule = "verify-needs-review"
 name = "coordinator: failed Gate check"
 role = "coordinator"
 situation = "The evidence holds but your Gate check fails"
-action = "`verify --fail --body \"<what you found>\"`"
+action = "`verify --fail --body \"[<tag>] <what you found>\"`"
 
 [[case]]
 name = "coordinator: send-back"
