@@ -216,6 +216,12 @@ mod tests {
         (&["verify", "1", "--run", "9"], false),
         (&["verify", "1", "--fail", "--body", "x"], false),
         (&["verify", "1", "--body", "x"], true),
+        // a run of checks by the command is not in the scope, with or without a red run
+        (&["verify", "1", "--run-check", "a"], false),
+        (
+            &["verify", "1", "--run-check", "a", "--must-fail-at", "abc"],
+            false,
+        ),
         (
             &["verify", "1", "--local-run", "host-a: make test rc=0"],
             false,
@@ -261,6 +267,7 @@ mod tests {
         (&["repeat", "--times", "1", "--", "true"], true),
         // it runs commands of AUTHORITY.md, as `tick` does, and writes nothing
         (&["check", "fmt"], true),
+        (&["check", "fmt", "--must-fail-at", "abc"], true),
         // the command lines of a local file: owner work
         (&["check", "--authority-file", "draft.md"], false),
         // local work: a shell setup, or a command that its own guard judges

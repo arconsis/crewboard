@@ -466,35 +466,56 @@ commit.
    names the tested commit is a usage error too. The red commit must be an ancestor of the
    tested commit. A commit outside that history proves nothing about the change, so the run
    ends with `check-not-run`. Nothing more is fetched: an ancestor comes with the tested
-   commit.
-3. **Two runs.** Each named check runs two times: first the red run, then the green run. All
+   commit. A shallow checkout can lack that ancestor. The error text then names
+   `git fetch --unshallow`. A relative rev such as `HEAD~1` is read in the checkout of
+   `--work-dir`, not on the head of the PR. The SHA of the red commit is the safe form.
+3. **The same check on both commits.** Before the red run, the tool lists the files that
+   differ between the red commit and the tested commit. A file that is a protected path (the
+   authority file, the built-in protected paths, `protected_paths`) must not be in that list.
+   On a hit the run ends with `check-not-run`, and no code of the red commit runs. The reason:
+   a commit in the middle of a PR can change a protected check script, and the head can
+   restore it. The diff of the PR then shows no protected path, but the red run would run the
+   changed script. Name a red commit after that change. This rule applies to `check`, `done`
+   and `verify`, attended or not.
+4. **Two runs.** Each named check runs two times: first the red run, then the green run. All
    red runs come first, in the order of the names. Both runs follow the same rules (see
    [Checks that the tool runs](#checks-that-the-tool-runs), item 3): a new work tree of
    exactly one commit, no shell, the cut-down environment, the time limit. Each run has a work
    tree of its own, and the tool removes both. The logs are in one run directory:
-   `<name>.red.log` for the red run and `<name>.log` for the green run. The warning for a
-   command word outside `protected_paths` applies to each run.
-4. **A check that is red.** The check exits with a code that is not 0 on the red commit. Then
-   the next red run starts, and after the last one the green run.
-5. **A check that is not red.** A check that exits 0 on the red commit ends the command with
+   `<name>.red.log` for the red run and `<name>.log` for the green run. The rule for a command
+   word that is a file outside `protected_paths` applies to each run: an attended run prints
+   the warning, and an unattended run ends with `check-not-run` before a check of that run
+   starts. A TERM, INT or HUP ends the command with `check-not-run`, also during the fetch and
+   between the two runs.
+5. **A check that is red.** The check exits with a code that is not 0 on the red commit. Then
+   the next red run starts, and after the last one the green run. Every exit code that is not
+   0 counts, but for the codes of item 7. A build error counts, and so does a failing test
+   that is not the test of the fix. The tool does not compare the reason of the failure. The
+   coordinator reads `<name>.red.log`.
+6. **A check that is not red.** A check that exits 0 on the red commit ends the command with
    the refusal `check-not-red`. The text names the check and the red commit. No green run
    starts, and nothing is written. The check does not prove the change: name a check that
    fails on the red commit, or name the commit on which this check fails.
-6. **No result.** A check that runs into the time limit on the red commit is not red. The same
-   is true for a check that cannot start and for a check that a signal ends (an exit code from
-   129 to 192 reads as a signal). These cases show nothing about the commit, so they are
-   `check-not-run`.
-7. **The green run.** It is the run without the option. A check that fails is `check-failed`.
-8. **The result of `check`.** One line for each red run comes first: `red   <name>: rc=<n>
+7. **No result.** A check that runs into the time limit on the red commit is not red. The same
+   is true for a check that a signal ends (an exit code from 129 to 192 reads as a signal),
+   and for an exit code of 126 or 127 (a shell could not run or find a program). A check that
+   cannot start on the red commit is not red either: the text names the check and the red
+   commit, and it says to name another commit. These cases show nothing about the commit, so
+   they are `check-not-run`.
+8. **The green run.** It is the run without the option. A check that fails is `check-failed`.
+9. **The result of `check`.** One line for each red run comes first: `red   <name>: rc=<n>
    <s>s at <sha12>`. Then the `ok` lines follow. The last line names the tested commit and the
    red commit.
-9. **The result of `done` and `verify`.** The line of the tool has the clause `; red at
-   <sha12>` after the checks: `tool-run <host>: <name> rc=0 <n>s; red at <sha12>; clean
-   checkout of <sha12>; logs <dir>`. A line that is too long drops the logs first, as without
-   the option. The clause stays in every form of the line.
-10. **What it proves.** On this host, each named check failed on the red commit and passed on
+10. **The result of `done` and `verify`.** The line of the tool has the clause `; red at
+    <sha12>` after the checks: `tool-run <host>: <name> rc=0 <n>s; red at <sha12>; clean
+    checkout of <sha12>; logs <dir>`. A line that is too long drops the logs first, as without
+    the option. The clause stays in every form of the line.
+11. **What it proves.** On this host, each named check failed on the red commit and passed on
     the tested commit. It does not prove that the red commit is the right one: the caller
     names it. The coordinator reads the clause and can run the same proof with its own
     `verify --run-check --must-fail-at`.
-11. **Unattended.** `tick` does not use the option, and a typed Gate has no form for it.
+12. **Unattended.** `tick` does not use the option, and a typed Gate has no form for it.
     `verify --run-check` is refused under the headless scope, with or without the option.
+    `check --must-fail-at` under a headless config dir, or in a wake that a scheduler started,
+    follows the unattended rule for both runs
+    ([Checks before a delivery](#checks-before-a-delivery), item 7).

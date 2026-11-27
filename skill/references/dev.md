@@ -46,9 +46,10 @@ find goes into a `report` to the coordinator.
   you the `--local-run` line. When a check of `AUTHORITY.md` covers the Gate, use
   `done <n> --pr <url> --run-check <name>`: the tool runs it on your pushed head and writes the
   line.
-- A fix, and the Gate asks for a test that fails before the fix: add `--must-fail-at <the commit
-  before your fix>` to `check <name>` and to `done --run-check <name>`. The tool runs the check
-  on that commit first. A check that passes there is `check-not-red`.
+- A fix, and the Gate asks for a test that fails before the fix: add `--must-fail-at <sha before
+  your fix>` to `check <name>` and to `done --run-check <name>`. The check runs on that commit
+  first; one that passes there is `check-not-red`. Give the SHA: a rev such as `HEAD~1` is read
+  in the checkout of `--work-dir`, not on the PR head.
 - A `status-no-change` refusal on a second `done` means the first one landed. Do nothing.
 
 ## Blocked, asked, split

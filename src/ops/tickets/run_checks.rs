@@ -546,7 +546,19 @@ pub(super) fn has_open_changes(top: &Path) -> bool {
 /// than `tested`, and an ancestor of it. A rev that names no commit, or that names the tested
 /// commit, is a usage error. A commit outside the history of the tested one is `check-not-run`.
 pub(super) fn red_commit(top: &Path, rev: &str, tested: &str) -> CbResult<String> {
-    let red = commit_of(top, rev).map_err(|e| CbError::usage(format!("--must-fail-at: {e}")))?;
+    // a shallow checkout may not have an ancestor of the tested commit: say so
+    let shallow = || {
+        if git(top, &["rev-parse", "--is-shallow-repository"]).is_ok_and(|s| s == "true") {
+            format!(
+                " ({} is a shallow checkout, so a part of the history may be missing: run `git fetch --unshallow` there)",
+                top.display()
+            )
+        } else {
+            String::new()
+        }
+    };
+    let red = commit_of(top, rev)
+        .map_err(|e| CbError::usage(format!("--must-fail-at: {e}{}", shallow())))?;
     if red.eq_ignore_ascii_case(tested) {
         return Err(CbError::usage(format!(
             "--must-fail-at {rev} names the tested commit {}: name an earlier commit, on which the check must fail",
@@ -555,12 +567,65 @@ pub(super) fn red_commit(top: &Path, rev: &str, tested: &str) -> CbResult<String
     }
     if git(top, &["merge-base", "--is-ancestor", &red, tested]).is_err() {
         return Err(not_run(format!(
-            "the commit {} of --must-fail-at is no ancestor of the tested commit {}, and a check that fails outside the history of a change proves nothing about that change",
+            "the commit {} of --must-fail-at is no ancestor of the tested commit {}, and a check that fails outside the history of a change proves nothing about that change{}",
             &red[..12],
-            tested.chars().take(12).collect::<String>()
+            tested.chars().take(12).collect::<String>(),
+            shallow()
         )));
     }
     Ok(red)
+}
+
+/// The refusal `check-not-run` when a protected file differs between the red commit and the
+/// tested one. The rule of `verify` for protected paths reads the diff of the whole PR: a
+/// commit in the middle can change a protected file that the head restores, and the red run
+/// would run that version. So the files of every check are the same on both commits, or no
+/// code of the red commit runs.
+fn same_protected_files(top: &Path, job: &Job<'_>, red: &str) -> CbResult<()> {
+    // `-z`: the names are data, one per NUL, without quotes
+    let names = git(
+        top,
+        &["diff", "--name-only", "--no-renames", "-z", red, job.sha],
+    )
+    .map_err(not_run)?;
+    let files: Vec<String> = names
+        .split('\0')
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
+        .collect();
+    let guard = crate::rules::protected::Protect::new(job.authority, job.protected_paths);
+    let hits = crate::rules::protected::protected_hits(&files, guard);
+    if hits.is_empty() {
+        return Ok(());
+    }
+    let shown: Vec<String> = hits
+        .iter()
+        .take(5)
+        .map(|h| {
+            h.chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect()
+        })
+        .collect();
+    let more = if hits.len() > shown.len() {
+        format!(", and {} more", hits.len() - shown.len())
+    } else {
+        String::new()
+    };
+    Err(not_run(format!(
+        "a protected file differs between {} and {} ({}{more}): the check itself is not the same on both commits; name a red commit after that change",
+        &red[..12],
+        job.sha.chars().take(12).collect::<String>(),
+        shown.join(", ")
+    )))
+}
+
+/// The refusal `check-not-run` when a TERM, INT or HUP came and no check runs now.
+fn stopped_before_a_check() -> CbResult<()> {
+    if stop_signal().is_some() {
+        return Err(not_run("a signal stopped the run before a check started"));
+    }
+    Ok(())
 }
 
 /// Run `checks` in a new work tree of the commit of `job`, made from the checkout `top`. `Ok`:
@@ -574,14 +639,20 @@ pub(super) fn run_job(
     checks: &[&Check],
     log_root: &Path,
 ) -> CbResult<Passed> {
+    // first: a signal during the fetch ends the run as a refusal, not the process
+    catch_stop_signals();
     bring_commit(top, job.fetch_pr, job.sha).map_err(not_run)?;
+    stopped_before_a_check()?;
     // after the fetch: the red commit is an ancestor of the tested one, so it is here now
     let red_sha = match job.must_fail_at {
-        Some(rev) => Some(red_commit(top, rev, job.sha)?),
+        Some(rev) => {
+            let red = red_commit(top, rev, job.sha)?;
+            same_protected_files(top, job, &red)?;
+            Some(red)
+        }
         None => None,
     };
     let log_dir = make_log_dir(log_root, job.key, job.sha).map_err(not_run)?;
-    catch_stop_signals();
     let red = match red_sha {
         Some(sha) => {
             let ran = run_on(top, job, checks, &log_dir, &sha, Want::Red)?;
@@ -625,6 +696,8 @@ fn run_on(
     }
     let mut ran: Vec<Ran> = Vec::new();
     for c in checks {
+        // also between two checks, and between the red run and the green run
+        stopped_before_a_check()?;
         let log = log_dir.join(format!("{}.{log_end}", c.name));
         eprintln!("check {}: running on {}{note} ...", c.name, &sha[..12]);
         let r = run_one(&tree.dir, c, &log, job.env, job.timeout);
@@ -633,6 +706,13 @@ fn run_on(
             return Err(not_run(format!(
                 "a signal stopped the run of check {}",
                 r.name
+            )));
+        }
+        if r.end == End::NotStarted && want == Want::Red {
+            return Err(not_run(format!(
+                "check {} cannot start on the commit {sha} of --must-fail-at (see {}), and that does not show that the check can fail: that commit may not have the program of the check. Name another commit, on which the check starts and fails",
+                r.name,
+                log.display()
             )));
         }
         if r.end == End::NotStarted {
@@ -680,8 +760,10 @@ fn green_end(job: &Job<'_>, r: &Ran, log: &Path) -> CbResult<()> {
 }
 
 /// The end of a check on the commit of `--must-fail-at`: it exited with a code that is not 0.
-/// A check that exits 0 there is the refusal `check-not-red`. A check that the time limit or a
-/// signal stops shows nothing about the commit: `check-not-run`.
+/// Every such code counts, but for the codes of a signal and of a program that a shell could not
+/// run: the tool does not compare the reason of the failure. A check that exits 0 there is the
+/// refusal `check-not-red`. A check that the time limit or a signal stops, or whose program a
+/// shell could not run or find, shows nothing about the commit: `check-not-run`.
 fn red_end(job: &Job<'_>, r: &Ran, sha: &str, log: &Path) -> CbResult<()> {
     if r.end == End::TimedOut {
         return Err(not_run(format!(
@@ -694,6 +776,14 @@ fn red_end(job: &Job<'_>, r: &Ran, sha: &str, log: &Path) -> CbResult<()> {
     if killed_by_signal(r.rc) {
         return Err(not_run(format!(
             "a signal ended check {} on {sha} (--must-fail-at; rc={}), and that does not show that the check can fail (see {})",
+            r.name,
+            r.rc,
+            log.display()
+        )));
+    }
+    if not_started_code(r.rc) {
+        return Err(not_run(format!(
+            "check {} exited {} on {sha} (--must-fail-at): a shell could not run or find a program, and that does not show that the check can fail (see {})",
             r.name,
             r.rc,
             log.display()
@@ -719,6 +809,11 @@ fn red_end(job: &Job<'_>, r: &Ran, sha: &str, log: &Path) -> CbResult<()> {
 /// runner reports it)? A check that exits with such a code by itself reads the same.
 fn killed_by_signal(rc: i32) -> bool {
     (129..=192).contains(&rc)
+}
+
+/// Is the code the one of a shell that could not run (126) or find (127) a program?
+fn not_started_code(rc: i32) -> bool {
+    rc == 126 || rc == 127
 }
 
 /// The last lines of a log, for the refusal text (the log may hold text of the PR: it is shown
@@ -851,6 +946,10 @@ mod tests {
         assert!(killed_by_signal(137) && killed_by_signal(143) && killed_by_signal(129));
         assert!(!killed_by_signal(1) && !killed_by_signal(127) && !killed_by_signal(128));
         assert!(!killed_by_signal(255));
+        // a shell that could not run or find a program is no red result either
+        assert!(not_started_code(126) && not_started_code(127));
+        assert!(!not_started_code(1) && !not_started_code(2) && !not_started_code(125));
+        assert!(!not_started_code(128) && !not_started_code(0));
     }
 
     #[test]
