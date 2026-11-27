@@ -7,7 +7,7 @@
 
 use super::assign_checks::{
     CapOverride, check_assignable, check_assignable_state, check_capabilities, copy_signed,
-    post_assignment,
+    post_assignment, sync_gate_field,
 };
 use super::{agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work};
 use crate::base::ids;
@@ -196,8 +196,18 @@ pub(super) fn move_queued(
     write_order(ac, &t.item_id, order, who)?;
     // The signed log takes the assignee only from an assignment message: post that one. A
     // queued ticket has a signed assignment, so the message keeps the signed Gate and CI line;
-    // the body is not read again (spec/tickets#ticket-content).
+    // the body is not read again (spec/tickets#ticket-content). The field shows the signed Gate.
     let lines = copy_signed(&t.key(), &t.msgs, &t.info.body);
+    let gate_field_line = match &lines.gate {
+        Some(g) => sync_gate_field(
+            ac,
+            &t.item_id,
+            t.item.get(Field::Gate),
+            (g, "signed Gate"),
+            who,
+        )?,
+        None => String::new(),
+    };
     let posted = post_assignment(
         ac,
         t,
@@ -225,6 +235,7 @@ pub(super) fn move_queued(
         "assignment message {} ({})\n",
         posted.id, posted.url
     ));
+    out.push_str(&gate_field_line);
     out.push_str(&lines.notes);
     Ok(out)
 }

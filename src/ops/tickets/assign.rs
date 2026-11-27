@@ -3,8 +3,8 @@
 //! `--to <other agent>` moves it to that agent.
 
 use super::assign_checks::{
-    CapOverride, check_assignable, check_capabilities, copy_signed, first_from_body,
-    post_assignment,
+    CapOverride, GATE_FIELD_KEPT, check_assignable, check_capabilities, copy_signed,
+    first_from_body, gate_field_value, post_assignment,
 };
 use super::board_put::put_on_board;
 use super::order;
@@ -59,9 +59,8 @@ fn ready_without_assignment(status: Status, agent: Option<&str>, signed: bool) -
 struct Assignment<'a> {
     to: &'a AgentName,
     order: i64,
-    /// The value of the `Gate` field: the `Gate:` line of the issue, or the signed Gate when the
-    /// body has another one. `None`: that signed Gate is too long for a text field, and the
-    /// field stays as it is.
+    /// The value of the `Gate` field: the Gate that the assignment message signs. `None`: it is
+    /// too long for a text field, and the field stays as it is.
     gate: Option<&'a str>,
     /// The ticket is Ready already and only lacks the Agent.
     ready_unassigned: bool,
@@ -333,7 +332,8 @@ pub fn assign(
     // The body is signed only for a ticket without an assignment in its log; a ticket that has
     // one (after a `reassign`) keeps its signed lines. A ticket that the board shows as assigned
     // without one (the message is gone or not valid) is signed from the body, with a warning.
-    let lines = if crate::ticket::has_assignment(&t.msgs) {
+    let copied = crate::ticket::has_assignment(&t.msgs);
+    let lines = if copied {
         copy_signed(&t.key(), &t.msgs, &t.info.body)
     } else {
         let assigned_on_board = status != Status::Backlog || t.agent().is_some();
@@ -344,15 +344,19 @@ pub fn assign(
             assigned_on_board,
         )
     };
-    let (field_gate, gate_note) = match lines.gate.as_deref().filter(|_| lines.gate_differs) {
-        Some(signed) if check_text_field(signed).is_ok() => {
-            (Some(signed), "Gate field set from the signed Gate")
-        }
-        Some(_) => (
-            None,
-            "Gate field kept (the signed Gate is too long for the field)",
-        ),
-        None => (Some(gate.as_str()), "Gate field set from the body"),
+    // The field holds what the message signs. A copy without a signed Gate signs none: the
+    // field then shows the Gate lines of the body.
+    let body_gate = crate::ticket::gate_line_of(&t.info.body).unwrap_or(gate);
+    let (shown, source) = match &lines.gate {
+        Some(signed) if copied => (signed.as_str(), "Gate field set from the signed Gate"),
+        Some(signed) => (signed.as_str(), "Gate field set from the body"),
+        None => (body_gate.as_str(), "Gate field set from the body"),
+    };
+    let field_gate = gate_field_value(shown);
+    let gate_note = if field_gate.is_some() {
+        source
+    } else {
+        GATE_FIELD_KEPT
     };
     let a = Assignment {
         to: &to_name,

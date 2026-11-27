@@ -762,7 +762,18 @@ fn a_later_assignment_keeps_the_signed_gate_and_ci_line_when_the_body_was_edited
     assert!(first.contains("ci: required\n"), "{first}");
     // a holder of an agent token edits the body: a weaker Gate and `CI: none`
     fake.set_issue_body(t, "Goal: x.\n\nGate: ci\nCI: none\n");
+    // somebody wrote the field too: the move puts the signed Gate back
+    fake.set_item(&item(&fake, t), "Gate", "ci");
     let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+    assert!(
+        o.stdout.contains("Gate field set from the signed Gate"),
+        "{}",
+        o.stdout
+    );
+    assert_eq!(
+        field(&fake, &item(&fake, t), "Gate").as_deref(),
+        Some(SIGNED_GATE)
+    );
     let m = moved_message(&fake, t);
     assert!(m.contains(&format!("moved-from: {}", b.name)), "{m}");
     assert!(m.contains(&format!("gate: {SIGNED_GATE}\n")), "{m}");
@@ -845,10 +856,21 @@ fn reassign_to_keeps_the_signed_lines_and_warns_when_the_body_was_edited() {
     let s = t.to_string();
     run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
     fake.set_issue_body(t, EDITED_BODY);
+    // somebody wrote the field too
+    fake.set_item(&item(&fake, t), "Gate", "ci");
     let o = run_ok(
         &fake,
         &c,
         &["reassign", &s, "--reason", "dead", "--to", &a.name],
+    );
+    assert!(
+        o.stdout.contains("Gate field set from the signed Gate"),
+        "{}",
+        o.stdout
+    );
+    assert_eq!(
+        field(&fake, &item(&fake, t), "Gate").as_deref(),
+        Some(SIGNED_GATE)
     );
     let last = assignments(&fake, t).pop().expect("the last assignment");
     assert!(last.contains("reason: "), "{last}");
@@ -889,9 +911,17 @@ fn a_body_with_two_gate_lines_agrees_with_its_signed_line() {
         o.stdout
     );
     assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
+    // the field holds what is signed: both lines, also after `ticket adopt` and the move
+    let joined = Some("the build passes | the demo runs");
+    assert_eq!(field(&fake, &item(&fake, t), "Gate").as_deref(), joined);
+    let o = run_ok(&fake, &c, &["ticket", "adopt", &s]);
+    assert!(!o.stdout.contains("Gate field"), "{}", o.stdout);
+    assert_eq!(field(&fake, &item(&fake, t), "Gate").as_deref(), joined);
     let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
     assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
     assert!(!o.stdout.contains("signed from the body"), "{}", o.stdout);
+    assert!(!o.stdout.contains("Gate field"), "{}", o.stdout);
+    assert_eq!(field(&fake, &item(&fake, t), "Gate").as_deref(), joined);
     let m = moved_message(&fake, t);
     assert!(
         m.contains("gate: the build passes | the demo runs\n"),
@@ -934,7 +964,7 @@ fn assign_of_a_ticket_whose_assignment_message_is_gone_warns_and_names_what_it_s
         let key = format!("{REPO}#{t}");
         assert!(
             o.stdout.contains(&format!(
-                "warning: {key} has an Agent or a Status past Backlog, but no valid signed assignment"
+                "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid)"
             )) && o
                 .stdout
                 .contains("The Gate now comes from the unsigned body: check it"),
@@ -947,7 +977,15 @@ fn assign_of_a_ticket_whose_assignment_message_is_gone_warns_and_names_what_it_s
             "deleted={deleted}: {}",
             o.stdout
         );
+        // the new message holds what the answer names
+        let last = assignments(&fake, t).pop().expect("the new assignment");
+        assert!(
+            last.contains("gate: ci\n") && last.contains("ci: none\n"),
+            "deleted={deleted}: {last}"
+        );
+        assert_eq!(field(&fake, &item(&fake, t), "Gate").as_deref(), Some("ci"));
     }
+    no_unhandled(&fake);
 }
 
 /// An assignment without a `gate:` line (a ticket of an earlier version): a move copies what the
@@ -1000,5 +1038,44 @@ fn adopt_writes_the_signed_gate_into_the_field_when_the_body_was_edited() {
         o.stdout
     );
     assert_eq!(field(&fake, &id, "Gate").as_deref(), Some(SIGNED_GATE));
+    no_unhandled(&fake);
+}
+
+/// The same for `assign` after a `reassign`: the log has an assignment, so `assign` copies what
+/// it has and does not sign the body, also when that assignment has no `gate:` line.
+#[test]
+fn assign_after_a_reassign_of_a_ticket_without_a_signed_gate_does_not_sign_the_body() {
+    let (fake, c, a, b) = crew();
+    let t = gated(&fake, "IT assign without a signed gate");
+    let s = t.to_string();
+    run_ok(&fake, &c, &["ticket", "adopt", &s]);
+    let id = item(&fake, t);
+    fake.signed(
+        &c.key,
+        &c.name,
+        &b.name,
+        crewboard::protocol::names::Kind::Request,
+        t,
+        &format!("Assigned to you: T\nticket: {REPO}#{t}\nitem={id}\n"),
+    );
+    fake.set_item(&id, "Status", "Ready");
+    fake.set_item(&id, "Agent", &b.name);
+    run_ok(&fake, &c, &["reassign", &s, "--reason", "dead"]);
+    fake.set_issue_body(t, EDITED_BODY);
+    let before = assignments(&fake, t).len();
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+    let all = assignments(&fake, t);
+    assert_eq!(all.len(), before + 1, "{all:?}");
+    let last = all.last().expect("the new assignment");
+    assert!(last.contains("order: "), "{last}");
+    assert!(!last.contains("gate: ") && !last.contains("ci: "), "{last}");
+    assert!(!o.stdout.contains("signed from the body"), "{}", o.stdout);
+    assert!(
+        o.stdout.contains(&format!(
+            "note: {REPO}#{t} has no signed Gate in its log, so the new assignment message has no `gate:` line either"
+        )),
+        "{}",
+        o.stdout
+    );
     no_unhandled(&fake);
 }

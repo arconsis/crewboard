@@ -1,14 +1,16 @@
 //! The checks before an assignment: can the agent take work, and does it meet the needs of the
 //! ticket, and the signed assignment message. Shared by `assign`, `new`, `order` and `reassign`.
 
-use super::{post, to_agent};
+use super::{post, to_agent, write_work};
 use crate::base::ids;
+use crate::board::FieldValue;
 use crate::ctx::{AgentCtx, World};
 use crate::error::{CbError, CbResult};
 use crate::protocol::acts::ci_line;
 use crate::protocol::names::{AgentName, Kind, Re};
 use crate::rules::Role;
-use crate::rules::fields::Field;
+use crate::rules::fields::{Field, WriteCtx};
+use crate::rules::limits::check_text_field;
 use crate::services::ticket_loader::{IssueInfo, Ticket};
 use crate::ticket::{VMsg, declares_ci_none, gate_line_of, signed_ci_none, signed_gate};
 
@@ -119,8 +121,6 @@ pub(super) struct SignedLines {
     pub gate: Option<String>,
     /// `None`: no `ci:` line (the copy of an assignment that has none).
     pub ci_none: Option<bool>,
-    /// The body has another Gate than the signed one.
-    pub gate_differs: bool,
     /// The lines for the answer of the command, each with its final newline: a warning for each
     /// signed value that differs from the body ([`copy_signed`]), or what the message signs from
     /// the body ([`first_from_body`]). Empty when a copy agrees with the body.
@@ -152,19 +152,53 @@ pub(super) fn copy_signed(key: &str, msgs: &[VMsg], body: &str) -> SignedLines {
             ci_line(c).trim_end()
         ));
     }
+    if gate.is_none() {
+        notes.push_str(&format!(
+            "note: {key} has no signed Gate in its log, so the new assignment message has no `gate:` line either: the headless coordinator leaves the ticket\n"
+        ));
+    }
     SignedLines {
         gate,
         ci_none,
-        gate_differs,
         notes,
     }
+}
+
+/// The note of a `Gate` field that is not written: the Gate is too long for a text field.
+pub(super) const GATE_FIELD_KEPT: &str = "Gate field kept (the Gate is too long for the field)";
+
+/// The one rule for the value of the `Gate` field: the Gate as an assignment message signs it
+/// (every Gate line, joined), when it fits a text field. `None`: it does not fit, and the field
+/// stays as it is ([`GATE_FIELD_KEPT`]). Pure.
+pub(super) fn gate_field_value(gate: &str) -> Option<&str> {
+    check_text_field(gate).is_ok().then_some(gate)
+}
+
+/// Writes `gate` into the `Gate` field of the item when the field (`current`) has another
+/// value, by the rule of [`gate_field_value`]. `source` names where the Gate comes from
+/// (`signed Gate` or `body`). Returns the line for the answer; empty when the field agrees.
+pub(super) fn sync_gate_field(
+    ac: &AgentCtx,
+    item_id: &str,
+    current: Option<&str>,
+    (gate, source): (&str, &str),
+    who: &WriteCtx,
+) -> CbResult<String> {
+    let Some(value) = gate_field_value(gate) else {
+        return Ok(format!("{GATE_FIELD_KEPT}\n"));
+    };
+    if current == Some(value) {
+        return Ok(String::new());
+    }
+    write_work(ac, item_id, Field::Gate, FieldValue::Text(value), who)?;
+    Ok(format!("Gate field set from the {source}\n"))
 }
 
 /// The lines of the first assignment message of the ticket `key`, from the body: `gate:` holds
 /// every `Gate:` line of the body (`gate_field` is the fallback when the body has no such line),
 /// and `ci:` says whether the body declares `CI: none`. The notes name what is signed, so the
 /// coordinator sees it. `assigned_on_board`: the Status of the ticket is past Backlog or it has
-/// an Agent, so an assignment message is missing from the log (deleted, edited or not valid);
+/// an Agent, but the log has no valid assignment (never posted, deleted, edited or not valid);
 /// the notes then start with a warning. Pure.
 pub(super) fn first_from_body(
     key: &str,
@@ -177,7 +211,7 @@ pub(super) fn first_from_body(
     let mut notes = String::new();
     if assigned_on_board {
         notes.push_str(&format!(
-            "warning: {key} has an Agent or a Status past Backlog, but no valid signed assignment: the assignment message is gone, was edited or is not valid. The Gate now comes from the unsigned body: check it\n"
+            "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid). The Gate now comes from the unsigned body: check it\n"
         ));
     }
     notes.push_str(&format!(
@@ -188,13 +222,12 @@ pub(super) fn first_from_body(
     SignedLines {
         gate,
         ci_none: Some(ci_none),
-        gate_differs: false,
         notes,
     }
 }
 
-/// The signed assignment message. `lines` ([`first_from_body`] or [`copy_signed`]) holds its `gate:` and `ci:`
-/// values: the headless "CI only" judgement, `done`, `verify` and `merge` read these lines, not
+/// The signed assignment message. `lines` ([`first_from_body`] or [`copy_signed`]) holds its
+/// `gate:` and `ci:` values: the headless "CI only" judgement, `done`, `verify` and `merge` read these lines, not
 /// the body (spec/tickets#ticket-content). `extra` holds the further lines (order, moved-from,
 /// override), each with its final newline. `assign` and the move of a queued ticket both post it,
 /// because the signed log takes the assignee only from this message.
@@ -263,7 +296,6 @@ mod tests {
         let l = first_from_body("o/r#1", "Goal\nGate: a\nGate: b\nCI: none\n", None, false);
         assert_eq!(l.gate.as_deref(), Some("a | b"));
         assert_eq!(l.ci_none, Some(true));
-        assert!(!l.gate_differs);
         assert_eq!(l.notes, "signed from the body: gate 'a | b'; ci: none\n");
         // defence only: `assign` refuses a body without a Gate line, so no command gets here
         let l = first_from_body("o/r#1", "Goal\n", Some("ci".into()), false);
@@ -274,6 +306,11 @@ mod tests {
         let l = first_from_body("o/r#1", "Gate: a\n", None, true);
         let n: Vec<&str> = l.notes.lines().collect();
         assert_eq!(n.len(), 2, "{}", l.notes);
+        assert!(
+            n[0].contains("(never posted, deleted, edited or not valid)"),
+            "{}",
+            n[0]
+        );
         assert!(
             n[0].starts_with("warning: o/r#1 has an Agent or a Status past Backlog")
                 && n[0].ends_with("The Gate now comes from the unsigned body: check it"),
@@ -290,12 +327,11 @@ mod tests {
         let l = copy_signed("o/r#1", &msgs, "Gate: checks: a, b\n");
         assert_eq!(l.gate.as_deref(), Some("checks: a, b"));
         assert_eq!(l.ci_none, Some(false));
-        assert!(!l.gate_differs && l.notes.is_empty(), "{}", l.notes);
+        assert!(l.notes.is_empty(), "{}", l.notes);
         // the body has a weaker Gate and `CI: none`: the signed lines stay, two warnings
         let l = copy_signed("o/r#1", &msgs, "Gate: ci\nCI: none\n");
         assert_eq!(l.gate.as_deref(), Some("checks: a, b"));
         assert_eq!(l.ci_none, Some(false));
-        assert!(l.gate_differs);
         let w: Vec<&str> = l.notes.lines().collect();
         assert_eq!(w.len(), 2, "{}", l.notes);
         assert!(
@@ -313,11 +349,11 @@ mod tests {
         // the body lost its Gate line: the signed Gate stays too
         let l = copy_signed("o/r#1", &msgs, "Goal\n");
         assert_eq!(l.gate.as_deref(), Some("checks: a, b"));
-        assert!(l.gate_differs);
+        assert!(l.notes.starts_with("warning: the Gate line"), "{}", l.notes);
         // two Gate lines of the body are one signed line: no warning
         let joined = [assigned(1, "gate: a | b\nci: required\n")];
         let l = copy_signed("o/r#1", &joined, "Gate: a\n- **Gate:** b\n");
-        assert!(!l.gate_differs && l.notes.is_empty(), "{}", l.notes);
+        assert!(l.notes.is_empty(), "{}", l.notes);
         // a signed assignment without a `ci:` line: none is added, and the CI line gives no
         // warning (the body still decides for that ticket)
         let no_ci = [assigned(1, "gate: g\n")];
@@ -330,7 +366,13 @@ mod tests {
         assert!(crate::ticket::has_assignment(&old));
         let l = copy_signed("o/r#1", &old, "Gate: ci\nCI: none\n");
         assert_eq!((l.gate, l.ci_none), (None, None));
-        assert!(!l.gate_differs && l.notes.is_empty(), "{}", l.notes);
+        assert_eq!(
+            l.notes,
+            "note: o/r#1 has no signed Gate in its log, so the new assignment message has no `gate:` line either: the headless coordinator leaves the ticket\n"
+        );
+        // the field rule: a Gate that fits is the value, a longer one is none
+        assert_eq!(gate_field_value("a | b"), Some("a | b"));
+        assert_eq!(gate_field_value(&"x".repeat(1025)), None);
         // the latest signed assignment decides
         let two = [
             assigned(1, "gate: g\nci: none\n"),
