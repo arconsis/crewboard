@@ -70,6 +70,12 @@ An assignment is recognised by its first line, in the ticket log, the audit and 
 CI-only check alike. A coordinator `request` that only has a `gate:` line is no assignment.
 A later wire version may carry the act in a signed header field.
 
+Two texts of the [round limit](tickets.md#round-limit) are no acts of their own. The same module
+writes and reads them. The verify result at the limit has the line
+`case: round limit <rounds> of <N>; the owner decides`, and the status log reads it. The
+`question` to the owner has the first line `round limit: <rounds> failed verifies`, and `retro`
+reads it. Both count only from a coordinator.
+
 Because the act is only text, a writer of free text must not produce it by accident. `say` and
 `block --why` refuse a body that parses to an act (`protocol::acts::reserved_for`, also
 after leading blank space) with `text-reads-as-act`; the message names the command that writes

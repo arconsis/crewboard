@@ -411,8 +411,9 @@ fn render_gates(r: &Report, s: &mut String) {
 fn render_andon(v: &View, r: &Report, s: &mut String) {
     let a = &r.andon;
     s.push_str(&format!(
-        "\nAndon\n  questions to the owner: {}\n  questions to the coordinator: {}\n  questions to another agent: {}\n  blocked: {}\n  parked: {}\n  questions to the owner still open: {}\n",
+        "\nAndon\n  questions to the owner: {}\n  round-limit stops: {}\n  questions to the coordinator: {}\n  questions to another agent: {}\n  blocked: {}\n  parked: {}\n  questions to the owner still open: {}\n",
         a.questions_owner.len(),
+        a.round_limit_stops.len(),
         a.questions_coordinator.len(),
         a.questions_other.len(),
         a.blocked.len(),
@@ -500,6 +501,7 @@ pub fn render_json(v: &View, r: &Report) -> Value {
                 "ticket": x.ticket.to_string(), "issue": x.ticket.issue, "fails": x.fails,
                 "url": x.latest.url})).collect::<Vec<_>>(),
             "andon": {"questions_owner": events_json(&a.questions_owner),
+                      "round_limit_stops": events_json(&a.round_limit_stops),
                       "questions_coordinator": events_json(&a.questions_coordinator),
                       "questions_other": events_json(&a.questions_other),
                       "blocked": events_json(&a.blocked),
@@ -583,6 +585,7 @@ mod tests {
             }],
             andon: Andon {
                 questions_owner: vec![event("a/b", 8, 81)],
+                round_limit_stops: vec![event("a/b", 8, 81)],
                 open_questions: vec![event("a/b", 8, 81)],
                 ..Andon::default()
             },
@@ -621,7 +624,7 @@ mod tests {
             // a ticket of another repo prints with its repo
             "  accepted-after-head-moved: 1\n    a/c#2 https://github.com/a/c/issues/2#issuecomment-21\n",
             "  #7: 2 fail(s) https://github.com/a/b/issues/7#issuecomment-72\n",
-            "  questions to the owner: 1\n",
+            "  questions to the owner: 1\n  round-limit stops: 1\n",
             "  questions to the owner still open: 1\n    #8 https://github.com/a/b/issues/8#issuecomment-81\n",
             "  done-needs-pr: 1\n    #7 https://github.com/a/b/issues/7#issuecomment-73\n",
             "  reassigned tickets: 1\n  dropped tickets: 1\n  dropped with a merged PR: 1\n  closes: dropped 1, merged 2\n  late notes: 0\n",
@@ -813,6 +816,8 @@ mod tests {
                    "url": "https://github.com/a/b/issues/7#issuecomment-72"})
         );
         assert_eq!(r["andon"]["questions_owner"]["count"], 1);
+        assert_eq!(r["andon"]["round_limit_stops"]["count"], 1);
+        assert_eq!(r["andon"]["round_limit_stops"]["events"][0]["issue"], 8);
         assert_eq!(r["andon"]["open_questions"]["events"][0]["issue"], 8);
         assert_eq!(r["andon"]["blocked"]["count"], 0);
         assert_eq!(r["refusals"][0]["rule"], "done-needs-pr");

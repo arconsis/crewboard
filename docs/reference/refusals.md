@@ -148,6 +148,8 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `status-verify-failed-required` | Review to In Progress needs a failed verify. |
 | `status-verify-failed-agent-busy` | After a failed verify, a busy agent gets the ticket back in Ready. |
 | `status-verify-requeue-agent-idle` | After a failed verify, an idle agent gets the ticket back In Progress. |
+| `status-verify-rounds-spent` | At the round limit, a failed verify moves the ticket to Blocked for the owner. |
+| `status-verify-rounds-left` | Review to Blocked needs a failed verify at the round limit. |
 | `status-agent-not-active-dev` | The agent is not an active dev agent. |
 | `status-agent-not-alive` | The agent is late or stale; it would not see the ticket. |
 | `status-reassign-reason` | `reassign` needs a reason. |

@@ -620,6 +620,50 @@ fn andon_counts_questions_blocks_and_parks_and_lists_the_open_question() {
 }
 
 #[test]
+fn a_round_limit_stop_is_a_coordinator_question_with_the_fixed_first_line() {
+    let text = crate::protocol::acts::round_limit_question(3, 3, &url(104));
+    let stopped = Log::new(1)
+        .assign(1)
+        .done(2)
+        .fail(3, &[review("again")])
+        .coord(4, Kind::Question, "placeholder")
+        .build();
+    // `coord` sends to the dev agent: a question to another addressee is no stop
+    assert!(retro(&[stopped]).andon.round_limit_stops.is_empty());
+    let stopped = Log::new(1)
+        .assign(1)
+        .done(2)
+        .fail(3, &[review("again")])
+        .push(4, COORD, Role::Coordinator, "owner", Kind::Question, &text)
+        .owner(5, "Split it.")
+        .push(6, COORD, Role::Coordinator, "owner", Kind::Question, &text)
+        .build();
+    // the same text of a dev agent, and another question of the coordinator, are no stop
+    let other = Log::new(2)
+        .assign(1)
+        .dev(2, "owner", Kind::Question, &text)
+        .push(
+            3,
+            COORD,
+            Role::Coordinator,
+            "owner",
+            Kind::Question,
+            "Which API?",
+        )
+        .build();
+    let r = retro(&[stopped, other]);
+    let stops: Vec<String> = r
+        .andon
+        .round_limit_stops
+        .iter()
+        .map(|e| e.url.clone())
+        .collect();
+    assert_eq!(stops, [url(103), url(105)]);
+    // every stop is a question to the owner, too
+    assert_eq!(r.andon.questions_owner.len(), 4);
+}
+
+#[test]
 fn a_refusal_id_counts_as_a_whole_word_in_a_question_a_block_or_a_report_of_a_dev_agent() {
     let known = ids::VERIFY_NO_EVIDENCE.as_str();
     assert_eq!(

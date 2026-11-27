@@ -196,6 +196,13 @@ pub fn withdraws_question(m: &VMsg) -> bool {
     m.sender.actor().is_coordinator() && m.act() == Act::WithdrawsQuestion
 }
 
+/// Does `m` close an open question to the owner? An owner message does, and so does a coordinator
+/// `answer` that [`withdraws_question`]. The same two release a ticket that the round limit
+/// stopped ([`super::rework_rounds`]).
+pub fn closes_question(m: &VMsg) -> bool {
+    is_owner(m) || withdraws_question(m)
+}
+
 /// spec/tickets#status-flow-and-writers: the question to the owner that is open on the ticket.
 /// It is the latest `kind=question` to the owner, and no owner message (a headerless comment of
 /// the owner account) and no coordinator `answer` with the line `withdraws: question` comes
@@ -204,7 +211,7 @@ pub fn question_open<'a>(msgs: &'a [VMsg], assignee: Option<&str>) -> Option<&'a
     let at = msgs.iter().rposition(|m| is_owner_question(m, assignee))?;
     msgs[at + 1..]
         .iter()
-        .all(|m| !is_owner(m) && !withdraws_question(m))
+        .all(|m| !closes_question(m))
         .then(|| &msgs[at])
 }
 
@@ -213,7 +220,7 @@ pub fn question_open<'a>(msgs: &'a [VMsg], assignee: Option<&str>) -> Option<&'a
 /// owner ([`question_open`]).
 pub fn answered_after(msgs: &[VMsg], at: usize) -> bool {
     msgs.get(at + 1..)
-        .is_some_and(|rest| rest.iter().any(|m| is_owner(m) || withdraws_question(m)))
+        .is_some_and(|rest| rest.iter().any(closes_question))
 }
 
 /// spec/tickets#status-flow-and-writers: was an answer posted after the message that blocked the
@@ -231,7 +238,7 @@ pub fn answer_after_block(msgs: &[VMsg], status: Status, assignee: Option<&str>)
         return false;
     };
     let accepts: fn(&VMsg) -> bool = if is_owner_question(&msgs[at], assignee) {
-        |m| is_owner(m) || withdraws_question(m)
+        closes_question
     } else {
         |m| is_owner(m) || (m.sender.actor().is_coordinator() && m.kind == Some(Kind::Answer))
     };

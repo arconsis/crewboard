@@ -22,6 +22,9 @@
 //! - `ci_mode`: `ci` (default) or `local` (spec/ci#local-run-ci_mode-local). Read from the
 //!   default branch only, so a PR cannot switch it.
 //! - `coordinator_may_split_tickets`: `ticket split` is refused if false (`authority-split-not-allowed`).
+//! - `max_rounds`: the round limit of repair (spec/tickets#round-limit). The failed verify that
+//!   spends the last round moves the ticket to Blocked with a question to the owner. Off without
+//!   the key.
 //! - `former_repos`: earlier names of the main repo, each with an exclusive cutoff. A message
 //!   that fails under the current name also verifies under such a name if its signed `ts` is
 //!   before the cutoff (spec/messages#repository-moves). A block list of
@@ -35,7 +38,7 @@ use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 16] = [
+pub const ENFORCED_KEYS: [&str; 17] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -51,6 +54,7 @@ pub const ENFORCED_KEYS: [&str; 16] = [
     "check_env",
     "check_timeout",
     "daily_digest",
+    "max_rounds",
     "former_repos",
 ];
 
@@ -86,6 +90,9 @@ pub struct Authority {
     pub check_timeout: u64,
     /// The headless `tick` posts one project status update per day (default: no).
     pub daily_digest: bool,
+    /// The round limit: after this many failed verifies that count, a ticket goes to the owner
+    /// (spec/tickets#round-limit). `None`: no limit.
+    pub max_rounds: Option<u32>,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
@@ -140,6 +147,7 @@ impl Default for Authority {
             check_env: Vec::new(),
             check_timeout: DEFAULT_CHECK_TIMEOUT,
             daily_digest: false,
+            max_rounds: None,
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -445,6 +453,19 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                         "check_timeout: '{v}' is not a time like 90s, 30m or 2h"
                     ))
                 })?;
+            }
+            "max_rounds" => {
+                a.max_rounds = Some(
+                    unquote(v)
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| {
+                            bad(format!(
+                                "max_rounds: '{v}' is not a whole number from 1 (leave the key out for no limit)"
+                            ))
+                        })?,
+                );
             }
             "checks" if v == "[]" => a.checks = Vec::new(),
             "checks" => {
@@ -932,6 +953,26 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
     }
 
     #[test]
+    fn max_rounds_is_a_whole_number_from_one_and_off_without_the_key() {
+        assert_eq!(parsed("---\ninitiative: x\n---\n").max_rounds, None);
+        assert_eq!(Authority::default().max_rounds, None);
+        assert_eq!(parsed("---\nmax_rounds: 3\n---\n").max_rounds, Some(3));
+        assert_eq!(parsed("---\nmax_rounds: 1\n---\n").max_rounds, Some(1));
+        assert_eq!(
+            parsed("---\nmax_rounds: \"2\" # two rounds\n---\n").max_rounds,
+            Some(2)
+        );
+        // refused: 0 (no limit is "no key"), a negative number, a word, a fraction, no value
+        for v in ["0", "-1", "three", "2.5", "[3]", "true"] {
+            let r = parse(&format!("---\nmax_rounds: {v}\n---\n")).unwrap_err();
+            assert_eq!(r.rule, "authority-bad-front-matter", "{v}");
+            assert!(r.message.contains("max_rounds"), "{}", r.message);
+        }
+        let r = parse("---\nmax_rounds:\n---\n").unwrap_err();
+        assert_eq!(r.rule, "authority-bad-front-matter");
+    }
+
+    #[test]
     fn every_enforced_key_is_read_and_needs_owner_is_advice_only() {
         for k in ENFORCED_KEYS {
             let value = match k {
@@ -944,6 +985,7 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 "former_repos" | "checks" => "[]",
                 "ci_mode" => "ci",
                 "check_timeout" => "30m",
+                "max_rounds" => "3",
                 _ => "x",
             };
             let a = parsed(&format!("---\n{k}: {value}\n---\n"));

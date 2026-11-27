@@ -3,6 +3,10 @@
 //! Three steps: [`load_verify`] reads the ticket, [`plan_verify`] reads the PR and the CI and
 //! decides ([`verify_failures`] and [`decide_verify`] are the pure parts, a [`VerifyPlan`] their
 //! result), [`act_verify`] performs the writes of the plan in order.
+//!
+//! The round limit (spec/tickets#round-limit): with `max_rounds` in AUTHORITY.md, the failed
+//! verify that spends the last round moves the ticket to Blocked with a question to the owner
+//! ([`round_stop`]). The headless `tick` runs this code, so it does the same.
 
 use super::in_progress::in_progress_key;
 use super::local_gate::local_gate_for_verify;
@@ -19,8 +23,11 @@ use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::{CbError, CbResult};
 use crate::ops::{AgentCtx, World, parse_issue_arg};
-use crate::protocol::acts::{EvidenceMsg, VerifyFailure, failed_line, is_local_gate, verify_body};
-use crate::protocol::names::{Kind, Re};
+use crate::protocol::acts::{
+    EvidenceMsg, FailClass, VerifyFailure, counts_as_round, failed_line, is_local_gate,
+    round_limit_case, round_limit_question, verify_body,
+};
+use crate::protocol::names::{Kind, Re, To};
 use crate::rules::Actor;
 use crate::rules::Refusal;
 use crate::rules::evidence::{CiFacts, PrFacts, PrUrl, parse_pr_url};
@@ -29,7 +36,9 @@ use crate::rules::protected::PrFileList;
 use crate::rules::status::{Status, Transition, check_status_transition};
 use crate::services::ci_evidence::{CiQuery, fetch_ci};
 use crate::services::ticket_loader::Ticket;
-use crate::ticket::{ci_none_declared, latest_done, question_open};
+use crate::ticket::{
+    ci_none_declared, latest_done, question_open, rework_rounds, round_limit_question_open,
+};
 
 /// `verify <issue> [--body ...]` (coordinator): spec/tickets#verification-by-the-coordinator steps
 /// 1 and 2; the gate itself (step 3) is the model's work, and `--body` records what it found.
@@ -260,6 +269,51 @@ struct VerifyFacts<'a> {
     labelled_needs_owner: bool,
     /// A question to the owner is still open on the ticket.
     question_open: bool,
+    /// The round limit; `None` without `max_rounds` in AUTHORITY.md.
+    rounds: Option<RoundFacts>,
+}
+
+/// What the round limit reads (spec/tickets#round-limit).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RoundFacts {
+    /// `max_rounds` of AUTHORITY.md.
+    limit: u32,
+    /// The rounds that the ticket has spent so far, without this verify ([`rework_rounds`]).
+    prior: usize,
+    /// The question of the round limit is open on the ticket already.
+    question_open: bool,
+}
+
+/// A failed verify that spends the last round of the ticket: the ticket goes to the owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RoundStop {
+    limit: u32,
+    /// The rounds with this one.
+    rounds: u32,
+    /// Post the question to the owner (not when the question of the round limit is open).
+    ask: bool,
+}
+
+/// Does this verify stop the ticket at the round limit? It does when the limit is set, the fail
+/// counts as a round, and it is the last round or one after it (a limit that the owner lowered
+/// stops the ticket at the next fail that counts, never before). Pure.
+fn round_stop(f: &VerifyFacts<'_>, failures: &[VerifyFailure]) -> Option<RoundStop> {
+    let r = f.rounds?;
+    if failures.is_empty() {
+        return None;
+    }
+    let mut classes: Vec<FailClass> = failures.iter().map(VerifyFailure::class).collect();
+    classes.sort();
+    classes.dedup();
+    if !counts_as_round(&classes) {
+        return None;
+    }
+    let rounds = u32::try_from(r.prior).unwrap_or(u32::MAX).saturating_add(1);
+    (rounds >= r.limit).then_some(RoundStop {
+        limit: r.limit,
+        rounds,
+        ask: !r.question_open,
+    })
 }
 
 /// The failures of the evidence and the fresh CI text that a pass keeps.
@@ -374,7 +428,7 @@ fn ci_failures(
 }
 
 /// The move of a failed verify: back to In Progress, or to Ready (first in the
-/// queue) when the agent works on another ticket.
+/// queue) when the agent works on another ticket. At the round limit: to Blocked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct FailMove {
     to: Status,
@@ -402,11 +456,14 @@ struct VerifyPlan {
     fail_move: Option<FailMove>,
     /// The label `needs-owner` goes (a failed verify only).
     clear_needs_owner: bool,
+    /// The round limit stops the ticket: the question to the owner and the label come before
+    /// the Status write.
+    round_stop: Option<RoundStop>,
 }
 
 /// Decide the report and the writes of `verify` from the findings. Pure. `busy` is the other
 /// ticket of the assignee that is In Progress and the `Order` that puts this ticket first in
-/// the queue; read only for a failed verify.
+/// the queue; read only for a failed verify, and not at the round limit.
 fn decide_verify(
     f: &VerifyFacts<'_>,
     findings: VerifyFindings,
@@ -419,12 +476,16 @@ fn decide_verify(
         ci_runs: findings.fresh_runs.or_else(|| f.ev.ci_runs.clone()),
         ..f.ev.clone()
     };
-    let case = busy.as_ref().map(|(other, order)| {
-        format!(
-            "verify failed; {} works on {other}; queued as next (Ready, Order {order})",
-            f.assignee
-        )
-    });
+    let stop = round_stop(f, &findings.failures);
+    let case = match stop {
+        Some(s) => Some(round_limit_case(s.rounds, s.limit)),
+        None => busy.as_ref().map(|(other, order)| {
+            format!(
+                "verify failed; {} works on {other}; queued as next (Ready, Order {order})",
+                f.assignee
+            )
+        }),
+    };
     let body = verify_body(
         pass,
         &ev_now,
@@ -449,7 +510,10 @@ fn decide_verify(
         ));
         None
     } else {
-        Some(fail_move(f, busy.as_ref())?)
+        Some(match stop {
+            Some(s) => stop_move(f, s)?,
+            None => fail_move(f, busy.as_ref())?,
+        })
     };
     Ok(VerifyPlan {
         pass,
@@ -468,7 +532,27 @@ fn decide_verify(
         ),
         rest,
         fail_move,
-        clear_needs_owner: !pass && f.labelled_needs_owner && !f.question_open,
+        clear_needs_owner: !pass && stop.is_none() && f.labelled_needs_owner && !f.question_open,
+        round_stop: stop,
+    })
+}
+
+/// The move of the failed verify that spends the last round: to Blocked, checked against the
+/// status table. No `Order` is written.
+fn stop_move(f: &VerifyFacts<'_>, s: RoundStop) -> Result<FailMove, Refusal> {
+    let ctx = Transition::AfterVerify {
+        verify: Some(false),
+        assignee_busy: false,
+        rounds_spent: true,
+    };
+    check_status_transition(Some(f.from), Status::Blocked, f.actor, &ctx)?;
+    Ok(FailMove {
+        to: Status::Blocked,
+        order: None,
+        line: format!(
+            "Status moved to Blocked: the round limit stopped the ticket ({} failed verifies, max_rounds {}). It does not go back to {}. The owner decides: a comment of the owner on the ticket releases it, and {} then runs `take`. You can also run `crewboard unblock`, `reassign`, `ticket split` or `close --why`\n",
+            s.rounds, s.limit, f.assignee, f.assignee
+        ),
     })
 }
 
@@ -477,6 +561,7 @@ fn fail_move(f: &VerifyFacts<'_>, busy: Option<&(String, i64)>) -> Result<FailMo
     let ctx = Transition::AfterVerify {
         verify: Some(false),
         assignee_busy: busy.is_some(),
+        rounds_spent: false,
     };
     match busy {
         Some((other, order)) => {
@@ -587,6 +672,11 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             .iter()
             .any(|x| x == crate::labels::NEEDS_OWNER),
         question_open: question_open(&t.msgs, t.agent()).is_some(),
+        rounds: pre.auth.max_rounds.map(|limit| RoundFacts {
+            limit,
+            prior: rework_rounds(&t.msgs),
+            question_open: round_limit_question_open(&t.msgs, t.agent()),
+        }),
     };
     let findings = verify_failures(&facts, &|| {
         crate::ctx::load_authority_quiet(&ac.ctx)
@@ -595,7 +685,8 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
     });
     // A failed verify needs to know if the agent works on another ticket. This is
     // the ONE added read: the board rows of the assignee's tickets (`nodes(ids:)`), only on a fail.
-    let busy = if findings.failures.is_empty() {
+    // At the round limit the ticket goes to the owner, so nobody reads the queue.
+    let busy = if findings.failures.is_empty() || round_stop(&facts, &findings.failures).is_some() {
         None
     } else {
         let rows = crate::ops::lifecycle::rows_of(ac, &l.world, &pre.assignee)?;
@@ -635,6 +726,29 @@ fn act_verify(
         "{}result message {} ({})\n{}",
         p.first_line, posted.id, posted.url, p.rest
     );
+    if let Some(s) = &p.round_stop {
+        // The question comes before the Status write, and the label right after the question:
+        // nothing adds a missing label later, so a failed write below must not leave an open
+        // question without it. A second run posts no second question.
+        if s.ask {
+            let q = post_with(
+                ac,
+                t,
+                clock,
+                To::Owner,
+                Kind::Question,
+                Re::None,
+                &round_limit_question(s.rounds, s.limit, &posted.url),
+            )?;
+            out.push_str(&format!(
+                "round limit: question to the owner {} ({})\n",
+                q.id, q.url
+            ));
+        } else {
+            out.push_str("round limit: the question to the owner is open already\n");
+        }
+        out.push_str(&needs_owner_lines(ac, &t.repo, t.issue, true));
+    }
     if let Some(m) = &p.fail_move {
         super::set_select_status(ac, &t.item_id, m.to)?;
         if let Some(order) = m.order {
@@ -776,7 +890,17 @@ mod tests {
             actor: COORD,
             labelled_needs_owner: false,
             question_open: false,
+            rounds: None,
         }
+    }
+
+    /// The facts of the round limit `limit` with `prior` rounds spent.
+    fn rounds(limit: u32, prior: usize) -> Option<RoundFacts> {
+        Some(RoundFacts {
+            limit,
+            prior,
+            question_open: false,
+        })
     }
 
     fn texts(f: &[VerifyFailure]) -> Vec<String> {
@@ -1061,12 +1185,150 @@ mod tests {
         ));
     }
 
+    /// The plan of a failed Gate check with the facts of the round limit.
+    fn gate_fail_plan(r: Option<RoundFacts>, busy: Option<(String, i64)>) -> VerifyPlan {
+        let x = fix();
+        let mut f = facts_of(&x);
+        f.gate_failed = true;
+        f.note = "Gate part 2 is missing";
+        f.rounds = r;
+        let findings = verify_failures(&f, &|| String::new());
+        decide_verify(&f, findings, busy).unwrap()
+    }
+
+    #[test]
+    fn a_fail_below_the_round_limit_moves_as_without_a_limit() {
+        // round 2 of 3: back to the agent, no case line, no stop
+        let p = gate_fail_plan(rounds(3, 1), None);
+        assert_eq!(p.round_stop, None);
+        assert_eq!(p.fail_move.unwrap().to, Status::InProgress);
+        assert!(!p.body.contains("case:"), "{}", p.body);
+        // no key: the same plan
+        assert_eq!(
+            gate_fail_plan(None, None),
+            gate_fail_plan(rounds(3, 1), None)
+        );
+        // a busy agent below the limit gets the ticket in Ready
+        let p = gate_fail_plan(rounds(3, 1), Some(("a/b#3".into(), 4)));
+        assert_eq!(p.fail_move.unwrap().to, Status::Ready);
+    }
+
+    #[test]
+    fn the_fail_that_spends_the_last_round_moves_the_ticket_to_blocked_for_the_owner() {
+        // round 3 of 3
+        let p = gate_fail_plan(rounds(3, 2), None);
+        assert_eq!(
+            p.round_stop,
+            Some(RoundStop {
+                limit: 3,
+                rounds: 3,
+                ask: true
+            })
+        );
+        let m = p.fail_move.clone().unwrap();
+        assert_eq!((m.to, m.order), (Status::Blocked, None));
+        assert!(
+            m.line.starts_with(
+                "Status moved to Blocked: the round limit stopped the ticket (3 failed verifies, max_rounds 3)"
+            ),
+            "{}",
+            m.line
+        );
+        assert!(m.line.contains("The owner decides"), "{}", m.line);
+        assert!(
+            p.body
+                .contains("case: round limit 3 of 3; the owner decides\n"),
+            "{}",
+            p.body
+        );
+        assert!(crate::protocol::acts::is_round_limit_fail(&p.body));
+        assert!(p.body.starts_with("verify: fail\n"));
+        // a busy agent changes nothing at the limit: no Ready, no Order, no queue line
+        let busy = gate_fail_plan(rounds(3, 2), Some(("a/b#3".into(), 4)));
+        assert_eq!(busy.fail_move, p.fail_move);
+        assert!(!busy.body.contains("queued as next"), "{}", busy.body);
+        // `max_rounds: 1`: the first fail that counts goes to the owner
+        let first = gate_fail_plan(rounds(1, 0), None);
+        assert_eq!(first.round_stop.map(|s| s.rounds), Some(1));
+        // a limit that the owner lowered below the count stops at this fail
+        let lowered = gate_fail_plan(rounds(2, 4), None);
+        assert_eq!(
+            lowered.round_stop.map(|s| (s.rounds, s.limit)),
+            Some((5, 2))
+        );
+        assert!(lowered.body.contains("case: round limit 5 of 2;"));
+    }
+
+    #[test]
+    fn at_the_round_limit_an_open_round_question_is_not_asked_again_and_the_label_stays() {
+        let x = fix();
+        let mut f = facts_of(&x);
+        f.gate_failed = true;
+        f.note = "Gate part 2 is missing";
+        f.labelled_needs_owner = true;
+        f.question_open = true;
+        f.rounds = Some(RoundFacts {
+            limit: 2,
+            prior: 2,
+            question_open: true,
+        });
+        let findings = verify_failures(&f, &|| String::new());
+        let p = decide_verify(&f, findings, None).unwrap();
+        assert_eq!(p.round_stop.map(|s| s.ask), Some(false));
+        assert_eq!(p.fail_move.unwrap().to, Status::Blocked);
+        assert!(!p.clear_needs_owner);
+        // another open question (of the assignee) does not replace the question of the limit
+        f.rounds = Some(RoundFacts {
+            limit: 2,
+            prior: 2,
+            question_open: false,
+        });
+        let findings = verify_failures(&f, &|| String::new());
+        let p = decide_verify(&f, findings, None).unwrap();
+        assert_eq!(p.round_stop.map(|s| s.ask), Some(true));
+        // the label never goes at the limit, also when no question was open
+        f.question_open = false;
+        let findings = verify_failures(&f, &|| String::new());
+        assert!(!decide_verify(&f, findings, None).unwrap().clear_needs_owner);
+    }
+
+    #[test]
+    fn a_head_moved_only_fail_and_a_pass_never_stop_at_the_round_limit() {
+        // head moved only, at the limit: the move of today
+        let mut x = fix();
+        x.pr.head_sha = OTHER.into();
+        let mut f = facts_of(&x);
+        f.rounds = rounds(1, 5);
+        let findings = verify_failures(&f, &|| String::new());
+        let p = decide_verify(&f, findings, None).unwrap();
+        assert_eq!(p.round_stop, None);
+        assert_eq!(p.fail_move.unwrap().to, Status::InProgress);
+        // head moved and a failed Gate check: a round
+        f.gate_failed = true;
+        f.note = "wrong";
+        let findings = verify_failures(&f, &|| String::new());
+        let p = decide_verify(&f, findings, None).unwrap();
+        assert!(p.round_stop.is_some());
+        // a pass at the limit is a pass
+        let x = fix();
+        let mut f = facts_of(&x);
+        f.rounds = rounds(1, 5);
+        let findings = verify_failures(&f, &|| String::new());
+        let p = decide_verify(&f, findings, None).unwrap();
+        assert!(p.pass && p.round_stop.is_none() && p.fail_move.is_none());
+    }
+
     #[test]
     fn the_move_after_a_failed_verify_is_checked_against_the_table_in_the_plan() {
         let mut x = fix();
         x.pr.state = "closed".into();
         let mut f = facts_of(&x);
         f.actor = Actor::Agent(Role::Dev);
+        let findings = verify_failures(&f, &|| String::new());
+        let r = decide_verify(&f, findings, None).unwrap_err();
+        assert_eq!(r.rule, "status-wrong-writer");
+        // and so is the move to Blocked at the round limit
+        f.rounds = rounds(1, 0);
         let findings = verify_failures(&f, &|| String::new());
         let r = decide_verify(&f, findings, None).unwrap_err();
         assert_eq!(r.rule, "status-wrong-writer");

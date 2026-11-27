@@ -107,6 +107,13 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
                 status = Expected::OneOf(vec![Status::Backlog, Status::Ready]);
                 agent = None;
             }
+            // At the round limit a failed verify moves the ticket to Blocked for the owner
+            // (spec/tickets#round-limit); the `case:` line of the result says so.
+            (_, Act::Verify { pass: false })
+                if coordinator && crate::protocol::acts::is_round_limit_fail(&m.body) =>
+            {
+                status = Expected::Is(Status::Blocked);
+            }
             (_, Act::Verify { pass: false }) if coordinator => {
                 status = Expected::OneOf(vec![Status::InProgress, Status::Ready]);
             }
@@ -449,6 +456,28 @@ mod tests {
             status_of(&m),
             Expected::OneOf(vec![Status::InProgress, Status::Ready])
         );
+    }
+
+    #[test]
+    fn a_failed_verify_at_the_round_limit_is_blocked() {
+        let mut m = assigned();
+        let case = crate::protocol::acts::round_limit_case(3, 3);
+        m.push(coord(
+            3,
+            "hermes@b",
+            Kind::Report,
+            &format!("verify: fail\npr: x\nfailed: y\ncase: {case}\n"),
+        ));
+        assert_eq!(status_of(&m), Expected::Is(Status::Blocked));
+        // the same text of a dev agent changes nothing
+        let mut m = assigned();
+        m.push(dev(
+            3,
+            "coordinator",
+            Kind::Report,
+            &format!("verify: fail\ncase: {case}\n"),
+        ));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
     }
 
     #[test]

@@ -55,6 +55,7 @@ are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 | Blocked -> In Progress | assignee | `take` after an answer or its own park | `ack` |
 | Review -> In Progress | coordinator | failed `verify`, agent idle | `verify: fail` report |
 | Review -> Ready | coordinator | failed `verify`, agent busy | `verify: fail` report |
+| Review -> Blocked | coordinator | failed `verify` at the [round limit](#round-limit) | `verify: fail` report with the `case:` line of the round limit |
 | Review -> Done | coordinator | `merge` after a passed `verify`, or `close --verified` for a PR merged at the verified head | close `info` |
 | any but Done and Dropped -> Done | coordinator | `close` after an owner merge | close `info` |
 | any but Done and Dropped -> Dropped | coordinator | `close --why` | `dropped: <reason>` |
@@ -113,6 +114,8 @@ The owner passes every move except a move to the current status. `crewboard move
 | `status-verify-failed-required` | Review -> In Progress without a failed verify. |
 | `status-verify-failed-agent-busy` | Review -> In Progress for a busy agent. |
 | `status-verify-requeue-agent-idle` | Review -> Ready for an idle agent. |
+| `status-verify-rounds-spent` | Review -> In Progress or Ready at the [round limit](#round-limit). |
+| `status-verify-rounds-left` | Review -> Blocked below the round limit. |
 | `status-reassign-reason` | A reassign without a reason. |
 
 ### A question to the owner
@@ -287,7 +290,8 @@ another head, is refused with `close-verified-head-moved`. It posts the signed n
 writes Done, so a rerun finishes a failed write.
 
 A failed `verify` moves an idle agent's ticket to In Progress. A busy agent's ticket goes to
-Ready at the front of its queue, and the report has a `case:` line.
+Ready at the front of its queue, and the report has a `case:` line. At the
+[round limit](#round-limit) the ticket goes to Blocked for the owner.
 
 Of the ticket commands, a headless coordinator runs only `verify`, `merge` of a CI-only ticket,
 and `close` after an owner merge. It refuses the others with `headless-scope`, and it never acts
@@ -299,6 +303,54 @@ The evidence can be complete while the coordinator's own Gate check fails. The c
 `crewboard verify <n> --fail --body "<what the Gate check found>"`. The note is one more failure,
 and the report says `verify: fail`. The writes are those of any failed `verify`. An empty note is
 `verify-fail-needs-note`. An open question does not stop `--fail`.
+
+### Round limit
+
+The owner can limit the rounds of repair of a ticket. The key `max_rounds: <N>` in `AUTHORITY.md`
+sets the limit ([Authority](board.md#authority)). Without the key there is no limit, and a
+failed `verify` always sends the ticket back to its agent.
+
+A round is one failed `verify` of a coordinator. Every failed `verify` counts, with one
+exception: a fail whose only failure is a moved PR head does not count. A `done` does not count,
+so a re-delivery in Review is no round. A passed `verify` does not count. crewboard counts the
+rounds from the signed `verify: fail` reports of the ticket. No board field holds the count.
+
+The limit stops a ticket when a failed `verify` counts and it is round N or a later round. Then
+`verify` does not send the ticket back. It does these writes, in order:
+
+1. The signed report to the assignee, as for any failed `verify`. Its `case:` line is
+   `round limit <rounds> of <N>; the owner decides`.
+2. A signed `question` to the owner. Its first line is `round limit: <rounds> failed verifies`.
+   The question names the limit, the URL of the report and the options of the owner: redirect,
+   split, drop. `verify` posts no second question while this question is open, so a second run
+   is safe.
+3. The label `needs-owner`.
+4. Status Blocked. `verify` writes no `Order`, and the ticket keeps its agent.
+
+The answer of `verify` has one line that says that the round limit stopped the ticket and what
+the owner can do. `status` and `mine` show the ticket as any Blocked ticket that waits for the
+owner.
+
+Two messages release the ticket. They are the two messages that close a question to the owner
+([Status flow and writers](#status-flow-and-writers)):
+
+- A comment of the owner on the ticket. The assignee then runs `take`.
+- A signed `answer` of the coordinator that takes the question back. `unblock` posts it, and
+  the assignee then runs `take`. [`reassign`](#reassign) posts it too.
+
+After a release the count starts at zero. The ticket then has N new rounds. On the Blocked
+ticket the coordinator can also run `ticket split` or `close --why`; each follows its own rules.
+
+A change of the key changes no ticket by itself:
+
+- A higher limit releases nothing. A stopped ticket still needs one of the two messages.
+- A lower limit stops no ticket at once. A ticket with N rounds or more stops at its next failed
+  `verify` that counts.
+- `max_rounds: 1` sends the first failed `verify` that counts to the owner.
+
+A fail that does not count moves the ticket as without a limit, also at the limit. The headless
+`tick` runs the same `verify`, so it does the same writes
+([Headless coordinator](agents.md#headless-coordinator)).
 
 ### Verify after the owner's go
 

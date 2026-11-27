@@ -312,6 +312,10 @@ catalog! {
             "After a failed verify, a busy agent gets the ticket back in Ready.";
         STATUS_VERIFY_REQUEUE_AGENT_IDLE = "status-verify-requeue-agent-idle" :
             "After a failed verify, an idle agent gets the ticket back In Progress.";
+        STATUS_VERIFY_ROUNDS_SPENT = "status-verify-rounds-spent" :
+            "At the round limit, a failed verify moves the ticket to Blocked for the owner.";
+        STATUS_VERIFY_ROUNDS_LEFT = "status-verify-rounds-left" :
+            "Review to Blocked needs a failed verify at the round limit.";
         STATUS_AGENT_NOT_ACTIVE_DEV = "status-agent-not-active-dev" :
             "The agent is not an active dev agent.";
         STATUS_AGENT_NOT_ALIVE = "status-agent-not-alive" :

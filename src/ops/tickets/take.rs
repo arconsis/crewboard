@@ -103,6 +103,7 @@ fn plan_take(
         Status::Review => Transition::AfterVerify {
             verify: None,
             assignee_busy: false,
+            rounds_spent: false,
         },
         _ => ctx.plain(),
     };
