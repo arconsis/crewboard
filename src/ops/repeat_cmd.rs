@@ -67,6 +67,44 @@ fn say(text: &str) {
     best_effort_output(writeln!(std::io::stderr(), "gate-loop: {text}"));
 }
 
+/// `repeat` starts a command, as `lock run` does. Under a scope (a headless config dir, or a wake
+/// that a scheduler started: `$CREWBOARD_WAKE`) it is allowed only with `--lock <dir>` for a
+/// lock dir that the wake names with `--host-lock` (`$CREWBOARD_LOCK_RUN_DIRS`, a `:` list):
+/// the grant of `lock run` (spec/host-lock, item 7). `Err` is the refusal line.
+fn scope_grant(config_dir: Option<&Path>, lock: Option<&str>) -> Result<(), String> {
+    let wake = std::env::var_os("CREWBOARD_WAKE").is_some_and(|v| !v.is_empty());
+    let scoped = crate::headless::in_scope(config_dir).map_err(|e| e.to_string())?;
+    if !wake && !scoped {
+        return Ok(());
+    }
+    grant_decision(
+        lock,
+        &std::env::var("CREWBOARD_LOCK_RUN_DIRS").unwrap_or_default(),
+    )
+}
+
+/// The decision of [`scope_grant`] once a scope binds the process: is the dir of `--lock` in
+/// the `:` list? Symlink spellings count as one dir.
+fn grant_decision(lock: Option<&str>, granted: &str) -> Result<(), String> {
+    let found = lock.is_some_and(|dir| {
+        let want = crate::lock::phys_dir(dir);
+        granted
+            .split(':')
+            .filter(|g| !g.is_empty())
+            .any(|g| crate::lock::phys_dir(g) == want)
+    });
+    if found {
+        return Ok(());
+    }
+    let what = match lock {
+        Some(dir) => format!("{dir} is not one of them"),
+        None => "this call has no --lock".to_string(),
+    };
+    Err(format!(
+        "refused [rule=lock-run-not-granted]: `repeat` starts a command, and a wake or headless scope allows it only with --lock <dir> for a lock dir that the wake names with --host-lock; {what}. Ask the owner to install the wake with --host-lock <dir>, then run repeat with --lock <dir>"
+    ))
+}
+
 /// A seconds value: `10`, `0.5`, `90s`, `30m`, `2h`.
 fn duration(v: &str) -> Option<Duration> {
     if let Some(s) = parse_secs(v) {
@@ -502,6 +540,10 @@ impl Loop<'_> {
 /// Run `crewboard repeat`. `config_dir` is the global `--config-dir` (the board check of the
 /// lock reads it). The result is the exit code.
 pub fn run(config_dir: Option<&Path>, o: &Options) -> i32 {
+    if let Err(line) = scope_grant(config_dir, o.lock.as_deref()) {
+        best_effort_output(writeln!(std::io::stderr(), "{line}"));
+        return 2;
+    }
     #[cfg(not(unix))]
     if o.lock.is_some() {
         eprintln!("{UNIX_ONLY}");
@@ -551,4 +593,25 @@ pub fn run(config_dir: Option<&Path>, o: &Options) -> i32 {
         plan.runs, plan.runs, lp.first_sha
     );
     lp.finish(0, &verdict)
+}
+
+// the list is a `:` list of paths: a Unix form, as the wake and the lock that set it
+#[cfg(all(test, unix))]
+mod tests {
+    use super::grant_decision;
+
+    #[test]
+    fn under_a_scope_repeat_needs_a_lock_dir_that_the_wake_granted() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("a.lock.d").to_string_lossy().into_owned();
+        let b = d.path().join("b.lock.d").to_string_lossy().into_owned();
+        assert!(grant_decision(Some(&a), &format!("{b}:{a}")).is_ok());
+        // no --lock, a dir that is not in the list, an empty list
+        let e = grant_decision(None, &a).unwrap_err();
+        assert!(e.starts_with("refused [rule=lock-run-not-granted]: `repeat` starts a command"));
+        assert!(e.contains("this call has no --lock"), "{e}");
+        let e = grant_decision(Some(&a), &b).unwrap_err();
+        assert!(e.contains(&format!("{a} is not one of them")), "{e}");
+        assert!(grant_decision(Some(&a), "").is_err());
+    }
 }

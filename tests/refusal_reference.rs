@@ -44,7 +44,7 @@ const NOT_REFUSALS: &[(&str, &str)] = &[
         "late-and-stale-both-set",
         "a config error of the board config",
     ),
-    ("lock-run-not-granted", "a `lock run` result"),
+    ("lock-run-not-granted", "a `lock run` or `repeat` result"),
     ("needs-owner", "a label"),
     ("new-repo", "an example repo name"),
     ("new-scope", "an example token scope"),

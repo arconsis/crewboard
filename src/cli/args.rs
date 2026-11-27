@@ -1420,8 +1420,11 @@ alone is enough for any runner, and --result-re only adds proof that tests ran:
 
 Before each run `repeat` waits while a CI job runs or waits on this host (the host lock check).
 
+Under a wake or a headless config dir, `repeat` needs --lock <dir> for a lock dir that the wake \
+names with --host-lock: it starts a command, as `lock run` does.
+
 Exit codes: 0 all N runs green on one commit; 1 a red run; 2 the commit changed (or --lock on a \
-host without Unix process control); 3 CI did not finish within --ci-max-wait; 4 setup error (not a \
+host without Unix process control, or a wake or headless scope without the grant of `lock run`); 3 CI did not finish within --ci-max-wait; 4 setup error (not a \
 git checkout, cannot write the logs); 64 usage; 143 a TERM, INT or HUP stopped `repeat` (the \
 command got it too, the lock is released).";
 
