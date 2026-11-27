@@ -51,7 +51,12 @@ pub fn run(ac: &AgentCtx, state: &str, text: &str) -> CbResult<String> {
             "report-status is a coordinator command (docs/design/spec/board.md#status-updates)",
         ));
     }
-    let body = body_of(&me.name, text);
+    post(ac, &me.name, status, text)
+}
+
+/// Post the update `text` with the GitHub status `status` as `agent` and read it back.
+pub(crate) fn post(ac: &AgentCtx, agent: &str, status: &str, text: &str) -> CbResult<String> {
+    let body = body_of(agent, text);
     super::say::check_body_text(&body)?;
     let d = ac.ctx.client.graphql(
         "mutation($p:ID!,$s:ProjectV2StatusUpdateStatus!,$b:String!){createProjectV2StatusUpdate(input:{projectId:$p,status:$s,body:$b}){statusUpdate{id status body createdAt}}}",
@@ -72,7 +77,7 @@ pub fn run(ac: &AgentCtx, state: &str, text: &str) -> CbResult<String> {
         .ok_or_else(|| GhError::Shape("project has no status update after the create".into()))?;
     let back_id = node.get("id").and_then(Value::as_str).unwrap_or("");
     let back_body = node.get("body").and_then(Value::as_str).unwrap_or("");
-    if back_id != id || from_line(back_body) != Some(me.name.as_str()) {
+    if back_id != id || from_line(back_body) != Some(agent) {
         return Err(CbError::refused(
             ids::REPORT_STATUS_READBACK,
             format!(

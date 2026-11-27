@@ -156,6 +156,14 @@ The tick runs no check whose command line names a file of the repo that is not i
 `done` and at most five times per ticket
 ([details](../design/spec/agents.md#headless-coordinator), 5a).
 
+## One digest per day
+
+Set `daily_digest: true` in `AUTHORITY.md`, and the first tick of each UTC day posts one
+project status update: the tickets by Status, the agents that are late or dead, and the Review
+tickets that wait for a person, with the reason for each. GitHub sends it to the people who
+follow the project. The health value is `Off track` when an agent is dead and `At risk` when an
+agent is late or a ticket waits for you. No model writes the text.
+
 ## A `Gate: ci` merge has no human review
 
 The headless coordinator merges a ticket whose Gate is `ci` when the evidence, the protected

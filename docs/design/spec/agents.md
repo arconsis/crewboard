@@ -204,7 +204,7 @@ limits it. The prompt does not.
    | `status`, `mine`, `audit`, `retro`, `agent profile show` | allowed (read-only) |
    | `watch`, `poll` | allowed. They are not read-only: each cycle, also with `--quiet`, runs the coordinator duties (item 6) |
    | `start`, `resume` (own), `agent selftest`, `heartbeat` | allowed (liveness of the agent itself) |
-   | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8). With `--work-dir` it also runs the checks of a ticket whose Gate is `checks: ...` (see 5a) |
+   | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8). With `daily_digest` it posts one status update per day (see 8a). With `--work-dir` it also runs the checks of a ticket whose Gate is `checks: ...` (see 5a) |
    | `verify` | allowed (no `--run`; it counts the named runs of the evidence, [ci](ci.md#which-ci-runs-count) point 10); a ticket with an open question to the owner is refused, also after the owner answered in a chat ([Verify after the owner's go](tickets.md#verify-after-the-owners-go)) |
    | `merge` | allowed, with the checks of 4 (no `--run`); a ticket with an open question to the owner is refused, as for `verify` |
    | `close` (bare) | allowed (the owner merged the PR by hand: a fact, not a judgment; [Close after an owner merge](tickets.md#close-after-an-owner-merge)); a ticket with an open question is allowed too |
@@ -349,6 +349,18 @@ limits it. The prompt does not.
    That is a fact, not a judgment, so it needs no Gate rule. It costs one PR read for
    each Review ticket that has a `done`, and no read for a ticket that `close` ends
    (the PR is read already).
+   8a. **The daily digest.** With `daily_digest: true` in `AUTHORITY.md` (default: off), the
+   first tick of a UTC day posts one project status update
+   ([Status updates](board.md#status-updates)). No model writes it. Its text has the facts that
+   the tick read anyway: the tickets by Status, the agents that are late and those that are
+   dead, and the Review tickets that this tick left for a person, each with the reason of its
+   line (at most 15 lines, each cut at 140 characters). Its health value follows a fixed rule:
+   `OFF_TRACK` when an agent is dead; `AT_RISK` when an agent is late or a ticket waits for a
+   person; else `ON_TRACK`. The tick notes the day in its state cache before the post: it looks
+   at the key once per day, so a change of the key takes effect on the next day, and a post
+   that fails is one line of the log ("digest: not posted today: ...") and is not tried again
+   that day. A status update that a coordinator types is still outside the headless scope: its
+   health value is a judgment.
 9. **The source of the scope.** The scope is on when an agent config of the config dir has
    `headless = true` (item 1, a guardrail). Every rule of this section (verdicts, `merge`,
    own cursor, `tick`) follows from it. `crewboard doctor` says whether the key is on.

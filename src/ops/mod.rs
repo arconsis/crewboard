@@ -12,6 +12,7 @@ pub(crate) mod audit;
 pub(crate) mod behind;
 pub(crate) mod board_refresh;
 pub(crate) mod crew_token;
+pub(crate) mod digest;
 pub(crate) mod doctor;
 pub(crate) mod duties;
 pub(crate) mod force_stop;

@@ -377,6 +377,7 @@ pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut>
         let review = review_tickets(&buckets.review, &cache, &mut out);
         handle_review(ac, &scan, review, &cache, &mut out)?;
     }
+    out.push_str(&daily_digest(ac, &scan, &out)?);
     // The output is complete and goes to the caller, which forgets the reported deleted notes
     // after its print (`TickOut::settle`). A failure before keeps them, and the next tick raises
     // them again.
@@ -384,6 +385,61 @@ pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut>
         text: out,
         shown: scan.shown.take(),
     })
+}
+
+/// The daily digest (spec/agents#headless-coordinator, 8a): at the first tick of a UTC day, when
+/// `daily_digest` of AUTHORITY.md is on, one project status update with the facts of this
+/// tick. The day is noted before the post, so a failed post is not tried at every tick; its
+/// reason is one line of the log. Returns the line for the tick output.
+fn daily_digest(ac: &AgentCtx, s: &Scan<'_>, tick_text: &str) -> CbResult<String> {
+    use crate::ops::digest;
+    let now_text = crate::clock::format_ts(s.now);
+    let today = digest::day_of(&now_text);
+    let mut cache = ac.load_cache();
+    if !digest::due(cache.tick.digest_day.as_deref(), today) {
+        return Ok(String::new());
+    }
+    cache.tick.digest_day = Some(today.to_string());
+    ac.save_cache_required(&mut cache)?;
+    if !crate::ctx::load_authority_quiet(&ac.ctx).is_some_and(|a| a.daily_digest) {
+        return Ok(String::new());
+    }
+    let mut facts = digest::Facts {
+        left: digest::left_of(tick_text, LEFT),
+        ..digest::Facts::default()
+    };
+    for it in s
+        .items
+        .iter()
+        .filter(|it| it.project_number.is_none_or(|n| n == s.project))
+    {
+        if let Some(st) = it.get(Field::Status) {
+            *facts.by_status.entry(st.to_string()).or_default() += 1;
+        }
+    }
+    for e in s.world.reg.agents.values() {
+        if !e.approved() || e.rejected || e.departure.is_some_and(|d| d.ended()) {
+            continue;
+        }
+        match crate::ctx::agent_liveness(s.world, &e.name, s.now, ac.ctx.hb_interval).2 {
+            crate::late::liveness::Liveness::Late { .. } => facts.late.push(e.name.clone()),
+            crate::late::liveness::Liveness::Dead { .. } => facts.dead.push(e.name.clone()),
+            _ => {}
+        }
+    }
+    let health = digest::health(&facts);
+    let text = digest::text(&facts, today);
+    Ok(
+        match crate::ops::report_status::post(ac, &s.me.name, health, &text) {
+            Ok(line) => {
+                format!(
+                    "digest: posted ({health}); {}",
+                    line.lines().next().unwrap_or("")
+                ) + "\n"
+            }
+            Err(e) => format!("digest: not posted today: {e}\n"),
+        },
+    )
 }
 
 /// A Review ticket that waits for a verify while the coordinator is late. The tick

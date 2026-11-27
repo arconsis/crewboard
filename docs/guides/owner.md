@@ -192,6 +192,7 @@ matter has these keys:
 | `protected_paths` | none | More paths that only you merge, as globs ([Protected paths](#protected-paths)). |
 | `ci_ignore` | none | CI jobs that the CI check skips ([details](../design/spec/ci.md#jobs-that-ci_ignore-skips)). |
 | `ci_mode` | `ci` | `local` when CI cannot run ([Local run](../design/spec/ci.md#local-run-ci_mode-local)). |
+| `daily_digest` | `false` | `true`: the headless `tick` posts one project status update per day with fixed facts (ticket counts, late and dead agents, the Review tickets that wait for a person). No model writes it. |
 | `check_timeout` | `1h` | The time limit of one check of `checks`. A check that runs longer is stopped and counts as failed. |
 | `check_env` | none | Names of environment variables that a check of `checks` gets, in addition to the short fixed list. The values are those of the host; write no value here. |
 | `checks` | none | With `ci_mode: local`: named commands that `verify --run-check <name>` runs on a clean checkout of the PR head ([Checks that the tool runs](../design/spec/ci.md#checks-that-the-tool-runs)). List the files that these commands run in `protected_paths`. |
