@@ -66,6 +66,9 @@ the writer). Who may do an act is not part of the parse: the readers check the v
 | left | `info` | the line `lifecycle: left` |
 | late report | `info` | text starts `late: ` and has the line `late-key: <key>` |
 
+The first signed assignment of a ticket takes `gate:` and `ci:` from the issue body. Every
+later assignment copies them from the latest signed assignment
+([Ticket content](tickets.md#ticket-content)).
 An assignment is recognised by its first line, in the ticket log, the audit and the headless
 CI-only check alike. A coordinator `request` that only has a `gate:` line is no assignment.
 A later wire version may carry the act in a signed header field.

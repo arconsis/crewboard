@@ -534,3 +534,63 @@ fn headless_may_print_the_ticket_template_and_no_other_ticket_new() {
     assert_eq!(o.code, 2, "{}", o.all());
     assert!(o.stderr.contains("[rule=headless-scope]"), "{}", o.all());
 }
+
+/// The body is edited to `Gate: ci` while the ticket waits in a queue, and the coordinator
+/// moves the ticket to another agent. The assignment message of the move keeps the signed Gate,
+/// so the headless coordinator still leaves the ticket.
+#[test]
+fn a_move_of_a_queued_ticket_after_a_body_edit_does_not_make_the_gate_ci_only() {
+    use crate::support::headless::{PR, SHA};
+    use crewboard::protocol::names::Kind;
+    let h = hub(BY_HAND, true);
+    let other = h.board.agent("codex@fake-d", crewboard::rules::Role::Dev);
+    h.board.set_item("PVTI_ticket", "Status", "Ready");
+    h.set_body(CI_ONLY);
+    let o = h.interactive(&["assign", &t(), "--to", &other.name]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout
+            .contains("warning: the Gate line in the body of fake-owner/fake-repo#5 differs"),
+        "{}",
+        o.all()
+    );
+    let moved = h
+        .board
+        .comments_of(TICKET)
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .find(|b| b.contains("moved-from: "))
+        .expect("the assignment message of the move");
+    assert!(
+        moved.contains("gate: `cargo test` passes and the demo runs\n"),
+        "{moved}"
+    );
+    // the new agent delivers
+    h.board.signed(
+        &other.key,
+        &other.name,
+        &h.coord.name,
+        Kind::Done,
+        TICKET,
+        &format!(
+            "Done. Evidence follows.\npr: https://github.com/fake-owner/fake-repo/pull/{PR}\nsha: {SHA}\nci: https://github.com/fake-owner/fake-repo/actions/runs/9002\n"
+        ),
+    );
+    h.board.set_item("PVTI_ticket", "Status", "Review");
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        left_line(&o).contains("the Gate is not CI only"),
+        "{}",
+        o.all()
+    );
+    assert!(!h.merged());
+    let m = h.headless(&["merge", &t()]);
+    assert_eq!(m.code, 2, "{}", m.all());
+    assert!(
+        m.stderr.contains("the signed gate of fake-owner/fake-repo#5 is '`cargo test` passes and the demo runs': it is not CI only"),
+        "{}",
+        m.all()
+    );
+    assert!(!h.merged());
+}

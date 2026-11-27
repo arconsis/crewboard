@@ -51,6 +51,12 @@ fn new_body(file_body: &str, old_gate: Option<&str>, old_key: &str) -> String {
     b
 }
 
+/// The Gate of the old ticket for the new one: the signed Gate of its assignment. The body of
+/// the old ticket is not signed, so it is read only when the ticket has no signed Gate.
+fn old_gate(old: &Ticket) -> Option<String> {
+    crate::ticket::signed_gate(&old.msgs).or_else(|| body_field(&old.info.body, "Gate"))
+}
+
 /// What the checks of `ticket split` found: everything the writes need.
 struct SplitPlan {
     repo: String,
@@ -153,11 +159,7 @@ fn plan_split(
     if existing.is_none() && agent.is_none() {
         return Err(no_agent(&old_key));
     }
-    let body = new_body(
-        &file_body,
-        body_field(&old.info.body, "Gate").as_deref(),
-        &old_key,
-    );
+    let body = new_body(&file_body, old_gate(&old).as_deref(), &old_key);
     check_new_ticket(title, &body)?;
     if let Some(a) = &agent {
         precheck_assign(ac, &world, a, title, &body)?;

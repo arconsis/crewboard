@@ -32,7 +32,11 @@ Pointers: <files, issues, earlier PRs>
 The issue body is not signed. So the signed assignment carries `gate: <text>` (all `Gate:`
 lines, joined with ` | `) and `ci: none` or `ci: required`. `done`, `verify`, `merge` and the
 headless "CI only" check read these lines, not the body; without a `ci:` line the body decides.
-`reassign --to` copies both lines forward.
+Only the first signed assignment of a ticket reads the body. Every later assignment message
+copies both signed lines forward: `reassign --to`, the move of a queued ticket, and an `assign`
+after a `reassign`. If the body then has another Gate or CI line, the command prints a warning
+and the signed lines stay. No command changes the signed Gate of a ticket. Work with another
+Gate is a new ticket (`close --why`, then `ticket new`).
 
 ## Status flow and writers
 
@@ -229,7 +233,8 @@ creates it.
   `ticket-already-assigned`. Neither flag is `assign-needs-to`.
 - `assign <n> --to <other>` on a Ready ticket moves it to another queue, with one assignment
   message that has `moved-from: <old agent>` (`rebalance-not-ready`, `rebalance-no-agent`,
-  `rebalance-same-agent`).
+  `rebalance-same-agent`). The message keeps the signed `gate:` and `ci:` lines
+  ([Ticket content](#ticket-content)); the move does not sign the body.
 - `status --queue` shows the queues, and a note when one agent has at least 3 more Ready
   tickets than a live agent that can take the same work.
 
@@ -584,8 +589,8 @@ an Agent (`split-no-agent`). `coordinator_may_split_tickets: false` refuses it
 (`authority-split-not-allowed`). The new ticket must pass the checks of `ticket new` and `assign`.
 A refusal writes nothing. Then:
 
-1. The new ticket gets the file text and `Split from: <repo>#<n>`, and the old Gate if the file
-   has none.
+1. The new ticket gets the file text and `Split from: <repo>#<n>`, and the signed Gate of the
+   old ticket if the file has none.
 2. The old body gets one line `Split off: <repo>#<new> - <title>`.
 3. The new ticket goes into the queue of the same agent.
 4. A signed note on the old ticket says where the open part went and to run `done` on the old

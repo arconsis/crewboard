@@ -58,6 +58,16 @@ Changed:
   person at a terminal sees no change. For a scheduled agent that runs `repeat`: install its
   wake with `--host-lock <dir>` and use `repeat --lock <dir>`.
 
+Fixed:
+
+- A move of a queued ticket to another agent (`assign <n> --to <other>` on a Ready ticket)
+  signed the Gate and the CI declaration from the issue body again. Anyone with an agent token
+  can edit the body, so an edit while the ticket waited in the queue became the signed Gate.
+  The move now keeps the signed `gate:` and `ci:` lines, as `reassign --to` does. The same
+  holds for an `assign` after a `reassign`. Only the first signed assignment of a ticket reads
+  the body. When the body has another Gate or CI line, the command prints a warning, and
+  `assign` leaves the `Gate` field as it is.
+
 ## v0.12.0 (2026-11-27)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board. One behaviour

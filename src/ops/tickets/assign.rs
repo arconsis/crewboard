@@ -2,7 +2,9 @@
 //! message). On a ticket that is queued already, `assign` moves it: `--order` sets the position,
 //! `--to <other agent>` moves it to that agent.
 
-use super::assign_checks::{CapOverride, check_assignable, check_capabilities, post_assignment};
+use super::assign_checks::{
+    CapOverride, assignment_lines, check_assignable, check_capabilities, post_assignment,
+};
 use super::board_put::put_on_board;
 use super::order;
 use super::order::parse_order;
@@ -56,8 +58,9 @@ fn ready_without_assignment(status: Status, agent: Option<&str>, signed: bool) -
 struct Assignment<'a> {
     to: &'a AgentName,
     order: i64,
-    /// The `Gate:` line of the issue.
-    gate: &'a str,
+    /// The `Gate:` line of the issue for the `Gate` field. `None`: the ticket has a signed Gate
+    /// and the body has another one; the field stays as it is.
+    gate: Option<&'a str>,
     /// The ticket is Ready already and only lacks the Agent.
     ready_unassigned: bool,
     /// The Status that `assign` read; the Status write checks it again.
@@ -201,7 +204,9 @@ fn write_assignment(
         FieldValue::Option(a.to.as_str()),
         &wc,
     )?;
-    write_work(ac, item_id, Field::Gate, FieldValue::Text(a.gate), &wc)?;
+    if let Some(gate) = a.gate {
+        write_work(ac, item_id, Field::Gate, FieldValue::Text(gate), &wc)?;
+    }
     if !a.ready_unassigned {
         super::set_select_status(ac, item_id, Status::Ready)?;
     }
@@ -323,10 +328,13 @@ pub fn assign(
         Some(o) => (o, false),
         None => (end_of_queue(ac, &world, to_name.as_str())?, true),
     };
+    // The body is signed only for a ticket without a signed assignment; a ticket that has one
+    // (after a `reassign`, or with an Agent that the log does not name) keeps its signed lines.
+    let lines = assignment_lines(&t.key(), &t.msgs, &t.info.body, Some(gate.clone()));
     let a = Assignment {
         to: &to_name,
         order,
-        gate: &gate,
+        gate: (!lines.gate_differs).then_some(gate.as_str()),
         ready_unassigned,
         from: Some(status),
         key: &t.key(),
@@ -336,7 +344,7 @@ pub fn assign(
         ac,
         &t,
         a.to,
-        Some(a.gate.to_string()),
+        &lines,
         &format!("order: {}\n{override_lines}", a.order),
     )?;
     remember(ac, &t, Status::Ready, Some(to_name.as_str()));
@@ -353,12 +361,18 @@ pub fn assign(
         ""
     };
     out.push_str(&format!("Order set to {order}{note}\n"));
+    let gate_note = if lines.gate_differs {
+        "Gate field kept"
+    } else {
+        "Gate field set from the body"
+    };
     out.push_str(&format!(
-        "{} assigned to {to_name}; Status Ready; Gate field set from the body\nassignment message {} ({})\n",
+        "{} assigned to {to_name}; Status Ready; {gate_note}\nassignment message {} ({})\n",
         t.key(),
         posted.id,
         posted.url
     ));
+    out.push_str(&lines.warnings);
     // The work that an earlier agent left (spec/tickets#work-that-an-earlier-agent-left).
     out.push_str(&super::earlier_work::hint(ac, &t, to_name.as_str(), false));
     Ok(out)
