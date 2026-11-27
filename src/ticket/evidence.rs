@@ -40,6 +40,13 @@ pub fn signed_assignment(msgs: &[VMsg]) -> Option<&VMsg> {
     })
 }
 
+/// Does the log hold an assignment message of a coordinator, with or without a `gate:` line?
+/// Then a later assignment message copies the signed lines and does not read the body. Pure.
+pub fn has_assignment(msgs: &[VMsg]) -> bool {
+    msgs.iter()
+        .any(|m| m.sender.actor().is_coordinator() && matches!(m.act(), Act::Assignment { .. }))
+}
+
 /// The text that `assign` signs as the `gate:` line: every `Gate:` line of the body, joined with
 /// ` | ` (one line gives that line). A body with a second Gate line is therefore not "CI only".
 /// `None`: the body has no Gate line.

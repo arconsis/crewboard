@@ -3,7 +3,8 @@
 //! `--to <other agent>` moves it to that agent.
 
 use super::assign_checks::{
-    CapOverride, assignment_lines, check_assignable, check_capabilities, post_assignment,
+    CapOverride, check_assignable, check_capabilities, copy_signed, first_from_body,
+    post_assignment,
 };
 use super::board_put::put_on_board;
 use super::order;
@@ -58,8 +59,9 @@ fn ready_without_assignment(status: Status, agent: Option<&str>, signed: bool) -
 struct Assignment<'a> {
     to: &'a AgentName,
     order: i64,
-    /// The `Gate:` line of the issue for the `Gate` field. `None`: the ticket has a signed Gate
-    /// and the body has another one; the field stays as it is.
+    /// The value of the `Gate` field: the `Gate:` line of the issue, or the signed Gate when the
+    /// body has another one. `None`: that signed Gate is too long for a text field, and the
+    /// field stays as it is.
     gate: Option<&'a str>,
     /// The ticket is Ready already and only lacks the Agent.
     ready_unassigned: bool,
@@ -328,13 +330,34 @@ pub fn assign(
         Some(o) => (o, false),
         None => (end_of_queue(ac, &world, to_name.as_str())?, true),
     };
-    // The body is signed only for a ticket without a signed assignment; a ticket that has one
-    // (after a `reassign`, or with an Agent that the log does not name) keeps its signed lines.
-    let lines = assignment_lines(&t.key(), &t.msgs, &t.info.body, Some(gate.clone()));
+    // The body is signed only for a ticket without an assignment in its log; a ticket that has
+    // one (after a `reassign`) keeps its signed lines. A ticket that the board shows as assigned
+    // without one (the message is gone or not valid) is signed from the body, with a warning.
+    let lines = if crate::ticket::has_assignment(&t.msgs) {
+        copy_signed(&t.key(), &t.msgs, &t.info.body)
+    } else {
+        let assigned_on_board = status != Status::Backlog || t.agent().is_some();
+        first_from_body(
+            &t.key(),
+            &t.info.body,
+            Some(gate.clone()),
+            assigned_on_board,
+        )
+    };
+    let (field_gate, gate_note) = match lines.gate.as_deref().filter(|_| lines.gate_differs) {
+        Some(signed) if check_text_field(signed).is_ok() => {
+            (Some(signed), "Gate field set from the signed Gate")
+        }
+        Some(_) => (
+            None,
+            "Gate field kept (the signed Gate is too long for the field)",
+        ),
+        None => (Some(gate.as_str()), "Gate field set from the body"),
+    };
     let a = Assignment {
         to: &to_name,
         order,
-        gate: (!lines.gate_differs).then_some(gate.as_str()),
+        gate: field_gate,
         ready_unassigned,
         from: Some(status),
         key: &t.key(),
@@ -361,18 +384,13 @@ pub fn assign(
         ""
     };
     out.push_str(&format!("Order set to {order}{note}\n"));
-    let gate_note = if lines.gate_differs {
-        "Gate field kept"
-    } else {
-        "Gate field set from the body"
-    };
     out.push_str(&format!(
         "{} assigned to {to_name}; Status Ready; {gate_note}\nassignment message {} ({})\n",
         t.key(),
         posted.id,
         posted.url
     ));
-    out.push_str(&lines.warnings);
+    out.push_str(&lines.notes);
     // The work that an earlier agent left (spec/tickets#work-that-an-earlier-agent-left).
     out.push_str(&super::earlier_work::hint(ac, &t, to_name.as_str(), false));
     Ok(out)
