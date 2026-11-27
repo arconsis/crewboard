@@ -732,3 +732,91 @@ fn assign_repairing_an_unsigned_agent_keeps_the_existing_order() {
     assert_eq!(assigned_order(&fake, t2).as_deref(), Some("6"));
     no_unhandled(&fake);
 }
+
+/// The assignment messages of a ticket, oldest first.
+fn assignments(fake: &FakeBoard, issue: u64) -> Vec<String> {
+    fake.comments_of(issue)
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .filter(|b| b.contains("Assigned to you"))
+        .collect()
+}
+
+const SIGNED_GATE: &str = "`cargo test` passes and the demo runs";
+
+/// A body edit while the ticket waits in a queue is not signed by a later assignment message:
+/// the move to another agent, and the `assign` after a `reassign`, keep the signed Gate and CI
+/// line and warn about the body.
+#[test]
+fn a_later_assignment_keeps_the_signed_gate_and_ci_line_when_the_body_was_edited() {
+    let (fake, c, a, b) = crew();
+    let t = fake.ticket_issue(
+        "IT move keeps the signed gate",
+        &format!("Goal: x.\n\nGate: {SIGNED_GATE}\n"),
+        &["crew:work"],
+    );
+    let s = t.to_string();
+    run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+    let first = assignments(&fake, t).pop().expect("the first assignment");
+    assert!(first.contains(&format!("gate: {SIGNED_GATE}\n")), "{first}");
+    assert!(first.contains("ci: required\n"), "{first}");
+    // a holder of an agent token edits the body: a weaker Gate and `CI: none`
+    fake.set_issue_body(t, "Goal: x.\n\nGate: ci\nCI: none\n");
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+    let m = moved_message(&fake, t);
+    assert!(m.contains(&format!("moved-from: {}", b.name)), "{m}");
+    assert!(m.contains(&format!("gate: {SIGNED_GATE}\n")), "{m}");
+    assert!(m.contains("ci: required\n"), "{m}");
+    assert!(!m.contains("gate: ci") && !m.contains("ci: none"), "{m}");
+    // the answer says that the body differs and that the signed lines stay
+    let warnings: Vec<&str> = o
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("warning: "))
+        .collect();
+    assert_eq!(warnings.len(), 2, "{}", o.stdout);
+    assert!(
+        warnings[0].contains("the Gate line in the body")
+            && warnings[0].contains("the body was edited after the assignment")
+            && warnings[0].ends_with(&format!("The signed Gate stays: '{SIGNED_GATE}'")),
+        "{}",
+        o.stdout
+    );
+    assert!(
+        warnings[1].contains("the CI line in the body") && warnings[1].ends_with("'ci: required'"),
+        "{}",
+        o.stdout
+    );
+    // the same for the `assign` after a `reassign` to Backlog: the ticket has a signed Gate
+    run_ok(&fake, &c, &["reassign", &s, "--reason", "dead"]);
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+    let last = assignments(&fake, t).pop().expect("the last assignment");
+    assert!(!last.contains("moved-from: "), "{last}");
+    assert!(last.contains(&format!("gate: {SIGNED_GATE}\n")), "{last}");
+    assert!(last.contains("ci: required\n"), "{last}");
+    assert!(o.stdout.contains("Gate field kept"), "{}", o.stdout);
+    assert!(
+        o.stdout
+            .contains("warning: the Gate line in the body of fake-owner/fake-repo#"),
+        "{}",
+        o.stdout
+    );
+    assert_eq!(
+        field(&fake, &item(&fake, t), "Gate").as_deref(),
+        Some(SIGNED_GATE)
+    );
+    // control: a move with an unchanged body gives no warning and the same lines
+    let t2 = fake.ticket_issue(
+        "IT move without an edit",
+        &format!("Goal: x.\n\nGate: {SIGNED_GATE}\nCI: none\n"),
+        &["crew:work"],
+    );
+    let s2 = t2.to_string();
+    run_ok(&fake, &c, &["assign", &s2, "--to", &b.name]);
+    let o = run_ok(&fake, &c, &["assign", &s2, "--to", &a.name]);
+    assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
+    let m = moved_message(&fake, t2);
+    assert!(m.contains(&format!("gate: {SIGNED_GATE}\n")), "{m}");
+    assert!(m.contains("ci: none\n"), "{m}");
+    no_unhandled(&fake);
+}

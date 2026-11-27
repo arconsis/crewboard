@@ -6,7 +6,8 @@
 //! number; see `mine::select_mine`). Only the coordinator (and the owner) writes it.
 
 use super::assign_checks::{
-    CapOverride, check_assignable, check_assignable_state, check_capabilities, post_assignment,
+    CapOverride, assignment_lines, check_assignable, check_assignable_state, check_capabilities,
+    post_assignment,
 };
 use super::{agent_label_lines, load_world_cached, me_of, remember, work_write_ctx, write_work};
 use crate::base::ids;
@@ -20,7 +21,7 @@ use crate::rules::fields::{Field, Item, WriteCtx, check_field_write};
 use crate::rules::status::Status;
 use crate::services::ticket_index::read_ticket_rows;
 use crate::services::ticket_loader::{Ticket, load_ticket};
-use crate::ticket::{TicketRow, body_field};
+use crate::ticket::TicketRow;
 
 /// The largest `Order` that is accepted.
 pub const MAX_ORDER: i64 = 1_000_000;
@@ -148,7 +149,7 @@ pub(super) struct Move<'a> {
 }
 
 /// Moves a Ready ticket to the queue of another agent: Agent field, agent label, Order and ONE
-/// signed message to the new agent. The target may be `working` (it takes the ticket after its
+/// signed message to the new agent, with the signed Gate and CI line of the ticket. The target may be `working` (it takes the ticket after its
 /// current one).
 pub(super) fn move_queued(
     ac: &mut AgentCtx,
@@ -193,12 +194,15 @@ pub(super) fn move_queued(
         who,
     )?;
     write_order(ac, &t.item_id, order, who)?;
-    // The signed log takes the assignee only from an assignment message: post that one.
+    // The signed log takes the assignee only from an assignment message: post that one. A
+    // queued ticket has a signed assignment, so the message keeps the signed Gate and CI line;
+    // the body is not read again (spec/tickets#ticket-content).
+    let lines = assignment_lines(&t.key(), &t.msgs, &t.info.body, None);
     let posted = post_assignment(
         ac,
         t,
         to_name,
-        body_field(&t.info.body, "Gate"),
+        &lines,
         &format!(
             "order: {order}\nmoved-from: {}\n{override_lines}",
             old.as_deref().unwrap_or("-")
@@ -221,6 +225,7 @@ pub(super) fn move_queued(
         "assignment message {} ({})\n",
         posted.id, posted.url
     ));
+    out.push_str(&lines.warnings);
     Ok(out)
 }
 

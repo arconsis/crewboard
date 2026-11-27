@@ -485,3 +485,36 @@ fn a_repair_finds_the_new_ticket_on_a_later_page_of_the_issue_list() {
         "",
     );
 }
+
+/// The body of the old ticket is not signed: a split copies the signed Gate of the old ticket,
+/// not a Gate line that somebody wrote into the body after the assignment.
+#[test]
+fn a_split_copies_the_signed_gate_and_not_an_edited_body() {
+    let s = in_progress();
+    s.fake.set_issue_body(
+        s.old,
+        "Goal: fix three flaky tests.\n\nGate: ci\nCI: none\n",
+    );
+    let file = s.body_file("Flaky tests B and C are still open.\n");
+    let o = s.split(&s.c, "Flaky tests B and C", &file);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let new = s.old + 1;
+    let (_, body) = s.fake.issue_text(new).unwrap();
+    assert!(
+        body.contains("Gate: all three tests pass 20 times in a row."),
+        "{body}"
+    );
+    assert!(!body.contains("Gate: ci"), "{body}");
+    let assignment = s
+        .fake
+        .comments_of(new)
+        .into_iter()
+        .map(|(_, _, b)| b)
+        .find(|b| b.contains("Assigned to you"))
+        .expect("the assignment of the new ticket");
+    assert!(
+        assignment.contains("gate: all three tests pass 20 times in a row.\n"),
+        "{assignment}"
+    );
+    assert!(s.fake.unhandled().is_empty());
+}
