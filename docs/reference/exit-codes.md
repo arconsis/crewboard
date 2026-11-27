@@ -78,7 +78,7 @@ On a build without Unix process control, `lock`, `wake` and `repeat --lock` refu
 | `lock break --if-dead` | 0 free, or stale and removed. 3 held by a live owner. 64 without `--if-dead`. |
 | `lock ci-wait`, `lock ci-done` | 0. `ci-wait` returns 1 when the waiting list cannot be written. |
 | `lock ci-status` | 0 a CI job runs or waits, 1 none. |
-| `repeat` | 0 all N runs green on one commit. 1 a red run (the loop stops there). 2 the head commit changed, so the run is not counted. 3 CI did not finish within `--ci-max-wait`, so the command did not start. 4 setup error: `--repo` is not a git checkout with a commit, or the logs cannot be written. 64, 143. A command that does not start is a red run: the loop ends with 1. |
+| `repeat` | 0 all N runs green on one commit. 1 a red run (the loop stops there). 2 the head commit changed, so the run is not counted; or a wake or headless scope without the grant of `lock run` (nothing runs). 3 CI did not finish within `--ci-max-wait`, so the command did not start. 4 setup error: `--repo` is not a git checkout with a commit, or the logs cannot be written. 64, 143. A command that does not start is a red run: the loop ends with 1. |
 | `wake` | 0 nothing to do, woke OK, a wake already runs, the budget ended it, or the wakes are stopped. 2, 3, 4 from the board calls. 64, 70, 71, 128 + N. |
 | `wake install`, `wake uninstall`, `wake status` | 0, 2 (another wake job runs this agent: `--replace` removes it), 4 (a failed scheduler command), 64 (a wrong option). |
 | `agent add` | 0, 2, 3, 4, 64. |

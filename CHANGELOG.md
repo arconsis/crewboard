@@ -13,6 +13,15 @@ Added:
   branch; no board is read then. `--rev` picks the commit (default `HEAD`). It writes nothing,
   and a pass is no evidence of a `done` or a `verify`.
 
+Changed:
+
+- `repeat` under a wake or a headless config dir needs the grant of `lock run`: it is allowed
+  only with `--lock <dir>` for a lock dir that the wake names with `--host-lock`. Any other
+  `repeat` there is refused with `lock-run-not-granted` (exit 2), before a run. Reason: `repeat`
+  starts a command, and the wake allowlist lets a model run every `crewboard` command. A
+  person at a terminal sees no change. For a scheduled agent that runs `repeat`: install its
+  wake with `--host-lock <dir>` and use `repeat --lock <dir>`.
+
 ## v0.12.0 (2026-11-27)
 
 Upgrade: run `crewboard update` on each host. Nothing changes on the board. One behaviour

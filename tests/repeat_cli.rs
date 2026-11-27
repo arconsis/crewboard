@@ -32,6 +32,8 @@ fn lock_is_refused_with_unix_only_on_windows_only() {
             .arg("--work-dir")
             .arg(&missing)
             .args(["--", "true"])
+            .env_remove("CREWBOARD_WAKE")
+            .env_remove("CREWBOARD_CONFIG_DIR")
             .output()
             .unwrap();
         (
@@ -1182,4 +1184,26 @@ mod unix {
         assert_eq!(o.code, 3, "{}", o.all());
         assert!(t.elapsed() >= std::time::Duration::from_millis(900));
     }
+}
+
+/// `repeat` starts a command. Under a wake it needs the grant of `lock run` (spec/host-lock,
+/// item 7): without it nothing runs.
+#[test]
+fn under_a_wake_repeat_without_the_grant_of_lock_run_is_refused_before_a_run() {
+    let d = tempfile::tempdir().unwrap();
+    let marker = d.path().join("ran");
+    let o = Command::new(BIN)
+        .args(["repeat", "--times", "1", "--no-ci-check", "--work-dir"])
+        .arg(d.path())
+        .args(["--", "touch"])
+        .arg(&marker)
+        .env("CREWBOARD_WAKE", "1")
+        .env_remove("CREWBOARD_LOCK_RUN_DIRS")
+        .env_remove("CREWBOARD_CONFIG_DIR")
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{err}");
+    assert!(err.contains("[rule=lock-run-not-granted]"), "{err}");
+    assert!(!marker.exists(), "the command ran");
 }

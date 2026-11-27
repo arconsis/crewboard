@@ -48,7 +48,9 @@ The command needs a Unix host (macOS or Linux); on another platform it refuses w
    spellings count as one dir). Any other `run` is refused with the rule `lock-run-not-granted`
    (exit 2). A `crewboard ...` command line of the model cannot set the variables, because the
    allowlist matches only commands that start with `crewboard`. The other subcommands (`take`,
-   `release`, `status`, `break`, `ci-*`) stay allowed.
+   `release`, `status`, `break`, `ci-*`) stay allowed. `repeat` starts a command too: under a
+   scope it is allowed only with `--lock <dir>` for such a dir, and any other `repeat` gets the
+   same rule and exit code, before a run.
 8. Proof: the Rust tests in `crates/host-lock/src/` (the stale rules on fake time and processes) and
    `tests/component/lock_*.rs` (the binary on a temp dir; the test names start with the case id, for
    example `h3b_a_live_pid_of_another_user_is_alive`), both directions, including 8 concurrent
