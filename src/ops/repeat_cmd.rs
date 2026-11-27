@@ -595,7 +595,8 @@ pub fn run(config_dir: Option<&Path>, o: &Options) -> i32 {
     lp.finish(0, &verdict)
 }
 
-#[cfg(test)]
+// the list is a `:` list of paths: a Unix form, as the wake and the lock that set it
+#[cfg(all(test, unix))]
 mod tests {
     use super::grant_decision;
 
