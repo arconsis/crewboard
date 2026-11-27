@@ -136,6 +136,11 @@ fn needs_env_file(c: &Command) -> bool {
         && !matches!(
             c,
             Command::Host(HostCmd::Doctor { .. })
+                // a draft file is the only source: no board and no token
+                | Command::Host(HostCmd::Check {
+                    authority_file: Some(_),
+                    ..
+                })
                 | Command::Host(HostCmd::Update { .. })
                 | Command::Plan(PlanCmd::Ticket {
                     action: TicketAction::New { template: true, .. }

@@ -676,3 +676,28 @@ fn check_tries_the_checks_of_a_draft_file_without_a_board_and_takes_a_rev() {
     assert_ne!(o.code, 0, "{}", o.all());
     assert!(o.stderr.contains("has no front matter"), "{}", o.all());
 }
+
+#[test]
+fn check_under_a_wake_runs_no_check_whose_file_a_pr_can_change() {
+    let k = case();
+    let state = k.state.to_string_lossy().into_owned();
+    // `script` runs ./check.sh, which no protected path covers
+    let o = k.fake.run_env(
+        &k.c.dir,
+        &k.work,
+        &["check", "script"],
+        &[("XDG_STATE_HOME", &state), ("CREWBOARD_WAKE", "1")],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(!o.stdout.contains("ok    script"), "{}", o.all());
+    // a check without a file of the repo runs
+    let o = k.fake.run_env(
+        &k.c.dir,
+        &k.work,
+        &["check", "marker"],
+        &[("XDG_STATE_HOME", &state), ("CREWBOARD_WAKE", "1")],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_eq!(work_trees(&k), 1);
+}

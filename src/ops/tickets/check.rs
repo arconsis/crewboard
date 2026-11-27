@@ -33,6 +33,10 @@ pub struct CheckArgs<'a> {
     pub log_root: &'a Path,
     /// Read `checks` from this file and not from the default branch.
     pub authority_file: Option<&'a Path>,
+    /// A scope binds the caller (a headless config dir, or a wake that a scheduler started):
+    /// no check runs then whose command line names a file outside `protected_paths`, as for
+    /// `tick`.
+    pub unattended: bool,
 }
 
 /// The authority that the checks come from, the path of the authority file in the repo, and
@@ -66,16 +70,32 @@ fn wanted<'a>(
     names: &[String],
     from: &str,
 ) -> Result<Vec<&'a Check>, Refusal> {
-    if !names.is_empty() {
-        return run_checks::pick(checks, names);
-    }
     if checks.is_empty() {
         return Err(Refusal::new(
             crate::base::ids::CHECK_UNKNOWN,
             format!("{from} has no `checks` (the owner adds them). Nothing was run"),
         ));
     }
-    Ok(checks.iter().collect())
+    if names.is_empty() {
+        return Ok(checks.iter().collect());
+    }
+    // the words of `pick` name `--run-check` and the default branch: say what this caller typed
+    run_checks::pick(checks, names).map_err(|_| {
+        let unknown: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|n| !checks.iter().any(|c| c.name == *n))
+            .collect();
+        let known: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        Refusal::new(
+            crate::base::ids::CHECK_UNKNOWN,
+            format!(
+                "no check has the name {}. {from} has: {}. Nothing was run",
+                unknown.join(", "),
+                known.join(", ")
+            ),
+        )
+    })
 }
 
 /// The names of `check_env` that this process does not have. Pure but for the environment.
@@ -112,10 +132,13 @@ pub fn check(g: &Global, a: &CheckArgs<'_>) -> CbResult<String> {
             a.repo_dir.display()
         ))
     })?;
+    // the commit first: a typo in `--rev` costs no request
+    let sha = run_checks::commit_of(&top, a.rev).map_err(CbError::usage)?;
     let (auth, authority, from) = source(g, a.authority_file)?;
     let checks = wanted(&auth.checks, a.names, &from)?;
-    let sha = run_checks::commit_of(&top, a.rev).map_err(CbError::usage)?;
-    if run_checks::has_open_changes(&top) {
+    // only for the commit of HEAD: for another commit the open changes say nothing
+    let head = run_checks::commit_of(&top, "HEAD").ok();
+    if head.as_deref() == Some(sha.as_str()) && run_checks::has_open_changes(&top) {
         eprintln!(
             "note: {} has changes that no commit holds. The checks run on the commit {} without them",
             top.display(),
@@ -137,7 +160,7 @@ pub fn check(g: &Global, a: &CheckArgs<'_>) -> CbResult<String> {
         protected_paths: &auth.protected_paths,
         env: &auth.check_env,
         timeout: auth.check_timeout,
-        unattended: false,
+        unattended: a.unattended,
         fetch_pr: None,
         after_fail: "",
     };
@@ -180,6 +203,16 @@ mod tests {
         );
         let r = wanted(&[c("a")], &["z".to_string()], "the file x").unwrap_err();
         assert_eq!(r.rule, crate::base::ids::CHECK_UNKNOWN);
+        assert_eq!(
+            r.message,
+            "no check has the name z. the file x has: a. Nothing was run"
+        );
+        let r = wanted(&[], &["z".to_string()], "the file x").unwrap_err();
+        assert!(
+            r.message.starts_with("the file x has no `checks`"),
+            "{}",
+            r.message
+        );
     }
 
     #[test]
