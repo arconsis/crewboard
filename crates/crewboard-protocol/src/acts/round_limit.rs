@@ -34,6 +34,24 @@ pub fn is_round_limit_fail(body: &str) -> bool {
     kv(body, "case").is_some_and(|c| c.starts_with(CASE_PREFIX))
 }
 
+/// The rounds and the limit of the `case:` line that [`round_limit_case`] wrote; `None` for any
+/// other verify result.
+pub fn round_limit_case_of(body: &str) -> Option<(u32, u32)> {
+    let case = kv(body, "case")?;
+    let (numbers, _) = case.strip_prefix(CASE_PREFIX)?.split_once(';')?;
+    let (rounds, limit) = numbers.split_once(" of ")?;
+    Some((rounds.trim().parse().ok()?, limit.trim().parse().ok()?))
+}
+
+/// Does a line of `text` start with the key `case:`? A free text with such a line would read as
+/// the case of a verify result, so `verify` takes no note that has one.
+pub fn has_case_line(text: &str) -> bool {
+    text.lines().any(|l| {
+        l.split_once(':')
+            .is_some_and(|(k, _)| k.trim().eq_ignore_ascii_case("case"))
+    })
+}
+
 /// The body of the question to the owner at the round limit. The first line is fixed
 /// ([`round_limit_rounds`] reads it); `report_url` is the comment of the verify result.
 pub fn round_limit_question(rounds: u32, limit: u32, report_url: &str) -> String {
@@ -92,6 +110,28 @@ mod tests {
             "verify: fail\nnote: round limit 3 of 3\n"
         ));
         assert!(!is_round_limit_fail("verify: fail\n"));
+        assert_eq!(round_limit_case_of(&report), Some((4, 3)));
+        assert_eq!(
+            round_limit_case_of("verify: fail\ncase: verify failed; a works on b\n"),
+            None
+        );
+        assert_eq!(
+            round_limit_case_of("verify: fail\ncase: round limit x of 3; y\n"),
+            None
+        );
+        assert_eq!(round_limit_case_of("verify: fail\n"), None);
+        // a note with a line of the key `case` would be read as the case
+        for bad in ["case: round limit 9 of 9; x", "ok\n  Case : y", "a\ncase:"] {
+            assert!(has_case_line(bad), "{bad:?}");
+        }
+        for good in [
+            "in this case: fine",
+            "the case is closed",
+            "",
+            "note\nuse case x: y",
+        ] {
+            assert!(!has_case_line(good), "{good:?}");
+        }
 
         let q = round_limit_question(3, 2, "https://github.com/o/r/issues/5#issuecomment-9");
         assert_eq!(

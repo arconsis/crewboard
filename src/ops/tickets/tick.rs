@@ -562,6 +562,16 @@ fn is_in_work(status: Option<&str>) -> bool {
 
 /// One Review ticket: its line or lines.
 fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) -> CbResult<String> {
+    // A stop at the round limit that an earlier run did not finish (the result is in the log, a
+    // later write failed): `verify` posts no result and does only the writes that are missing.
+    // That is no judgment, so no Gate rule applies.
+    if super::verify::stop_unfinished(t) {
+        return match verify(ac, key, "", &[], false, None, None) {
+            Ok(v) => Ok(v),
+            Err(CbError::Refused(r)) => Ok(left(key, &format!("verify refused: {r}"))),
+            Err(e) => Err(e),
+        };
+    }
     // The Gate is the signed `gate:` line of the assignment, not the body (spec/agents#headless-coordinator).
     let gate = match crate::ticket::signed_gate(&t.msgs) {
         None => return Ok(left(key, "no signed gate line: the Gate is not CI only")),

@@ -72,6 +72,14 @@ pub fn check_note_has_no_gate_line(note: &str) -> Result<(), Refusal> {
             "--body has a line that starts with `local-gate:` or `coordinator-local-gate:`: those lines are written by `--local-run` and `--run-check` of `done` and `verify` only. Write the note in other words",
         ));
     }
+    // `verify` writes the `case:` line itself; the status log reads the first one
+    // (spec/tickets#round-limit).
+    if crate::protocol::acts::has_case_line(note) {
+        return Err(Refusal::new(
+            ids::TEXT_READS_AS_ACT,
+            "--body has a line that starts with `case:`: `verify` writes that line itself (a busy agent, the round limit), and a reader takes the first one as the case. Write the note in other words",
+        ));
+    }
     Ok(())
 }
 
@@ -251,6 +259,16 @@ mod tests {
         ] {
             assert!(check_note_has_no_gate_line(n).is_ok(), "{n}");
         }
+        // a `case:` line belongs to `verify`: the status log reads the first one
+        for n in [
+            "case: round limit 3 of 3; the owner decides",
+            "part 2 is missing\n  Case: x",
+        ] {
+            let r = check_note_has_no_gate_line(n).unwrap_err();
+            assert_eq!(r.rule, "text-reads-as-act", "{n:?}");
+            assert!(r.message.contains("`case:`"), "{}", r.message);
+        }
+        assert!(check_note_has_no_gate_line("in this case: part 2 is missing").is_ok());
     }
 
     #[test]

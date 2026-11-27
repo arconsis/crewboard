@@ -55,7 +55,7 @@ are the owner, the coordinator and the assignee ([Assignment](#assignment)).
 | Blocked -> In Progress | assignee | `take` after an answer or its own park | `ack` |
 | Review -> In Progress | coordinator | failed `verify`, agent idle | `verify: fail` report |
 | Review -> Ready | coordinator | failed `verify`, agent busy | `verify: fail` report |
-| Review -> Blocked | coordinator | failed `verify` at the [round limit](#round-limit) | `verify: fail` report with the `case:` line of the round limit |
+| Review -> Blocked | coordinator | failed `verify` at the [round limit](#round-limit), or a `verify` that finishes such a stop | `verify: fail` report with the `case:` line of the round limit |
 | Review -> Done | coordinator | `merge` after a passed `verify`, or `close --verified` for a PR merged at the verified head | close `info` |
 | any but Done and Dropped -> Done | coordinator | `close` after an owner merge | close `info` |
 | any but Done and Dropped -> Dropped | coordinator | `close --why` | `dropped: <reason>` |
@@ -108,7 +108,7 @@ The owner passes every move except a move to the current status. `crewboard move
 | `status-dropped-final` | The ticket is Dropped. Only the owner moves it. |
 | `status-gate-missing` | No Gate: Backlog -> Ready, `ticket new`, `assign`. |
 | `status-agent-not-active-dev` | `Agent` is no approved dev agent in State `active`. |
-| `status-answer-missing` | Blocked -> In Progress without an answer, and no park of the actor. |
+| `status-answer-missing` | Blocked -> In Progress without an answer, and no park of the actor. Also `take` and `done` of the assignee on a ticket that the [round limit](#round-limit) stopped. |
 | `status-evidence-missing` | A move to Review without complete evidence. |
 | `status-verify-required` | Review -> Done without a passed verify. |
 | `status-verify-failed-required` | Review -> In Progress without a failed verify. |
@@ -310,40 +310,74 @@ The owner can limit the rounds of repair of a ticket. The key `max_rounds: <N>` 
 sets the limit ([Authority](board.md#authority)). Without the key there is no limit, and a
 failed `verify` always sends the ticket back to its agent.
 
-A round is one failed `verify` of a coordinator. Every failed `verify` counts, with one
-exception: a fail whose only failure is a moved PR head does not count. A `done` does not count,
-so a re-delivery in Review is no round. A passed `verify` does not count. crewboard counts the
-rounds from the signed `verify: fail` reports of the ticket. No board field holds the count.
+**What counts.** A round is one failed `verify` of a coordinator. crewboard counts the rounds
+from the signed `verify: fail` reports of the ticket. No board field holds the count.
 
-The limit stops a ticket when a failed `verify` counts and it is round N or a later round. Then
-`verify` does not send the ticket back. It does these writes, in order:
+- Every failed `verify` counts, with one exception: a fail whose only failure is a moved PR head
+  does not count.
+- One `done` gives at most one round. Two reports that answer the same `done` are one round. A
+  report that names no `done` is a round of its own.
+- These do not count: a `done` (a re-delivery in Review is no round), a passed `verify`, a
+  `merge` that sends the work back, and a request of the coordinator with `say --kind request`.
+
+**The stop.** The limit stops a ticket when a failed `verify` counts and it is round N or a
+later round. Then `verify` does not send the ticket back. It does these writes, in order:
 
 1. The signed report to the assignee, as for any failed `verify`. Its `case:` line is
    `round limit <rounds> of <N>; the owner decides`.
 2. A signed `question` to the owner. Its first line is `round limit: <rounds> failed verifies`.
    The question names the limit, the URL of the report and the options of the owner: redirect,
-   split, drop. `verify` posts no second question while this question is open, so a second run
-   is safe.
+   split, drop. `verify` posts no second question while this question is open.
 3. The label `needs-owner`.
 4. Status Blocked. `verify` writes no `Order`, and the ticket keeps its agent.
 
 The answer of `verify` has one line that says that the round limit stopped the ticket and what
-the owner can do. `status` and `mine` show the ticket as any Blocked ticket that waits for the
-owner.
+the owner can do. A note of `verify` must not have a line that starts with `case:`
+(`text-reads-as-act`): `verify` writes that line itself.
 
-Two messages release the ticket. They are the two messages that close a question to the owner
-([Status flow and writers](#status-flow-and-writers)):
+**A stopped ticket does not go back to its agent.** From the report of step 1 until a release,
+`take` and `done` of the assignee end with `status-answer-missing`, and the text names the round
+limit. This holds also for a ticket that the agent parked before the stop, and for a ticket that
+the coordinator split before the stop. `mine` shows the ticket as `Blocked, waits for the owner`,
+not as parked. `status` shows it as any Blocked ticket with a question to the owner.
 
-- A comment of the owner on the ticket. The assignee then runs `take`.
-- A signed `answer` of the coordinator that takes the question back. `unblock` posts it, and
-  the assignee then runs `take`. [`reassign`](#reassign) posts it too.
+**A stop that is not finished.** A write of the steps 2 to 4 can fail. Then the report is on the
+ticket and the ticket is still in Review. The next `verify` of the ticket finishes the stop: it
+posts no new report, and it does only the writes that are missing (the question when it is not
+open, the label, Status Blocked). Its answer says that it finished the stop. A plain `verify`,
+`verify --fail` and the `verify` of the headless `tick` all do this. The open question of the
+stop does not hold this run back. It spends no round.
 
-After a release the count starts at zero. The ticket then has N new rounds. On the Blocked
-ticket the coordinator can also run `ticket split` or `close --why`; each follows its own rules.
+**The release.** Two messages release a stopped ticket. They are the two messages that close a
+question to the owner ([Status flow and writers](#status-flow-and-writers)), and they release
+only while the question of the round limit is open:
 
-A change of the key changes no ticket by itself:
+- A comment of the owner on the ticket. Any owner comment on the stopped ticket releases it, so
+  the owner writes the decision in that comment. The assignee reads it and runs `take` when it
+  says to go on.
+- A signed `answer` of the coordinator that takes the question back. `unblock` posts it.
 
-- A higher limit releases nothing. A stopped ticket still needs one of the two messages.
+After the release of a stop the count starts at zero, and the ticket has N new rounds. The same
+messages at another time release nothing and keep the count: an owner comment during normal
+repair, or an `unblock` of a question of the dev agent.
+
+**The owner's options.**
+
+- Redirect: the owner's comment says what to do differently. The assignee then runs `take`.
+- Split: release the ticket first (owner comment or `unblock`), then run `ticket split`. The
+  `done` of the finished part is possible only after the release.
+- Drop: the coordinator runs `close --why`. An owner comment alone closes nothing.
+
+**Reassign.** A reassign starts the count at zero: a new agent does not inherit the rounds. The
+coordinator's [`reassign`](#reassign) also takes an open question back when the ticket has an
+agent, so it releases the stop. The duty that returns the tickets of a dead agent to Backlog
+posts the reassign notice only. It ends the stop, but the question stays open and the label
+stays. The new agent can work and deliver. A plain `verify` still needs the owner's answer:
+until then it ends with `verify-owner-question-open`.
+
+**A change of the key** changes no ticket by itself:
+
+- A higher limit releases nothing. A stopped ticket still needs a release.
 - A lower limit stops no ticket at once. A ticket with N rounds or more stops at its next failed
   `verify` that counts.
 - `max_rounds: 1` sends the first failed `verify` that counts to the owner.

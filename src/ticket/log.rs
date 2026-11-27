@@ -67,7 +67,14 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
     let mut agent: Option<String> = None;
     let mut status = Expected::Unknown;
     let mut closed = false;
+    // The round limit stopped the ticket (spec/tickets#round-limit): until a message closes the
+    // question, or the coordinator assigns the ticket again, an `ack` or a `done` of the
+    // assignee moves nothing. A signed resume in that time shows as drift.
+    let mut stopped = false;
     for m in msgs {
+        if crate::ticket::closes_question(m) {
+            stopped = false;
+        }
         if m.sender == Sender::Owner {
             if let Ok(Some(OwnerCommand::Move { status: s })) = owner_cmd::parse(&m.body) {
                 // a move never names Done or Dropped (`owner_cmd::move_target`), so it never
@@ -87,10 +94,11 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
         if coordinator {
             match act {
                 Act::Closed(_) => closed = true,
-                Act::BoardAnnounce
-                | Act::Assignment { .. }
-                | Act::Reassigned
-                | Act::Verify { pass: false } => closed = false,
+                Act::Assignment { .. } | Act::Reassigned => {
+                    closed = false;
+                    stopped = false;
+                }
+                Act::BoardAnnounce | Act::Verify { pass: false } => closed = false,
                 _ => {}
             }
         }
@@ -113,11 +121,13 @@ pub fn fold_ticket(msgs: &[VMsg]) -> LogTicket {
                 if coordinator && crate::protocol::acts::is_round_limit_fail(&m.body) =>
             {
                 status = Expected::Is(Status::Blocked);
+                stopped = true;
             }
             (_, Act::Verify { pass: false }) if coordinator => {
                 status = Expected::OneOf(vec![Status::InProgress, Status::Ready]);
             }
             (_, Act::Closed(k)) if coordinator => status = Expected::Is(Status::after_close(k)),
+            (Some(Kind::Ack | Kind::Done), _) if assignee && stopped => {}
             (Some(Kind::Ack), _) if assignee => status = Expected::Is(Status::InProgress),
             (Some(Kind::Done), _) if assignee && parse_evidence(&m.body).is_some() => {
                 status = Expected::Is(Status::Review);
@@ -478,6 +488,60 @@ mod tests {
             &format!("verify: fail\ncase: {case}\n"),
         ));
         assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+    }
+
+    #[test]
+    fn a_stopped_ticket_stays_blocked_until_a_release_or_a_new_assignment() {
+        let case = crate::protocol::acts::round_limit_case(3, 3);
+        let stopped = || {
+            let mut m = assigned();
+            m.push(coord(
+                3,
+                "agent-b@host-b",
+                Kind::Report,
+                &format!("verify: fail\npr: x\nfailed: y\ncase: {case}\n"),
+            ));
+            m
+        };
+        // an ack or a done of the assignee without a release moves nothing
+        let mut m = stopped();
+        m.push(dev(4, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::Blocked));
+        m.push(dev(5, "coordinator", Kind::Done, EVIDENCE));
+        assert_eq!(status_of(&m), Expected::Is(Status::Blocked));
+        // a plain answer of the coordinator is no release
+        m.push(coord(6, "agent-b@host-b", Kind::Answer, "go on"));
+        m.push(dev(7, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::Blocked));
+        // an owner message releases: the next ack counts
+        let mut m = stopped();
+        m.push(owner_says(4, "Keep the old schema."));
+        assert_eq!(status_of(&m), Expected::Is(Status::Blocked));
+        m.push(dev(5, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        // an answer of the coordinator that withdraws the question releases
+        let mut m = stopped();
+        let withdraw = crate::protocol::acts::withdraw_body("try again");
+        m.push(coord(4, "agent-b@host-b", Kind::Answer, &withdraw));
+        m.push(dev(5, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        // a reassign and a new assignment end the stop
+        let mut m = stopped();
+        m.push(coord(
+            4,
+            "agent-b@host-b",
+            Kind::Info,
+            "Reassigned. Reason: x",
+        ));
+        m.push(coord(5, "agent-b@host-b", Kind::Request, ASSIGN));
+        m.push(dev(6, "coordinator", Kind::Ack, "Taken."));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        // an owner move sets the status and ends the stop
+        let mut m = stopped();
+        m.push(owner_says(4, "/crew move In Progress"));
+        assert_eq!(status_of(&m), Expected::Is(Status::InProgress));
+        m.push(dev(5, "coordinator", Kind::Done, EVIDENCE));
+        assert_eq!(status_of(&m), Expected::Is(Status::Review));
     }
 
     #[test]

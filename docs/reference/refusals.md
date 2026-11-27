@@ -140,7 +140,7 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `status-no-change` | The ticket has this Status already. |
 | `status-changed-meanwhile` | Somebody moved the ticket after this command read it; nothing was written. |
 | `status-gate-missing` | A move to Ready needs a Gate. |
-| `status-answer-missing` | A Blocked ticket is taken only after an answer to the block. |
+| `status-answer-missing` | A Blocked ticket is taken only after an answer to the block; a ticket that the round limit stopped waits for its release. |
 | `status-evidence-missing` | A delivery needs complete evidence: PR, head SHA and CI. |
 | `status-done-final` | The ticket is Done; only the owner moves it. |
 | `status-dropped-final` | The ticket is Dropped; only the owner moves it. |

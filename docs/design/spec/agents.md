@@ -359,7 +359,11 @@ limits it. The prompt does not.
    the label `needs-owner` and moves the ticket to Blocked. That is a fact, not a judgment: the
    count comes from the signed reports, and the limit comes from the owner. The question is the
    one that `verify` writes; a question that a coordinator types (`ask`) stays outside the
-   headless scope. The ticket is then not in Review, so the next tick does nothing with it.
+   headless scope. After the Status write the ticket is not in Review, and the next tick does
+   nothing with it. When a write of the stop failed, the ticket is still in Review: the next
+   tick finishes the stop before it reads the Gate. It posts no second report and does the
+   writes that are missing, also while the question of the stop is open. That writes no
+   judgment, because the judgment is in the log.
    8a. **The daily digest.** With `daily_digest: true` in `AUTHORITY.md` (default: off), the
    first tick of a UTC day posts one project status update
    ([Status updates](board.md#status-updates)). No model writes it. Its text has the facts that
