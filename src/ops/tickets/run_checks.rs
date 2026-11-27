@@ -64,7 +64,6 @@ pub struct RunArgs<'a> {
 
 /// What the checks run for: the ticket and the commit of its `done`.
 pub(super) struct Target<'a> {
-    pub issue: u64,
     pub key: &'a str,
     /// The commit of the evidence.
     pub sha: &'a str,
@@ -77,6 +76,8 @@ pub(super) struct Target<'a> {
     pub env: &'a [String],
     /// `check_timeout` of AUTHORITY.md, in seconds.
     pub timeout: u64,
+    /// What the refusal of a failed check says after the log: the next step of the caller.
+    pub after_fail: &'a str,
 }
 
 /// One run of checks on one commit: where the rules come from and how a failure reads.
@@ -419,7 +420,7 @@ fn stop_signal() -> Option<i32> {
     None
 }
 
-/// `verify --run-check`: run `checks` for the `done` that `pre` holds. `Ok`: every check exited
+/// `verify --run-check` and `done --run-check`: run `checks` for the commit of a `done`. `Ok`: every check exited
 /// 0, and the text is the local-run line for the verify. A check that fails is the refusal
 /// `check-failed`; nothing is written then.
 pub(super) fn run(
@@ -428,7 +429,7 @@ pub(super) fn run(
     checks: &[&Check],
     args: &RunArgs<'_>,
 ) -> CbResult<String> {
-    let (issue, key) = (t.issue, t.key);
+    let key = t.key;
     if !is_full_sha(t.sha) {
         return Err(not_run(format!(
             "the evidence of {key} has no full commit SHA ({}), so no checkout is possible",
@@ -450,9 +451,6 @@ pub(super) fn run(
             top.display()
         )));
     }
-    let after_fail = format!(
-        "\nNothing was written. To send the ticket back: crewboard verify {issue} --fail --body \"<what failed>\""
-    );
     let job = Job {
         key,
         sha: t.sha,
@@ -462,7 +460,7 @@ pub(super) fn run(
         timeout: t.timeout,
         unattended: args.unattended,
         fetch_pr: Some(t.pr),
-        after_fail: &after_fail,
+        after_fail: t.after_fail,
     };
     let passed = run_job(&top, &job, checks, args.log_root)?;
     let text = tool_text(ac.name.host(), t.sha, &passed.ran, &passed.log_dir);

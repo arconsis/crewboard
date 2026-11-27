@@ -453,6 +453,15 @@ pub enum DevCmd {
         /// CI of the head is not judged. Refused with `local-gate-not-enabled` in `ci_mode: ci`.
         #[arg(long = "local-run")]
         local_run: Option<String>,
+        /// Only with `ci_mode: local`, in place of --local-run: run this check of AUTHORITY.md
+        /// (`checks`) on a clean checkout of the head of the PR, and write the local-run line
+        /// from the result. Repeat for more checks. A check that does not exit 0 is refused
+        /// with `check-failed`, and nothing is written.
+        #[arg(long = "run-check", value_name = "NAME", conflicts_with = "local_run")]
+        run_check: Vec<String>,
+        /// A git checkout of the repo of the PR, for --run-check (default: this directory).
+        #[arg(long = "work-dir", requires = "run_check")]
+        work_dir: Option<PathBuf>,
         #[command(flatten)]
         sel: Sel,
     },

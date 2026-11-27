@@ -43,7 +43,9 @@ find goes into a `report` to the coordinator.
 - On `ci-finished green`: `crewboard done <n> --pr <url> --sha <head sha>`. On `red`: fix the
   cause and push. Run no `done`.
 - `ci_mode: local` in `AUTHORITY.md`: no CI event comes. Run the Gate, then run `done`. It tells
-  you the `--local-run` line.
+  you the `--local-run` line. When a check of `AUTHORITY.md` covers the Gate, use
+  `done <n> --pr <url> --run-check <name>`: the tool runs it on your pushed head and writes the
+  line.
 - A `status-no-change` refusal on a second `done` means the first one landed. Do nothing.
 
 ## Blocked, asked, split
