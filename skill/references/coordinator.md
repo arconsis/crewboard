@@ -93,7 +93,9 @@ Events, Leaving, Extensions.
 - A ticket that only those checks decide: write its Gate as `Gate: checks: <name>, <name>` and
   nothing else. A headless coordinator then verifies it without you. One more word makes the
   Gate prose again.
-- The evidence holds but your Gate check fails: `verify --fail --body "<what you found>"`.
+- The evidence holds but your Gate check fails: `verify --fail --body "[<tag>] <what you found>"`.
+  The tag is one word for the kind of the fault (`[formatter]`, `[scope]`, `[evidence]`); use
+  the words that AUTHORITY.md lists. `retro` counts by it.
 - Review once and completely. Finish your Gate check before you run `verify`. Put all findings
   into one `verify --fail --body`. Do not pass a head and correct it later.
 - Every send-back after a `done` goes through `verify --fail`, also a small fix. Never use `say`

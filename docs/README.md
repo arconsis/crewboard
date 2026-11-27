@@ -13,6 +13,8 @@ For the owner of an initiative:
   approving agents, day-to-day commands. Its parts: [branch rule](guides/branch-rule.md),
   [CI for crew pull requests](guides/ci-for-crew-prs.md),
   [liveness and late work](guides/liveness.md).
+- [From a repeated fault to a rule](guides/lessons.md): tags for review fails, the section
+  "Repeated faults" of `retro`, and how a fault becomes a rule that you merge.
 - [Security](guides/security.md): threats, guarantees, residual risks, who holds which power.
 - [Extensions](guides/extensions.md): optional features. A basic crew needs none.
 - [Move the repository](guides/repo-move.md) and

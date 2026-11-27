@@ -545,7 +545,13 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             // was tested. The first line is the fact; the lines after it are output of the PR.
             Err(CbError::Refused(r)) if run.unattended && r.rule == ids::CHECK_FAILED => {
                 let fact = r.message.lines().next().unwrap_or("a check failed");
-                let note = format!("the tool ran the checks of the Gate: {fact}");
+                // `fact` starts with "check <name> ": the note starts with TOOL_CHECK_NOTE, which
+                // `retro` reads as the tag `check-<name>`
+                let note = format!(
+                    "{}{}",
+                    crate::protocol::acts::TOOL_CHECK_NOTE,
+                    fact.strip_prefix("check ").unwrap_or(fact)
+                );
                 crate::ops::say::check_body_text(&note)?;
                 failed_check = Some(note);
             }

@@ -109,6 +109,25 @@ pub struct GateStats {
     pub unsigned: GateRow,
 }
 
+/// A tag has this many review fails that are rework, or more: a repeated fault.
+pub const REPEATED_FROM: usize = 3;
+
+/// The review fails of one tag ([`crate::protocol::acts::review_tag`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagRow {
+    pub tag: String,
+    pub events: Vec<Event>,
+}
+
+/// The review fails by tag: what kind of fault came back, and how often.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tags {
+    /// Every tag with a fail, most fails first; tags with the same count in name order.
+    pub rows: Vec<TagRow>,
+    /// Review fails that are rework and have no tag.
+    pub untagged: usize,
+}
+
 /// The fails of one class.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassRow {
@@ -189,6 +208,8 @@ pub struct Report {
     pub gates: GateStats,
     /// Only classes with a fail, in the order of [`FailClass::ALL`].
     pub classes: Vec<ClassRow>,
+    /// The review fails by the tag of their note.
+    pub tags: Tags,
     pub rounds: Vec<Round>,
     pub andon: Andon,
     /// Only rule ids with a mention, most mentions first.
@@ -264,6 +285,8 @@ struct Verified {
     classes: Vec<FailClass>,
     /// A `PR head moved` fail that was accepted: not rework.
     accepted: bool,
+    /// The tag of a review fail.
+    tag: Option<String>,
     /// A pass whose local-run line the tool wrote.
     tool_run: bool,
     event: Event,
@@ -372,6 +395,11 @@ fn facts_of(log: &TicketLog) -> TicketFacts {
                         fail_classes(&m.body)
                     },
                     accepted: false,
+                    tag: if pass {
+                        None
+                    } else {
+                        crate::protocol::acts::review_tag(&m.body)
+                    },
                     tool_run: pass && crate::protocol::acts::is_tool_run_verify(&m.body),
                     event: ev(),
                 });
@@ -470,6 +498,27 @@ fn class_rows(facts: &[TicketFacts]) -> Vec<ClassRow> {
     }
     rows.retain(|r| !r.events.is_empty());
     rows
+}
+
+/// The review fails that are rework, by tag.
+fn tag_rows(facts: &[TicketFacts]) -> Tags {
+    let mut by: BTreeMap<String, Vec<Event>> = BTreeMap::new();
+    let mut untagged = 0;
+    for v in facts.iter().flat_map(|f| &f.verifies) {
+        if v.pass || v.accepted || !v.classes.contains(&FailClass::Review) {
+            continue;
+        }
+        match &v.tag {
+            Some(t) => by.entry(t.clone()).or_default().push(v.event.clone()),
+            None => untagged += 1,
+        }
+    }
+    let mut rows: Vec<TagRow> = by
+        .into_iter()
+        .map(|(tag, events)| TagRow { tag, events })
+        .collect();
+    rows.sort_by_key(|r| std::cmp::Reverse(r.events.len()));
+    Tags { rows, untagged }
 }
 
 fn verify_stats(facts: &[TicketFacts]) -> VerifyStats {
@@ -632,6 +681,7 @@ pub fn retro(logs: &[TicketLog]) -> Report {
         verify: verify_stats(&facts),
         gates: gate_stats(&facts),
         classes: class_rows(&facts),
+        tags: tag_rows(&facts),
         rounds: rounds(&tickets, &facts),
         andon: andon(&tickets, &facts),
         refusals: refusal_rows(&facts),
