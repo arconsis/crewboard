@@ -14,7 +14,7 @@ pub(crate) use crate::protocol::acts::TOOL_RUN_PREFIX;
 pub(crate) fn local_gate_not_enabled() -> Refusal {
     Refusal::new(
         ids::LOCAL_GATE_NOT_ENABLED,
-        "--local-run needs `ci_mode: local` in AUTHORITY.md on the default branch (the owner sets it); it is `ci` now. Nothing was written",
+        "--local-run and --run-check need `ci_mode: local` in AUTHORITY.md on the default branch (the owner sets it); it is `ci` now. Nothing was written",
     )
 }
 
@@ -69,7 +69,7 @@ pub fn check_note_has_no_gate_line(note: &str) -> Result<(), Refusal> {
     if bad {
         return Err(Refusal::new(
             ids::LOCAL_GATE_INVALID,
-            "--body has a line that starts with `local-gate:` or `coordinator-local-gate:`: those lines are written by `done --local-run`, `verify --local-run` and `verify --run-check` only. Write the note in other words",
+            "--body has a line that starts with `local-gate:` or `coordinator-local-gate:`: those lines are written by `--local-run` and `--run-check` of `done` and `verify` only. Write the note in other words",
         ));
     }
     Ok(())

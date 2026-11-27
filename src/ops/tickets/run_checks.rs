@@ -180,11 +180,14 @@ pub(super) fn tool_text(host: &str, sha: &str, ran: &[Ran], log_dir: &Path) -> S
         .join(", ");
     // the path comes from the environment: only a plain path goes into the signed line
     let dir = log_dir.display().to_string();
-    let tail = if dir.chars().any(char::is_control) {
-        format!("; clean checkout of {short}")
-    } else {
-        format!("; clean checkout of {short}; logs {dir}")
-    };
+    // A path with a sign of the line itself (`,` and `;` part the results, ` rc=` is a result)
+    // could read as one more result.
+    let tail =
+        if dir.chars().any(char::is_control) || dir.contains([',', ';']) || dir.contains(" rc=") {
+            format!("; clean checkout of {short}")
+        } else {
+            format!("; clean checkout of {short}; logs {dir}")
+        };
     let text = format!("{TOOL_RUN_PREFIX}{host}: {each}{tail}");
     if text.len() <= MAX_TEXT {
         return text;
