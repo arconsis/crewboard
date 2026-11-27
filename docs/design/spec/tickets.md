@@ -32,11 +32,19 @@ Pointers: <files, issues, earlier PRs>
 The issue body is not signed. So the signed assignment carries `gate: <text>` (all `Gate:`
 lines, joined with ` | `) and `ci: none` or `ci: required`. `done`, `verify`, `merge` and the
 headless "CI only" check read these lines, not the body; without a `ci:` line the body decides.
-Only the first signed assignment of a ticket reads the body. Every later assignment message
-copies both signed lines forward: `reassign --to`, the move of a queued ticket, and an `assign`
-after a `reassign`. If the body then has another Gate or CI line, the command prints a warning
-and the signed lines stay. No command changes the signed Gate of a ticket. Work with another
-Gate is a new ticket (`close --why`, then `ticket new`).
+Only the first assignment of a ticket reads the body, and `assign` prints what it signs
+(`signed from the body: gate '<text>'; ci: required`). Every later assignment message copies
+the signed lines forward: `reassign --to`, the move of a queued ticket, and an `assign` after a
+`reassign`. A line that the earlier assignment does not have is not added from the body. If the
+body then has another Gate or CI line, the command prints a warning and the signed lines stay.
+The `Gate` field gets the signed Gate. `ticket split` gives the new ticket the signed Gate of
+the old one.
+
+No command changes the signed Gate of a ticket that has one. Work with another Gate is a new
+ticket (`close --why`, then `ticket new`). One exception stays: when the assignment message of
+a ticket is gone or not valid (deleted or edited), the log has no assignment. An `assign` then
+signs the body again. It prints a warning when the ticket has an Agent or a Status past
+Backlog, and the coordinator checks the Gate that it prints.
 
 ## Status flow and writers
 

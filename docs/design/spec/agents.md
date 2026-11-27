@@ -239,8 +239,8 @@ limits it. The prompt does not.
    names a CI run by hand (`done --run`, a `named` entry in its `ci-runs:` line): a run by hand
    is part of a Gate that is not CI only.
 5. **CI only, exactly.** The Gate is the signed `gate:` line of the latest assignment message
-   (a coordinator `request`; `assign` writes it from the ticket body, `reassign` copies it
-   forward; [Ticket content](tickets.md#ticket-content)). The issue body is NOT read: any holder
+   (a coordinator `request`; the first `assign` of a ticket writes it from the ticket body,
+   every later assignment copies it forward; [Ticket content](tickets.md#ticket-content)). The issue body is NOT read: any holder
    of an agent token can edit it after the assignment. The typed CI-only Gate is the value `ci`
    (`Gate: ci` in the body; one parser, `Gate::parse`, reads it): the signed text, trimmed, is
    `ci` in any letter case. No new signed line is needed: the signed `gate:` text is the value,

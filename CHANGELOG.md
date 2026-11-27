@@ -57,16 +57,24 @@ Changed:
   starts a command, and the wake allowlist lets a model run every `crewboard` command. A
   person at a terminal sees no change. For a scheduled agent that runs `repeat`: install its
   wake with `--host-lock <dir>` and use `repeat --lock <dir>`.
+- An `assign` after a `reassign` does not sign an edited Gate of the body: it copies the signed
+  `gate:` and `ci:` lines of the earlier assignment. A ticket that needs another Gate is a new
+  ticket (`close --why`, then `ticket new`). A ticket whose assignment has no `gate:` line (a
+  ticket of an earlier version) keeps none on a later assignment, so the headless coordinator
+  leaves it for the interactive coordinator.
 
 Fixed:
 
 - A move of a queued ticket to another agent (`assign <n> --to <other>` on a Ready ticket)
   signed the Gate and the CI declaration from the issue body again. Anyone with an agent token
   can edit the body, so an edit while the ticket waited in the queue became the signed Gate.
-  The move now keeps the signed `gate:` and `ci:` lines, as `reassign --to` does. The same
-  holds for an `assign` after a `reassign`. Only the first signed assignment of a ticket reads
-  the body. When the body has another Gate or CI line, the command prints a warning, and
-  `assign` leaves the `Gate` field as it is.
+  The move now keeps the signed `gate:` and `ci:` lines, as `reassign --to` does. Only the
+  first assignment of a ticket reads the body, and `assign` prints what it signs
+  (`signed from the body: ...`). `ticket split` gives the new ticket the signed Gate of the old
+  ticket, not the Gate line of its body. When the body has another Gate or CI line, `assign`
+  and `reassign --to` print a warning, and `assign` and `ticket adopt` write the signed Gate
+  into the `Gate` field. An `assign` of a ticket that has an Agent or a Status past Backlog
+  but no valid assignment message (deleted or edited) still signs the body, and warns.
 
 ## v0.12.0 (2026-11-27)
 

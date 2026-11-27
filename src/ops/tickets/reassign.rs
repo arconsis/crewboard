@@ -1,6 +1,6 @@
 //! `reassign`: the coordinator moves a ticket to another agent, or the duties loop reassigns it.
 
-use super::assign_checks::{CapOverride, check_assignable, check_capabilities};
+use super::assign_checks::{CapOverride, check_assignable, check_capabilities, copy_signed};
 use super::{
     Me, agent_label_lines, load_world_cached, me_of, post, remember, sync_needs_owner, to_agent,
     work_write_ctx, work_write_ctx_of, write_work,
@@ -128,7 +128,8 @@ pub fn reassign(
     out.push_str(&notice_lines);
     if let Some(a) = &new_agent {
         // Copy the signed gate forward: the new assignment message is the latest one, and the
-        // headless judgement reads the latest signed gate.
+        // headless judgement reads the latest signed gate. The body is read only for the warning.
+        let lines = copy_signed(&t.key(), &t.msgs, &t.info.body);
         let p = post(
             ac,
             &t,
@@ -139,12 +140,13 @@ pub fn reassign(
                 &t.info.title,
                 &t.key(),
                 &t.item_id,
-                crate::ticket::signed_gate(&t.msgs).as_deref(),
-                crate::ticket::signed_ci_none(&t.msgs),
+                lines.gate.as_deref(),
+                lines.ci_none,
                 &format!("reason: {reason}\n{override_lines}"),
             ),
         )?;
         out.push_str(&format!("assignment message {}\n", p.url));
+        out.push_str(&lines.notes);
     }
     remember(ac, &t, target, new_agent.as_ref().map(AgentName::as_str));
     out.push_str(&agent_label_lines(

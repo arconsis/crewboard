@@ -294,9 +294,17 @@ pub(super) fn adopt_info(
             .write_status(&ac.ctx.client, &item_id, Status::Backlog)?;
         out.push_str("Status set to Backlog\n");
     }
-    if item.get(Field::Gate) != Some(gate.as_str()) {
-        write_work(ac, &item_id, Field::Gate, FieldValue::Text(&gate), &wc)?;
-        out.push_str("Gate field set from the body\n");
+    // A ticket with a signed Gate shows that one in the field: the body is not signed.
+    let (field_gate, source) = match crate::ticket::signed_gate(&msgs) {
+        Some(signed) => (
+            check_text_field(&signed).is_ok().then_some(signed),
+            "signed Gate",
+        ),
+        None => (Some(gate), "body"),
+    };
+    if let Some(g) = field_gate.filter(|g| item.get(Field::Gate) != Some(g.as_str())) {
+        write_work(ac, &item_id, Field::Gate, FieldValue::Text(&g), &wc)?;
+        out.push_str(&format!("Gate field set from the {source}\n"));
     }
     let mut cache = ac.load_cache();
     cache

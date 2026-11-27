@@ -794,7 +794,12 @@ fn a_later_assignment_keeps_the_signed_gate_and_ci_line_when_the_body_was_edited
     assert!(!last.contains("moved-from: "), "{last}");
     assert!(last.contains(&format!("gate: {SIGNED_GATE}\n")), "{last}");
     assert!(last.contains("ci: required\n"), "{last}");
-    assert!(o.stdout.contains("Gate field kept"), "{}", o.stdout);
+    assert!(
+        o.stdout.contains("Gate field set from the signed Gate"),
+        "{}",
+        o.stdout
+    );
+    assert!(!o.stdout.contains("signed from the body"), "{}", o.stdout);
     assert!(
         o.stdout
             .contains("warning: the Gate line in the body of fake-owner/fake-repo#"),
@@ -818,5 +823,182 @@ fn a_later_assignment_keeps_the_signed_gate_and_ci_line_when_the_body_was_edited
     let m = moved_message(&fake, t2);
     assert!(m.contains(&format!("gate: {SIGNED_GATE}\n")), "{m}");
     assert!(m.contains("ci: none\n"), "{m}");
+    no_unhandled(&fake);
+}
+
+/// A ticket with the Gate [`SIGNED_GATE`], no `CI: none`.
+fn gated(fake: &FakeBoard, title: &str) -> u64 {
+    fake.ticket_issue(
+        title,
+        &format!("Goal: x.\n\nGate: {SIGNED_GATE}\n"),
+        &["crew:work"],
+    )
+}
+
+const EDITED_BODY: &str = "Goal: x.\n\nGate: ci\nCI: none\n";
+
+/// `reassign --to` copies the signed lines and warns about an edited body, as the move does.
+#[test]
+fn reassign_to_keeps_the_signed_lines_and_warns_when_the_body_was_edited() {
+    let (fake, c, a, b) = crew();
+    let t = gated(&fake, "IT reassign keeps the signed gate");
+    let s = t.to_string();
+    run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+    fake.set_issue_body(t, EDITED_BODY);
+    let o = run_ok(
+        &fake,
+        &c,
+        &["reassign", &s, "--reason", "dead", "--to", &a.name],
+    );
+    let last = assignments(&fake, t).pop().expect("the last assignment");
+    assert!(last.contains("reason: "), "{last}");
+    assert!(last.contains(&format!("gate: {SIGNED_GATE}\n")), "{last}");
+    assert!(last.contains("ci: required\n"), "{last}");
+    let warnings: Vec<&str> = o
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("warning: the "))
+        .collect();
+    assert_eq!(warnings.len(), 2, "{}", o.stdout);
+    assert!(
+        warnings[0].ends_with(&format!("The signed Gate stays: '{SIGNED_GATE}'")),
+        "{}",
+        o.stdout
+    );
+    assert!(warnings[1].ends_with("'ci: required'"), "{}", o.stdout);
+    no_unhandled(&fake);
+}
+
+/// Two Gate lines of the body are one signed line (` | `): the body agrees with it, so a later
+/// assignment gives no warning.
+#[test]
+fn a_body_with_two_gate_lines_agrees_with_its_signed_line() {
+    let (fake, c, a, b) = crew();
+    let t = fake.ticket_issue(
+        "IT two gate lines",
+        "Goal: x.\n\nGate: the build passes\n- **Gate:** the demo runs\n",
+        &["crew:work"],
+    );
+    let s = t.to_string();
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+    assert!(
+        o.stdout.contains(
+            "signed from the body: gate 'the build passes | the demo runs'; ci: required"
+        ),
+        "{}",
+        o.stdout
+    );
+    assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+    assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
+    assert!(!o.stdout.contains("signed from the body"), "{}", o.stdout);
+    let m = moved_message(&fake, t);
+    assert!(
+        m.contains("gate: the build passes | the demo runs\n"),
+        "{m}"
+    );
+    no_unhandled(&fake);
+}
+
+/// The assignment comment is deleted or edited, so the log has no assignment, and the body is
+/// edited. The next `assign` signs the body: it says so, and it warns because the board shows
+/// an assigned ticket.
+#[test]
+fn assign_of_a_ticket_whose_assignment_message_is_gone_warns_and_names_what_it_signs() {
+    let (fake, c, a, b) = crew();
+    for deleted in [true, false] {
+        let t = gated(&fake, "IT assignment message gone");
+        let s = t.to_string();
+        // control: the first assignment names what it signs and has no warning
+        let o = run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+        assert!(
+            o.stdout.contains(&format!(
+                "signed from the body: gate '{SIGNED_GATE}'; ci: required"
+            )),
+            "{}",
+            o.stdout
+        );
+        assert!(!o.stdout.contains("warning: "), "{}", o.stdout);
+        let (id, _, text) = fake
+            .comments_of(t)
+            .into_iter()
+            .find(|(_, _, b)| b.contains("Assigned to you"))
+            .expect("the assignment comment");
+        if deleted {
+            fake.delete_comment(id);
+        } else {
+            fake.edit_comment(id, &text.replace(SIGNED_GATE, "ci"));
+        }
+        fake.set_issue_body(t, EDITED_BODY);
+        let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+        let key = format!("{REPO}#{t}");
+        assert!(
+            o.stdout.contains(&format!(
+                "warning: {key} has an Agent or a Status past Backlog, but no valid signed assignment"
+            )) && o
+                .stdout
+                .contains("The Gate now comes from the unsigned body: check it"),
+            "deleted={deleted}: {}",
+            o.stdout
+        );
+        assert!(
+            o.stdout
+                .contains("signed from the body: gate 'ci'; ci: none"),
+            "deleted={deleted}: {}",
+            o.stdout
+        );
+    }
+}
+
+/// An assignment without a `gate:` line (a ticket of an earlier version): a move copies what the
+/// assignment has, so the new message has no Gate of the body either.
+#[test]
+fn a_move_of_a_ticket_whose_assignment_has_no_gate_line_does_not_sign_the_body() {
+    let (fake, c, a, b) = crew();
+    let t = gated(&fake, "IT assignment without a gate line");
+    let s = t.to_string();
+    run_ok(&fake, &c, &["ticket", "adopt", &s]);
+    let id = item(&fake, t);
+    fake.signed(
+        &c.key,
+        &c.name,
+        &b.name,
+        crewboard::protocol::names::Kind::Request,
+        t,
+        &format!("Assigned to you: T\nticket: {REPO}#{t}\nitem={id}\n"),
+    );
+    fake.set_item(&id, "Status", "Ready");
+    fake.set_item(&id, "Agent", &b.name);
+    fake.set_issue_body(t, EDITED_BODY);
+    let o = run_ok(&fake, &c, &["assign", &s, "--to", &a.name]);
+    let m = moved_message(&fake, t);
+    assert!(m.contains(&format!("moved-from: {}", b.name)), "{m}");
+    assert!(!m.contains("gate: ") && !m.contains("ci: "), "{m}");
+    assert!(!o.stdout.contains("signed from the body"), "{}", o.stdout);
+    no_unhandled(&fake);
+}
+
+/// `ticket adopt` writes the signed Gate into the `Gate` field, not the Gate of an edited body.
+#[test]
+fn adopt_writes_the_signed_gate_into_the_field_when_the_body_was_edited() {
+    let (fake, c, _a, b) = crew();
+    let t = gated(&fake, "IT adopt keeps the signed gate");
+    let s = t.to_string();
+    run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
+    let id = item(&fake, t);
+    fake.set_issue_body(t, EDITED_BODY);
+    // the field agrees with the signed Gate: nothing is written
+    let o = run_ok(&fake, &c, &["ticket", "adopt", &s]);
+    assert!(!o.stdout.contains("Gate field set"), "{}", o.stdout);
+    assert_eq!(field(&fake, &id, "Gate").as_deref(), Some(SIGNED_GATE));
+    // somebody wrote the field: the signed Gate comes back
+    fake.set_item(&id, "Gate", "ci");
+    let o = run_ok(&fake, &c, &["ticket", "adopt", &s]);
+    assert!(
+        o.stdout.contains("Gate field set from the signed Gate"),
+        "{}",
+        o.stdout
+    );
+    assert_eq!(field(&fake, &id, "Gate").as_deref(), Some(SIGNED_GATE));
     no_unhandled(&fake);
 }
