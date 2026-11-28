@@ -723,7 +723,11 @@ pub fn cycle(
     if !cache.index.tickets_scanned {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
     }
-    check_state_and_heartbeat(ac, &world, &me, my_item, now, opts.hold_heartbeat)?;
+    // The model of a wake in a headless config dir writes no heartbeat of the coordinator: the
+    // heartbeat says that the interactive coordinator is there (spec/agents#the-model-wake).
+    let hold_heartbeat =
+        opts.hold_heartbeat || (crate::headless::in_wake_child() && ac.ctx.cd.is_headless()?);
+    check_state_and_heartbeat(ac, &world, &me, my_item, now, hold_heartbeat)?;
     let read = read_cursor(ac, cache, my_item, opts, now)?;
     let cursor = &read.cursor;
     let etags_before = cache.poll.etags.clone();

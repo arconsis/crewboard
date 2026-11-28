@@ -234,6 +234,8 @@ catalog! {
             "A headless coordinator does not do this; the interactive coordinator does.";
         UNATTENDED_OFF = "unattended-off" :
             "The unattended coordinator is off (`unattended_coordinator` of AUTHORITY.md); the interactive coordinator does this.";
+        WAKE_INSIDE_WAKE = "wake-inside-wake" :
+            "`crewboard wake` does not run inside a wake: only the scheduler starts a wake.";
         UNATTENDED_BUDGET = "unattended-budget" :
             "The unattended coordinator has no verdict or message left for the day or for the ticket, or the count could not be read.";
         OWNER_COMMAND_MALFORMED = "owner-command-malformed" :

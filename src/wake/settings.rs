@@ -119,6 +119,11 @@ pub struct Settings {
     /// `tick`: the model wake of the unattended coordinator, which starts after the tick only
     /// when the judgment list needs it.
     pub direct: Option<Direct>,
+    /// A `--tick --runtime` unit: its tick gets no checkout, and a model may start after it.
+    pub model_unit: bool,
+    /// The model command of a `--tick --runtime` unit could not be built (a work dir or a
+    /// runtime that is gone, a wrong option). The tick still runs; no model starts.
+    pub model_error: Option<String>,
     pub max_wake: MaxWake,
     /// Seconds between heartbeats; 0 sends none.
     pub heartbeat_every: u64,
@@ -466,14 +471,22 @@ pub fn resolve(
     // the events file of a dev agent is in the state dir
     let events_file = nonempty_path(a.events_file.as_ref()).map(wake_job::abs);
     let default_events = paths.dir.join("events.txt");
-    let direct = direct_of(
+    let model_unit = a.tick && nonempty(a.agent_job.runtime.as_deref()).is_some();
+    let built = direct_of(
         a,
         g,
         env,
         &names,
         &paths,
         events_file.as_deref().unwrap_or(&default_events),
-    )?;
+    );
+    // The tick of a unit does not depend on its model: a model command that cannot be built
+    // is a line of each run, and the tick decides the exit code. `--print-cmd` shows the error.
+    let (direct, model_error) = match built {
+        Ok(d) => (d, None),
+        Err(b) if model_unit && !a.agent_job.print_cmd => (None, Some(b.text)),
+        Err(b) => return Err(b),
+    };
     if a.agent_job.print_cmd {
         return print_cmd_text(&direct, a.tick, &paths).map(Plan::PrintCmd);
     }
@@ -503,6 +516,8 @@ pub fn resolve(
             .filter(|_| !a.tick),
         crewboard: nonempty(a.crewboard.as_deref()).map(str::to_string),
         direct,
+        model_unit,
+        model_error,
         max_wake: n.max_wake,
         heartbeat_every: n.heartbeat_every,
         host_locks: a.agent_job.host_lock.clone(),

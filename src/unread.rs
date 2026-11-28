@@ -260,10 +260,79 @@ pub fn guard(
     indexed: bool,
     anyway: bool,
 ) -> CbResult<Option<String>> {
+    let headless = ac.ctx.cd.is_headless()?;
+    if headless && anyway {
+        return Err(CbError::refused(
+            ids::HEADLESS_SCOPE,
+            "this config is headless: `--override-unread` is not for a headless config dir. Run the command without it: it shows a message that is unread, and the same command passes after that. Nothing was written",
+        ));
+    }
     match unread_events(ac, world, comments, t, mine, indexed) {
+        Some(unread) if headless => headless_verdict(ac, unread, t).map(|()| None),
         Some(unread) => verdict(&unread, anyway, t),
         None => Ok(None),
     }
+}
+
+/// The messages of `unread` that the check of a headless config dir did not show yet: those
+/// with a comment id above `shown`.
+pub fn not_shown(unread: Vec<Event>, shown: u64) -> Vec<Event> {
+    unread
+        .into_iter()
+        .filter(|e| e.comment_id > shown)
+        .collect()
+}
+
+/// The check in a headless config dir. Such a dir never moves the board cursor, so "read" has
+/// its own mark there: the highest comment id that a refusal showed for the ticket, in the
+/// state of the config dir. A message above the mark refuses the command, is shown, and moves
+/// the mark; the mark is saved before the refusal. The same command then passes without a
+/// flag, unless a newer message came: that one refuses again and is the only one shown. So no
+/// message is passed over that no refusal showed. A mark that cannot be saved is an error.
+fn headless_verdict(ac: &crate::ctx::AgentCtx, unread: Vec<Event>, t: &TicketRef) -> CbResult<()> {
+    let key = t.key();
+    let shown = ac
+        .load_cache()
+        .poll
+        .unread_shown
+        .get(&key)
+        .copied()
+        .unwrap_or(0);
+    let mut new = not_shown(unread, shown);
+    // one refusal shows the text of at most SHOWN_BODIES messages, oldest first; the next ones
+    // refuse the next run
+    let more = new.len().saturating_sub(SHOWN_BODIES);
+    new.truncate(SHOWN_BODIES);
+    let Some(top) = new.iter().map(|e| e.comment_id).max() else {
+        return Ok(());
+    };
+    crate::state::StateCache::update_locked(&ac.state_path(), |cache| {
+        let mark = cache.poll.unread_shown.entry(key).or_insert(top);
+        *mark = (*mark).max(top);
+        Ok(())
+    })?;
+    Err(CbError::refused(
+        ids::UNREAD_MESSAGE_ON_TICKET,
+        headless_refusal_text(&new, more, t),
+    ))
+}
+
+/// The refusal text of a headless config dir: the messages, and the one next step.
+pub fn headless_refusal_text(new: &[Event], more: usize, t: &TicketRef) -> String {
+    let mut s = format!(
+        "{} message(s) for you on {t} that you did not see; read them before you post:\n",
+        new.len()
+    );
+    s.push_str(&message_lines(new));
+    if more > 0 {
+        s.push_str(&format!(
+            "  ({more} more message(s): the next run of the command shows them)\n"
+        ));
+    }
+    s.push_str(
+        "Read them (the full text is at each URL). Then run the same command again: it passes when no newer message came. Nothing was written.",
+    );
+    s
 }
 
 /// What `take` prints: the messages that it marks as read (sender, kind, time, first lines,
@@ -954,6 +1023,35 @@ mod tests {
         );
         assert!(!text.contains("line four"), "{text}");
         assert_eq!(render_read(&[]), "");
+    }
+
+    #[test]
+    fn the_headless_check_shows_what_is_above_the_mark_and_its_text_names_one_next_step() {
+        let unread = vec![ev(5, "five"), ev(9, "nine"), ev(12, "twelve")];
+        let ids = |v: Vec<Event>| v.iter().map(|e| e.comment_id).collect::<Vec<_>>();
+        assert_eq!(ids(not_shown(unread.clone(), 0)), [5, 9, 12]);
+        assert_eq!(ids(not_shown(unread.clone(), 9)), [12]);
+        assert!(not_shown(unread.clone(), 12).is_empty());
+        let text = headless_refusal_text(&unread[2..], 0, &TicketRef::new("a/b", 7));
+        assert!(
+            text.starts_with("1 message(s) for you on a/b#7 that you did not see;"),
+            "{text}"
+        );
+        assert!(text.contains("    twelve\n"), "{text}");
+        assert!(
+            text.ends_with("Then run the same command again: it passes when no newer message came. Nothing was written."),
+            "{text}"
+        );
+        // no flag and no `watch`: a headless config dir has neither for this check
+        assert!(
+            !text.contains("--override-unread") && !text.contains("watch"),
+            "{text}"
+        );
+        let more = headless_refusal_text(&unread[..1], 3, &TicketRef::new("a/b", 7));
+        assert!(
+            more.contains("(3 more message(s): the next run of the command shows them)"),
+            "{more}"
+        );
     }
 
     fn ev(id: u64, body: &str) -> Event {

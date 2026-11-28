@@ -341,6 +341,14 @@ fn not_for_coordinator(a: &AgentArgs) -> Option<&'static str> {
             a.events_every.is_some(),
             "--events-every is for a dev agent: the model wake of a coordinator (--tick --runtime) has no events hook",
         ),
+        (
+            !a.host_lock.is_empty(),
+            "--host-lock is not for a unit with --tick --runtime: the model of a coordinator runs no heavy job and gets no grant for `lock run`",
+        ),
+        (
+            a.shim_dir.is_some(),
+            "--shim-dir is not for a unit with --tick --runtime: the gh shim runs `agent with-env`, which a headless config dir refuses inside a wake. gh reads the token of --env-file",
+        ),
     ]
     .iter()
     .find(|(set, _)| *set)
@@ -373,17 +381,7 @@ fn build_coordinator(i: &Inputs, runtime: Runtime) -> Result<Direct, String> {
         None => None,
         Some(s) => Some(words::split(s).map_err(|e| format!("--runtime-flags: {e}"))?),
     };
-    let host_locks: Vec<PathBuf> = a.host_lock.iter().map(|p| abs(p)).collect();
-    if let Some(bad) = host_locks
-        .iter()
-        .find(|p| p.to_string_lossy().contains(':'))
-    {
-        return Err(format!(
-            "--host-lock {} has a colon; the grant for `lock run` is a list that a colon splits",
-            bad.display()
-        ));
-    }
-    let (path, env) = wake_env(a, i.path_env, &host_locks)?;
+    let (path, env) = wake_env(a, i.path_env, &[])?;
     let bin = runtime_bin(a, runtime, path.as_deref())?;
     let config_dir = i.config_dir.map(abs);
     let prompt = adapters::coordinator_prompt(
@@ -427,10 +425,14 @@ pub fn tick_text(log: &Path) -> String {
 /// `--print-cmd` for `--tick --runtime`: both parts of the unit.
 pub fn coordinator_text(log: &Path, model: &str) -> String {
     format!(
-        "crewboard tick (the lines go to {})\nthen, only when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off`: {model}",
+        "crewboard tick (the lines go to {})\n{NO_CHECKS}\nthen, only when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off`: {model}",
         log.display()
     )
 }
+
+/// What a `--tick --runtime` unit says in each run and in `--print-cmd`: its `--work-dir` is
+/// for the model, so its tick runs no checks.
+pub const NO_CHECKS: &str = "this unit has a model (--runtime): its tick runs no checks of a `checks:` Gate, and --work-dir is the start dir of the model";
 
 /// The program to start: a name is looked up in `path` (the PATH of the wake child), so that the
 /// `gh` shim dir and the install dirs count; a path stays as it is. A name that is not found
@@ -1142,6 +1144,13 @@ mod coordinator_tests {
         let mut a = args(&r, "hermes");
         a.allow = vec!["x".into()];
         assert!(e(&a).contains("--allow is for --runtime claude"));
+        // no grant for `lock run` and no gh shim for the model of a coordinator
+        let mut a = args(&r, "codex");
+        a.host_lock = vec!["/l/heavy.lock.d".into()];
+        assert!(e(&a).contains("--host-lock is not for a unit with --tick --runtime"));
+        let mut a = args(&r, "codex");
+        a.shim_dir = Some("/a/bin".into());
+        assert!(e(&a).contains("--shim-dir is not for a unit with --tick --runtime"));
         let mut a = args(&r, "claude");
         a.runtime_bin = Some(r.dir.path().join("gone/claude"));
         assert!(e(&a).contains("is gone (moved or removed)"));

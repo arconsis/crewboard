@@ -620,6 +620,18 @@ fn a_coordinator_with_a_runtime_refuses_what_cannot_work() {
     bad = coordinator("hermes");
     bad.agent_job.allow = vec!["x".into()];
     assert!(go(&bad, Scheduler::Systemd, &h).contains("--allow is for --runtime claude"));
+    bad = coordinator("claude");
+    bad.agent_job.host_lock = vec!["/hl".into()];
+    assert!(
+        go(&bad, Scheduler::Systemd, &h)
+            .contains("--host-lock is not for a unit with --tick --runtime")
+    );
+    bad = coordinator("claude");
+    bad.agent_job.shim_dir = Some("/a/bin".into());
+    assert!(
+        go(&bad, Scheduler::Systemd, &h)
+            .contains("--shim-dir is not for a unit with --tick --runtime")
+    );
     // the options of the events of a dev agent
     for rt in ["claude", "codex", "hermes"] {
         bad = coordinator(rt);

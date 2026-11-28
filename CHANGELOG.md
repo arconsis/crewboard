@@ -93,9 +93,30 @@ Added:
   that fails pauses the next model wakes (the tick goes on); the third failure in a row is one
   line on standard error. `--print-cmd` prints both parts, and `doctor --setup` shows the
   mode, the runtime and the count of the last model wake. With the key absent or `off`, a
-  `--tick --runtime` unit does what a `--tick` unit does and starts no process. Changed with
+  `--tick --runtime` unit does what a `--tick` unit does and starts no process; its log has one
+  more line per run. Two model starts of a day are 30 minutes apart or more. A list that
+  changes between two ticks counts as changed also when it is the same again at the next model
+  start. A model command that cannot be built does not stop the tick: one line per run, no
+  model. `doctor --setup` shows the tick (`wake`) and the model (`unattended coordinator`) as
+  two checks. Changed with
   it: `--tick` and `--runtime` no longer exclude each other. In a unit with both, `--work-dir`
-  is the start dir of the model, and the tick of that unit runs no checks of a `checks:` Gate.
+  is the start dir of the model, the tick of that unit runs no checks of a `checks:` Gate, and
+  `--host-lock` and `--shim-dir` are refused.
+  Changed: `crewboard wake` in its run form is refused inside a wake (`CREWBOARD_WAKE` is set
+  and not empty) with the new id `wake-inside-wake`, exit 2, in every config dir.
+  `--print-cmd`, `--print-state-dir` and `wake status` are unchanged.
+  Changed: inside a wake, a headless config dir refuses `agent exec`, `agent with-env`,
+  `heartbeat` and `start` (`headless-scope`), and `watch` and `poll` write no heartbeat there.
+  Outside a wake a headless config dir is unchanged.
+  Changed: a headless config dir refuses `--override-unread` on `say`, `unblock` and `ask`
+  (`headless-scope`). The unread check has its own mark there: a refusal prints the unread
+  messages and stores the highest comment id per ticket in the state cache (`unread_shown`,
+  left out when empty), and the same command then passes without a flag until a newer message
+  comes.
+  Changed: `mine <ticket>` for an agent with the coordinator role prints the signed log of any
+  ticket (lines `signed: ...` from the signed assignment, the latest `done` with its result,
+  an open question, the signed messages since the latest assignment; `--json` adds
+  `signed_facts`). It refused with `mine-not-your-ticket`. A dev agent is unchanged.
   New skill reference `references/unattended-coordinator.md`. Guide:
   `docs/guides/headless-setup.md`. Spec:
   `docs/design/spec/agents.md#unattended-coordinator`,

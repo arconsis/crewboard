@@ -79,6 +79,12 @@ pub struct PollState {
     /// `watch` read and move this one and never write the `Cursor` field of the shared agent item.
     #[serde(default)]
     pub local_cursor: Option<String>,
+    /// `<repo>#<issue>` -> the highest comment id of a message that the unread check of a
+    /// headless config dir showed in a refusal (spec/events#unread-messages-on-a-ticket). A
+    /// message up to that id counts as read there: a headless config dir never moves the board
+    /// cursor that the check reads.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unread_shown: BTreeMap<String, u64>,
 }
 
 /// The ticket index and the last snapshot of each ticket.
@@ -784,6 +790,11 @@ impl StateCache {
         out.liveness.deferred = merged;
         out.notes.merge_disk(&disk.notes, crate::clock::now_epoch());
         out.tick.merge_unattended(&disk.tick);
+        // the higher id of a ticket: a message that one command showed stays shown
+        for (key, id) in disk.poll.unread_shown {
+            let mine = out.poll.unread_shown.entry(key).or_insert(id);
+            *mine = (*mine).max(id);
+        }
         out
     }
 
@@ -1622,6 +1633,39 @@ mod tests {
         assert!(text.contains(r#""notes_recheck":{"o/r#2":1234}"#), "{text}");
         let back: StateCache = serde_json::from_str(&text).unwrap();
         assert_eq!(back.notes.notes_recheck, n.notes.notes_recheck);
+    }
+
+    #[test]
+    fn a_save_keeps_the_higher_shown_mark_of_each_ticket_and_an_empty_map_is_not_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let mut first = StateCache::default();
+        first.save(&p).unwrap();
+        assert!(
+            !std::fs::read_to_string(&p)
+                .unwrap()
+                .contains("unread_shown"),
+            "an empty map is left out of the file"
+        );
+        // a long command loaded the file; two refusals note their marks meanwhile
+        let mut stale = StateCache::load(&p);
+        let mut cmd = StateCache::load(&p);
+        cmd.poll.unread_shown.insert("o/r#1".into(), 40);
+        cmd.poll.unread_shown.insert("o/r#2".into(), 7);
+        cmd.save(&p).unwrap();
+        // the older copy has a lower mark for one ticket and a higher one for another
+        stale.poll.unread_shown.insert("o/r#1".into(), 30);
+        stale.poll.unread_shown.insert("o/r#3".into(), 9);
+        stale.save(&p).unwrap();
+        let back = StateCache::load(&p);
+        assert_eq!(
+            back.poll.unread_shown,
+            BTreeMap::from([
+                ("o/r#1".to_string(), 40),
+                ("o/r#2".to_string(), 7),
+                ("o/r#3".to_string(), 9)
+            ])
+        );
     }
 
     #[test]

@@ -201,8 +201,30 @@ fn mine_n_refuses_the_ticket_of_another_agent_and_plain_mine_is_unchanged() {
         "{}",
         o.all()
     );
-    // the coordinator has no assignment on it either
-    run_refused(&fake, &c, &["mine", &ts], "mine-not-your-ticket");
+    // the coordinator owns no ticket: it gets the signed log of the ticket, with its facts
+    let o = fake.run(&c.dir, &["mine", &ts]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(
+        o.stdout.starts_with(&format!("{}#{t}: the signed log. Every line below comes from a message that passed the signature check", crate::support::board::REPO)),
+        "{}",
+        o.all()
+    );
+    assert!(
+        o.stdout
+            .contains(&format!("signed: assignee (signed log): {}\n", b.name)),
+        "{}",
+        o.all()
+    );
+    assert!(
+        o.stdout.contains("signed: Gate (signed assignment): "),
+        "{}",
+        o.all()
+    );
+    assert!(
+        o.stdout.contains("signed: latest done of the assignee: "),
+        "{}",
+        o.all()
+    );
     // an issue without a signed assignment
     let plain = fake.ticket_issue(
         "IT no assignment",

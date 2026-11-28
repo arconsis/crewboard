@@ -314,11 +314,16 @@ pub fn tick_log_lines(out: &str) -> Vec<String> {
 pub const MAX_COORD_WAKES_PER_DAY: u32 = 6;
 /// A judgment list that did not change starts the next model wake after this many seconds.
 pub const COORD_BACKOFF_SECS: i64 = 7200;
+/// The least time between two model starts of one UTC day, in seconds. A dev agent can change
+/// the list at will (a block, a question), so a change alone must not start models in a row.
+pub const COORD_MIN_DISTANCE_SECS: i64 = 1800;
 /// The run of failed model wakes at which one line goes to standard error.
 pub const COORD_TELL_RUN: u64 = WAKE_TELL_RUN;
 
 /// The file `coordinator-wakes`: `<UTC day> <model wakes of that day> <epoch of the last start>
-/// <hash of the list at that start> <mode> <runtime>`. It is written before a model starts.
+/// <hash of the list of the last tick> <mode> <runtime> <pending: 0 or 1>`. It is written
+/// before a model starts, and when the list of a tick differs from the stored one
+/// ([`coord_note`]). `pending`: the list changed since the last start and no model saw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordWakes {
     /// `YYYY-MM-DD`.
@@ -329,6 +334,7 @@ pub struct CoordWakes {
     /// `unattended_coordinator` of AUTHORITY.md at that start.
     pub mode: String,
     pub runtime: String,
+    pub pending: bool,
 }
 
 impl CoordWakes {
@@ -352,13 +358,24 @@ impl CoordWakes {
             hash: word()?,
             mode: word()?,
             runtime: word()?,
+            pending: match word()?.as_str() {
+                "0" => false,
+                "1" => true,
+                _ => return None,
+            },
         })
     }
 
     pub fn render(&self) -> String {
         format!(
-            "{} {} {} {} {} {}\n",
-            self.day, self.count, self.last, self.hash, self.mode, self.runtime
+            "{} {} {} {} {} {} {}\n",
+            self.day,
+            self.count,
+            self.last,
+            self.hash,
+            self.mode,
+            self.runtime,
+            u8::from(self.pending)
         )
     }
 }
@@ -371,6 +388,23 @@ fn is_day(s: &str) -> bool {
             4 | 7 => *c == b'-',
             _ => c.is_ascii_digit(),
         })
+}
+
+/// Is `key` a ticket key in plain characters: `<owner>/<repo>#<n>` with letters, digits, `.`,
+/// `_` and `-` in the two names and digits after the `#`?
+pub fn is_plain_ticket_key(key: &str) -> bool {
+    let name = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    };
+    key.split_once('#').is_some_and(|(repo, n)| {
+        !n.is_empty()
+            && n.bytes().all(|b| b.is_ascii_digit())
+            && repo
+                .split_once('/')
+                .is_some_and(|(owner, r)| name(owner) && name(r))
+    })
 }
 
 /// The hash of a judgment list: FNV-1a (64 bit) over its lines, as 16 hex digits. It is stable
@@ -425,7 +459,9 @@ pub enum CoordQuiet {
     DayLimit { count: u32 },
     /// Model wakes failed in a row: the pause of `wake-fail`.
     Paused,
-    /// The list is the list of the last model wake, and the back-off is not over.
+    /// The last start of today is less than [`COORD_MIN_DISTANCE_SECS`] ago.
+    TooSoon { next: i64 },
+    /// The list did not change since the last model wake, and the back-off is not over.
     Unchanged { next: i64 },
 }
 
@@ -444,6 +480,11 @@ impl CoordQuiet {
                 format!("{count} model wakes today (UTC), the limit is {MAX_COORD_WAKES_PER_DAY}")
             }
             CoordQuiet::Paused => "the model wakes pause after wakes that failed in a row".into(),
+            CoordQuiet::TooSoon { next } => format!(
+                "the last model wake started less than {} min ago; the next one not before {}",
+                COORD_MIN_DISTANCE_SECS / 60,
+                format_ts(*next)
+            ),
             CoordQuiet::Unchanged { next } => format!(
                 "the list did not change since the last model wake; the next one not before {}",
                 format_ts(*next)
@@ -457,10 +498,14 @@ impl CoordQuiet {
 ///
 /// A model starts only when all of this holds: the mode is not `off`; the list is not empty;
 /// the verdicts of the day are not used; the stored day is not later than today; the day has
-/// fewer than [`MAX_COORD_WAKES_PER_DAY`] model wakes; the wakes do not pause; and the list
-/// changed since the last model wake, or [`COORD_BACKOFF_SECS`] passed since its start (a last
-/// start in the future counts as "not passed"). Without the file the count of the day is 0: a
-/// lost file allows at most [`MAX_COORD_WAKES_PER_DAY`] more wakes.
+/// fewer than [`MAX_COORD_WAKES_PER_DAY`] model wakes; the wakes do not pause; the last start of
+/// today is [`COORD_MIN_DISTANCE_SECS`] ago or more (the first start of a day needs no distance);
+/// and the list changed since the last model wake, or [`COORD_BACKOFF_SECS`] passed since its
+/// start (a last start in the future counts as "not passed"). "Changed": the list differs from
+/// the list of the last tick, or an earlier tick noted a change that no model saw (`pending`,
+/// [`coord_note`]). So a ticket that leaves the list and comes back with the same line is a
+/// change. Without the file the count of the day is 0: a lost file allows at most
+/// [`MAX_COORD_WAKES_PER_DAY`] more wakes.
 pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
     let Some(mode) = f.mode else {
         return Err(CoordQuiet::Off);
@@ -486,7 +531,13 @@ pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
     if f.paused {
         return Err(CoordQuiet::Paused);
     }
-    if let Some(s) = f.stored.filter(|s| s.hash == f.hash) {
+    if let Some(s) = f.stored.filter(|_| count > 0) {
+        let next = s.last.saturating_add(COORD_MIN_DISTANCE_SECS);
+        if f.now < next {
+            return Err(CoordQuiet::TooSoon { next });
+        }
+    }
+    if let Some(s) = f.stored.filter(|s| s.hash == f.hash && !s.pending) {
         let next = s.last.saturating_add(COORD_BACKOFF_SECS);
         if f.now < next {
             return Err(CoordQuiet::Unchanged { next });
@@ -499,6 +550,36 @@ pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
         hash: f.hash.to_string(),
         mode: mode.to_string(),
         runtime: f.runtime.to_string(),
+        pending: false,
+    })
+}
+
+/// What a run that starts no model writes to `coordinator-wakes`, or `None` for no write: the
+/// list of this tick, when the mode is on and the list differs from the stored one. The count,
+/// its day and the time of the last start stay. `pending` is set for a list with a ticket: the
+/// change waits for a model. An empty list ends a wait. Without a stored file the stored list is
+/// the empty one. A stored day later than today is not touched (the clock rule).
+pub fn coord_note(f: &CoordFacts<'_>) -> Option<CoordWakes> {
+    let mode = f.mode?;
+    if f.stored.is_some_and(|s| s.day.as_str() > f.today) {
+        return None;
+    }
+    let (stored_hash, pending) = match f.stored {
+        Some(s) => (s.hash.clone(), s.pending),
+        None => (list_hash(&[]), false),
+    };
+    let now_pending = f.listed > 0 && (pending || stored_hash != f.hash);
+    if stored_hash == f.hash && pending == now_pending {
+        return None;
+    }
+    Some(CoordWakes {
+        day: f.stored.map_or(f.today, |s| s.day.as_str()).to_string(),
+        count: f.stored.map_or(0, |s| s.count),
+        last: f.stored.map_or(0, |s| s.last),
+        hash: f.hash.to_string(),
+        mode: mode.to_string(),
+        runtime: f.runtime.to_string(),
+        pending: now_pending,
     })
 }
 
@@ -506,7 +587,9 @@ pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
 /// scope refuses a `say`, so the log and the scheduler tell the owner.
 pub fn coord_fail_text(fails: u64, rc: u8) -> String {
     format!(
-        "the model wake of the unattended coordinator failed {fails} times in a row (last exit {rc}): repair its runtime on this host (a login that ended, a missing program). The tick goes on; the model is tried again with a pause of up to 1 h"
+        "the model wake of the unattended coordinator failed {fails} times in a row (last exit {rc}): repair its runtime on this host (a login that ended, a missing program). The tick goes on. Each failed start used one of the {MAX_COORD_WAKES_PER_DAY} model wakes of the day. The next start waits for the failure pause (up to 1 h), for {} min since this start, and for a change of the judgment list or {} h",
+        COORD_MIN_DISTANCE_SECS / 60,
+        COORD_BACKOFF_SECS / 3600
     )
 }
 
@@ -717,6 +800,7 @@ mod coord_tests {
             hash: hash.into(),
             mode: "verify".into(),
             runtime: "codex".into(),
+            pending: false,
         }
     }
 
@@ -749,10 +833,11 @@ mod coord_tests {
                 hash: "h1".into(),
                 mode: "verify".into(),
                 runtime: "hermes".into(),
+                pending: false,
             }
         );
         // the count of today goes on; the count of an earlier day does not
-        let s = stored(TODAY, 4, NOW - 60, "h0");
+        let s = stored(TODAY, 4, NOW - COORD_MIN_DISTANCE_SECS, "h0");
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 5);
         let s = stored("2026-11-27", 6, NOW - 90_000, "h0");
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
@@ -828,14 +913,20 @@ mod coord_tests {
             coord_start(&facts(Some(&s))),
             Err(CoordQuiet::Unchanged { .. })
         ));
+        // a change that an earlier tick noted starts a model, also with the same list
+        let s = CoordWakes {
+            pending: true,
+            ..same(NOW - COORD_MIN_DISTANCE_SECS)
+        };
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 2);
         // a last start in the future (the clock went back inside the day) is "not over"
         let s = same(NOW + 500);
         assert!(matches!(
             coord_start(&facts(Some(&s))),
-            Err(CoordQuiet::Unchanged { .. })
+            Err(CoordQuiet::TooSoon { .. })
         ));
-        // another list starts at once
-        let s = stored(TODAY, 1, NOW - 1, "h0");
+        // another list starts when the distance to the last start is kept
+        let s = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS, "h0");
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 2);
     }
 
@@ -879,18 +970,19 @@ mod coord_tests {
     #[test]
     fn the_count_file_reads_back_and_a_broken_one_is_lost() {
         let w = stored(TODAY, 3, NOW, "00ff");
-        assert_eq!(w.render(), "2026-11-28 3 1795860000 00ff verify codex\n");
+        assert_eq!(w.render(), "2026-11-28 3 1795860000 00ff verify codex 0\n");
         assert_eq!(CoordWakes::parse(&w.render()), Some(w));
         for bad in [
             "",
             "\n",
             "2026-11-28",
-            "2026-11-28 3 1795860000 00ff verify",
-            "28.11.2026 3 1795860000 00ff verify codex",
-            "2026-11-28 -3 1795860000 00ff verify codex",
-            "2026-11-28 three 1795860000 00ff verify codex",
-            "2026-11-28 3 soon 00ff verify codex",
-            "2026-11-28  3 1795860000 00ff verify codex",
+            "2026-11-28 3 1795860000 00ff verify codex",
+            "2026-11-28 3 1795860000 00ff verify codex yes",
+            "28.11.2026 3 1795860000 00ff verify codex 0",
+            "2026-11-28 -3 1795860000 00ff verify codex 0",
+            "2026-11-28 three 1795860000 00ff verify codex 0",
+            "2026-11-28 3 soon 00ff verify codex 0",
+            "2026-11-28  3 1795860000 00ff verify codex 0",
         ] {
             assert_eq!(CoordWakes::parse(bad), None, "{bad:?}");
         }
@@ -917,5 +1009,120 @@ mod coord_tests {
             "the model wake of the unattended coordinator failed 3 times in a row (last exit 9)"
         ));
         assert!(!t.contains('/') && !t.contains('#'), "{t}");
+    }
+
+    #[test]
+    fn two_starts_of_a_day_are_30_minutes_apart_and_the_first_start_needs_no_distance() {
+        // a changed list one second before the distance is over
+        let s = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS + 1, "h0");
+        assert_eq!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::TooSoon { next: NOW + 1 })
+        );
+        let s = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS, "h0");
+        assert!(coord_start(&facts(Some(&s))).is_ok());
+        // the first start of a day: a start of yesterday one minute ago does not count, and a
+        // record without a start of today does not
+        let s = stored("2026-11-27", 2, NOW - 60, "h0");
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
+        let s = stored(TODAY, 0, NOW - 60, "h0");
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
+        // the limit of the day and the pause come first
+        let s = stored(TODAY, 6, NOW - 60, "h0");
+        assert!(matches!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::DayLimit { .. })
+        ));
+    }
+
+    #[test]
+    fn a_run_without_a_start_notes_a_list_that_changed_and_keeps_the_count() {
+        let empty = list_hash(&[]);
+        // the list is the stored one: nothing to write
+        let s = stored(TODAY, 2, NOW - 60, "h1");
+        assert_eq!(coord_note(&facts(Some(&s))), None);
+        // another list: the hash and `pending`; the day, the count and the last start stay
+        let s = stored(TODAY, 2, NOW - 60, "h0");
+        let note = coord_note(&facts(Some(&s))).unwrap();
+        assert_eq!(
+            (
+                note.day.as_str(),
+                note.count,
+                note.last,
+                note.hash.as_str(),
+                note.pending
+            ),
+            (TODAY, 2, NOW - 60, "h1", true)
+        );
+        assert_eq!(note.runtime, "hermes");
+        // the list is empty now: the hash of no line, and nothing waits
+        let gone = CoordFacts {
+            listed: 0,
+            hash: &empty,
+            ..facts(Some(&s))
+        };
+        let note = coord_note(&gone).unwrap();
+        assert_eq!(
+            (note.hash.as_str(), note.pending, note.count),
+            (empty.as_str(), false, 2)
+        );
+        // list A, an empty list, list A again: the second A is a change and starts a model
+        let after_a = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS, "h1");
+        assert!(matches!(
+            coord_start(&facts(Some(&after_a))),
+            Err(CoordQuiet::Unchanged { .. })
+        ));
+        let after_empty = coord_note(&CoordFacts {
+            listed: 0,
+            hash: &empty,
+            ..facts(Some(&after_a))
+        })
+        .unwrap();
+        assert_eq!(coord_start(&facts(Some(&after_empty))).unwrap().count, 2);
+        // no file: the stored list is the empty one
+        assert_eq!(
+            coord_note(&CoordFacts {
+                listed: 0,
+                hash: &empty,
+                ..facts(None)
+            }),
+            None
+        );
+        let first = coord_note(&facts(None)).unwrap();
+        assert_eq!((first.count, first.last, first.pending), (0, 0, true));
+        // the mode is off, or the stored day is later than today: no write
+        assert_eq!(
+            coord_note(&CoordFacts {
+                mode: None,
+                ..facts(Some(&s))
+            }),
+            None
+        );
+        let ahead = stored("2026-11-29", 1, NOW, "h0");
+        assert_eq!(coord_note(&facts(Some(&ahead))), None);
+    }
+
+    #[test]
+    fn a_ticket_key_is_owner_repo_and_a_number_in_plain_characters() {
+        for ok in ["a/b#1", "Fake-Owner/fake.repo_1#1234"] {
+            assert!(is_plain_ticket_key(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "a/b",
+            "a/b#",
+            "a/b#x",
+            "a#1",
+            "/b#1",
+            "a/#1",
+            "a/b/c#1",
+            "a/b#1 x",
+            "a/b#1\nneeds judgment: c/d#2, prose Gate",
+            "a b/c#1",
+            "a/b#1#2",
+            "a/b`#1",
+        ] {
+            assert!(!is_plain_ticket_key(bad), "{bad:?}");
+        }
     }
 }

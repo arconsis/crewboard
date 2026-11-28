@@ -261,6 +261,16 @@ fn dispatch(cli: &Cli) -> Outcome {
     if let Err(e) = scope::guard(&cli.command, cli.config_dir.as_deref()) {
         return fail(e);
     }
+    if let Some(what) = wake_child_command(&cli.command) {
+        let headless = match crate::headless::in_scope(cli.config_dir.as_deref()) {
+            Ok(h) => h,
+            Err(e) => return fail(e),
+        };
+        let wake = crate::headless::in_wake_child();
+        if let Some(r) = crate::headless::wake_child_refusal(what, wake, headless) {
+            return refused(r);
+        }
+    }
     match &cli.command {
         Command::Crew(c) => crew::dispatch(cli, c),
         Command::Dev(c) => dev::dispatch(cli, c),
@@ -268,6 +278,27 @@ fn dispatch(cli: &Cli) -> Outcome {
         Command::Review(c) => review::dispatch(cli, c),
         Command::Watch(c) => watch::dispatch(cli, c),
         Command::Host(c) => host::dispatch(cli, c),
+    }
+}
+
+/// The commands that a wake child must not run, each with its case
+/// (`headless::wake_child_refusal` decides with the environment and the config dir). `wake` with
+/// `--print-cmd` or `--print-state-dir` starts nothing, and `wake status` only reads: they stay.
+fn wake_child_command(c: &Command) -> Option<crate::headless::WakeChild> {
+    use crate::headless::WakeChild;
+    match c {
+        Command::Host(HostCmd::Wake { w, action: None })
+            if !w.print_state_dir && !w.agent_job.print_cmd =>
+        {
+            Some(WakeChild::Wake)
+        }
+        Command::Host(HostCmd::Agent {
+            action: AgentAction::Exec { .. } | AgentAction::WithEnv { .. },
+        }) => Some(WakeChild::Shell),
+        Command::Crew(CrewCmd::Heartbeat { .. } | CrewCmd::Start { .. }) => {
+            Some(WakeChild::Heartbeat)
+        }
+        _ => None,
     }
 }
 

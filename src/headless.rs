@@ -139,6 +139,45 @@ pub fn in_scope(config_dir: Option<&std::path::Path>) -> CbResult<bool> {
     cd.has_headless_key()
 }
 
+/// Is this process a child of a wake: `CREWBOARD_WAKE` is set and not empty? The wake sets it
+/// for the command that it starts. A runtime that gives the model a full shell can clear the
+/// variable, so a check on it is a guardrail against a mistake, not a boundary.
+pub fn in_wake_child() -> bool {
+    std::env::var_os("CREWBOARD_WAKE").is_some_and(|v| !v.is_empty())
+}
+
+/// What a wake child must not run (spec/agents#the-model-wake). `wake` is the fact of
+/// [`in_wake_child`], `headless` the one of [`in_scope`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeChild {
+    /// The run form of `wake`: a second wake with its own count file, flags and time budget.
+    Wake,
+    /// `agent exec` and `agent with-env` in a headless config dir: they run any command.
+    Shell,
+    /// `heartbeat` and `start` in a headless config dir: they write the coordinator heartbeat.
+    Heartbeat,
+}
+
+/// The refusal for a wake child, or `None` when the command may run.
+pub fn wake_child_refusal(what: WakeChild, wake: bool, headless: bool) -> Option<Refusal> {
+    if !wake {
+        return None;
+    }
+    match what {
+        WakeChild::Wake => Some(Refusal::new(
+            ids::WAKE_INSIDE_WAKE,
+            "`crewboard wake` does not run inside a wake (CREWBOARD_WAKE is set): only the scheduler starts a wake, with the options of its unit. Nothing was started",
+        )),
+        WakeChild::Shell if headless => Some(unattended_refusal(
+            "`agent exec` and `agent with-env` run any command, and the model of a wake does not get a shell through crewboard",
+        )),
+        WakeChild::Heartbeat if headless => Some(unattended_refusal(
+            "the model of a wake writes no heartbeat of the coordinator: the heartbeat says that the interactive coordinator is there",
+        )),
+        WakeChild::Shell | WakeChild::Heartbeat => None,
+    }
+}
+
 /// The value of the Gate line of a CI-only ticket: `Gate: ci`. `ticket new --gate-ci` writes it,
 /// and the signed `gate:` line of the assignment carries it.
 pub const GATE_CI: &str = "ci";
@@ -254,6 +293,32 @@ pub fn check_no_open_question_headless(key: &str, open: bool) -> Result<(), Refu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wake_child_runs_no_wake_and_in_a_headless_dir_no_shell_and_no_heartbeat() {
+        let rule = |w, wake, headless| wake_child_refusal(w, wake, headless).map(|r| r.rule);
+        // outside a wake nothing is refused here
+        for w in [WakeChild::Wake, WakeChild::Shell, WakeChild::Heartbeat] {
+            for headless in [false, true] {
+                assert_eq!(rule(w, false, headless), None, "{w:?}");
+            }
+        }
+        // `wake` inside a wake: in every config dir
+        assert_eq!(
+            rule(WakeChild::Wake, true, false),
+            Some(ids::WAKE_INSIDE_WAKE)
+        );
+        assert_eq!(
+            rule(WakeChild::Wake, true, true),
+            Some(ids::WAKE_INSIDE_WAKE)
+        );
+        // the shell commands and the heartbeat: in a headless config dir only (the wake of a
+        // dev agent uses the gh shim, which runs `agent with-env`, and writes its heartbeat)
+        for w in [WakeChild::Shell, WakeChild::Heartbeat] {
+            assert_eq!(rule(w, true, false), None, "{w:?}");
+            assert_eq!(rule(w, true, true), Some(ids::HEADLESS_SCOPE), "{w:?}");
+        }
+    }
 
     fn ci_only(g: &str) -> bool {
         Gate::parse(g).is_ci_only()
