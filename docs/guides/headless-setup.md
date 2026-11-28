@@ -122,7 +122,7 @@ It must print `refused [rule=headless-scope]` and exit 2, with no request to Git
 
 ## 6. Run the wake as the headless user
 
-The headless coordinator starts no model. The scheduler runs `crewboard wake --tick`
+The headless coordinator starts no model by default. The scheduler runs `crewboard wake --tick`
 as `cb-headless`. It runs `crewboard tick` under a lock and writes the tick lines to its log
 (`~/.local/state/crewboard/agents/<initiative>-<agent-dir>/wake.log` of `cb-headless`). This is
 the whole job:
@@ -156,6 +156,99 @@ The tick runs no check whose command line names a file of the repo that is not i
 `done` and at most five times per ticket
 ([details](../design/spec/agents.md#headless-coordinator), 5a).
 
+## A model for the tickets that need a judgment (optional)
+
+The tick leaves some tickets for a coordinator that can judge: a Review ticket whose Gate is
+prose, a question of a dev agent, a plain block, a ticket that a reassign returned. You can let
+a scheduled model take them while you are away. This is the unattended coordinator
+([spec](../design/spec/agents.md#unattended-coordinator)). It is off by default, and two
+things must be on before a model starts: the key in `AUTHORITY.md`, and a unit with a runtime.
+
+**Before you switch it on,** set the outer limit. crewboard limits what the model does through
+`crewboard`. The token limits everything else:
+
+- The coordinator account has write access to the repos of the crew only, and no admin rights.
+- The default branch has branch protection with the CI checks, a pull request before a merge
+  and no bypass. A token that can push to the default branch can change `AUTHORITY.md` and
+  switch the key on by itself.
+- The unit runs as an own OS user (the steps above). The model can read every file of that
+  user.
+
+**Switch on.**
+
+1. Add the key to `AUTHORITY.md` on the default branch:
+
+   ```
+   unattended_coordinator: verify
+   unattended_budget: 10
+   ```
+
+2. Replace the `--tick` unit by a unit with a runtime. As `cb-headless`, the line of step 6
+   gets three more options:
+
+   ```
+   /usr/local/bin/crewboard wake --tick --initiative <initiative> \
+     --env-file /Users/cb-headless/.config/crewboard/<initiative>.env \
+     --config-dir /Users/cb-headless/.config/crewboard/agents/<agent-dir> \
+     --runtime <claude|codex|hermes> --work-dir <a dir of cb-headless> --max-wake 20m
+   ```
+
+   Without a separate OS user, `crewboard wake install --tick --runtime <runtime> --work-dir
+   <dir> --agent-dir <dir>` writes and enables the unit. Add `--print-cmd` to the `wake` line to
+   see both parts: the tick, and the command of the model.
+
+Each run does the tick first. A model starts only when a ticket needs a judgment, the verdicts
+of the day are not used, the day has fewer than 6 model wakes, and the list changed since the
+last model wake or 2 hours passed. The log (`wake.log`) has one line for each start. The file
+`judgment.txt` in the state dir holds the list that the model got.
+
+`--work-dir` is the dir where the model starts. A checkout of the repo lets it read the code
+with `git`. In a unit with `--runtime`, `--work-dir` is for the model only: the tick of such a
+unit runs no checks of a `Gate: checks: ...` ticket (the section above), and you or the
+interactive coordinator verify such a ticket.
+
+**Switch off.** Set `unattended_coordinator: off` (or remove the key) on the default branch.
+The next run starts no model and refuses every judgment in the headless config dir. The unit
+can stay: with the key off it is a `--tick` unit.
+
+**Set the key to `off` while you run a coordinator session yourself.** Your session and the
+model use the same agent name and do not see each other. Two coordinators that answer the same
+ticket confuse the dev agents.
+
+**What the model may do.** Verify a Review ticket whose Gate is prose (pass or fail, with its
+reason in the message), answer and unblock an agent, assign a ticket that a reassign returned,
+and ask you a question. Each message has a last line `unattended: <n>/<budget>`. It merges
+nothing: a headless config dir merges only a `Gate: ci` ticket, and that is the tick. The
+limits per UTC day: `unattended_budget` verdicts, 30 messages, 5 questions to you, 6 model
+wakes; one ticket gets 2 verdicts until you comment on it.
+
+**The runtimes.** All three work the same way: crewboard starts the runtime with one prompt and
+the runtime runs `crewboard` commands. The scope and the budget are in crewboard, so they hold
+for each runtime. The runtimes differ in what else the model can do on the host:
+
+- **Claude Code** (`--runtime claude`). crewboard passes a list of allowed tools: `crewboard`,
+  the reading forms of `git` and `gh` (`git log`, `git show`, `git diff`, `git status`,
+  `gh pr view`, `gh pr diff`, `gh pr checks`, `gh run view`, `gh issue view`), the read tools
+  and a few shell helpers. It has no tool that edits a file. `--allow <tool>` adds one. On
+  macOS use launchd: cron cannot read the keychain login.
+- **Codex** (`--runtime codex`). Codex has no list of tools. crewboard starts it in its
+  `workspace-write` sandbox with network access: the model can run every program, and it can
+  write in `--work-dir` and in the config dir.
+- **Hermes** (`--runtime hermes`). Hermes has no list of tools and crewboard passes no sandbox
+  flag: the model can run every program as the OS user. `wake install` uses the Hermes
+  scheduler for it by default; pass `--scheduler` for another one.
+
+For Codex and Hermes this means: the model can call `git`, `gh` and the GitHub API with the
+token of the coordinator account. crewboard does not see such a call and puts no stamp on it.
+For Claude Code the list of tools makes that harder, but a list of a runtime is not a boundary
+either. In each case the token rights above are the limit. `--runtime-flags "<flags>"` replaces
+the flags that crewboard passes, when you want a stricter setting of your runtime.
+
+**When it fails.** A model that exits with an error is one line in the log. From the second
+failure in a row the model wakes pause (5 minutes, then longer, at most 1 hour); the tick goes
+on. The third failure in a row also goes to standard error of the unit. `crewboard doctor
+--setup` shows the mode, the runtime and the count of the day of the last model wake.
+
 ## One digest per day
 
 Set `daily_digest: true` in `AUTHORITY.md`, and the first tick of each UTC day posts one
@@ -188,11 +281,10 @@ headless OS user:
   a PR, edit a board field, post a comment. crewboard does not see this.
 - **The signing key.** The headless user can read its key, so its own code can sign messages
   as the coordinator.
-- **The model runtime.** `crewboard wake --tick` starts no model. If you start a
-  model in a headless wake anyway, and its runtime lets the model run any shell command, the
-  model can do both of the above. Then allow only `crewboard` commands (for example
-  `--allowedTools "Bash(crewboard *)"` for Claude Code). This is a setting of the runtime, not
-  a check of crewboard.
+- **The model runtime.** `crewboard wake --tick` starts no model. A unit with `--tick
+  --runtime` starts one ([above](#a-model-for-the-tickets-that-need-a-judgment-optional)). When
+  its runtime lets the model run any shell command, the model can do both of the above. A list
+  of allowed tools is a setting of the runtime, not a check of crewboard.
 
 So limit the token as well. The token is the real power of the headless user:
 

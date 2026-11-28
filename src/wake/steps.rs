@@ -12,6 +12,7 @@ use crate::protocol::names::{Kind, To};
 use std::path::{Path, PathBuf};
 
 pub use crate::ops::mine::{OpenPrRef, PrHead};
+pub use crate::unattended::Listed;
 
 /// The result of one call: the exit code (0 to 4, or the code of the other binary) and the first
 /// line of its stderr (at most 200 characters, no control characters, `(no stderr)` if none).
@@ -54,6 +55,14 @@ pub trait Steps {
     /// `tick`: the lines of the headless coordinator.
     /// `work_dir`: the checkout of the wake, for the checks of a typed Gate.
     fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc;
+    /// What the last [`Steps::tick`] found for the unattended coordinator, as values: the mode,
+    /// the judgment list and the verdicts of the day. `None`: the mode is `off`, the verdicts
+    /// could not be read, the tick failed, or these calls cannot give the values (another
+    /// binary gives text only). The wake starts a model from these values only; it parses no
+    /// line of the tick.
+    fn judgment(&mut self) -> Option<Listed> {
+        None
+    }
     /// `acted --events-file F --list`: `<repo>#<n> <kind>` per event of the file. No board read.
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc;
     /// `acted --events-file F --since T --redeliver-to U`: the events that need an act and got
@@ -82,6 +91,8 @@ pub struct InProcess {
     global: Global,
     ac: Option<AgentCtx>,
     hold_heartbeat: bool,
+    /// The values of the last tick ([`Steps::judgment`]).
+    judgment: Option<Listed>,
 }
 
 impl InProcess {
@@ -90,6 +101,7 @@ impl InProcess {
             global,
             ac: None,
             hold_heartbeat: false,
+            judgment: None,
         }
     }
 
@@ -222,7 +234,9 @@ impl Steps for InProcess {
 
     fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
         // the output first, then the reported deleted notes are forgotten (`TickOut::settle`)
-        match self.with(|ac| {
+        self.judgment = None;
+        let mut judgment = None;
+        let rc = match self.with(|ac| {
             let env = |k: &str| std::env::var(k).ok();
             let root = crate::wake::state::state_root(
                 env("XDG_STATE_HOME").as_deref(),
@@ -234,11 +248,20 @@ impl Steps for InProcess {
             });
             let t = plain(ops::tickets::tick(ac, checks.as_ref()))?;
             out.extend_from_slice(t.text.as_bytes());
-            plain(t.settle(ac))
+            plain(t.settle(ac))?;
+            judgment = t.judgment;
+            Ok(())
         }) {
             Ok(()) => StepRc::ok(),
             Err(rc) => rc,
-        }
+        };
+        // only a tick that ended well gives its values
+        self.judgment = judgment;
+        rc
+    }
+
+    fn judgment(&mut self) -> Option<Listed> {
+        self.judgment.take()
     }
 
     fn heartbeat(&mut self) -> StepRc {

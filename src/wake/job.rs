@@ -1,6 +1,9 @@
 //! The wake command of a dev agent for `crewboard wake --runtime R`: read the options, check them
 //! and build the argument vector, the working dir and the extra environment of the wake child
 //! (see `crate::wake::adapters`). Without `--runtime` the wake runs the hidden `--wake-cmd`.
+//! With `--tick --runtime R` it is the model wake of the unattended coordinator
+//! ([`build_coordinator`]): the tick runs first, and this command starts only when the judgment
+//! list needs a model.
 
 use crate::fsutil::{find_on_path, is_executable};
 use crate::wake::adapters::{self, Hook, Runtime, Spec};
@@ -13,10 +16,13 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Args, Clone, Default)]
 pub struct AgentArgs {
     /// The runtime of the wake: claude, codex or hermes. The wake command, its prompt and its
-    /// permission flags come from it (`--print-cmd` shows them).
+    /// permission flags come from it (`--print-cmd` shows them). With `--tick`: the model of the
+    /// unattended coordinator, which starts after the tick only when a ticket needs a judgment
+    /// and `unattended_coordinator` of AUTHORITY.md is not `off`.
     #[arg(long)]
     pub runtime: Option<String>,
-    /// The checkout of the agent. The wake command starts there.
+    /// The checkout of the agent. The wake command starts there. With `--tick` and no
+    /// `--runtime`: the checkout where the tick runs the checks of a `checks:` Gate.
     #[arg(long)]
     pub work_dir: Option<PathBuf>,
     /// The dir of the `gh` shim (from `crewboard agent shim`): first on the PATH of the wake, and
@@ -64,6 +70,8 @@ pub struct Direct {
     pub text: String,
     /// The `PATH` that finds the runtime: the one of the wake child.
     pub path: Option<String>,
+    /// The name of the runtime.
+    pub runtime: &'static str,
 }
 
 /// What the options are made from.
@@ -232,15 +240,15 @@ pub fn build(i: &Inputs) -> Result<Option<Direct>, String> {
         }
         return Ok(None);
     };
-    if i.tick {
-        return Err("--runtime and --tick exclude each other: a tick starts no model".to_string());
-    }
     if i.has_wake_cmd {
         return Err("--runtime and --wake-cmd exclude each other".to_string());
     }
     let Some(runtime) = Runtime::parse(rt_name) else {
         return Err("--runtime must be claude, codex or hermes".to_string());
     };
+    if i.tick {
+        return build_coordinator(i, runtime).map(Some);
+    }
     let agent = i
         .agent
         .ok_or_else(|| "--agent is required for a dev agent".to_string())?;
@@ -310,6 +318,7 @@ pub fn build(i: &Inputs) -> Result<Option<Direct>, String> {
         skill_dirs: &adapters::skill_read_dirs(i.home),
         settings_json: settings.as_deref(),
         prompt: &prompt,
+        coordinator: false,
     })?;
     Ok(Some(Direct {
         text: adapters::shell_line(work_dir, &argv),
@@ -317,13 +326,108 @@ pub fn build(i: &Inputs) -> Result<Option<Direct>, String> {
         cwd: work_dir.to_path_buf(),
         env,
         path,
+        runtime: runtime.name(),
     }))
+}
+
+/// An option that has no meaning for the model wake of the unattended coordinator.
+fn not_for_coordinator(a: &AgentArgs) -> Option<&'static str> {
+    [
+        (
+            a.no_events_hook,
+            "--no-events-hook is for a dev agent: the model wake of a coordinator (--tick --runtime) has no events hook",
+        ),
+        (
+            a.events_every.is_some(),
+            "--events-every is for a dev agent: the model wake of a coordinator (--tick --runtime) has no events hook",
+        ),
+    ]
+    .iter()
+    .find(|(set, _)| *set)
+    .map(|(_, text)| *text)
+}
+
+/// The model wake of the unattended coordinator (`--tick --runtime R`): the words of the
+/// runtime with the coordinator prompt, in the work dir. It has no events hook and no events
+/// file. The scope and the budget of crewboard limit what the model does through crewboard; the
+/// flags of the runtime are an extra layer where the runtime has them.
+fn build_coordinator(i: &Inputs, runtime: Runtime) -> Result<Direct, String> {
+    let a = i.a;
+    if let Some(text) = not_for_coordinator(a) {
+        return Err(text.to_string());
+    }
+    let initiative = i
+        .initiative
+        .ok_or_else(|| "--initiative is required".to_string())?;
+    let work_dir = a.work_dir.as_deref().ok_or_else(|| {
+        "--work-dir is required with --tick --runtime: the model of the coordinator starts there"
+            .to_string()
+    })?;
+    if !work_dir.is_dir() {
+        return Err(format!(
+            "--work-dir must be an existing directory: {}",
+            work_dir.display()
+        ));
+    }
+    let flags = match a.runtime_flags.as_deref() {
+        None => None,
+        Some(s) => Some(words::split(s).map_err(|e| format!("--runtime-flags: {e}"))?),
+    };
+    let host_locks: Vec<PathBuf> = a.host_lock.iter().map(|p| abs(p)).collect();
+    if let Some(bad) = host_locks
+        .iter()
+        .find(|p| p.to_string_lossy().contains(':'))
+    {
+        return Err(format!(
+            "--host-lock {} has a colon; the grant for `lock run` is a list that a colon splits",
+            bad.display()
+        ));
+    }
+    let (path, env) = wake_env(a, i.path_env, &host_locks)?;
+    let bin = runtime_bin(a, runtime, path.as_deref())?;
+    let config_dir = i.config_dir.map(abs);
+    let prompt = adapters::coordinator_prompt(
+        initiative,
+        &i.paths.judgment,
+        config_dir.as_deref(),
+        a.prompt_extra.as_deref(),
+    );
+    let argv = adapters::argv(&Spec {
+        runtime,
+        bin: &bin,
+        model: a.model.as_deref().filter(|m| !m.is_empty()),
+        flags,
+        allow: &a.allow,
+        state_dir: &i.paths.dir,
+        config_dir: config_dir.as_deref(),
+        host_lock_parents: &[],
+        skill_dirs: &adapters::skill_read_dirs(i.home),
+        settings_json: None,
+        prompt: &prompt,
+        coordinator: true,
+    })?;
+    Ok(Direct {
+        text: adapters::shell_line(work_dir, &argv),
+        argv,
+        cwd: work_dir.to_path_buf(),
+        env,
+        path,
+        runtime: runtime.name(),
+    })
 }
 
 /// `--print-cmd` for a headless coordinator.
 pub fn tick_text(log: &Path) -> String {
     format!(
         "crewboard tick (no model; the lines go to {})",
+        log.display()
+    )
+}
+
+/// `--print-cmd` for `--tick --runtime`: both parts of the unit.
+pub fn coordinator_text(log: &Path, model: &str) -> String {
+    format!(
+        "crewboard tick (the lines go to {})\nthen, only when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off`: {model}",
         log.display()
     )
 }
@@ -466,11 +570,6 @@ mod tests {
             rig.build_with(&rig.args("claude"), false, false)
                 .unwrap_err()
                 .contains("--agent is required")
-        );
-        assert!(
-            rig.build_with(&rig.args("claude"), true, true)
-                .unwrap_err()
-                .contains("--tick")
         );
         let mut a = rig.args("claude");
         a.runtime_bin = Some(rig.p("gone/claude"));
@@ -892,5 +991,167 @@ mod tests {
             );
             assert_eq!(program("gh", None), PathBuf::from("gh"));
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod coordinator_tests {
+    use super::*;
+
+    struct Rig {
+        dir: tempfile::TempDir,
+        paths: Paths,
+    }
+
+    fn rig() -> Rig {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("wd")).unwrap();
+        let paths = Paths::new(dir.path().join("state"), None, None);
+        Rig { dir, paths }
+    }
+
+    fn args(r: &Rig, rt: &str) -> AgentArgs {
+        AgentArgs {
+            runtime: Some(rt.into()),
+            work_dir: Some(r.dir.path().join("wd")),
+            ..AgentArgs::default()
+        }
+    }
+
+    /// `--tick --runtime`: no agent name is given, as for a tick unit.
+    fn build_tick(r: &Rig, a: &AgentArgs) -> Result<Option<Direct>, String> {
+        let ev = r.paths.dir.join("events.txt");
+        build(&Inputs {
+            a,
+            tick: true,
+            has_wake_cmd: false,
+            agent: None,
+            initiative: Some("demo"),
+            config_dir: Some(Path::new("/cfg/coord")),
+            paths: &r.paths,
+            events_file: &ev,
+            crewboard: None,
+            exe: Some(Path::new("/bin/crewboard")),
+            path_env: Some("/usr/bin:/bin"),
+            home: None,
+        })
+    }
+
+    #[test]
+    fn every_runtime_builds_a_coordinator_job_with_the_coordinator_prompt_and_no_hook() {
+        let r = rig();
+        let state = r.paths.dir.display().to_string();
+        let prompt = adapters::coordinator_prompt(
+            "demo",
+            &r.paths.judgment,
+            Some(Path::new("/cfg/coord")),
+            None,
+        );
+        for (rt, head) in [
+            (
+                "claude",
+                vec![
+                    "claude".to_string(),
+                    "-p".into(),
+                    "--permission-mode".into(),
+                    "dontAsk".into(),
+                    "--allowedTools".into(),
+                    adapters::claude_coordinator_tools(&[]),
+                    "--add-dir".into(),
+                    state.clone(),
+                    "--".into(),
+                ],
+            ),
+            (
+                "codex",
+                vec![
+                    "codex".to_string(),
+                    "exec".into(),
+                    "--sandbox".into(),
+                    "workspace-write".into(),
+                    "-c".into(),
+                    "sandbox_workspace_write.network_access=true".into(),
+                    "--add-dir".into(),
+                    "/cfg/coord".into(),
+                ],
+            ),
+            (
+                "hermes",
+                vec![
+                    "hermes".to_string(),
+                    "chat".into(),
+                    "-Q".into(),
+                    "-s".into(),
+                    "crewboard".into(),
+                    "-q".into(),
+                ],
+            ),
+        ] {
+            let d = build_tick(&r, &args(&r, rt)).unwrap().unwrap();
+            let mut want = head;
+            want.push(prompt.clone());
+            assert_eq!(d.argv, want, "{rt}");
+            assert_eq!(d.runtime, rt);
+            assert_eq!(d.cwd, r.dir.path().join("wd"), "{rt}");
+            assert!(
+                !d.argv.contains(&"--settings".to_string()),
+                "{rt}: no events hook"
+            );
+            assert!(
+                d.text.starts_with(&format!(
+                    "cd {} && {rt} ",
+                    r.dir.path().join("wd").display()
+                )),
+                "{}",
+                d.text
+            );
+            // the wake marks itself, and grants `lock run` for no dir
+            let env = |k: &str| d.env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+            assert_eq!(env("CREWBOARD_WAKE"), Some("1"));
+            assert_eq!(env("CREWBOARD_LOCK_RUN_DIRS"), Some(""));
+        }
+        // the prompt names the judgment file of the state dir, and no events file
+        assert!(
+            prompt.contains(&format!("Read {}/judgment.txt:", state)),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("events.txt"));
+    }
+
+    #[test]
+    fn the_options_that_cannot_work_with_a_coordinator_job_are_refused_with_their_reason() {
+        let r = rig();
+        let e = |a: &AgentArgs| build_tick(&r, a).unwrap_err();
+        assert!(e(&args(&r, "copilot")).contains("--runtime must be claude, codex or hermes"));
+        let mut a = args(&r, "codex");
+        a.work_dir = None;
+        assert!(e(&a).contains("--work-dir is required with --tick --runtime"));
+        a.work_dir = Some(r.dir.path().join("nope"));
+        assert!(e(&a).contains("--work-dir must be an existing directory"));
+        for rt in ["claude", "codex", "hermes"] {
+            let mut a = args(&r, rt);
+            a.events_every = Some("60".into());
+            assert!(e(&a).contains("--events-every is for a dev agent"), "{rt}");
+            let mut a = args(&r, rt);
+            a.no_events_hook = true;
+            assert!(
+                e(&a).contains("--no-events-hook is for a dev agent"),
+                "{rt}"
+            );
+        }
+        let mut a = args(&r, "hermes");
+        a.allow = vec!["x".into()];
+        assert!(e(&a).contains("--allow is for --runtime claude"));
+        let mut a = args(&r, "claude");
+        a.runtime_bin = Some(r.dir.path().join("gone/claude"));
+        assert!(e(&a).contains("is gone (moved or removed)"));
+        // a tick without a runtime builds no job
+        assert!(build_tick(&r, &AgentArgs::default()).unwrap().is_none());
+        // and an option of the model part without the runtime is still an error
+        let a = AgentArgs {
+            model: Some("m".into()),
+            ..AgentArgs::default()
+        };
+        assert!(e(&a).contains("--model needs --runtime"));
     }
 }

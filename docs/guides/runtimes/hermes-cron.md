@@ -91,6 +91,14 @@ tail -n 20 ~/.local/state/crewboard/agents/<initiative>-<agent-dir>/wake.log
    writes `events pending; waking: ...` and `wake finished OK`. A failing `crewboard poll`
    writes its exit code and the first line of its error.
 
+## As the model of the unattended coordinator
+
+`crewboard wake install --tick --runtime hermes --work-dir <dir> --agent-dir <headless dir>`
+makes Hermes the scheduled model of a headless coordinator, for the tickets that need a
+judgment. It is optional and off by default. The flags are the ones of a dev wake, with another
+prompt and no events hook. The steps and the limits are in
+[headless-setup.md](../headless-setup.md#a-model-for-the-tickets-that-need-a-judgment-optional).
+
 ## Stop, pause, remove
 
 ```sh

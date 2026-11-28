@@ -141,7 +141,8 @@ impl CiMode {
 /// The value of `unattended_coordinator` (spec/agents#unattended-coordinator). The two values
 /// that are not `off` do the same: a headless config dir may make the judgments of the
 /// unattended scope inside the budget, and the headless `tick` lists the tickets that need a
-/// judgment and counts the verdicts of the day. No value starts a model, and no value lets a
+/// judgment and counts the verdicts of the day. No value alone starts a model: a unit with
+/// `wake --tick --runtime` does, and only for a value that is not `off`. No value lets a
 /// headless config dir merge a ticket whose Gate is not `ci`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CoordMode {

@@ -77,7 +77,7 @@ fn tb3_a_bad_budget_or_heartbeat_is_exit_64_as_a_flag_4_from_the_env_and_logged(
 }
 
 /// Counts the heartbeats of the thread of a wake; the other calls do not happen.
-struct Beats(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+pub(super) struct Beats(pub(super) std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl Steps for Beats {
     fn heartbeat(&mut self) -> StepRc {

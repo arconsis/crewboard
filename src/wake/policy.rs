@@ -308,6 +308,208 @@ pub fn tick_log_lines(out: &str) -> Vec<String> {
         .collect()
 }
 
+// --- the model wake of the unattended coordinator --------------------------------------------
+
+/// How many model wakes one `--tick --runtime` unit starts in one UTC day.
+pub const MAX_COORD_WAKES_PER_DAY: u32 = 6;
+/// A judgment list that did not change starts the next model wake after this many seconds.
+pub const COORD_BACKOFF_SECS: i64 = 7200;
+/// The run of failed model wakes at which one line goes to standard error.
+pub const COORD_TELL_RUN: u64 = WAKE_TELL_RUN;
+
+/// The file `coordinator-wakes`: `<UTC day> <model wakes of that day> <epoch of the last start>
+/// <hash of the list at that start> <mode> <runtime>`. It is written before a model starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoordWakes {
+    /// `YYYY-MM-DD`.
+    pub day: String,
+    pub count: u32,
+    pub last: i64,
+    pub hash: String,
+    /// `unattended_coordinator` of AUTHORITY.md at that start.
+    pub mode: String,
+    pub runtime: String,
+}
+
+impl CoordWakes {
+    /// `None` for a file that is broken: it counts as lost.
+    pub fn parse(text: &str) -> Option<CoordWakes> {
+        let mut it = text.lines().next()?.split(' ');
+        let day = it.next().filter(|d| is_day(d))?.to_string();
+        let count = it
+            .next()
+            .and_then(parse_whole_secs)
+            .and_then(|n| u32::try_from(n).ok())?;
+        let last = it
+            .next()
+            .and_then(parse_whole_secs)
+            .and_then(|n| i64::try_from(n).ok())?;
+        let mut word = || it.next().filter(|w| !w.is_empty()).map(str::to_string);
+        Some(CoordWakes {
+            day,
+            count,
+            last,
+            hash: word()?,
+            mode: word()?,
+            runtime: word()?,
+        })
+    }
+
+    pub fn render(&self) -> String {
+        format!(
+            "{} {} {} {} {} {}\n",
+            self.day, self.count, self.last, self.hash, self.mode, self.runtime
+        )
+    }
+}
+
+/// `YYYY-MM-DD`: the shape only, so that two days compare as text.
+fn is_day(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            _ => c.is_ascii_digit(),
+        })
+}
+
+/// The hash of a judgment list: FNV-1a (64 bit) over its lines, as 16 hex digits. It is stable
+/// across releases and hosts; it is no secret and protects nothing.
+pub fn list_hash(lines: &[String]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in lines
+        .iter()
+        .flat_map(|l| l.bytes().chain(std::iter::once(b'\n')))
+    {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// What the start rule of the model wake reads. All of it is data that crewboard made: the
+/// values of the tick, the files of the state dir and the clock.
+#[derive(Debug, Clone, Copy)]
+pub struct CoordFacts<'a> {
+    /// The mode of the tick; `None`: the mode is `off`, or the tick gave no values.
+    pub mode: Option<&'a str>,
+    /// The tickets on the judgment list.
+    pub listed: usize,
+    /// [`list_hash`] of the list.
+    pub hash: &'a str,
+    /// The verdicts of today and `unattended_budget`.
+    pub used: u32,
+    pub budget: u32,
+    /// The model wakes pause after wakes that failed in a row.
+    pub paused: bool,
+    /// The file `coordinator-wakes`; `None`: missing or broken.
+    pub stored: Option<&'a CoordWakes>,
+    /// The UTC day of `now` (`YYYY-MM-DD`).
+    pub today: &'a str,
+    pub now: i64,
+    pub runtime: &'a str,
+}
+
+/// Why no model starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoordQuiet {
+    /// The mode is `off`, or the tick gave no list.
+    Off,
+    /// No ticket needs a judgment.
+    EmptyList,
+    /// The verdicts of the day are used.
+    BudgetSpent { used: u32, budget: u32 },
+    /// The stored day is later than today: the clock went back, or it was ahead.
+    ClockBack { stored: String },
+    /// The day has its model wakes.
+    DayLimit { count: u32 },
+    /// Model wakes failed in a row: the pause of `wake-fail`.
+    Paused,
+    /// The list is the list of the last model wake, and the back-off is not over.
+    Unchanged { next: i64 },
+}
+
+impl CoordQuiet {
+    /// The text for the log; `None` for the two cases that are no news (off, empty list).
+    pub fn text(&self, format_ts: &dyn Fn(i64) -> String) -> Option<String> {
+        Some(match self {
+            CoordQuiet::Off | CoordQuiet::EmptyList => return None,
+            CoordQuiet::BudgetSpent { used, budget } => {
+                format!("the verdicts of today are used ({used}/{budget})")
+            }
+            CoordQuiet::ClockBack { stored } => format!(
+                "the count of model wakes is of {stored}, a later day than today (UTC): the clock of this host went back, or it was ahead"
+            ),
+            CoordQuiet::DayLimit { count } => {
+                format!("{count} model wakes today (UTC), the limit is {MAX_COORD_WAKES_PER_DAY}")
+            }
+            CoordQuiet::Paused => "the model wakes pause after wakes that failed in a row".into(),
+            CoordQuiet::Unchanged { next } => format!(
+                "the list did not change since the last model wake; the next one not before {}",
+                format_ts(*next)
+            ),
+        })
+    }
+}
+
+/// Does a model start for the judgment list? `Ok` is the content of `coordinator-wakes` that the
+/// caller must write before the start; a write that fails means no start.
+///
+/// A model starts only when all of this holds: the mode is not `off`; the list is not empty;
+/// the verdicts of the day are not used; the stored day is not later than today; the day has
+/// fewer than [`MAX_COORD_WAKES_PER_DAY`] model wakes; the wakes do not pause; and the list
+/// changed since the last model wake, or [`COORD_BACKOFF_SECS`] passed since its start (a last
+/// start in the future counts as "not passed"). Without the file the count of the day is 0: a
+/// lost file allows at most [`MAX_COORD_WAKES_PER_DAY`] more wakes.
+pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
+    let Some(mode) = f.mode else {
+        return Err(CoordQuiet::Off);
+    };
+    if f.listed == 0 {
+        return Err(CoordQuiet::EmptyList);
+    }
+    if f.used >= f.budget {
+        return Err(CoordQuiet::BudgetSpent {
+            used: f.used,
+            budget: f.budget,
+        });
+    }
+    if let Some(s) = f.stored.filter(|s| s.day.as_str() > f.today) {
+        return Err(CoordQuiet::ClockBack {
+            stored: s.day.clone(),
+        });
+    }
+    let count = f.stored.filter(|s| s.day == f.today).map_or(0, |s| s.count);
+    if count >= MAX_COORD_WAKES_PER_DAY {
+        return Err(CoordQuiet::DayLimit { count });
+    }
+    if f.paused {
+        return Err(CoordQuiet::Paused);
+    }
+    if let Some(s) = f.stored.filter(|s| s.hash == f.hash) {
+        let next = s.last.saturating_add(COORD_BACKOFF_SECS);
+        if f.now < next {
+            return Err(CoordQuiet::Unchanged { next });
+        }
+    }
+    Ok(CoordWakes {
+        day: f.today.to_string(),
+        count: count + 1,
+        last: f.now,
+        hash: f.hash.to_string(),
+        mode: mode.to_string(),
+        runtime: f.runtime.to_string(),
+    })
+}
+
+/// The line for standard error at [`COORD_TELL_RUN`] failed model wakes in a row. The headless
+/// scope refuses a `say`, so the log and the scheduler tell the owner.
+pub fn coord_fail_text(fails: u64, rc: u8) -> String {
+    format!(
+        "the model wake of the unattended coordinator failed {fails} times in a row (last exit {rc}): repair its runtime on this host (a login that ended, a missing program). The tick goes on; the model is tried again with a pause of up to 1 h"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,5 +699,223 @@ mod tests {
         assert_eq!(l.len(), 2);
         assert_eq!(l[0], "tick: tick: a[0m");
         assert_eq!(l[1].chars().count(), "tick: ".len() + 400);
+    }
+}
+
+#[cfg(test)]
+mod coord_tests {
+    use super::*;
+
+    const TODAY: &str = "2026-11-28";
+    const NOW: i64 = 1_795_860_000;
+
+    fn stored(day: &str, count: u32, last: i64, hash: &str) -> CoordWakes {
+        CoordWakes {
+            day: day.into(),
+            count,
+            last,
+            hash: hash.into(),
+            mode: "verify".into(),
+            runtime: "codex".into(),
+        }
+    }
+
+    /// Facts that start a model: the mode is on, one ticket is listed, the budget has room, no
+    /// file is stored and nothing pauses.
+    fn facts<'a>(s: Option<&'a CoordWakes>) -> CoordFacts<'a> {
+        CoordFacts {
+            mode: Some("verify"),
+            listed: 1,
+            hash: "h1",
+            used: 0,
+            budget: 10,
+            paused: false,
+            stored: s,
+            today: TODAY,
+            now: NOW,
+            runtime: "hermes",
+        }
+    }
+
+    #[test]
+    fn a_model_starts_when_every_condition_holds_and_the_file_counts_the_start() {
+        let next = coord_start(&facts(None)).unwrap();
+        assert_eq!(
+            next,
+            CoordWakes {
+                day: TODAY.into(),
+                count: 1,
+                last: NOW,
+                hash: "h1".into(),
+                mode: "verify".into(),
+                runtime: "hermes".into(),
+            }
+        );
+        // the count of today goes on; the count of an earlier day does not
+        let s = stored(TODAY, 4, NOW - 60, "h0");
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 5);
+        let s = stored("2026-11-27", 6, NOW - 90_000, "h0");
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
+    }
+
+    #[test]
+    fn each_condition_alone_keeps_the_model_off() {
+        // the mode is off, or the tick gave no values
+        let off = CoordFacts {
+            mode: None,
+            ..facts(None)
+        };
+        assert_eq!(coord_start(&off), Err(CoordQuiet::Off));
+        // the list is empty
+        let empty = CoordFacts {
+            listed: 0,
+            ..facts(None)
+        };
+        assert_eq!(coord_start(&empty), Err(CoordQuiet::EmptyList));
+        // the verdicts of the day are used (also above the budget: a floor can be higher)
+        for used in [10, 11] {
+            let spent = CoordFacts {
+                used,
+                ..facts(None)
+            };
+            assert_eq!(
+                coord_start(&spent),
+                Err(CoordQuiet::BudgetSpent { used, budget: 10 })
+            );
+        }
+        let room = CoordFacts {
+            used: 9,
+            ..facts(None)
+        };
+        assert!(coord_start(&room).is_ok());
+        // six wakes today; five leave room for one
+        let six = stored(TODAY, 6, NOW - 9000, "h0");
+        assert_eq!(
+            coord_start(&facts(Some(&six))),
+            Err(CoordQuiet::DayLimit { count: 6 })
+        );
+        let five = stored(TODAY, 5, NOW - 9000, "h0");
+        assert_eq!(coord_start(&facts(Some(&five))).unwrap().count, 6);
+        // the stored day is later than today
+        let ahead = stored("2026-11-29", 1, NOW - 9000, "h0");
+        assert_eq!(
+            coord_start(&facts(Some(&ahead))),
+            Err(CoordQuiet::ClockBack {
+                stored: "2026-11-29".into()
+            })
+        );
+        // the wakes pause
+        let paused = CoordFacts {
+            paused: true,
+            ..facts(None)
+        };
+        assert_eq!(coord_start(&paused), Err(CoordQuiet::Paused));
+    }
+
+    #[test]
+    fn an_unchanged_list_waits_for_the_back_off_and_a_changed_list_does_not() {
+        let same = |last: i64| stored(TODAY, 1, last, "h1");
+        let s = same(NOW - COORD_BACKOFF_SECS + 1);
+        assert_eq!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::Unchanged { next: NOW + 1 })
+        );
+        let s = same(NOW - COORD_BACKOFF_SECS);
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 2);
+        // the list of the last wake of an earlier day counts too: the back-off is 2 h, not a day
+        let s = stored("2026-11-27", 3, NOW - 60, "h1");
+        assert!(matches!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::Unchanged { .. })
+        ));
+        // a last start in the future (the clock went back inside the day) is "not over"
+        let s = same(NOW + 500);
+        assert!(matches!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::Unchanged { .. })
+        ));
+        // another list starts at once
+        let s = stored(TODAY, 1, NOW - 1, "h0");
+        assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 2);
+    }
+
+    #[test]
+    fn the_order_of_the_reasons_is_fixed() {
+        // off and the empty list come before everything: they are no news
+        let s = stored("2026-11-29", 9, NOW, "h1");
+        let all = CoordFacts {
+            mode: None,
+            listed: 0,
+            used: 10,
+            paused: true,
+            ..facts(Some(&s))
+        };
+        assert_eq!(coord_start(&all), Err(CoordQuiet::Off));
+        let on = CoordFacts {
+            mode: Some("verify"),
+            ..all
+        };
+        assert_eq!(coord_start(&on), Err(CoordQuiet::EmptyList));
+        let listed = CoordFacts { listed: 2, ..on };
+        assert!(matches!(
+            coord_start(&listed),
+            Err(CoordQuiet::BudgetSpent { .. })
+        ));
+        let room = CoordFacts { used: 0, ..listed };
+        assert!(matches!(
+            coord_start(&room),
+            Err(CoordQuiet::ClockBack { .. })
+        ));
+        assert_eq!(CoordQuiet::Off.text(&|_| String::new()), None);
+        assert_eq!(CoordQuiet::EmptyList.text(&|_| String::new()), None);
+        assert_eq!(
+            CoordQuiet::Unchanged { next: 7 }
+                .text(&|t| format!("T{t}"))
+                .unwrap(),
+            "the list did not change since the last model wake; the next one not before T7"
+        );
+    }
+
+    #[test]
+    fn the_count_file_reads_back_and_a_broken_one_is_lost() {
+        let w = stored(TODAY, 3, NOW, "00ff");
+        assert_eq!(w.render(), "2026-11-28 3 1795860000 00ff verify codex\n");
+        assert_eq!(CoordWakes::parse(&w.render()), Some(w));
+        for bad in [
+            "",
+            "\n",
+            "2026-11-28",
+            "2026-11-28 3 1795860000 00ff verify",
+            "28.11.2026 3 1795860000 00ff verify codex",
+            "2026-11-28 -3 1795860000 00ff verify codex",
+            "2026-11-28 three 1795860000 00ff verify codex",
+            "2026-11-28 3 soon 00ff verify codex",
+            "2026-11-28  3 1795860000 00ff verify codex",
+        ] {
+            assert_eq!(CoordWakes::parse(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_list_hash_is_pinned_and_follows_the_lines() {
+        let l = |v: &[&str]| -> Vec<String> { v.iter().map(|s| s.to_string()).collect() };
+        // FNV-1a 64 of no byte, and of "a\n"
+        assert_eq!(list_hash(&[]), "cbf29ce484222325");
+        assert_eq!(list_hash(&l(&["a"])), "089bdc07b544e7b2");
+        let one = list_hash(&l(&["o/r#5, prose Gate"]));
+        assert_eq!(one.len(), 16);
+        assert_ne!(one, list_hash(&l(&["o/r#5, question"])));
+        assert_ne!(one, list_hash(&l(&["o/r#5, prose Gate", "o/r#6, blocked"])));
+        // the line ends count: two lines are not one line with the same letters
+        assert_ne!(list_hash(&l(&["ab", "c"])), list_hash(&l(&["a", "bc"])));
+    }
+
+    #[test]
+    fn the_line_after_three_failed_model_wakes_names_no_path_and_no_ticket() {
+        let t = coord_fail_text(3, 9);
+        assert!(t.starts_with(
+            "the model wake of the unattended coordinator failed 3 times in a row (last exit 9)"
+        ));
+        assert!(!t.contains('/') && !t.contains('#'), "{t}");
     }
 }

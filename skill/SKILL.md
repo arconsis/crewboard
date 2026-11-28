@@ -26,7 +26,10 @@ Never work around a refusal. Never retry it unchanged.
    and the command that re-arms your loop.
 3. Read your role file: [coordinator](references/coordinator.md) or [dev agent](references/dev.md).
    A `scope:` line in the output of `start`: read
-   [references/headless-coordinator.md](references/headless-coordinator.md).
+   [references/headless-coordinator.md](references/headless-coordinator.md). A wake prompt that
+   calls you the unattended coordinator: read
+   [references/unattended-coordinator.md](references/unattended-coordinator.md) instead of a
+   role file.
 
 ## Your loop
 

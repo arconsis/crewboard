@@ -5,7 +5,7 @@
 //! the events hook of a Claude wake (`hook`). `settings` reads the options once into plain data;
 //! `cmd` makes the calls and the log and runs the flow; `flow` is the run as a sequence of
 //! phases (`preflight`, `precheck`, the lock, `tick` or `wake_events` and `finish`, with `runtime`
-//! and `procs` for the wake command); `hook_cmd` runs the hook; `job` builds the job of a
+//! and `procs` for the wake command; `coordinator` is the model wake after a tick); `hook_cmd` runs the hook; `job` builds the job of a
 //! scheduler.
 //!
 //! `steps`, `cmd`, `finish` and `hook_cmd` reach into `ops` (the wake calls the commands of the agent);
@@ -13,6 +13,7 @@
 
 pub mod adapters;
 pub mod cmd;
+pub mod coordinator;
 pub mod describe_head;
 pub mod events;
 mod exit;

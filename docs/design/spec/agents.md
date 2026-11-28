@@ -175,7 +175,9 @@ or what waited meanwhile.
 A scheduler can run the coordinator without a person. The default is
 `crewboard wake --tick`: it runs `crewboard tick` under a lock and writes
 the tick lines to the log, with no model. That coordinator has the power to merge, so the binary
-limits it. The prompt does not.
+limits it. The prompt does not. A unit with `--tick --runtime <runtime>` also starts a model for
+the tickets that need a judgment, when `AUTHORITY.md` allows it
+([Unattended coordinator](#unattended-coordinator)).
 
 1. **The scope is a setting of the config dir.** The agent config
    (`<config-dir>/<initiative>.toml`) has the top-level key `headless = true`. The owner or the
@@ -408,8 +410,9 @@ reserved for a coordinator that judges with nobody watching.
 The unattended coordinator is every `crewboard` command that runs in a headless config dir
 (`headless = true`, [Headless coordinator](#headless-coordinator) item 1), except the `tick`
 itself. No flag and no environment variable makes a process the unattended coordinator or
-frees it: the key of the config dir decides. crewboard starts no model; the owner decides what
-runs in the headless config dir.
+frees it: the key of the config dir decides. The keys start no model. A model starts only from
+a unit that the owner installs with `crewboard wake install --tick --runtime <runtime>`
+([The model wake](#the-model-wake)).
 
 With the mode `off`, a headless config dir makes no judgment. With `verify`, it may make the
 judgments of [the scope](#the-scope-of-the-unattended-coordinator) below, inside a budget. The
@@ -671,6 +674,87 @@ late interactive coordinator from the owner alert (item 8 of the headless coordi
   and the signing key of the coordinator. Outside crewboard it can call the GitHub API and
   sign a message without the line. The token rights and the branch protection are the
   boundary, as for the headless scope (item 9).
+
+### The model wake
+
+`crewboard wake --tick --runtime <runtime>` is one scheduled unit with one lock. Each run does
+the `tick` first. Then it starts the model of `<runtime>` only when all of this holds:
+
+1. `unattended_coordinator` is not `off`, and the tick read the verdicts of the day.
+2. The judgment list of this tick is not empty.
+3. The verdicts of the day are below `unattended_budget`.
+4. The unit started fewer than 6 models on this UTC day.
+5. The model wakes do not pause (below).
+6. The list changed since the last model wake, or 2 hours passed since that wake started. A
+   list that got shorter is a change too.
+
+The run decides from the values of the tick in the same process. It reads no printed line, so
+no text of a ticket can start a model or put a ticket into the judgment file. With the key
+absent or `off`, the unit does what a `--tick` unit does: the same requests, the same log
+lines, the same state files, and no process starts.
+
+**The runtimes.** Every runtime of `wake` can be the model: `claude`, `codex` and `hermes`.
+None is preferred. The limit of the model is the scope and the budget above, which are in
+crewboard and hold for every runtime. The flags of the runtime are an extra layer where the
+runtime has them:
+
+| Runtime | Started as | What its flags add |
+|---|---|---|
+| `claude` | `claude -p --permission-mode dontAsk --allowedTools <list> --add-dir <state dir> -- <prompt>` | A list of tools without `Edit` and `Write`: `crewboard`, `git log`, `git show`, `git diff`, `git status`, `gh pr view`, `gh pr diff`, `gh pr checks`, `gh run view`, `gh issue view`, the read tools and the shell helpers of a dev wake. `--allow` adds a tool. |
+| `codex` | `codex exec --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <config dir> <prompt>` | The flags of a dev wake. Codex has no list of tools: the model can run every program in its sandbox and write in the work dir and the config dir. |
+| `hermes` | `hermes chat -Q -s crewboard -q <prompt>` | The flags of a dev wake. Hermes has no list of tools and no sandbox flag here: the model can run every program as the OS user. |
+
+`--runtime-flags` replaces the flags of a runtime, and `--model` names its model, as for a dev
+wake. No runtime gets an events hook or an events file. `--print-cmd` prints the tick line and
+the model command.
+
+**The prompt and the judgment file.** The prompt is one fixed text for all runtimes. It names
+the skill reference of the unattended coordinator, the judgment file, the commands of the
+scope and the stop rule for a refused command. Before each start the run writes
+`<state dir>/judgment.txt`: the time, the mode, the verdicts of the day and one line
+`needs judgment: <repo>#<n>, <reason>` per ticket. The prompt and the file hold ticket keys and
+words of crewboard only: no text of an issue, a pull request or a message. The model reads a
+ticket itself, and such a text is data for it.
+
+**The count of the model wakes.** A wake that posts nothing leaves no signed message, so this
+count is a file: `<state dir>/coordinator-wakes` with the UTC day, the count of that day, the
+time of the last start, a hash of the list, the mode and the runtime. The run writes the
+judgment file and then this file, each in one step, before the model starts. When a write
+fails, no model starts. When the stored day is later than today, no model starts: the clock of
+the host went back, or it was ahead. A lost or broken file counts as 0, so it allows at most 6
+more model wakes on that day; the verdict budget still holds, because it comes from the signed
+log.
+
+**What the unit does not do.** It runs no `poll` and no coordinator duty: the duties stay with
+the `poll` and `watch` cycle (item 6 of the headless coordinator). It writes no heartbeat, and
+no heartbeat thread runs beside the model, so a late interactive coordinator still reaches the
+owner (item 8). It gives the tick no checkout: `--work-dir` is the start dir of the model, and
+the tick of such a unit runs no checks of a `checks:` Gate (5a). It posts nothing itself: every
+message is a command of the model, with the checks of the scope.
+
+**The unread check.** `say`, `unblock` and `ask` refuse while a message for the coordinator is
+unread on the ticket ([Unread messages](events.md#unread-messages-on-a-ticket)). That check
+reads the board `Cursor` of the coordinator item, which only the interactive session moves; a
+headless `poll` moves the local cursor and changes nothing for the check. So the model reads
+the messages that the refusal lists and runs the command again with `--override-unread`. The
+message then has the line `override: unread-message-on-ticket (comments ...)` before the stamp.
+
+**A model that fails.** A model that ends with another exit code than 0 is a failed wake: exit
+70, one line in the log. From the second failure in a row the model wakes pause (300 s, then
+doubled, at most 1 hour); the tick still runs at every run. The third failure in a row is one
+line on standard error and in the log. Nobody is told on the board, because the headless scope
+refuses a `say`. A model that runs until `--max-wake` is stopped; that is one line in the log
+and no failure. Each start counts as a model wake of the day, also one that fails.
+
+**Limits of the model wake.**
+
+- The 6 wakes per day are a limit of cost, held by one file of one state dir. The OS user of
+  the unit can remove the file, and a process of that user can start a model without the unit.
+- A model whose runtime has no list of tools can use `git`, `gh` and the GitHub API with the
+  token of the coordinator account. crewboard does not see that. The rights of the token are
+  the outer limit ([Headless setup](../../guides/headless-setup.md)).
+- An interactive coordinator session and the model wake use the same agent name. They do not
+  see each other. Set the key to `off` while a person runs a coordinator session.
 
 ## Board config refresh
 

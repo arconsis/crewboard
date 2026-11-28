@@ -11,7 +11,7 @@ use crate::wake::policy::{NetBackoff, Quiet, WorkBackoff};
 use crate::wake::preflight::config_dir_of_command;
 use crate::wake::procs::{Os, Proc, descendant_procs, procs_of, same_processes, stop_group_with};
 use crate::wake::state;
-use crate::wake::steps::{OpenPrRef, PrHead, StepRc};
+use crate::wake::steps::{Listed, OpenPrRef, PrHead, StepRc};
 use crate::wake::wake_events::with_budget_header;
 use clap::Parser;
 use std::cell::RefCell;
@@ -40,6 +40,7 @@ fn parse(argv: &[&str]) -> WakeArgs {
 }
 
 mod budget;
+mod coordinator;
 mod env_file;
 mod events_file;
 mod fail_streak;

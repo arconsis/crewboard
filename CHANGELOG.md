@@ -25,11 +25,12 @@ Added:
   without guarded paths writes assignments without `guard:` lines (`reassign --to`, the move
   of a queued ticket, an `assign` after a `reassign`), and such an assignment ends the guard
   of the ticket without a warning. Spec: `docs/design/spec/tickets.md#guarded-paths`.
-- Unattended coordinator: the judgment list, the scope, the budget and the stamp. Two new keys
+- Unattended coordinator: the judgment list, the scope, the budget, the stamp and the model
+  wake. Two new keys
   of `AUTHORITY.md`: `unattended_coordinator: off | verify | verify-and-merge` (default `off`)
   and `unattended_budget: <N>` (1 to 50, default 10). Any other value of a key is
-  `authority-bad-front-matter`. crewboard starts no model, and `verify-and-merge` does what
-  `verify` does: a headless config dir merges only a ticket whose Gate is `ci`.
+  `authority-bad-front-matter`. The keys alone start no model, and `verify-and-merge` does
+  what `verify` does: a headless config dir merges only a ticket whose Gate is `ci`.
   The list: with a value that is not `off`, the headless `tick` also prints one line
   `needs judgment: <repo>#<n>, <reason>` for each ticket that needs the judgment of a
   coordinator (a Review ticket with a Gate in prose, an open question to the coordinator, a
@@ -74,9 +75,32 @@ Added:
   makes one conditional read of the comment feed of the day, and it reads the comments of each
   Blocked ticket, of each Ready ticket without an agent, and of a Backlog ticket without an
   agent that has a Gate when its board item changed; each judgment makes one more read, the
-  comment feed of the day per repo. Spec:
-  `docs/design/spec/agents.md#unattended-coordinator` and
-  `docs/design/spec/agents.md#the-scope-of-the-unattended-coordinator`.
+  comment feed of the day per repo.
+  The model wake: `crewboard wake --tick --runtime <claude|codex|hermes> --work-dir <dir>` (and
+  `wake install` with the same options) is one unit with one lock. It runs the tick, and then
+  it starts the model of that runtime only when the mode is not `off`, the judgment list is not
+  empty, the verdicts of the day are not used, the day has fewer than 6 model wakes, the model
+  wakes do not pause after failures, and the list changed since the last model wake or 2 hours
+  passed. The run decides from the values of the tick, not from its printed lines. Every
+  runtime of `wake` can be the model, with one prompt for all. The scope and the budget in
+  crewboard are the limit for each of them. Where the runtime has a list of tools (Claude
+  Code), the coordinator gets a shorter one, without `Edit` and `Write` and with the reading
+  forms of `git` and `gh` only; Codex and Hermes get the flags of a dev wake. The prompt and
+  the file `<state dir>/judgment.txt` hold ticket keys and words of crewboard only. The count
+  of the model wakes is the file `<state dir>/coordinator-wakes`, written before each start:
+  no start when the write fails or when the stored day is later than today. The model wake
+  runs no `poll` and no coordinator duty, writes no heartbeat and has no events hook. A model
+  that fails pauses the next model wakes (the tick goes on); the third failure in a row is one
+  line on standard error. `--print-cmd` prints both parts, and `doctor --setup` shows the
+  mode, the runtime and the count of the last model wake. With the key absent or `off`, a
+  `--tick --runtime` unit does what a `--tick` unit does and starts no process. Changed with
+  it: `--tick` and `--runtime` no longer exclude each other. In a unit with both, `--work-dir`
+  is the start dir of the model, and the tick of that unit runs no checks of a `checks:` Gate.
+  New skill reference `references/unattended-coordinator.md`. Guide:
+  `docs/guides/headless-setup.md`. Spec:
+  `docs/design/spec/agents.md#unattended-coordinator`,
+  `docs/design/spec/agents.md#the-scope-of-the-unattended-coordinator` and
+  `docs/design/spec/agents.md#the-model-wake`.
 - `assign` warns about one more case. When a Backlog ticket without an Agent has a reassign
   notice or a verify result of a coordinator in its log and no valid assignment message, the
   assignment comment was deleted or is not valid. `assign` then signs the Gate and the guard

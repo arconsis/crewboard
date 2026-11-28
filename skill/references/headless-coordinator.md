@@ -6,5 +6,8 @@ A headless coordinator (`start` prints a `scope:` line) runs without a model:
 `tick` merges only a ticket whose signed Gate is `ci` (the body line `Gate: ci`). It leaves every
 other Gate for the interactive coordinator.
 
-If a model runs in this config dir anyway, do nothing on the board. Tell the owner to use that
-command.
+A model runs in this config dir only as the unattended coordinator: a scheduled wake starts it,
+and its wake prompt says so and names a judgment file. Then follow that prompt.
+
+Any other model in this config dir: do nothing on the board. Tell the owner to use the command
+above.
