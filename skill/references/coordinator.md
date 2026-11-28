@@ -19,6 +19,8 @@ Events, Leaving, Extensions.
   `crewboard ticket new --gate-ci ...` (it writes `Gate: ci`). The headless `tick` merges a
   ticket only when its signed Gate is exactly `ci`. Any longer Gate ("CI is green and the tests
   X and Y ran") stays for you.
+- A ticket that says "make this test pass": add `--guard <glob>` to `ticket new` for the test,
+  its fixtures and the check script. `done` then refuses a PR that changes one of them.
 
 ## Each cycle: merge first
 

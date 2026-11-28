@@ -151,6 +151,8 @@ mod fake_stale_work;
 mod fake_status_guard;
 #[path = "component/fake_text_limit.rs"]
 mod fake_text_limit;
+#[path = "component/fake_ticket_guard.rs"]
+mod fake_ticket_guard;
 #[path = "component/fake_tickets.rs"]
 mod fake_tickets;
 #[path = "component/fake_verify_fail.rs"]

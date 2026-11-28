@@ -189,6 +189,7 @@ pub fn check(g: &Global, a: &CheckArgs<'_>) -> CbResult<String> {
         sha: &sha,
         authority: &authority,
         protected_paths: &auth.protected_paths,
+        guard: &[],
         env: &auth.check_env,
         timeout: auth.check_timeout,
         unattended: a.unattended,

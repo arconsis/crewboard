@@ -65,6 +65,18 @@ pub fn signed_gate(msgs: &[VMsg]) -> Option<String> {
     }
 }
 
+/// The guard that the coordinator signed in the latest assignment message: the globs of its
+/// `guard:` lines, the paths that the change of the ticket must not touch
+/// ([`crate::rules::guard`]). It comes from the same message as [`signed_gate`]. The issue body
+/// is not signed, so no reader takes the guard from its `Guard:` lines. Empty: no guard (no
+/// signed assignment, or one without a `guard:` line).
+pub fn signed_guard(msgs: &[VMsg]) -> Vec<String> {
+    match signed_assignment(msgs).map(VMsg::act) {
+        Some(Act::Assignment { guard, .. }) => guard,
+        _ => Vec::new(),
+    }
+}
+
 /// What the latest assignment message signed about CI: `Some(true)` for the line `ci: none`,
 /// `Some(false)` for `ci: required`, `None` for an assignment of an older binary (no `ci:` line)
 /// or no assignment at all.

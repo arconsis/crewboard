@@ -1177,3 +1177,77 @@ fn a_protected_file_that_differs_on_the_red_commit_stops_the_run_before_any_code
     );
     assert_eq!(work_trees(&k), 1);
 }
+
+/// spec/tickets#guarded-paths: the signed guard of the ticket joins the protected paths of the
+/// rule for the red run. A commit in the middle changes the guarded check script and the head
+/// restores it: the diff of the PR shows no guarded file, and that commit is still no red proof.
+#[test]
+fn a_guarded_file_that_differs_on_the_red_commit_is_no_red_proof() {
+    // the Gate text carries the Guard line of the body: the check script is no protected path here
+    let (mut k, b, url) = case_taken("the checks pass\nGuard: check.sh");
+    let origin = k.work.parent().unwrap().join("origin").join(REPO);
+    let base = k.sha.clone();
+    let ran = k.work.parent().unwrap().join("ran-on-the-middle-commit");
+    let script = std::fs::read_to_string(origin.join("check.sh")).unwrap();
+    std::fs::write(
+        origin.join("check.sh"),
+        format!("#!/bin/sh\necho x > '{}'\nexit 1\n", ran.display()),
+    )
+    .unwrap();
+    git(&origin, &["commit", "-q", "-am", "the script fails"]);
+    let middle = git(&origin, &["rev-parse", "HEAD"]);
+    std::fs::write(origin.join("check.sh"), script).unwrap();
+    std::fs::write(origin.join("fixed"), "x\n").unwrap();
+    git(&origin, &["add", "."]);
+    git(&origin, &["commit", "-q", "-m", "the fix"]);
+    k.sha = git(&origin, &["rev-parse", "HEAD"]);
+    k.fake.set_pr_head(k.pr, &k.sha);
+    // the PR as GitHub lists it: the script is the same at the base and at the head
+    k.fake.set_pr_files(k.pr, &["fixed"]);
+    git(&k.work, &["pull", "-q", "--ff-only"]);
+    let w = writes(&k.fake);
+
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "script", "--must-fail-at", &middle],
+    );
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr.contains(&format!(
+            "a protected file or a guarded file of the ticket differs between {} and {} (check.sh)",
+            &middle[..12],
+            &k.sha[..12]
+        )),
+        "{}",
+        o.all()
+    );
+    // no code of the middle commit ran, and nothing was written
+    assert!(!ran.exists(), "{}", o.all());
+    assert!(run_dirs(&k).is_empty(), "{:?}", run_dirs(&k));
+    assert_eq!(writes(&k.fake), w);
+    assert_eq!(work_trees(&k), 1);
+
+    // control: the first commit has the same script as the head, so the rule lets the red run
+    // start, and `fixed` is red there and green on the head
+    let o = done_run(
+        &k,
+        &b,
+        &url,
+        &["--run-check", "fixed", "--must-fail-at", &base],
+    );
+    assert_eq!(o.code, 0, "{}", o.all());
+    // the coordinator gets the same refusal for the middle commit
+    let o = verify(&k, &["--run-check", "script", "--must-fail-at", &middle]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("rule=check-not-run"), "{}", o.all());
+    assert!(
+        o.stderr
+            .contains("a protected file or a guarded file of the ticket differs between"),
+        "{}",
+        o.all()
+    );
+    assert!(!ran.exists(), "{}", o.all());
+}

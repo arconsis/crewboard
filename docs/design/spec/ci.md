@@ -476,7 +476,10 @@ commit.
    a commit in the middle of a PR can change a protected check script, and the head can
    restore it. The diff of the PR then shows no protected path, but the red run would run the
    changed script. Name a red commit after that change. This rule applies to `check`, `done`
-   and `verify`, attended or not.
+   and `verify`, attended or not. For `done` and `verify`, the signed guard of the ticket
+   ([Guarded paths](tickets.md#guarded-paths)) joins the protected paths of this rule: a file
+   that a `guard:` glob covers must be the same on both commits. So a change of a guarded
+   test, fixture or check script can never be the red proof.
 4. **Two runs.** Each named check runs two times: first the red run, then the green run. All
    red runs come first, in the order of the names. Both runs follow the same rules (see
    [Checks that the tool runs](#checks-that-the-tool-runs), item 3): a new work tree of

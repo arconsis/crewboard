@@ -244,6 +244,8 @@ catalog! {
             "The title is longer than 256 characters.";
         TICKET_GATE_CONFLICT = "ticket-gate-conflict" :
             "`--gate-ci` and a `Gate:` line in the body name two Gates.";
+        TICKET_GUARD_INVALID = "ticket-guard-invalid" :
+            "A `Guard:` line or a `--guard` value is not a valid path glob, or the ticket has too many.";
         TICKET_IS_PR = "ticket-is-pr" :
             "The number is a pull request, not a ticket.";
         TICKET_NOT_WORK = "ticket-not-work" :
@@ -434,6 +436,8 @@ catalog! {
             "The change touches a workflow file: the owner merges it (the owner route).";
         PROTECTED_PATH_OWNER_MERGE = "protected-path-owner-merge" :
             "The PR changes an authority file: only the owner merges it.";
+        GUARDED_PATH_CHANGED = "guarded-path-changed" :
+            "The PR changes a file that the signed guard of the ticket names; there is no override.";
         VERIFY_NEEDS_REVIEW = "verify-needs-review" :
             "`verify` needs a ticket in Review.";
         VERIFY_NO_EVIDENCE = "verify-no-evidence" :

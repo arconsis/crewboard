@@ -104,6 +104,12 @@ fn ticket_on_board(
     out: &mut String,
 ) -> CbResult<(Ticket, Status, bool)> {
     let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, repo, n)?;
+    // The first assignment signs the Guard lines of the body: a guard that is not valid is
+    // refused here, before the first write. A ticket with an assignment keeps its signed guard,
+    // so its body is not judged.
+    if !crate::ticket::has_assignment(&msgs) {
+        crate::rules::guard::check(&crate::rules::guard::of_body(&info.body))?;
+    }
     // The signed info comment is the trust anchor (spec/board#item-ids-are-the-source-of-truth);
     // board fields are not signed.
     let signed = find_item_id(&msgs);

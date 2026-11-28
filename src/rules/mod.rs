@@ -8,6 +8,7 @@
 
 pub mod evidence;
 pub mod fields;
+pub mod guard;
 pub mod lifecycle;
 pub mod limits;
 pub mod options;

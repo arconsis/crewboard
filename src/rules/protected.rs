@@ -186,6 +186,13 @@ fn glob_hits(glob: &str, path: &str) -> bool {
     glob_match(g.as_bytes(), path.as_bytes())
 }
 
+/// Does the glob cover this path of a repo? The one matcher for the globs of `protected_paths`
+/// and for the guard of a ticket ([`crate::rules::guard`]): the path is compared without a
+/// leading `./` and without regard to ASCII letter case.
+pub fn glob_covers(glob: &str, path: &str) -> bool {
+    glob_hits(glob, &norm(path))
+}
+
 /// A path as compared: no leading `./`, ASCII lower case.
 fn norm(p: &str) -> String {
     let mut s = p.trim();

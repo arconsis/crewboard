@@ -164,15 +164,21 @@ fn precheck_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResu
 }
 
 /// Rule `protected-path-owner-merge`: a verify PASS is refused for a PR that changes a protected
-/// path. `files` is `None` for `--fail`, which stays allowed. Pure.
+/// path. Rule `guarded-path-changed`: and for a PR that changes a path of `ticket_guard`, the
+/// signed guard of the ticket (spec/tickets#guarded-paths). `files` is `None` for `--fail`,
+/// which stays allowed. Pure.
 fn check_pass_allowed(
     files: Option<&PrFileList>,
     pr_url: &str,
     key: &str,
     guard: crate::rules::protected::Protect<'_>,
+    ticket_guard: &[String],
 ) -> Result<(), Refusal> {
     match files {
-        Some(f) => crate::rules::protected::check_unprotected(pr_url, key, f, guard),
+        Some(f) => {
+            crate::rules::protected::check_unprotected(pr_url, key, f, guard)?;
+            crate::rules::guard::check_untouched(pr_url, key, f, ticket_guard)
+        }
         None => Ok(()),
     }
 }
@@ -214,7 +220,13 @@ fn read_verify(
     };
     let guard =
         crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, &pre.auth.protected_paths);
-    check_pass_allowed(files.as_ref(), &ev.pr, &l.t.key(), guard)?;
+    check_pass_allowed(
+        files.as_ref(),
+        &ev.pr,
+        &l.t.key(),
+        guard,
+        &crate::ticket::signed_guard(&l.t.msgs),
+    )?;
     // A local gate has no CI to judge (its CI is information only, and not read here).
     if pre.local_verify {
         return Ok(VerifyRead { pr, ci: None });
@@ -768,12 +780,14 @@ fn plan_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<V
             "\nNothing was written. To send the ticket back: crewboard verify {} --fail --body \"<what failed>\"",
             l.n
         );
+        let ticket_guard = crate::ticket::signed_guard(&t.msgs);
         let target = super::run_checks::Target {
             key: &t.key(),
             sha: &pre.ev.sha,
             repo: &pre.pr_url.repo,
             pr: pre.pr_url.number,
             protected_paths: &pre.auth.protected_paths,
+            guard: &ticket_guard,
             env: &pre.auth.check_env,
             timeout: pre.auth.check_timeout,
             after_fail: &after_fail,
@@ -1230,12 +1244,20 @@ mod tests {
             PR_URL,
             "a/b#12",
             Protect::new("AUTHORITY.md", &[]),
+            &[],
         )
         .unwrap_err();
         assert_eq!(r.rule, ids::PROTECTED_PATH_OWNER_MERGE);
         // --fail reads no file list and stays allowed
         assert!(
-            check_pass_allowed(None, PR_URL, "a/b#12", Protect::new("AUTHORITY.md", &[])).is_ok()
+            check_pass_allowed(
+                None,
+                PR_URL,
+                "a/b#12",
+                Protect::new("AUTHORITY.md", &[]),
+                &[]
+            )
+            .is_ok()
         );
         let clean = PrFileList {
             names: vec!["src/lib.rs".into()],
@@ -1247,7 +1269,8 @@ mod tests {
                 Some(&clean),
                 PR_URL,
                 "a/b#12",
-                Protect::new("AUTHORITY.md", &[])
+                Protect::new("AUTHORITY.md", &[]),
+                &[]
             )
             .is_ok()
         );
@@ -1261,10 +1284,24 @@ mod tests {
                 Some(&cut),
                 PR_URL,
                 "a/b#12",
-                Protect::new("AUTHORITY.md", &[])
+                Protect::new("AUTHORITY.md", &[]),
+                &[]
             )
             .is_err()
         );
+        // the signed guard of the ticket: a pass is refused for a guarded file, a fail is not
+        let guard = vec!["src/**".to_string()];
+        let clean = PrFileList {
+            names: vec!["src/lib.rs".into()],
+            previous: vec![],
+            truncated: false,
+        };
+        let auth = Protect::new("AUTHORITY.md", &[]);
+        let r = check_pass_allowed(Some(&clean), PR_URL, "a/b#12", auth, &guard).unwrap_err();
+        assert_eq!(r.rule, ids::GUARDED_PATH_CHANGED);
+        assert!(check_pass_allowed(None, PR_URL, "a/b#12", auth, &guard).is_ok());
+        let other = vec!["tests/**".to_string()];
+        assert!(check_pass_allowed(Some(&clean), PR_URL, "a/b#12", auth, &other).is_ok());
     }
 
     #[test]

@@ -12,7 +12,10 @@ use crate::rules::Role;
 use crate::rules::fields::{Field, WriteCtx};
 use crate::rules::limits::check_text_field;
 use crate::services::ticket_loader::{IssueInfo, Ticket};
-use crate::ticket::{VMsg, declares_ci_none, gate_line_of, signed_ci_none, signed_gate};
+use crate::ticket::{
+    VMsg, declares_ci_none, gate_line_of, signed_assignment, signed_ci_none, signed_gate,
+    signed_guard,
+};
 
 /// The pure part of [`check_assignable`]: role and State. `active` takes work at once, also
 /// when it has a ticket In Progress: the new ticket waits in Ready with the Agent set, and the
@@ -115,20 +118,22 @@ pub(super) fn check_capabilities(
     })
 }
 
-/// The `gate:` and `ci:` values of a new assignment message.
+/// The `gate:`, `ci:` and `guard:` values of a new assignment message.
 pub(super) struct SignedLines {
     /// `None`: no `gate:` line (the copy of an assignment that has none).
     pub gate: Option<String>,
     /// `None`: no `ci:` line (the copy of an assignment that has none).
     pub ci_none: Option<bool>,
+    /// The globs of the `guard:` lines (spec/tickets#guarded-paths). Empty: no guard.
+    pub guard: Vec<String>,
     /// The lines for the answer of the command, each with its final newline: a warning for each
     /// signed value that differs from the body ([`copy_signed`]), or what the message signs from
     /// the body ([`first_from_body`]). Empty when a copy agrees with the body.
     pub notes: String,
 }
 
-/// The lines of a later assignment message of the ticket `key`: the copy of the signed `gate:`
-/// and `ci:` lines of `msgs` ([`signed_gate`], [`signed_ci_none`]). The issue body is not
+/// The lines of a later assignment message of the ticket `key`: the copy of the signed `gate:`,
+/// `ci:` and `guard:` lines of `msgs` ([`signed_gate`], [`signed_ci_none`], [`signed_guard`]). The issue body is not
 /// signed: any holder of an agent token can edit it. So a ticket whose log has an assignment
 /// ([`crate::ticket::has_assignment`]) keeps its signed lines on every later assignment message:
 /// `reassign --to`, a move of a queued ticket, an `assign` after a `reassign`. A line that the
@@ -152,6 +157,17 @@ pub(super) fn copy_signed(key: &str, msgs: &[VMsg], body: &str) -> SignedLines {
             ci_line(c).trim_end()
         ));
     }
+    // The guard is compared for a ticket with a signed assignment only. A body that lost a
+    // Guard line, and a body that got one after the assignment, both differ: the signed guard
+    // stays, and a guard that is only in the body protects nothing.
+    let guard = signed_guard(msgs);
+    if signed_assignment(msgs).is_some() && !same_globs(&guard, &crate::rules::guard::of_body(body))
+    {
+        notes.push_str(&format!(
+            "warning: the Guard lines in the body of {key} differ from the signed guard: the body was edited after the assignment. The signed guard stays: {}\n",
+            guard_text(&guard)
+        ));
+    }
     if gate.is_none() {
         notes.push_str(&format!(
             "note: {key} has no signed Gate in its log, so the new assignment message has no `gate:` line either: the headless coordinator leaves the ticket\n"
@@ -160,7 +176,22 @@ pub(super) fn copy_signed(key: &str, msgs: &[VMsg], body: &str) -> SignedLines {
     SignedLines {
         gate,
         ci_none,
+        guard,
         notes,
+    }
+}
+
+/// Do two guards name the same globs? The order does not count.
+fn same_globs(a: &[String], b: &[String]) -> bool {
+    a.iter().all(|g| b.contains(g)) && b.iter().all(|g| a.contains(g))
+}
+
+/// A guard for a line of the answer: `'a, b'`, or `none`.
+fn guard_text(guard: &[String]) -> String {
+    if guard.is_empty() {
+        "none".to_string()
+    } else {
+        format!("'{}'", guard.join(", "))
     }
 }
 
@@ -196,8 +227,9 @@ pub(super) fn sync_gate_field(
 
 /// The lines of the first assignment message of the ticket `key`, from the body: `gate:` holds
 /// every `Gate:` line of the body (`gate_field` is the fallback when the body has no such line),
-/// and `ci:` says whether the body declares `CI: none`. The notes name what is signed, so the
-/// coordinator sees it. `assigned_on_board`: the Status of the ticket is past Backlog or it has
+/// `ci:` says whether the body declares `CI: none`, and `guard:` holds the glob of every `Guard:`
+/// line of the body (the caller checks them first: [`crate::rules::guard::check`]). The notes
+/// name what is signed, so the coordinator sees it. `assigned_on_board`: the Status of the ticket is past Backlog or it has
 /// an Agent, but the log has no valid assignment (never posted, deleted, edited or not valid);
 /// the notes then start with a warning. Pure.
 pub(super) fn first_from_body(
@@ -214,20 +246,27 @@ pub(super) fn first_from_body(
             "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid). The Gate now comes from the unsigned body: check it\n"
         ));
     }
+    let guard = crate::rules::guard::of_body(body);
+    let guard_note = if guard.is_empty() {
+        String::new()
+    } else {
+        format!("guard {}; ", guard_text(&guard))
+    };
     notes.push_str(&format!(
-        "signed from the body: gate '{}'; {}",
+        "signed from the body: gate '{}'; {guard_note}{}",
         gate.as_deref().unwrap_or("-"),
         ci_line(ci_none)
     ));
     SignedLines {
         gate,
         ci_none: Some(ci_none),
+        guard,
         notes,
     }
 }
 
 /// The signed assignment message. `lines` ([`first_from_body`] or [`copy_signed`]) holds its
-/// `gate:` and `ci:` values: the headless "CI only" judgement, `done`, `verify` and `merge` read these lines, not
+/// `gate:`, `ci:` and `guard:` values: the headless "CI only" judgement, `done`, `verify` and `merge` read these lines, not
 /// the body (spec/tickets#ticket-content). `extra` holds the further lines (order, moved-from,
 /// override), each with its final newline. `assign` and the move of a queued ticket both post it,
 /// because the signed log takes the assignee only from this message.
@@ -244,15 +283,23 @@ pub(super) fn post_assignment(
         to_agent(to.as_str())?,
         Kind::Request,
         Re::None,
-        &crate::protocol::acts::assignment_body(
-            &t.info.title,
-            &t.key(),
-            &t.item_id,
-            lines.gate.as_deref(),
-            lines.ci_none,
-            extra,
-        ),
+        &lines.message(&t.info.title, &t.key(), &t.item_id, extra),
     )
+}
+
+impl SignedLines {
+    /// The body of the assignment message with these signed lines, then `extra`.
+    pub(super) fn message(&self, title: &str, key: &str, item_id: &str, extra: &str) -> String {
+        crate::protocol::acts::guarded_assignment_body(
+            title,
+            key,
+            item_id,
+            self.gate.as_deref(),
+            self.ci_none,
+            &self.guard,
+            extra,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -382,5 +429,82 @@ mod tests {
         assert_eq!((l.gate.as_deref(), l.ci_none), (Some("h"), Some(false)));
         // no assignment in the log: nothing to copy
         assert!(!crate::ticket::has_assignment(&[]));
+    }
+
+    #[test]
+    fn the_first_assignment_signs_the_guard_lines_of_the_body() {
+        let body = "Gate: ci\nGuard: tests/**\n- **Guard:** ci/check.sh\n";
+        let l = first_from_body("o/r#1", body, None, false);
+        assert_eq!(l.guard, vec!["tests/**".to_string(), "ci/check.sh".into()]);
+        assert_eq!(
+            l.notes,
+            "signed from the body: gate 'ci'; guard 'tests/**, ci/check.sh'; ci: required\n"
+        );
+        assert_eq!(
+            l.message("T", "o/r#1", "x", "order: 1\n"),
+            "Assigned to you: T\nticket: o/r#1\nitem=x\ngate: ci\nci: required\nguard: tests/**\nguard: ci/check.sh\norder: 1\n"
+        );
+        // no Guard line: no guard, and the line of the answer does not name one
+        let l = first_from_body("o/r#1", "Gate: ci\n", None, false);
+        assert!(l.guard.is_empty());
+        assert_eq!(l.notes, "signed from the body: gate 'ci'; ci: required\n");
+    }
+
+    #[test]
+    fn a_later_assignment_copies_the_signed_guard_whatever_the_body_says() {
+        let msgs = [assigned(
+            1,
+            "gate: ci\nci: required\nguard: tests/**\nguard: ci/check.sh\n",
+        )];
+        let signed = vec!["tests/**".to_string(), "ci/check.sh".into()];
+        // the body agrees (also in another order): the same lines, no warning
+        let l = copy_signed(
+            "o/r#1",
+            &msgs,
+            "Gate: ci\nGuard: ci/check.sh\nGuard: tests/**\n",
+        );
+        assert_eq!(l.guard, signed);
+        assert!(l.notes.is_empty(), "{}", l.notes);
+        // a Guard line was removed from the body, or all of them: the signed guard stays
+        for body in ["Gate: ci\nGuard: tests/**\n", "Gate: ci\n"] {
+            let l = copy_signed("o/r#1", &msgs, body);
+            assert_eq!(l.guard, signed, "{body}");
+            assert_eq!(
+                l.notes,
+                "warning: the Guard lines in the body of o/r#1 differ from the signed guard: the body was edited after the assignment. The signed guard stays: 'tests/**, ci/check.sh'\n"
+            );
+        }
+        // a weaker glob in the body does not replace the signed one
+        let l = copy_signed("o/r#1", &msgs, "Gate: ci\nGuard: nothing/**\n");
+        assert_eq!(l.guard, signed);
+        assert!(
+            l.notes.starts_with("warning: the Guard lines"),
+            "{}",
+            l.notes
+        );
+        // a Guard line that the body got after the assignment is not signed, and the answer
+        // says so
+        let plain = [assigned(1, "gate: ci\nci: required\n")];
+        let l = copy_signed("o/r#1", &plain, "Gate: ci\nGuard: tests/**\n");
+        assert!(l.guard.is_empty());
+        assert!(
+            l.notes.ends_with("The signed guard stays: none\n"),
+            "{}",
+            l.notes
+        );
+        // the latest signed assignment decides
+        let two = [
+            assigned(1, "gate: ci\nguard: a\n"),
+            assigned(2, "gate: ci\nguard: b\n"),
+        ];
+        assert_eq!(
+            copy_signed("o/r#1", &two, "Gate: ci\nGuard: b\n").guard,
+            vec!["b".to_string()]
+        );
+        // an assignment without a `gate:` line: nothing is signed, and nothing is compared
+        let old = [assigned(1, "")];
+        let l = copy_signed("o/r#1", &old, "Gate: ci\nGuard: tests/**\n");
+        assert!(l.guard.is_empty());
+        assert!(!l.notes.contains("Guard"), "{}", l.notes);
     }
 }

@@ -28,6 +28,7 @@ fn assigned(gate: Option<&str>, ci_none: Option<bool>) -> Act {
     Act::Assignment {
         gate: gate.map(str::to_string),
         ci_none,
+        guard: Vec::new(),
     }
 }
 
@@ -92,6 +93,25 @@ fn golden_assignment() {
             bytes: "Assigned to you: T\nticket: o/r#1\nitem=x\n",
             kind: Kind::Request,
             act: assigned(None, None),
+        },
+        Golden {
+            name: "assignment with guard lines",
+            text: guarded_assignment_body(
+                "T",
+                "o/r#1",
+                "x",
+                Some("ci"),
+                Some(false),
+                &["tests/**".to_string(), "golden/".to_string()],
+                "order: 1\n",
+            ),
+            bytes: "Assigned to you: T\nticket: o/r#1\nitem=x\ngate: ci\nci: required\nguard: tests/**\nguard: golden/\norder: 1\n",
+            kind: Kind::Request,
+            act: Act::Assignment {
+                gate: Some("ci".into()),
+                ci_none: Some(false),
+                guard: vec!["tests/**".into(), "golden/".into()],
+            },
         },
     ]);
     assert_eq!(ci_line(true), "ci: none\n");

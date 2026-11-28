@@ -75,6 +75,7 @@ fn ticket_cmd(cli: &Cli, action: &TicketAction) -> Outcome {
             assign,
             continue_pr,
             gate_ci,
+            guard,
             sel,
             template: _,
         } => done(AgentCtx::load(&global(cli, sel, false)).and_then(|mut ac| {
@@ -87,6 +88,7 @@ fn ticket_cmd(cli: &Cli, action: &TicketAction) -> Outcome {
                     assign: assign.as_deref(),
                     adopt_pr: continue_pr.as_deref(),
                     gate_ci: *gate_ci,
+                    guard,
                 },
             )
         })),

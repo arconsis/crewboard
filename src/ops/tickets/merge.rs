@@ -560,6 +560,14 @@ fn read_merge(ac: &AgentCtx, l: &MergeLoad, pre: &MergePre) -> CbResult<MergeRea
         crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, &pre.auth.protected_paths);
     let protected = crate::rules::protected::protected_hits(&files.all(), guard);
     crate::rules::protected::check_hits(&ev.pr, &t.key(), &protected, files.truncated, guard)?;
+    // Rule `guarded-path-changed`: the same file list against the signed guard of the ticket.
+    // The headless `tick` merges through this function, so it leaves such a ticket too.
+    crate::rules::guard::check_untouched(
+        &ev.pr,
+        &t.key(),
+        &files,
+        &crate::ticket::signed_guard(&t.msgs),
+    )?;
     // A PR that the ticket adopted from an older ticket keeps its branch name.
     let adopted = crate::ticket::adopted_branch(&t.msgs, &pre.pr_url.repo, pre.pr_url.number);
     let declared = ci_none_declared(&t.msgs, &t.info.body);

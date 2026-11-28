@@ -1030,6 +1030,9 @@ Options:
       --gate-ci
           A ticket whose Gate is CI only: write the Gate line `Gate: ci`. The headless `tick` merges a ticket only when its signed Gate is CI only (`ci`); this flag writes it. Leave the `Gate:` line out of the body (a body with another Gate is refused)
 
+      --guard <GLOB>
+          A path that the change of this ticket must not touch: a path glob as in `protected_paths` (`tests/**`, `scripts/ci-*.sh`, `golden/`). Repeat the flag for more paths. Each one becomes a `Guard:` line of the body, and the assignment signs them. `done`, a verify pass and `merge` then refuse a PR that changes such a file (`guarded-path-changed`); no flag overrides that. Use it for the test, the fixture or the check script of a ticket that says "make this pass"
+
       --initiative <INITIATIVE>
           Initiative name (default: the only one in the config dir)
 

@@ -2,12 +2,12 @@
 //! board, the assignment, the reassign notice, the park, the answer that takes a question back.
 
 use super::{
-    ASSIGNED_PREFIX, BOARD_ANNOUNCE_PREFIX, PARK_PREFIX, REASSIGNED_PREFIX, WITHDRAWS_QUESTION_LINE,
+    ASSIGNED_PREFIX, BOARD_ANNOUNCE_PREFIX, GUARD_KEY, PARK_PREFIX, REASSIGNED_PREFIX,
+    WITHDRAWS_QUESTION_LINE,
 };
 
-/// The body of the signed assignment message: the head, the signed `gate:` and `ci:` lines, then
-/// `extra` (priority, order, reason and override lines, each with its final newline). `assign`
-/// and `reassign` both write it.
+/// The body of a signed assignment message without guard lines: [`guarded_assignment_body`]
+/// with no guard.
 pub fn assignment_body(
     title: &str,
     ticket_key: &str,
@@ -16,9 +16,31 @@ pub fn assignment_body(
     ci_none: Option<bool>,
     extra: &str,
 ) -> String {
+    guarded_assignment_body(title, ticket_key, item_id, gate, ci_none, &[], extra)
+}
+
+/// The body of the signed assignment message: the head, the signed `gate:` and `ci:` lines, one
+/// signed `guard:` line for each glob of `guard`, then `extra` (priority, order, reason and
+/// override lines, each with its final newline). `assign` and `reassign` both write it. The
+/// caller checks the globs: a glob is one line.
+pub fn guarded_assignment_body(
+    title: &str,
+    ticket_key: &str,
+    item_id: &str,
+    gate: Option<&str>,
+    ci_none: Option<bool>,
+    guard: &[String],
+    extra: &str,
+) -> String {
     let gate = gate.map(|g| format!("gate: {g}\n")).unwrap_or_default();
     let ci = ci_none.map(ci_line).unwrap_or_default();
-    format!("{ASSIGNED_PREFIX}: {title}\nticket: {ticket_key}\nitem={item_id}\n{gate}{ci}{extra}")
+    let guard: String = guard
+        .iter()
+        .map(|g| format!("{GUARD_KEY}: {g}\n"))
+        .collect();
+    format!(
+        "{ASSIGNED_PREFIX}: {title}\nticket: {ticket_key}\nitem={item_id}\n{gate}{ci}{guard}{extra}"
+    )
 }
 
 /// The `ci:` line that `assign` signs (`declared`: the body has `CI: none`) and that `reassign`

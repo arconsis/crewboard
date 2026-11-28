@@ -42,6 +42,9 @@ pub struct NewArgs<'a> {
     pub adopt_pr: Option<&'a str>,
     /// `--gate-ci`: the Gate is exactly `ci` (the headless `tick` merges such a ticket).
     pub gate_ci: bool,
+    /// `--guard <glob>`, each one a `Guard:` line of the body: a path that the change of the
+    /// ticket must not touch (spec/tickets#guarded-paths).
+    pub guard: &'a [String],
 }
 
 /// The body for `--gate-ci`: its `Gate:` line is `Gate: ci`, the typed CI-only Gate that the
@@ -215,10 +218,12 @@ Pointers: <files, issues, earlier PRs>
 <!-- optional: Needs: x86_64, x86-builds -->
 <!-- optional: Route: owner-workflow -->
 <!-- optional: CI: none -->
+<!-- optional, one line per path that the change must not touch: Guard: tests/** -->
 ";
 
-/// The pure checks of a ticket text: the title, and the `Gate:` line (spec/tickets#ticket-content)
-/// that must be there before anything is created. Returns the Gate.
+/// The pure checks of a ticket text: the title, the `Gate:` line (spec/tickets#ticket-content)
+/// that must be there before anything is created, and the `Guard:` lines
+/// (spec/tickets#guarded-paths). Returns the Gate.
 pub fn check_new_ticket(title: &str, body: &str) -> Result<String, CbError> {
     if title.trim().is_empty() {
         return Err(CbError::refused(
@@ -239,6 +244,7 @@ pub fn check_new_ticket(title: &str, body: &str) -> Result<String, CbError> {
         )
     })?;
     check_text_field(&gate)?;
+    crate::rules::guard::check(&crate::rules::guard::of_body(body))?;
     Ok(gate)
 }
 
@@ -349,6 +355,10 @@ pub fn ticket_new(ac: &mut AgentCtx, a: NewArgs<'_>) -> CbResult<String> {
     if a.gate_ci {
         body = apply_gate_ci(&body)?;
     }
+    // `--guard`: checked as typed (an empty value is refused, not dropped), then written as
+    // `Guard:` lines. `check_new_ticket` judges the lines of the whole body after that.
+    crate::rules::guard::check(a.guard)?;
+    body = crate::rules::guard::add_to_body(&body, a.guard);
     check_new_ticket(a.title, &body)?;
     let repo = a
         .repo
@@ -478,5 +488,21 @@ mod tests {
         assert!(e.to_string().contains("ticket-title-missing"), "{e}");
         let long = format!("Gate: {}\n", "x".repeat(1100));
         assert!(check_new_ticket("T", &long).is_err());
+    }
+
+    #[test]
+    fn a_ticket_text_with_a_guard_that_is_not_valid_is_refused() {
+        assert!(check_new_ticket("T", "Gate: ci\nGuard: tests/**\nGuard: ci/check.sh\n").is_ok());
+        for bad in [
+            "Guard: /abs/path",
+            "Guard: a/../b",
+            "Guard:",
+            "- **Guard:** ../x",
+        ] {
+            let e = check_new_ticket("T", &format!("Gate: ci\n{bad}\n")).unwrap_err();
+            assert!(e.to_string().contains("ticket-guard-invalid"), "{bad}: {e}");
+        }
+        // the template has no Guard line: its comment is not one
+        assert!(crate::rules::guard::of_body(BODY_TEMPLATE).is_empty());
     }
 }

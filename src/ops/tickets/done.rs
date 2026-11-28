@@ -206,6 +206,14 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
         )
         .into());
     }
+    // spec/tickets#guarded-paths: the change of the ticket must not touch a path of its signed
+    // guard. Before the route, any CI read and any run of a check: nothing is delivered.
+    crate::rules::guard::check_untouched(
+        &format!("https://github.com/{}/pull/{}", pr.repo, pr.number),
+        &l.t.key(),
+        &files,
+        &crate::ticket::signed_guard(&l.t.msgs),
+    )?;
     let route = crate::owner_route::decide(
         crate::owner_route::declared(&l.t.info.body),
         &files.names,
@@ -585,12 +593,14 @@ fn run_checks_for_done(
     // `--sha`, when given, names this head: the decision before the run refused another one
     let checks = super::run_checks::pick(&pre.auth.checks, run.names)?;
     let key = l.t.key();
+    let guard = crate::ticket::signed_guard(&l.t.msgs);
     let target = super::run_checks::Target {
         key: &key,
         sha: head,
         repo: &l.pr_url.repo,
         pr: l.pr_url.number,
         protected_paths: &pre.auth.protected_paths,
+        guard: &guard,
         env: &pre.auth.check_env,
         timeout: pre.auth.check_timeout,
         after_fail: "\nNothing was written. Fix the cause, push, and run done again",

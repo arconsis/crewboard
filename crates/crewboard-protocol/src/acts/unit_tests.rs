@@ -4,6 +4,7 @@ fn assigned(gate: Option<&str>, ci: Option<bool>) -> Act {
     Act::Assignment {
         gate: gate.map(str::to_string),
         ci_none: ci,
+        guard: Vec::new(),
     }
 }
 
@@ -107,6 +108,49 @@ fn golden_assignment_as_assign_and_reassign_write_it() {
         assignment_body("T", "o/r#1", "x", Some("g"), None, "")
     );
     assert_eq!(parse(Some(Kind::Request), &odd), assigned(Some("g"), None));
+}
+
+#[test]
+fn an_assignment_carries_one_guard_line_for_each_glob() {
+    let guard = vec!["tests/**".to_string(), "ci/check.sh".to_string()];
+    let body = guarded_assignment_body(
+        "Fix it",
+        "o/r#4",
+        "PVTI_x",
+        Some("g"),
+        Some(false),
+        &guard,
+        "order: 2\n",
+    );
+    assert_eq!(
+        body,
+        "Assigned to you: Fix it\nticket: o/r#4\nitem=PVTI_x\ngate: g\nci: required\nguard: tests/**\nguard: ci/check.sh\norder: 2\n"
+    );
+    assert_eq!(
+        parse(Some(Kind::Request), &body),
+        Act::Assignment {
+            gate: Some("g".into()),
+            ci_none: Some(false),
+            guard: guard.clone(),
+        }
+    );
+    // the gate and the ci line read the same with and without guard lines: a reader that does
+    // not know the guard lines takes the first `gate:` and the first `ci:` line
+    assert_eq!(kv(&body, "gate").as_deref(), Some("g"));
+    assert_eq!(kv(&body, "ci").as_deref(), Some("required"));
+    // no guard: the bytes of an assignment without guard lines
+    assert_eq!(
+        guarded_assignment_body("T", "o/r#1", "x", Some("g"), None, &[], ""),
+        assignment_body("T", "o/r#1", "x", Some("g"), None, "")
+    );
+    // a glob with a colon keeps its text; a line with an empty value is no glob
+    let odd = "Assigned to you: T\nguard: a:b/**\nguard:\nguard:   \n";
+    assert_eq!(kv_all(odd, "guard"), vec!["a:b/**".to_string()]);
+    // a guard line outside an assignment is no act
+    assert_eq!(
+        parse(Some(Kind::Request), "x\nguard: tests/**\n"),
+        Act::Other
+    );
 }
 
 #[test]

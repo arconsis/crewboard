@@ -110,6 +110,7 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `ticket-title-missing` | `ticket new` needs a title. |
 | `ticket-title-too-long` | The title is longer than 256 characters. |
 | `ticket-gate-conflict` | `--gate-ci` and a `Gate:` line in the body name two Gates. |
+| `ticket-guard-invalid` | A `Guard:` line or a `--guard` value is not a valid path glob, or the ticket has too many. |
 | `ticket-is-pr` | The number is a pull request, not a ticket. |
 | `ticket-not-work` | The issue has no `crew:work` label. |
 | `ticket-not-on-board` | The ticket has no signed info comment with its item id; the coordinator assigns it first. |
@@ -217,6 +218,7 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `owner-route-closing-keyword` | An owner-route PR has a closing keyword for the ticket; it says `Refs` until the owner applied the patch. |
 | `workflow-needs-owner` | The change touches a workflow file: the owner merges it (the owner route). |
 | `protected-path-owner-merge` | The PR changes an authority file: only the owner merges it. |
+| `guarded-path-changed` | The PR changes a file that the signed guard of the ticket names; there is no override. |
 | `verify-needs-review` | `verify` needs a ticket in Review. |
 | `verify-no-evidence` | The ticket has no delivery to verify. |
 | `verify-fail-needs-note` | `verify --fail` needs a note for the dev. |

@@ -137,6 +137,13 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
             &files,
             crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, &auth.protected_paths),
         )?;
+        // Rule `guarded-path-changed`: the same for a path of the signed guard of the ticket.
+        crate::rules::guard::check_untouched(
+            &ev.pr,
+            &t.key(),
+            &files,
+            &crate::ticket::signed_guard(&t.msgs),
+        )?;
     }
     check_status_transition(Some(from), Status::Done, me.actor, &close)?;
     // Fail closed: a passed verify whose PR was not read is no proof of the merge.

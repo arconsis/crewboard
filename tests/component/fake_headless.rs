@@ -450,6 +450,50 @@ fn the_tick_leaves_a_pr_that_changes_a_protected_path_now_and_merges_nothing() {
     assert!(ok.merged(), "{}", o.all());
 }
 
+/// spec/tickets#guarded-paths: the signed guard of the ticket. The tick leaves a PR that
+/// changes a guarded file (its verify is refused), and the headless merge refuses it too.
+#[test]
+fn the_tick_leaves_a_pr_that_changes_a_guarded_path_of_the_ticket() {
+    let h = hub(CI_ONLY, true);
+    h.sign_assignment("gate: ci\nci: required\nguard: tests/**\n");
+    h.set_files(&["src/it.rs", "tests/ci.toml"]);
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let l = left_line(&o);
+    assert!(l.contains("guarded-path-changed"), "{l}");
+    assert!(l.contains("tests/ci.toml (guard: tests/**)"), "{l}");
+    assert!(!h.merged());
+    assert_eq!(h.status_of_ticket().as_deref(), Some("Review"));
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    let m = h.headless(&["merge", &t()]);
+    assert_eq!(m.code, 2, "{}", m.all());
+    assert!(m.stderr.contains("guarded-path-changed"), "{}", m.all());
+    assert!(!h.merged());
+    // a rename out of the guard is seen through the old name
+    let r = hub(CI_ONLY, true);
+    r.sign_assignment("gate: ci\nci: required\nguard: tests/**\n");
+    r.set_renamed_file("src/moved.toml", "tests/ci.toml");
+    let o = r.headless(&["tick"]);
+    assert!(
+        left_line(&o).contains("guarded-path-changed"),
+        "{}",
+        o.all()
+    );
+    assert!(!r.merged());
+    // control: the same ticket merges when the PR stays off the guard, and the same PR merges
+    // for a ticket whose guard names other paths
+    let ok = hub(CI_ONLY, true);
+    ok.sign_assignment("gate: ci\nci: required\nguard: tests/**\n");
+    ok.set_files(&["src/it.rs", "src/tests/ci.toml"]);
+    let o = ok.headless(&["tick"]);
+    assert!(ok.merged(), "{}", o.all());
+    let other = hub(CI_ONLY, true);
+    other.sign_assignment("gate: ci\nci: required\nguard: golden/\n");
+    other.set_files(&["src/it.rs", "tests/ci.toml"]);
+    let o = other.headless(&["tick"]);
+    assert!(other.merged(), "{}", o.all());
+}
+
 #[test]
 fn the_signed_ci_line_decides_whether_a_ticket_declares_ci_none_and_an_old_ticket_uses_the_body() {
     // an old ticket (the assignment has a gate line and no `ci:` line): the live body decides
