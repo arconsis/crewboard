@@ -86,6 +86,17 @@ by `retro`. The reader takes the last `case:` line of a verify result. `verify` 
 after the `failed:` lines, each failure text from CI or from the PR is one line, and a note of
 `verify` with a `case:` line is not accepted.
 
+One more line is no act: `unattended: <n>/<budget>`, the last body line of a message that the
+[unattended coordinator](agents.md#unattended-coordinator) posts. `n` is the number of its
+verdicts of the UTC day, up to and with this message. `budget` is `unattended_budget` of
+`AUTHORITY.md` at that time. The message keeps the act of its first line. The same module
+writes and reads the line (`unattended_line`, `unattended_of`, `has_unattended_line`). The
+reader of the numbers is strict: it takes the last line with the key, and the value must be one
+space and `<n>/<budget>` in plain digits, with `budget` from 1 to 50 and `n` not above `budget`.
+Any other value gives no number. A count treats a message with such a line as stamped all the
+same, so a line that is not valid cannot lower a count. The line counts only in a verified
+message of a coordinator.
+
 Because the act is only text, a writer of free text must not produce it by accident. `say` and
 `block --why` refuse a body that parses to an act (`protocol::acts::reserved_for`, also
 after leading blank space) with `text-reads-as-act`; the message names the command that writes

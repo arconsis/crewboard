@@ -155,6 +155,8 @@ mod fake_text_limit;
 mod fake_ticket_guard;
 #[path = "component/fake_tickets.rs"]
 mod fake_tickets;
+#[path = "component/fake_unattended.rs"]
+mod fake_unattended;
 #[path = "component/fake_verify_fail.rs"]
 mod fake_verify_fail;
 #[cfg(unix)]

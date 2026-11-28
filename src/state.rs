@@ -201,6 +201,16 @@ pub struct TickState {
     /// per day: the tick then reads `daily_digest` of AUTHORITY.md and posts when it is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest_day: Option<String>,
+    /// The floor of the verdict count of the unattended coordinator
+    /// (spec/agents#unattended-coordinator): a UTC day (`YYYY-MM-DD`) and the count of that day,
+    /// noted before a verdict is posted. A comment that is deleted later cannot lower the count
+    /// below it. It can only raise the count that the signed messages give.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended_floor: Option<(String, u32)>,
+    /// The board items of the judgment list whose ticket a scan of the issues did not find.
+    /// The tick scans again only when this set changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unattended_unknown: Vec<String>,
 }
 
 /// The owner-route safety net.

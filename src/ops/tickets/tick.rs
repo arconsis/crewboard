@@ -33,6 +33,13 @@
 //! coordinator that is gone gives one `!! SECURITY EVENT: deleted-message !!` block and one
 //! report to the owner. It costs no extra read.
 //!
+//! With `unattended_coordinator` of AUTHORITY.md on (spec/agents#unattended-coordinator), the tick
+//! also prints the tickets that need the judgment of a coordinator, one line `needs judgment:
+//! <key>, <reason>` for each, and one line with the mode and the verdicts of the UTC day
+//! (`judgment_lines`). It writes nothing for them. Read cost: the comment feed of the day (one
+//! read per repo), and the comments of each Blocked ticket and of each Backlog ticket without an
+//! agent that has a Gate. With the key off the tick reads and prints nothing of this.
+//!
 //! A lost event cannot hide a finished ticket from the tick. A second run changes nothing: a
 //! merged ticket is Done, a verified ticket is not verified again (`verify_result` for the
 //! latest `done`), and a refused merge writes nothing.
@@ -50,6 +57,7 @@ use crate::rules::status::Status;
 use crate::services::ticket_index::{discover_closed_tickets, discover_tickets};
 use crate::services::ticket_loader::{Ticket, load_ticket};
 use crate::ticket::{latest_done, verify_result};
+use crate::unattended::Need;
 
 /// How many times the tick starts the checks of one ticket. After that a person decides.
 const MAX_CHECK_RUNS: u32 = 5;
@@ -99,6 +107,8 @@ struct Scan<'a> {
     shown: std::cell::RefCell<Vec<crate::events::SecurityEvent>>,
     /// Where the checks of a typed Gate run, when the caller gave a checkout.
     checks: Option<&'a TickChecks>,
+    /// The mode and the budget of the unattended coordinator (AUTHORITY.md).
+    coord: crate::ops::unattended::Settings,
 }
 
 /// What the tick needs to run the checks of a ticket whose Gate is `checks: ...`.
@@ -120,9 +130,25 @@ struct Buckets {
     /// In work (In Progress, Blocked, Ready) whose issue is closed (the state comes with the
     /// items).
     closed: Vec<String>,
+    /// Blocked, issue not closed. Empty while the unattended coordinator is off, as the two
+    /// lists after it are.
+    blocked: Vec<String>,
+    /// Ready without an agent, issue not closed.
+    ready_unassigned: Vec<String>,
+    /// Backlog without an agent and with a Gate, issue not closed: a reassign may have returned
+    /// it.
+    backlog_returned: Vec<String>,
 }
 
 impl Buckets {
+    /// The items of the judgment list that are not in Review.
+    fn judgment(&self) -> impl Iterator<Item = &String> {
+        self.blocked
+            .iter()
+            .chain(&self.ready_unassigned)
+            .chain(&self.backlog_returned)
+    }
+
     fn of(s: &Scan<'_>) -> Buckets {
         let ids = |keep: &dyn Fn(&crate::items::ItemSnapshot) -> bool| -> Vec<String> {
             s.items
@@ -131,6 +157,9 @@ impl Buckets {
                 .map(|it| it.id.clone())
                 .collect()
         };
+        let on = !s.coord.mode.is_off();
+        let board_status =
+            |it: &crate::items::ItemSnapshot| it.get(Field::Status).and_then(Status::parse_board);
         let in_progress_with_agent = |it: &crate::items::ItemSnapshot| {
             Status::InProgress.is(it.get(Field::Status)) && it.get(Field::Agent).is_some()
         };
@@ -149,6 +178,15 @@ impl Buckets {
                         .is_some()
             }),
             closed: ids(&|it| is_in_work(it.get(Field::Status)) && it.issue_closed()),
+            blocked: ids(&|it| {
+                on && board_status(it) == Some(Status::Blocked) && !it.issue_closed()
+            }),
+            ready_unassigned: ids(&|it| {
+                on && board_status(it) == Some(Status::Ready)
+                    && it.get(Field::Agent).is_none()
+                    && !it.issue_closed()
+            }),
+            backlog_returned: ids(&|it| on && crate::unattended::is_backlog_candidate(it)),
         }
     }
 }
@@ -171,7 +209,9 @@ fn discover_missing(
     world: &World,
     cache: &mut crate::state::StateCache,
     b: &Buckets,
+    judgment: bool,
 ) -> CbResult<()> {
+    let mut scanned = false;
     if b.review
         .iter()
         .chain(&b.old)
@@ -179,6 +219,23 @@ fn discover_missing(
         .any(|id| issue_of(cache, id).is_none())
     {
         discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
+        scanned = true;
+    }
+    // The items of the judgment list. A scan reads every open ticket, and an item that a person
+    // put on the board has no ticket that a scan can find. So the tick scans for these items
+    // only when the set of unknown items changed, and it remembers what the scan left.
+    if judgment {
+        let unknown = |cache: &crate::state::StateCache| -> Vec<String> {
+            b.judgment()
+                .filter(|id| issue_of(cache, id).is_none())
+                .cloned()
+                .collect()
+        };
+        let before = unknown(cache);
+        if !scanned && !before.is_empty() && before != cache.tick.unattended_unknown {
+            discover_tickets(&ac.ctx.reader(), &world.trust, &mut cache.index)?;
+        }
+        cache.tick.unattended_unknown = unknown(cache);
     }
     // The issue of an owner-merged ticket is closed, so the scan of open issues does not list it.
     if b.review
@@ -260,6 +317,7 @@ fn handle_review(
     review: Vec<TicketRef>,
     cache: &crate::state::StateCache,
     out: &mut String,
+    needs: &mut Vec<(TicketRef, Need)>,
 ) -> CbResult<()> {
     // The time in Review is the age of the board item; the coordinator heartbeat comes
     // from the agent items already read (no extra read). The owner hears through the late path.
@@ -311,9 +369,70 @@ fn handle_review(
                 s.now,
             )?);
         }
-        out.push_str(&one(ac, &t, &key, s.checks)?);
+        let lines = one(ac, &t, &key, s.checks)?;
+        // The judgment list holds a Review ticket only when this tick wrote nothing for it: the
+        // ticket is then as it was loaded.
+        if !s.coord.mode.is_off()
+            && lines.lines().all(|l| l.starts_with(LEFT))
+            && let Some(n) = crate::ops::unattended::loaded_need(&t)
+        {
+            needs.push((tref, n));
+        }
+        out.push_str(&lines);
     }
     Ok(())
+}
+
+/// The judgment list (spec/agents#unattended-coordinator), for a mode that is not `off`: one line
+/// for each ticket that needs the judgment of a coordinator, then the line with the mode and the
+/// verdicts of today. `needs` holds the Review tickets; the other tickets come from the board
+/// items. The count is read first. When that read fails, the tick lists no ticket and reads
+/// none: one line says so.
+fn judgment_lines(
+    ac: &AgentCtx,
+    s: &Scan<'_>,
+    b: &Buckets,
+    cache: &crate::state::StateCache,
+    mut needs: Vec<(TicketRef, Need)>,
+) -> CbResult<String> {
+    use crate::unattended::{count_line, count_unread_line, need_line};
+    let coord = s.coord;
+    if coord.mode.is_off() {
+        return Ok(String::new());
+    }
+    let used = match crate::ops::unattended::load_used_today(ac, s.world, s.now) {
+        Ok(n) => n,
+        Err(e) => return Ok(count_unread_line(coord.mode, &e.to_string())),
+    };
+    let mut out = String::new();
+    for id in b.judgment() {
+        let Some(item) = s.items.iter().find(|it| &it.id == id) else {
+            continue;
+        };
+        let Some(tref) = issue_of(cache, id).and_then(|k| TicketRef::parse(&k)) else {
+            // A Backlog item without a ticket is no ticket that a reassign returned.
+            if !crate::unattended::is_backlog_candidate(item) {
+                out.push_str(&left(
+                    id,
+                    &format!(
+                        "a board item in {} has no signed info comment with its ticket",
+                        item.get(Field::Status).unwrap_or("?")
+                    ),
+                ));
+            }
+            continue;
+        };
+        if let Some(n) = crate::ops::unattended::board_need(ac, s.world, item, &tref)? {
+            needs.push((tref, n));
+        }
+    }
+    needs.sort();
+    needs.dedup();
+    for (t, n) in &needs {
+        out.push_str(&need_line(&t.to_string(), *n));
+    }
+    out.push_str(&count_line(coord.mode, used, coord.budget));
+    Ok(out)
 }
 
 /// What `tick` gives its caller: the output, and the deleted notes that it showed in it and
@@ -367,16 +486,20 @@ pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut>
         now: crate::clock::now_epoch(),
         shown: std::cell::RefCell::default(),
         checks,
+        coord: crate::ops::unattended::settings(ac),
     };
     let buckets = Buckets::of(&scan);
-    discover_missing(ac, &world, &mut cache, &buckets)?;
+    let judgment = !scan.coord.mode.is_off();
+    discover_missing(ac, &world, &mut cache, &buckets, judgment)?;
     let mut out = closes_and_notes(ac, &scan, &buckets, &mut cache)?;
+    let mut needs = Vec::new();
     if buckets.review.is_empty() {
         out = format!("tick: no ticket in Review\n{out}");
     } else {
         let review = review_tickets(&buckets.review, &cache, &mut out);
-        handle_review(ac, &scan, review, &cache, &mut out)?;
+        handle_review(ac, &scan, review, &cache, &mut out, &mut needs)?;
     }
+    out.push_str(&judgment_lines(ac, &scan, &buckets, &cache, needs)?);
     out.push_str(&daily_digest(ac, &scan, &out)?);
     // The output is complete and goes to the caller, which forgets the reported deleted notes
     // after its print (`TickOut::settle`). A failure before keeps them, and the next tick raises

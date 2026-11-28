@@ -14,6 +14,7 @@
 //! - [`verify_fail`]: the failures of a verify result and their classes.
 //! - [`round_limit`]: the texts of a ticket that spent its rounds of repair.
 //! - [`lifecycle`]: the stop and leave notices of an agent, and the late report to the owner.
+//! - [`unattended`]: the line of a message of the unattended coordinator.
 //!
 //! A change of wording is then one edit, and the golden tests (`golden_tests.rs`) pin the bytes
 //! of every writer and read them back with the parser, so a writer and the parser cannot drift
@@ -27,6 +28,7 @@ pub mod evidence;
 pub mod lifecycle;
 pub mod round_limit;
 pub mod ticket;
+pub mod unattended;
 pub mod verify_fail;
 
 #[cfg(test)]
@@ -39,6 +41,7 @@ pub use evidence::*;
 pub use lifecycle::*;
 pub use round_limit::*;
 pub use ticket::*;
+pub use unattended::*;
 pub use verify_fail::*;
 
 use crate::names::Kind;

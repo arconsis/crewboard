@@ -46,6 +46,8 @@ struct Pr {
     /// The base branch of the PR, when it is not `main`, and the files that this branch hides:
     /// the comparison of `main` with the head names them, and the file list of the PR does not.
     base: Option<(String, Vec<String>)>,
+    /// The HTTP status that the comment feed of the repo answers with, when it fails.
+    feed_status: Option<u16>,
 }
 
 pub struct Hub {
@@ -114,6 +116,12 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
             "content": STANDARD.encode(authority_text(s.may_merge, &pr.lock().unwrap().authority_extra)),
             "encoding": "base64",
         })),
+        ("GET", ["", "repos", _, _, "issues", "comments"])
+            if pr.lock().unwrap().feed_status.is_some() =>
+        {
+            let status = pr.lock().unwrap().feed_status.unwrap_or(404);
+            Some(Resp::json(status, r#"{"message":"Not Found"}"#))
+        }
         ("GET", ["", "repos", _, _, "pulls", num]) if *num == PR.to_string() => {
             let merged = pr.lock().unwrap().merged;
             let base_ref = pr
@@ -280,6 +288,11 @@ impl Hub {
     /// More front matter lines for AUTHORITY.md, for example `protected_paths: [tests/**]\n`.
     pub fn set_authority_extra(&self, lines: &str) {
         self.pr.lock().unwrap().authority_extra = lines.to_string();
+    }
+
+    /// From now on the comment feed of the repo (`GET issues/comments`) answers with `status`.
+    pub fn fail_feed(&self, status: u16) {
+        self.pr.lock().unwrap().feed_status = Some(status);
     }
 
     /// The files that the PR changes now.

@@ -25,6 +25,11 @@
 //! - `max_rounds`: the round limit of repair (spec/tickets#round-limit). The failed verify that
 //!   spends the last round moves the ticket to Blocked with a question to the owner. Off without
 //!   the key.
+//! - `unattended_coordinator`: `off` (default), `verify` or `verify-and-merge`: what a scheduled
+//!   model coordinator may do with nobody watching (spec/agents#unattended-coordinator). Read
+//!   from the default branch only.
+//! - `unattended_budget`: how many verdicts that coordinator may give per UTC day (1 to 50,
+//!   default 10).
 //! - `former_repos`: earlier names of the main repo, each with an exclusive cutoff. A message
 //!   that fails under the current name also verifies under such a name if its signed `ts` is
 //!   before the cutoff (spec/messages#repository-moves). A block list of
@@ -34,11 +39,12 @@
 //! ([`crate::rules::protected`]).
 
 use crate::base::ids;
+use crate::protocol::acts::UNATTENDED_BUDGET_MAX;
 use crate::protocol::former::FormerRepo;
 use crate::rules::{Refusal, Verdict};
 
 /// The keys that crewboard reads and enforces (spec/board#authority).
-pub const ENFORCED_KEYS: [&str; 17] = [
+pub const ENFORCED_KEYS: [&str; 19] = [
     "initiative",
     "owner",
     "coordinator_may_create_tickets",
@@ -55,6 +61,8 @@ pub const ENFORCED_KEYS: [&str; 17] = [
     "check_timeout",
     "daily_digest",
     "max_rounds",
+    "unattended_coordinator",
+    "unattended_budget",
     "former_repos",
 ];
 
@@ -93,6 +101,11 @@ pub struct Authority {
     /// The round limit: after this many failed verifies that count, a ticket goes to the owner
     /// (spec/tickets#round-limit). `None`: no limit.
     pub max_rounds: Option<u32>,
+    /// What the unattended coordinator may do (spec/agents#unattended-coordinator).
+    pub unattended_coordinator: CoordMode,
+    /// The verdicts of the unattended coordinator per UTC day ([`DEFAULT_UNATTENDED_BUDGET`]
+    /// without the key).
+    pub unattended_budget: u32,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
     pub former_repos: Vec<FormerRepo>,
     /// Keys that this version does not know (shown, never obeyed).
@@ -123,6 +136,47 @@ impl CiMode {
     }
 }
 
+/// The value of `unattended_coordinator` (spec/agents#unattended-coordinator): what a scheduled
+/// model coordinator may do with nobody watching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoordMode {
+    /// No unattended coordinator (the default).
+    #[default]
+    Off,
+    /// It may give verdicts, within the budget.
+    Verify,
+    /// It may give verdicts and merge what it verified.
+    VerifyAndMerge,
+}
+
+impl CoordMode {
+    /// The mode of the value of the key; `None` for any other text.
+    pub fn parse(value: &str) -> Option<CoordMode> {
+        match value {
+            "off" => Some(CoordMode::Off),
+            "verify" => Some(CoordMode::Verify),
+            "verify-and-merge" => Some(CoordMode::VerifyAndMerge),
+            _ => None,
+        }
+    }
+
+    /// The value of the key.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CoordMode::Off => "off",
+            CoordMode::Verify => "verify",
+            CoordMode::VerifyAndMerge => "verify-and-merge",
+        }
+    }
+
+    pub fn is_off(self) -> bool {
+        self == CoordMode::Off
+    }
+}
+
+/// `unattended_budget` without the key.
+pub const DEFAULT_UNATTENDED_BUDGET: u32 = 10;
+
 /// The values that `crewboard init` writes (and that apply while a key is missing).
 impl Default for Authority {
     fn default() -> Self {
@@ -148,6 +202,8 @@ impl Default for Authority {
             check_timeout: DEFAULT_CHECK_TIMEOUT,
             daily_digest: false,
             max_rounds: None,
+            unattended_coordinator: CoordMode::Off,
+            unattended_budget: DEFAULT_UNATTENDED_BUDGET,
             former_repos: Vec::new(),
             unknown_keys: Vec::new(),
         }
@@ -173,6 +229,28 @@ fn parse_bool(key: &str, v: &str) -> Result<bool, Refusal> {
         "false" => Ok(false),
         other => Err(bad(format!("{key}: '{other}' is not true or false"))),
     }
+}
+
+/// The value of `unattended_coordinator`: one of the three words, nothing else.
+fn parse_coord_mode(v: &str) -> Result<CoordMode, Refusal> {
+    CoordMode::parse(&unquote(v)).ok_or_else(|| {
+        bad(format!(
+            "unattended_coordinator: '{v}' is not off, verify or verify-and-merge"
+        ))
+    })
+}
+
+/// The value of `unattended_budget`: a whole number from 1 to [`UNATTENDED_BUDGET_MAX`].
+fn parse_unattended_budget(v: &str) -> Result<u32, Refusal> {
+    unquote(v)
+        .parse::<u32>()
+        .ok()
+        .filter(|n| (1..=UNATTENDED_BUDGET_MAX).contains(n))
+        .ok_or_else(|| {
+            bad(format!(
+                "unattended_budget: '{v}' is not a whole number from 1 to {UNATTENDED_BUDGET_MAX}"
+            ))
+        })
 }
 
 fn parse_flow_list(key: &str, v: &str) -> Result<Vec<String>, Refusal> {
@@ -467,6 +545,8 @@ pub fn parse(text: &str) -> Result<Option<Authority>, Refusal> {
                         })?,
                 );
             }
+            "unattended_coordinator" => a.unattended_coordinator = parse_coord_mode(v)?,
+            "unattended_budget" => a.unattended_budget = parse_unattended_budget(v)?,
             "checks" if v == "[]" => a.checks = Vec::new(),
             "checks" => {
                 return Err(bad(
@@ -973,6 +1053,74 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
     }
 
     #[test]
+    fn unattended_coordinator_is_off_by_default_and_takes_three_values() {
+        assert_eq!(
+            parsed("---\ninitiative: x\n---\n").unattended_coordinator,
+            CoordMode::Off
+        );
+        assert_eq!(Authority::default().unattended_coordinator, CoordMode::Off);
+        for (v, mode) in [
+            ("off", CoordMode::Off),
+            ("verify", CoordMode::Verify),
+            ("verify-and-merge", CoordMode::VerifyAndMerge),
+            ("\"verify\" # with a budget", CoordMode::Verify),
+        ] {
+            let a = parsed(&format!("---\nunattended_coordinator: {v}\n---\n"));
+            assert_eq!(a.unattended_coordinator, mode, "{v}");
+            assert_eq!(a.unattended_coordinator.is_off(), mode == CoordMode::Off);
+        }
+        for mode in [CoordMode::Off, CoordMode::Verify, CoordMode::VerifyAndMerge] {
+            assert_eq!(CoordMode::parse(mode.as_str()), Some(mode));
+        }
+        // refused: every other value, so a typo cannot switch the coordinator on or leave the
+        // owner in the belief that it is on
+        for v in [
+            "true",
+            "on",
+            "yes",
+            "Verify",
+            "merge",
+            "verify-and-merge-all",
+            "[verify]",
+        ] {
+            let r = parse(&format!("---\nunattended_coordinator: {v}\n---\n")).unwrap_err();
+            assert_eq!(r.rule, "authority-bad-front-matter", "{v}");
+            assert!(
+                r.message.contains("unattended_coordinator"),
+                "{}",
+                r.message
+            );
+        }
+        let r = parse("---\nunattended_coordinator:\n---\n").unwrap_err();
+        assert_eq!(r.rule, "authority-bad-front-matter");
+    }
+
+    #[test]
+    fn unattended_budget_is_a_whole_number_from_1_to_50_and_10_without_the_key() {
+        assert_eq!(parsed("---\ninitiative: x\n---\n").unattended_budget, 10);
+        assert_eq!(Authority::default().unattended_budget, 10);
+        for (v, n) in [
+            ("1", 1),
+            ("10", 10),
+            ("50", 50),
+            ("\"7\" # a week of one", 7),
+        ] {
+            assert_eq!(
+                parsed(&format!("---\nunattended_budget: {v}\n---\n")).unattended_budget,
+                n,
+                "{v}"
+            );
+        }
+        for v in ["0", "51", "-1", "ten", "2.5", "[3]", "true"] {
+            let r = parse(&format!("---\nunattended_budget: {v}\n---\n")).unwrap_err();
+            assert_eq!(r.rule, "authority-bad-front-matter", "{v}");
+            assert!(r.message.contains("unattended_budget"), "{}", r.message);
+        }
+        let r = parse("---\nunattended_budget:\n---\n").unwrap_err();
+        assert_eq!(r.rule, "authority-bad-front-matter");
+    }
+
+    #[test]
     fn every_enforced_key_is_read_and_needs_owner_is_advice_only() {
         for k in ENFORCED_KEYS {
             let value = match k {
@@ -986,6 +1134,8 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
                 "ci_mode" => "ci",
                 "check_timeout" => "30m",
                 "max_rounds" => "3",
+                "unattended_coordinator" => "verify",
+                "unattended_budget" => "5",
                 _ => "x",
             };
             let a = parsed(&format!("---\n{k}: {value}\n---\n"));

@@ -362,3 +362,17 @@ fn golden_question_park_and_lifecycle() {
         },
     ]);
 }
+
+#[test]
+fn golden_unattended_line() {
+    // the line is no act: the message keeps the act of its first line
+    assert_eq!(unattended_line(3, 10), "unattended: 3/10");
+    let text = format!("verify: pass\nsha: abc\n{}\n", unattended_line(3, 10));
+    assert_eq!(text, "verify: pass\nsha: abc\nunattended: 3/10\n");
+    assert_eq!(parse(Some(Kind::Report), &text), Act::Verify { pass: true });
+    assert_eq!(unattended_of(&text), Some((3, 10)));
+    assert!(has_unattended_line(&text));
+    // control: a verify result without the line
+    assert_eq!(unattended_of("verify: pass\nsha: abc\n"), None);
+    assert!(!has_unattended_line("verify: pass\nsha: abc\n"));
+}

@@ -413,6 +413,8 @@ protected: [main]
 # check_timeout: 1h                 # optional: the time limit of one check
 # daily_digest: true                # optional: one project status update per day by the headless tick
 # max_rounds: 3                     # optional: after 3 failed verifies a ticket goes to the owner
+# unattended_coordinator: verify    # optional: off (default), verify or verify-and-merge; see agents.md
+# unattended_budget: 10             # optional: the verdicts of the unattended coordinator per UTC day
 # former_repos:                     # optional: after a repo transfer or rename, see messages.md
 #   - { name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules
@@ -439,6 +441,8 @@ the enforced keys.
 | `ci_ignore`, `ci_mode` | the CI judgement of `done`, `verify` and `merge` ([CI](ci.md)) |
 | `daily_digest` | `tick`: one project status update per day, written by the tool ([Headless coordinator](agents.md#headless-coordinator), 8a) |
 | `max_rounds` | `verify`, `tick`: the round limit. The failed `verify` that spends the last round moves the ticket to Blocked with a question to the owner ([Round limit](tickets.md#round-limit)). A whole number from 1; no key means no limit; `max_rounds: 0` is `authority-bad-front-matter` |
+| `unattended_coordinator` | `tick`: the judgment list and the verdict count in its output ([Unattended coordinator](agents.md#unattended-coordinator)). `off` (default), `verify` or `verify-and-merge`; any other value is `authority-bad-front-matter`. The key gives no command a new right |
+| `unattended_budget` | `tick`: the budget in the line of the verdict count. A whole number from 1 to 50; no key means 10; any other value is `authority-bad-front-matter` |
 | `check_timeout` | `verify --run-check`: the time limit of one check (`90s`, `30m`, `2h`; default one hour) |
 | `check_env` | `verify --run-check`: the names of more environment variables that a check gets ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |
 | `checks` | `verify --run-check`: the named commands that the tool runs itself on a clean checkout of the PR head ([Checks that the tool runs](ci.md#checks-that-the-tool-runs)) |
