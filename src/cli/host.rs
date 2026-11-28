@@ -541,7 +541,10 @@ mod wake_check_tests {
             "{what}"
         );
         assert!(!what.contains("does no work"), "{what}");
-        assert!(fix.contains("/s/demo-coord/wake.log"), "{fix}");
+        assert!(
+            fix.contains(&state.join("wake.log").display().to_string()),
+            "{fix}"
+        );
         // a stored day after today is a warning, not a plain OK line
         let fine = Model::default();
         let t = ok(model(&w("2026-11-29", 1), &fine));
@@ -551,7 +554,10 @@ mod wake_check_tests {
             ),
             "{t}"
         );
-        assert!(t.contains("/s/demo-coord/coordinator-wakes"), "{t}");
+        assert!(
+            t.contains(&state.join("coordinator-wakes").display().to_string()),
+            "{t}"
+        );
         // a last start in the future is a warning too
         let mut ahead = w("2026-11-28", 1);
         ahead.last = NOW + 600;
