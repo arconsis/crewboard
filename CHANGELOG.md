@@ -2,14 +2,7 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## v0.13.0 (2026-11-28)
-
-Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two behaviours
-change (see "Changed"). A scheduled agent that runs `repeat` needs its wake installed with
-`--host-lock <dir>` and `repeat --lock <dir>`. An `assign` after a `reassign` no longer signs an
-edited Gate of the issue body: a ticket that needs another Gate is a new ticket. The other
-parts are off until the owner sets a key (`max_rounds`) or someone uses a new command or flag
-(`check`, `done --run-check`, `--must-fail-at`).
+## Unreleased
 
 Added:
 
@@ -32,6 +25,30 @@ Added:
   without guarded paths writes assignments without `guard:` lines (`reassign --to`, the move
   of a queued ticket, an `assign` after a `reassign`), and such an assignment ends the guard
   of the ticket without a warning. Spec: `docs/design/spec/tickets.md#guarded-paths`.
+
+Changed:
+
+- Protected paths and guarded paths: a base branch cannot hide a file. The file list of a PR
+  is the diff against its base branch, and the author of the PR chooses that branch. For a PR
+  whose base is not the default branch, `done`, a verify pass, `close --verified` and `merge`
+  (so also `tick`) now also read the files that differ between the default branch and the head
+  of the PR, and judge both lists. A stacked PR without such a file passes as it did. A
+  comparison that cannot be read, or one with 300 files or more, is refused with
+  `protected-path-owner-merge`. A PR onto the default branch makes no such request.
+- A verify pass and `merge` read the head of an open PR again after the file list. A head that
+  moved in that time is refused with `evidence-head-moved`, and nothing is written.
+
+## v0.13.0 (2026-11-28)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two behaviours
+change (see "Changed"). A scheduled agent that runs `repeat` needs its wake installed with
+`--host-lock <dir>` and `repeat --lock <dir>`. An `assign` after a `reassign` no longer signs an
+edited Gate of the issue body: a ticket that needs another Gate is a new ticket. The other
+parts are off until the owner sets a key (`max_rounds`) or someone uses a new command or flag
+(`check`, `done --run-check`, `--must-fail-at`).
+
+Added:
+
 - `retro` has a section `Outcome`: the merged tickets, how many of them came back after the
   merge (an owner move, a new assignment, a reassign or a failed verify after the close), and
   how many a commit of the default branch reverts (`This reverts commit <sha>` or
@@ -77,15 +94,6 @@ Added:
 
 Changed:
 
-- Protected paths and guarded paths: a base branch cannot hide a file. The file list of a PR
-  is the diff against its base branch, and the author of the PR chooses that branch. For a PR
-  whose base is not the default branch, `done`, a verify pass, `close --verified` and `merge`
-  (so also `tick`) now also read the files that differ between the default branch and the head
-  of the PR, and judge both lists. A stacked PR without such a file passes as it did. A
-  comparison that cannot be read, or one with 300 files or more, is refused with
-  `protected-path-owner-merge`. A PR onto the default branch makes no such request.
-- A verify pass and `merge` read the head of an open PR again after the file list. A head that
-  moved in that time is refused with `evidence-head-moved`, and nothing is written.
 - `repeat` under a wake or a headless config dir needs the grant of `lock run`: it is allowed
   only with `--lock <dir>` for a lock dir that the wake names with `--host-lock`. Any other
   `repeat` there is refused with `lock-run-not-granted` (exit 2), before a run. Reason: `repeat`
