@@ -120,7 +120,7 @@ delivery.
 ### The files of a PR
 
 The rules for protected paths ([Authority](board.md#authority)) and for guarded paths read the
-files that a PR changes. Four facts decide what the list proves.
+files that a PR changes. Five facts decide what the list proves.
 
 1. **The list of the PR.** GitHub lists the added, modified and deleted files, and for a
    renamed file the new name and the old one. Both names count. crewboard reads up to 1001
@@ -129,19 +129,30 @@ files that a PR changes. Four facts decide what the list proves.
    author of the PR chooses that branch. A base branch that already holds the change of a
    file hides that file. So for a PR whose base is not the default branch of its repo,
    crewboard also reads the files that differ between the default branch and the head of the
-   PR (the three-dot comparison `<default>...<head sha>`, one request) and judges both lists
-   together. A stacked PR stays possible: only a protected or guarded file in one of the two
-   lists refuses it. A PR onto the default branch needs no comparison. The PR answer names the
-   default branch; when it does not, crewboard reads the repo (one more request).
-3. **The commit.** The comparison is read for a SHA, so it belongs to that commit. The list of
-   the PR belongs to the head at the time of the read. For an open PR onto the default branch,
-   `verify`, `close --verified` and `merge` read the head again after the list (one request).
-   A head that moved is `evidence-head-moved`, and nothing is written. `done` reads the head
-   again after the CI facts, as it always does.
-4. **Fail closed.** A list that proves nothing is refused: more than 1000 files in the PR, 300
-   or more files in the comparison (GitHub lists no more for a comparison), or a list that
-   cannot be read. The refusal is `protected-path-owner-merge`, also for a ticket with a
-   guard.
+   PR (the three-dot comparison `heads/<default>...<head sha>`, one request) and judges both
+   lists together for the protected paths and the guard. The owner route of `done` reads the
+   list of the PR alone. A PR onto the default branch needs no comparison. The PR answer names
+   the default branch; when it does not, crewboard reads the repo (one more request).
+3. **A long-lived base branch.** A PR onto another branch than the default branch (a stacked
+   PR, or a PR onto a `develop` branch) is judged against the default branch too. It passes
+   when the comparison has fewer than 300 files and holds no protected or guarded change.
+   Else the PR goes to the owner: the comparison has 300 files or more (GitHub lists no more,
+   so the list proves nothing), or the base branch holds a protected or guarded change that
+   is not on the default branch. A base branch that is far from the default branch therefore
+   sends every PR onto it to the owner. crewboard has no setting for a trusted base branch.
+4. **The commit and the base.** The comparison is read for a SHA, so it belongs to that
+   commit. The list of the PR is the diff of the head against the base branch at the time of
+   the read. So `verify`, `close --verified` and `merge` read an open PR again after the lists
+   (one request), for a PR onto the default branch and for any other. A head that moved, or a
+   base branch that changed, is `evidence-head-moved`, and nothing is written. `done` reads
+   the PR again after the CI facts and judges the head and the base in the same way. A merged
+   PR is not read again: its head and base do not change. One window stays: a head or a base
+   that changes and is back at its first value between the two reads is not seen. Each try
+   that misses the window is a refusal that the coordinator sees.
+5. **Fail closed.** A list that proves nothing is refused: more than 1000 files in the PR, 300
+   or more files in the comparison, or a list that cannot be read. The refusal is
+   `protected-path-owner-merge`, also for a ticket with a guard, and its text names the
+   cause.
 
 ## Status flow and writers
 

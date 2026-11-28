@@ -215,7 +215,11 @@ shorten it. A rename out of a protected path counts.
 
 `verify`, `close --verified` and `merge` (so also `tick`) refuse such a pull request with the
 rule `protected-path-owner-merge`. A base branch does not hide a file: for a pull request that
-does not go onto the default branch, the files that differ from the default branch count too. You review and merge it on GitHub, then the coordinator runs
+does not go onto the default branch, the files that differ from the default branch count too.
+So with a long-lived base branch other than the default branch (for example `develop`), a pull
+request onto it comes to you when that comparison has 300 files or more, or holds a protected
+or guarded change that is not on the default branch. crewboard has no setting for a trusted
+base branch. You review and merge it on GitHub, then the coordinator runs
 `crewboard close <n>`.
 
 The key `protected_paths` adds globs: add the files that define "green" for your repo (test

@@ -8,7 +8,7 @@ use super::in_progress::write_idle_when_free;
 use super::local_gate::local_gate_for_done;
 use super::merged_pr;
 use super::pr_evidence::{
-    check_pr_in_initiative, fetch_pr, fetch_pr_files_upto, judge_no_run_for, named_runs,
+    check_pr_in_initiative, fetch_pr_files_upto, judge_no_run_for, named_runs,
 };
 use super::{
     Me, facts, load_world_cached, me_of, needs_owner_lines, post_with, remember, unread_guard,
@@ -197,24 +197,36 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
     // prove that no workflow file or protected path is in the PR: fail closed.
     let mut files = fetch_pr_files_upto(ac, &pr.repo, pr.number, MAX_FILES + 1)?;
     files.truncated = files.over(MAX_FILES);
-    // spec/tickets#the-files-of-a-pr: a PR whose base is not the default branch also counts
-    // with the files that differ between the default branch and its head. The head is read
-    // again after the CI facts (`head_after`), so both lists belong to the judged commit.
-    if let Some(hidden) = super::pr_evidence::files_hidden_by_base(ac, &pr, &pr_base, &pr.head_sha)?
-    {
-        files.join(hidden);
-    }
-    let base = pr_base.branch;
     if files.truncated {
         return Err(Refusal::new(
             ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
-                "{} has more than {MAX_FILES} files, or its comparison with the default branch is cut; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
+                "{} has more than {MAX_FILES} files; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
                 format_args!("{}#{}", l.pr_url.repo, l.pr_url.number)
             ),
         )
         .into());
     }
+    // The owner route is decided by the files of the PR itself: the patch of a stacked PR is in
+    // its own list, and a workflow file that only the base branch holds is no part of it.
+    let own_names = files.names.clone();
+    // spec/tickets#the-files-of-a-pr: a PR whose base is not the default branch also counts
+    // with the files that differ between the default branch and its head, for the protected
+    // paths and the guard. The head and the base are read again after the CI facts
+    // (`read_done_ci`), so both lists belong to the judged commit and base.
+    if let Some(hidden) = super::pr_evidence::files_hidden_by_base(ac, &pr, &pr_base, &pr.head_sha)?
+    {
+        if hidden.truncated {
+            return Err(super::pr_evidence::cut_comparison(
+                &pr,
+                &pr_base,
+                "open the PR onto the default branch, or ask the coordinator: the owner merges such a PR by hand",
+            )
+            .into());
+        }
+        files.join(hidden);
+    }
+    let base = pr_base.branch;
     // spec/tickets#guarded-paths: the change of the ticket must not touch a path of its signed
     // guard. Before the route, any CI read and any run of a check: nothing is delivered.
     crate::rules::guard::check_untouched(
@@ -225,7 +237,7 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
     )?;
     let route = crate::owner_route::decide(
         crate::owner_route::declared(&l.t.info.body),
-        &files.names,
+        &own_names,
         l.n,
     )?;
     check_owner_route_keeps_ticket_open(&route, &pr, &l.repo, l.n)?;
@@ -287,7 +299,12 @@ fn read_done_ci(ac: &AgentCtx, l: &DoneLoad, pre: &DonePre, p: &DonePr) -> CbRes
     } else {
         None
     };
-    let (after, _) = fetch_pr(ac, &l.pr_url.repo, l.pr_url.number)?;
+    let (after, base_after) =
+        super::pr_evidence::fetch_pr_based(ac, &l.pr_url.repo, l.pr_url.number)?;
+    // The file list was the diff against the base branch `p.base`, and that branch decided
+    // whether the comparison with the default branch was read: a changed base is refused. A
+    // moved head is judged with the evidence (`head_after`).
+    super::pr_evidence::check_same_pr(pr, &p.base, &pr.head_sha, &base_after.branch)?;
     // A warning only, never a refusal: an unreadable compare is skipped.
     let behind = in_initiative
         .then(|| behind_by(&ac.ctx.client, &pr.repo, &p.base, &pr.head_sha))

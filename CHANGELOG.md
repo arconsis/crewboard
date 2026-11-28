@@ -32,11 +32,17 @@ Changed:
   is the diff against its base branch, and the author of the PR chooses that branch. For a PR
   whose base is not the default branch, `done`, a verify pass, `close --verified` and `merge`
   (so also `tick`) now also read the files that differ between the default branch and the head
-  of the PR, and judge both lists. A stacked PR without such a file passes as it did. A
-  comparison that cannot be read, or one with 300 files or more, is refused with
-  `protected-path-owner-merge`. A PR onto the default branch makes no such request.
-- A verify pass and `merge` read the head of an open PR again after the file list. A head that
-  moved in that time is refused with `evidence-head-moved`, and nothing is written.
+  of the PR, and judge both lists. A PR onto the default branch makes no such request. The
+  limit: with a long-lived base branch other than the default branch (a stacked PR, or a
+  `develop` branch), a PR onto it passes only when that comparison has fewer than 300 files
+  and holds no protected or guarded change. Else the PR goes to the owner: GitHub lists at
+  most 300 files of a comparison, so a longer one proves nothing, and a protected or guarded
+  change that the base branch holds and the default branch does not counts for every PR onto
+  that base. The refusal is `protected-path-owner-merge`, also for a comparison that cannot be
+  read. crewboard has no setting for a trusted base branch.
+- A verify pass and `merge` read an open PR again after its file lists. A head that moved or a
+  base branch that changed in that time is refused with `evidence-head-moved`, and nothing is
+  written. `done` refuses a base branch that changed while it read in the same way.
 
 ## v0.13.0 (2026-11-28)
 

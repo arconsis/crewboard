@@ -252,6 +252,9 @@ impl FakeBoard {
             base_ref: "main".to_string(),
             hidden_by_base: Vec::new(),
             head_after_files: None,
+            base_after_files: None,
+            omit_default: false,
+            past_heads: Vec::new(),
         });
         Pull {
             url: format!("https://github.com/{REPO}/pull/{number}"),
@@ -302,6 +305,9 @@ impl FakeBoard {
             base_ref: "main".to_string(),
             hidden_by_base: Vec::new(),
             head_after_files: None,
+            base_after_files: None,
+            omit_default: false,
+            past_heads: Vec::new(),
         });
         Pull {
             url: format!("https://github.com/{REPO}/pull/{number}"),
@@ -365,6 +371,30 @@ impl FakeBoard {
         let p = st.prs.iter_mut().find(|p| p.number == number).expect("PR");
         p.base_ref = base.to_string();
         p.hidden_by_base = hidden.iter().map(|f| f.to_string()).collect();
+    }
+
+    /// The base branch of PR `number` changes to `base` right after the next read of its file
+    /// list (a retarget).
+    pub fn move_base_after_files(&self, number: u64, base: &str) {
+        let mut st = self.st.lock().unwrap();
+        let p = st.prs.iter_mut().find(|p| p.number == number).expect("PR");
+        p.base_after_files = Some(base.to_string());
+    }
+
+    /// A file that the base branch of PR `number` hides and that was renamed: the comparison
+    /// with the default branch names `new` with the old path `old`.
+    pub fn hide_rename(&self, number: u64, new: &str, old: &str) {
+        let mut st = self.st.lock().unwrap();
+        let p = st.prs.iter_mut().find(|p| p.number == number).expect("PR");
+        p.hidden_by_base.push(new.to_string());
+        p.renamed_from.insert(new.to_string(), old.to_string());
+    }
+
+    /// The answer for PR `number` does not name the default branch of its repo.
+    pub fn omit_default_branch_in_pr(&self, number: u64) {
+        let mut st = self.st.lock().unwrap();
+        let p = st.prs.iter_mut().find(|p| p.number == number).expect("PR");
+        p.omit_default = true;
     }
 
     /// The head of PR `number` moves to `sha` right after the next read of its file list.
@@ -832,6 +862,12 @@ fn merge_sha(number: u64) -> String {
 
 fn pull_json(st: &State, p: &Pr) -> Value {
     let merge_sha = merge_sha(p.number);
+    let mut base_repo = repo_json(st, &p.repo);
+    if p.omit_default
+        && let Some(o) = base_repo.as_object_mut()
+    {
+        o.remove("default_branch");
+    }
     json!({
         "url": format!("{}/repos/{}/pulls/{}", st.base, p.repo, p.number),
         "id": 9000 + p.number,
@@ -849,7 +885,7 @@ fn pull_json(st: &State, p: &Pr) -> Value {
         "head": {"label": format!("{OWNER}:{}", p.head_ref), "ref": p.head_ref,
                  "sha": p.head_sha, "repo": repo_json(st, &p.repo)},
         "base": {"label": format!("{OWNER}:{}", p.base_ref), "ref": p.base_ref,
-                 "sha": format!("{:040x}", 0xba5e_u64), "repo": repo_json(st, &p.repo)},
+                 "sha": format!("{:040x}", 0xba5e_u64), "repo": base_repo},
         "merged": p.merged,
         "merged_by": p.merged_by.as_ref().map(|l| json!({"login": l, "id": 3, "type": "User"})),
         "mergeable": !p.merged,
@@ -900,6 +936,8 @@ pub(super) fn get_compare(st: &State, repo: &str, spec: &str) -> Resp {
     let Some((base, head)) = spec.split_once("...") else {
         return not_found();
     };
+    // the caller names a branch as `heads/<branch>` or by its short name
+    let base = base.strip_prefix("heads/").unwrap_or(base);
     let files = |p: &Pr| -> Vec<Value> {
         let hidden = p.hidden_by_base.iter().filter(|_| base == "main");
         p.files
@@ -913,11 +951,10 @@ pub(super) fn get_compare(st: &State, repo: &str, spec: &str) -> Resp {
             })
             .collect()
     };
-    match st
-        .prs
-        .iter()
-        .find(|p| p.repo == repo && (p.head_sha == head || p.head_ref == head))
-    {
+    match st.prs.iter().find(|p| {
+        p.repo == repo
+            && (p.head_sha == head || p.head_ref == head || p.past_heads.iter().any(|h| h == head))
+    }) {
         Some(p) => ok(
             json!({"status": if p.behind_by > 0 { "diverged" } else { "ahead" },
                              "ahead_by": 1, "behind_by": p.behind_by, "total_commits": 1,
@@ -930,10 +967,15 @@ pub(super) fn get_compare(st: &State, repo: &str, spec: &str) -> Resp {
 /// After a read of the file list of PR `num`: the head moves, when a test asked for that.
 pub(super) fn move_head_after_files(st: &mut State, num: &str) {
     let n: u64 = num.parse().unwrap_or(0);
-    if let Some(p) = st.prs.iter_mut().find(|p| p.number == n)
-        && let Some(sha) = p.head_after_files.take()
-    {
-        p.head_sha = sha;
+    let Some(p) = st.prs.iter_mut().find(|p| p.number == n) else {
+        return;
+    };
+    if let Some(sha) = p.head_after_files.take() {
+        let old = std::mem::replace(&mut p.head_sha, sha);
+        p.past_heads.push(old);
+    }
+    if let Some(base) = p.base_after_files.take() {
+        p.base_ref = base;
     }
 }
 

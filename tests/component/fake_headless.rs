@@ -494,6 +494,39 @@ fn the_tick_leaves_a_pr_that_changes_a_guarded_path_of_the_ticket() {
     assert!(other.merged(), "{}", o.all());
 }
 
+/// spec/tickets#the-files-of-a-pr: the base branch of the PR holds the change of the guarded
+/// file, so the file list of the PR does not name it. The tick reads the comparison with the
+/// default branch and leaves the ticket.
+#[test]
+fn the_tick_leaves_a_pr_whose_base_branch_hides_a_guarded_file() {
+    let h = hub(CI_ONLY, true);
+    h.sign_assignment("gate: ci\nci: required\nguard: tests/**\n");
+    h.set_base("stage", &["tests/ci.toml"]);
+    let o = h.headless(&["tick"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let l = left_line(&o);
+    assert!(l.contains("guarded-path-changed"), "{l}");
+    assert!(l.contains("tests/ci.toml (guard: tests/**)"), "{l}");
+    assert!(!h.merged());
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    // the same for a protected path that the base hides
+    let p = hub(CI_ONLY, true);
+    p.set_base("stage", &[".github/workflows/ci.yml"]);
+    let o = p.headless(&["tick"]);
+    assert!(
+        left_line(&o).contains("protected-path-owner-merge"),
+        "{}",
+        o.all()
+    );
+    assert!(!p.merged());
+    // control: a stacked PR whose base hides no such file is merged
+    let ok = hub(CI_ONLY, true);
+    ok.sign_assignment("gate: ci\nci: required\nguard: tests/**\n");
+    ok.set_base("stage", &["src/base.rs"]);
+    let o = ok.headless(&["tick"]);
+    assert!(ok.merged(), "{}", o.all());
+}
+
 #[test]
 fn the_signed_ci_line_decides_whether_a_ticket_declares_ci_none_and_an_old_ticket_uses_the_body() {
     // an old ticket (the assignment has a gate line and no `ci:` line): the live body decides
