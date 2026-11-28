@@ -48,6 +48,10 @@ struct Pr {
     base: Option<(String, Vec<String>)>,
     /// `(part of a path, HTTP status)`: a GET whose path contains the part fails with the status.
     failing: Vec<(String, u16)>,
+    /// The same for a request that is no GET (a post of a comment, for example).
+    failing_writes: Vec<(String, u16)>,
+    /// GitHub reports the repo as [`MIXED`].
+    mixed_case: bool,
 }
 
 pub struct Hub {
@@ -60,6 +64,9 @@ pub struct Hub {
     /// A config dir of the same coordinator with `headless = true` and a copy of the key.
     pub headless_dir: tempfile::TempDir,
 }
+
+/// The name of the repo with upper-case letters.
+const MIXED: &str = "Fake-Owner/Fake-Repo";
 
 fn forward(client: &reqwest::blocking::Client, board_base: &str, r: &Req) -> Resp {
     let url = format!("{board_base}{}", r.path);
@@ -129,6 +136,16 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
             .lock()
             .unwrap()
             .failing
+            .iter()
+            .find(|(part, _)| r.path.contains(part.as_str()))
+    {
+        return Some(Resp::json(*status, r#"{"message":"failed by the test"}"#));
+    }
+    if r.method != "GET"
+        && let Some((_, status)) = pr
+            .lock()
+            .unwrap()
+            .failing_writes
             .iter()
             .find(|(part, _)| r.path.contains(part.as_str()))
     {
@@ -291,8 +308,31 @@ impl Hub {
         let front = FakeGithub::start_with(move |base| {
             let base = base.to_string();
             move |r: &Req| {
-                let resp =
+                // GitHub takes a repo name in any letter case
+                let lower = Req {
+                    path: r.path.replace(MIXED, REPO),
+                    ..r.clone()
+                };
+                let r = &lower;
+                let mut resp =
                     route(&s, &pr2, &base, r).unwrap_or_else(|| forward(&client, &board_base, r));
+                if pr2.lock().unwrap().mixed_case {
+                    // GitHub reports the name as the repo has it. Only the links and the name
+                    // fields change: the text of a signed message stays as it was signed.
+                    for b in [base.as_str(), board_base.as_str()] {
+                        for mid in ["/", "/repos/"] {
+                            resp.body = resp
+                                .body
+                                .replace(&format!("{b}{mid}{REPO}"), &format!("{b}{mid}{MIXED}"));
+                        }
+                    }
+                    for field in ["nameWithOwner", "full_name"] {
+                        resp.body = resp.body.replace(
+                            &format!("\"{field}\":\"{REPO}\""),
+                            &format!("\"{field}\":\"{MIXED}\""),
+                        );
+                    }
+                }
                 with_feed_etag(r, resp)
             }
         });
@@ -326,9 +366,21 @@ impl Hub {
             .push((part.to_string(), status));
     }
 
-    /// No GET fails any more.
+    /// No request fails any more.
     pub fn fail_nothing(&self) {
-        self.pr.lock().unwrap().failing.clear();
+        let mut p = self.pr.lock().unwrap();
+        p.failing.clear();
+        p.failing_writes.clear();
+    }
+
+    /// From now on a request that is no GET and whose path contains `part` answers with
+    /// `status`.
+    pub fn fail_write(&self, part: &str, status: u16) {
+        self.pr
+            .lock()
+            .unwrap()
+            .failing_writes
+            .push((part.to_string(), status));
     }
 
     /// The files that the PR changes now.
@@ -423,11 +475,48 @@ impl Hub {
         }
     }
 
+    /// Run the CLI in the headless config dir with `input` on its standard input.
+    pub fn headless_stdin(&self, args: &[&str], input: &str) -> Out {
+        use std::io::Write;
+        let mut c = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .arg("--config-dir")
+            .arg(self.headless_dir.path())
+            .args(args)
+            .env("CREWBOARD_API_BASE", self.front.base())
+            .env("GH_TOKEN", "ghp_faketoken")
+            .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
+            .env_remove("GITHUB_TOKEN")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("start crewboard");
+        c.stdin
+            .take()
+            .expect("standard input")
+            .write_all(input.as_bytes())
+            .expect("write the input");
+        let o = c.wait_with_output().expect("wait for crewboard");
+        Out {
+            code: o.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&o.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&o.stderr).to_string(),
+        }
+    }
+
     /// Run the CLI `n` times at the same time in the headless config dir, with the same
     /// arguments. Returns the outputs.
     pub fn headless_parallel(&self, args: &[&str], n: usize) -> Vec<Out> {
-        let children: Vec<_> = (0..n)
-            .map(|_| {
+        let all: Vec<Vec<&str>> = (0..n).map(|_| args.to_vec()).collect();
+        self.headless_each(&all)
+    }
+
+    /// Run one CLI process for each argument list of `runs`, all at the same time, in the
+    /// headless config dir. Returns the outputs in the order of `runs`.
+    pub fn headless_each(&self, runs: &[Vec<&str>]) -> Vec<Out> {
+        let children: Vec<_> = runs
+            .iter()
+            .map(|args| {
                 Command::new(env!("CARGO_BIN_EXE_crewboard"))
                     .arg("--config-dir")
                     .arg(self.headless_dir.path())
@@ -454,6 +543,19 @@ impl Hub {
                 }
             })
             .collect()
+    }
+
+    /// The repo has upper-case letters in its name (`Fake-Owner/Fake-Repo`): GitHub reports
+    /// that name, and the headless config has it. The signed messages keep the name they were
+    /// signed with.
+    pub fn repo_in_mixed_case(&self) -> String {
+        assert_eq!(MIXED.to_lowercase(), REPO);
+        self.pr.lock().unwrap().mixed_case = true;
+        let path = ConfigDir(self.headless_dir.path().to_path_buf()).agent_config_path("fake");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(REPO), "{text}");
+        std::fs::write(&path, text.replace(REPO, MIXED)).unwrap();
+        MIXED.to_string()
     }
 
     pub fn headless(&self, args: &[&str]) -> Out {

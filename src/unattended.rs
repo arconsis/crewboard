@@ -399,17 +399,39 @@ fn starts_verdicts_again(m: &VMsg) -> bool {
 /// messages and still in the floor. The floor ends when a message with a higher id starts the
 /// count again; no agent token can write such a message.
 pub fn ticket_verdicts_at_least(msgs: &[VMsg], floor: Option<(u32, u64)>) -> usize {
-    let counted = ticket_verdicts(msgs);
+    floor_with_release(
+        u32::try_from(ticket_verdicts(msgs)).unwrap_or(u32::MAX),
+        last_release(msgs),
+        floor,
+    ) as usize
+}
+
+/// The highest comment id of a message that starts the count of [`ticket_verdicts`] again; 0
+/// without one.
+pub fn last_release(msgs: &[VMsg]) -> u64 {
+    msgs.iter()
+        .filter(|m| starts_verdicts_again(m))
+        .map(|m| m.comment_id)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The count of a ticket from the count of its log (`counted`), the last release that the log
+/// shows (`release`, [`last_release`]) and a stored floor `(count, after)`: the stored count
+/// holds unless a release with a higher comment id than `after` is known.
+pub fn floor_with_release(counted: u32, release: u64, floor: Option<(u32, u64)>) -> u32 {
     match floor {
-        Some((count, after))
-            if !msgs
-                .iter()
-                .any(|m| m.comment_id > after && starts_verdicts_again(m)) =>
-        {
-            counted.max(count as usize)
-        }
+        Some((count, after)) if release <= after => counted.max(count),
         _ => counted,
     }
+}
+
+/// Is a stored day (`YYYY-MM-DD`) later than `today`? The counts of a day come from GitHub's
+/// time and the day itself from the clock of this host. A stored day after today means that the
+/// clock went back, or was ahead when the count was noted: no count of today can be trusted,
+/// and the caller refuses.
+pub fn day_is_ahead(stored: Option<&str>, today: &str) -> bool {
+    stored.is_some_and(|d| d > today)
 }
 
 /// Why the unattended coordinator must not run a command on a ticket.
@@ -1347,6 +1369,49 @@ mod tests {
         assigned.push(done(12, ""));
         assigned.push(verdict(13, 12, false, &stamp(3)));
         assert_eq!(ticket_verdicts_at_least(&assigned, floor), 1);
+    }
+
+    #[test]
+    fn a_stored_floor_of_a_ticket_holds_unless_a_release_with_a_higher_id_is_known() {
+        // the log has 1, the state has 2 noted at comment 40
+        assert_eq!(floor_with_release(1, 0, Some((2, 40))), 2);
+        assert_eq!(floor_with_release(1, 40, Some((2, 40))), 2);
+        assert_eq!(floor_with_release(1, 39, Some((2, 40))), 2);
+        // a release after the note ends it
+        assert_eq!(floor_with_release(1, 41, Some((2, 40))), 1);
+        // a stored floor that was noted at a LOWER id than this command read still holds: no
+        // release is known, and a lower id alone says nothing
+        assert_eq!(floor_with_release(0, 0, Some((2, 10))), 2);
+        // the log knows more, and no floor
+        assert_eq!(floor_with_release(3, 0, Some((2, 40))), 3);
+        assert_eq!(floor_with_release(1, 99, None), 1);
+        // the last release of a log
+        let mut log = vec![assignment(1, PROSE), done(2, "")];
+        assert_eq!(last_release(&log), 1, "an assignment without the line");
+        assert_eq!(last_release(&log[1..]), 0);
+        log.push(coord(3, DEV, Kind::Info, &reassigned_body("late")));
+        log.push(coord(
+            4,
+            DEV,
+            Kind::Request,
+            &format!("Assigned to you: Fix it\ngate: {PROSE}\n{}", stamp(1)),
+        ));
+        assert_eq!(
+            last_release(&log),
+            1,
+            "a reassign and a stamped assignment are none"
+        );
+        log.push(owner(5, "go on"));
+        assert_eq!(last_release(&log), 5);
+    }
+
+    #[test]
+    fn a_stored_day_after_today_is_ahead() {
+        assert!(day_is_ahead(Some("2026-11-29"), "2026-11-28"));
+        assert!(day_is_ahead(Some("2027-01-01"), "2026-12-31"));
+        assert!(!day_is_ahead(Some("2026-11-28"), "2026-11-28"));
+        assert!(!day_is_ahead(Some("2026-11-27"), "2026-11-28"));
+        assert!(!day_is_ahead(None, "2026-11-28"));
     }
 
     fn act(a: UAct, status: &str, agent: Option<&str>, msgs: &[VMsg]) -> Result<(), Block> {

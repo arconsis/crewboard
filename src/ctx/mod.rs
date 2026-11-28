@@ -241,17 +241,39 @@ pub struct Stamp {
     pub messages: u32,
     /// The stamped questions to the owner of the day so far.
     pub asks: u32,
-    /// This command reserved a message already. Its first reservation is refused at a limit of
-    /// the day; a message that follows in the same command (the question of a round stop after
-    /// its verify result) is counted and not refused.
-    pub reserved: bool,
-    /// A reservation that no message used yet (`ops::unattended::reserve_message`): the next
-    /// message of the command takes it and reserves nothing.
-    pub pending: bool,
-    /// For a verdict: the ticket (`<repo>#<issue>`), its unattended verdicts so far, and the
-    /// highest comment id that the command read on it. The floor of the ticket is noted from
-    /// these before the post.
-    pub ticket: Option<(String, u32, u64)>,
+    /// The reservations that no message used yet: a command reserves its messages before its
+    /// first write (`ops::unattended::reserve_message`, `reserve_verdict`), and each message
+    /// then takes the reservation of its class and reserves nothing.
+    pub pending: Vec<StampClass>,
+    /// For a verdict: what the command read about the unattended verdicts of its ticket. The
+    /// floor of the ticket is noted from it before the post.
+    pub ticket: Option<StampTicket>,
+}
+
+/// What a message of the unattended coordinator counts as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StampClass {
+    /// A verify result.
+    Verdict,
+    /// A question to the owner.
+    Ask,
+    /// Any other message.
+    Other,
+}
+
+/// The unattended verdicts of one ticket as a command read them ([`Stamp::ticket`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StampTicket {
+    /// The key of the ticket in the state (`ops::unattended::floor_key`).
+    pub key: String,
+    /// The unattended verdicts that the signed log of the ticket has.
+    pub count: u32,
+    /// The highest comment id that the command read on the ticket.
+    pub after: u64,
+    /// The highest comment id of a message that starts the count again (an owner comment, an
+    /// assignment without the `unattended:` line); 0 without one. A floor of the state that was
+    /// noted at a lower id ended with that message.
+    pub release: u64,
 }
 
 /// The place of the [`Stamp`] in an [`AgentCtx`]. Empty for every command but a judgment of the

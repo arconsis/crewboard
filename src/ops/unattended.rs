@@ -12,7 +12,7 @@ use crate::authority::CoordMode;
 use crate::base::TicketRef;
 use crate::base::ids;
 use crate::comments::Comment;
-use crate::ctx::Stamp;
+use crate::ctx::{Stamp, StampClass, StampTicket};
 use crate::error::{CbError, CbResult};
 use crate::headless::UAct;
 use crate::items::ItemSnapshot;
@@ -25,8 +25,8 @@ use crate::state::{NOTE_KEEP_SECS, StateCache, TickState, TicketFloor, Unattende
 use crate::ticket::verified_messages;
 use crate::unattended::{
     Block, DayCount, Facts, MAX_ASKS_PER_DAY, MAX_MESSAGES_PER_DAY, MAX_VERDICTS_PER_TICKET, Need,
-    check_act, day_start, floor_on, messages_used, need_of, ticket_verdicts_at_least, used,
-    verdicts_on_day,
+    check_act, day_is_ahead, day_start, floor_on, floor_with_release, last_release, messages_used,
+    need_of, ticket_verdicts, used, verdicts_on_day,
 };
 use std::collections::BTreeMap;
 
@@ -90,6 +90,7 @@ fn load_day(ac: &AgentCtx, world: &World, now: i64, cache: &mut StateCache) -> C
     let cfg = &ac.ctx.cfg;
     let now_text = crate::clock::format_ts(now);
     let today = crate::ops::digest::day_of(&now_text);
+    check_clock(&cache.tick, today)?;
     let mut day = DayCount::default();
     for repo in &cfg.repos {
         let seen = cache
@@ -144,9 +145,39 @@ fn load_day(ac: &AgentCtx, world: &World, now: i64, cache: &mut StateCache) -> C
     })
 }
 
-/// The floor of the unattended verdicts of the ticket `key` in the local state.
-pub(crate) fn floor_of(tick: &TickState, key: &str) -> Option<(u32, u64)> {
-    tick.unattended_tickets.get(key).map(|f| (f.count, f.after))
+/// A count of the state that is of a later day than `today` refuses the command: the clock of
+/// this host went back, or it was ahead when the count was noted. With such a clock a count of
+/// "today" would start at 0 again, so nothing is counted and nothing is posted until the day of
+/// the state is reached or the owner removes the state.
+fn check_clock(tick: &TickState, today: &str) -> CbResult<()> {
+    let days = [
+        &tick.unattended_floor,
+        &tick.unattended_messages_floor,
+        &tick.unattended_asks_floor,
+    ]
+    .into_iter()
+    .filter_map(|f| f.as_ref().map(|(d, _)| d.as_str()))
+    .chain(tick.unattended_feed.values().map(|f| f.day.as_str()));
+    match days.filter(|d| day_is_ahead(Some(d), today)).max() {
+        None => Ok(()),
+        Some(ahead) => Err(budget_refusal(format!(
+            "the state of this config dir has a count of the unattended coordinator for {ahead}, and the clock of this host says {today} (UTC): the clock went back, or it was ahead. No count of today can be trusted"
+        ))),
+    }
+}
+
+/// The key of a ticket in the floors of the state ([`TickState::unattended_tickets`]): the one
+/// function for the write, the compare and every read. It is [`TicketRef::key`] (the repo in
+/// lower case), so the case of a repo name in a config changes nothing.
+pub(crate) fn floor_key(t: &TicketRef) -> String {
+    t.key()
+}
+
+/// The floor of the unattended verdicts of the ticket `t` in the local state.
+pub(crate) fn floor_of(tick: &TickState, t: &TicketRef) -> Option<(u32, u64)> {
+    tick.unattended_tickets
+        .get(&floor_key(t))
+        .map(|f| (f.count, f.after))
 }
 
 /// The facts of a loaded ticket: the issue, its labels and its messages are read.
@@ -169,7 +200,7 @@ fn loaded_facts(t: &Ticket, verdict_floor: Option<(u32, u64)>) -> Facts<'_> {
 /// The judgment that a loaded ticket needs. `tick` is the local state (the floor of the
 /// verdicts of the ticket).
 pub(crate) fn loaded_need(t: &Ticket, tick: &TickState) -> Option<Need> {
-    need_of(&loaded_facts(t, floor_of(tick, &t.key())))
+    need_of(&loaded_facts(t, floor_of(tick, &t.tref())))
 }
 
 fn asks_refusal(asks: u32) -> CbError {
@@ -193,7 +224,7 @@ fn verdicts_refusal(ac: &AgentCtx, verdicts: u32, budget: u32) -> CbError {
 
 fn ticket_cap_refusal(key: &str) -> CbError {
     budget_refusal(format!(
-        "{key} has its {MAX_VERDICTS_PER_TICKET} unattended verdicts: a person looks at it first. An owner comment on the ticket, or an assignment by the interactive coordinator, starts the count again"
+        "{key} has its {MAX_VERDICTS_PER_TICKET} unattended verdicts: a person looks at it first"
     ))
 }
 
@@ -240,11 +271,13 @@ pub(crate) fn admit(ac: &AgentCtx, world: &World, act: UAct) -> CbResult<bool> {
     let now = crate::clock::now_epoch();
     let mut cache = ac.load_cache();
     let before = cache.tick.clone();
-    let day = load_day(ac, world, now, &mut cache).map_err(|e| {
-        budget_refusal(format!(
+    let day = load_day(ac, world, now, &mut cache).map_err(|e| match e {
+        // the refusal of the clock check names its cause itself
+        CbError::Refused(r) if r.rule == ids::UNATTENDED_BUDGET => CbError::Refused(r),
+        e => budget_refusal(format!(
             "the unattended coordinator could not read its verdicts of today ({}), so it posts nothing",
             e.to_string().lines().next().unwrap_or("").trim()
-        ))
+        )),
     })?;
     // A lost save costs one read of the feed at the next command.
     if cache.tick != before {
@@ -266,8 +299,7 @@ pub(crate) fn admit(ac: &AgentCtx, world: &World, act: UAct) -> CbResult<bool> {
         budget: s.budget,
         messages: day.messages,
         asks: day.asks,
-        reserved: false,
-        pending: false,
+        pending: Vec::new(),
         ticket: None,
     });
     Ok(true)
@@ -282,7 +314,7 @@ pub(crate) fn admit(ac: &AgentCtx, world: &World, act: UAct) -> CbResult<bool> {
 /// the local state before the post.
 pub(crate) fn check_ticket(ac: &AgentCtx, act: UAct, t: &Ticket, to: Option<&str>) -> CbResult<()> {
     let key = t.key();
-    let floor = floor_of(&ac.load_cache().tick, &key);
+    let floor = floor_of(&ac.load_cache().tick, &t.tref());
     match check_act(act, &key, &loaded_facts(t, floor), to) {
         Ok(()) => {}
         Err(Block::Cap) => {
@@ -295,9 +327,12 @@ pub(crate) fn check_ticket(ac: &AgentCtx, act: UAct, t: &Ticket, to: Option<&str
     if act == UAct::Verdict
         && let Some(mut stamp) = ac.stamp.get()
     {
-        let count = ticket_verdicts_at_least(&t.msgs, floor);
-        let after = t.comments.iter().map(|c| c.id).max().unwrap_or(0);
-        stamp.ticket = Some((key, u32::try_from(count).unwrap_or(u32::MAX), after));
+        stamp.ticket = Some(StampTicket {
+            key: floor_key(&t.tref()),
+            count: u32::try_from(ticket_verdicts(&t.msgs)).unwrap_or(u32::MAX),
+            after: t.comments.iter().map(|c| c.id).max().unwrap_or(0),
+            release: last_release(&t.msgs),
+        });
         ac.stamp.set(stamp);
     }
     Ok(())
@@ -316,92 +351,87 @@ pub(crate) fn check_no_stamp_line(ac: &AgentCtx, text: &str) -> CbResult<()> {
     Ok(())
 }
 
-/// What a message of the unattended coordinator counts as.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
-    /// A verify result.
-    Verdict,
-    /// A question to the owner.
-    Ask,
-    /// Any other message.
-    Other,
-}
-
-/// Take one message of the budget, under the lock of the state file: read the floors again,
-/// refuse at a limit, write the floors with this message, and only then let the caller post.
-/// [`admit`] decided from a read that another command can be past by now; this step is the one
-/// that two commands cannot both pass. The state file has a lock that every writer of the file
-/// takes (`StateCache::update_locked`), so the read and the write are one step between
-/// processes of this config dir.
+/// Take the messages `classes` of the budget, under the lock of the state file: read the counts
+/// of the state again, refuse at a limit, write the counts with these messages, and only then
+/// let the caller post. [`admit`] decided from a read that another command can be past by now;
+/// this step is the one that two commands cannot both pass. The state file has a lock that
+/// every writer of the file takes (`StateCache::update_locked`), so the read and the write are
+/// one step between the processes of this config dir.
 ///
-/// The first reservation of a command is refused at a limit of the day (the verdicts, the
-/// stamped messages, the questions to the owner) and, for a verdict, at the limit of the ticket.
-/// A message that follows in the same command (the question of a round stop after its verify
-/// result) is counted and never refused: a judgment that is half written helps nobody.
+/// All messages of `classes` are taken together or none is: a command that will post a verify
+/// result and a question to the owner (a stop at the round limit) reserves both before its
+/// first write. The limits: the verdicts, the stamped messages and the questions to the owner
+/// of the day, and for a verdict the unattended verdicts of the ticket.
 ///
-/// A deleted or edited comment does not lower a count on this host, because the count is in the
-/// state before the post. A lock or a write that fails is an error, and nothing is posted.
-fn reserve(ac: &AgentCtx, stamp: &mut Stamp, t: &TicketRef, class: Class) -> CbResult<()> {
-    let key = t.key();
-    let first = !stamp.reserved;
+/// The count is in the state before the post. So a comment that somebody deletes or edits
+/// later does not lower it on this host, and a post that fails after this step keeps the count
+/// raised (the command fails closed). A lock or a write that fails is an error, and nothing is
+/// posted. A count of a later day in the state refuses the command ([`check_clock`]).
+fn reserve(
+    ac: &AgentCtx,
+    stamp: &mut Stamp,
+    t: &TicketRef,
+    classes: &[StampClass],
+) -> CbResult<()> {
+    let shown = t.to_string();
+    let count_of =
+        |c: StampClass| u32::try_from(classes.iter().filter(|x| **x == c).count()).unwrap_or(0);
+    let (new_verdicts, new_asks) = (count_of(StampClass::Verdict), count_of(StampClass::Ask));
+    let new_messages = u32::try_from(classes.len()).unwrap_or(u32::MAX);
     let now = crate::clock::now_epoch();
     StateCache::update_locked(&ac.state_path(), |cache| {
         let tick = &mut cache.tick;
+        check_clock(tick, &stamp.day)?;
         let day = stamp.day.clone();
         let at_least =
             |seen: u32, slot: &Option<(String, u32)>| seen.max(floor_on(slot.as_ref(), &day));
         let verdicts = at_least(stamp.used, &tick.unattended_floor);
         let messages = at_least(stamp.messages, &tick.unattended_messages_floor);
         let asks = at_least(stamp.asks, &tick.unattended_asks_floor);
-        // The verdicts of the ticket: what the command counted from the log, and a floor that
-        // another command noted since this one read the ticket.
+        // The verdicts of the ticket: what the log had when the command read it, and the count
+        // of the state as it is now (another command can have noted one since), unless the log
+        // shows a release after that count was noted.
         let on_ticket = stamp
             .ticket
             .as_ref()
-            .filter(|(k, _, _)| class == Class::Verdict && *k == key)
-            .map(|(_, count, after)| {
-                let newer = tick
+            .filter(|_| new_verdicts > 0)
+            .map(|st| {
+                let stored = tick
                     .unattended_tickets
-                    .get(&key)
-                    .filter(|f| f.after >= *after)
-                    .map_or(0, |f| f.count);
-                ((*count).max(newer), *after)
+                    .get(&st.key)
+                    .map(|f| (f.count, f.after));
+                (
+                    floor_with_release(st.count, st.release, stored),
+                    st.after.max(stored.map_or(0, |(_, after)| after)),
+                )
             });
-        if first {
-            if messages >= MAX_MESSAGES_PER_DAY {
-                return Err(messages_refusal(messages));
-            }
-            if class == Class::Verdict && verdicts >= stamp.budget {
-                return Err(verdicts_refusal(ac, verdicts, stamp.budget));
-            }
-            if class == Class::Ask && asks >= MAX_ASKS_PER_DAY {
-                return Err(asks_refusal(asks));
-            }
-            if on_ticket.is_some_and(|(count, _)| count as usize >= MAX_VERDICTS_PER_TICKET) {
-                return Err(ticket_cap_refusal(&key));
-            }
+        if messages.saturating_add(new_messages) > MAX_MESSAGES_PER_DAY {
+            return Err(messages_refusal(messages));
         }
-        stamp.used = verdicts.saturating_add(u32::from(class == Class::Verdict));
-        stamp.messages = messages.saturating_add(1);
-        stamp.asks = asks.saturating_add(u32::from(class == Class::Ask));
-        // a floor of a later day stays (a command that ran over midnight)
-        let note = |slot: &mut Option<(String, u32)>, n: u32| {
-            if slot.as_ref().is_none_or(|(d, _)| *d <= day) {
-                *slot = Some((day.clone(), n));
-            }
-        };
-        note(&mut tick.unattended_floor, stamp.used);
-        note(&mut tick.unattended_messages_floor, stamp.messages);
+        if new_verdicts > 0 && verdicts.saturating_add(new_verdicts) > stamp.budget {
+            return Err(verdicts_refusal(ac, verdicts, stamp.budget));
+        }
+        if new_asks > 0 && asks.saturating_add(new_asks) > MAX_ASKS_PER_DAY {
+            return Err(asks_refusal(asks));
+        }
+        if on_ticket.is_some_and(|(count, _)| count as usize >= MAX_VERDICTS_PER_TICKET) {
+            return Err(ticket_cap_refusal(&shown));
+        }
+        stamp.used = verdicts.saturating_add(new_verdicts);
+        stamp.messages = messages.saturating_add(new_messages);
+        stamp.asks = asks.saturating_add(new_asks);
+        tick.unattended_floor = Some((day.clone(), stamp.used));
+        tick.unattended_messages_floor = Some((day.clone(), stamp.messages));
         if stamp.asks > 0 {
-            note(&mut tick.unattended_asks_floor, stamp.asks);
+            tick.unattended_asks_floor = Some((day.clone(), stamp.asks));
         }
-        if let Some((count, after)) = on_ticket {
+        if let (Some((count, after)), Some(st)) = (on_ticket, &stamp.ticket) {
             tick.unattended_tickets
                 .retain(|_, f| now - f.at < NOTE_KEEP_SECS);
             tick.unattended_tickets.insert(
-                key.clone(),
+                st.key.clone(),
                 TicketFloor {
-                    count: count.saturating_add(1),
+                    count: count.saturating_add(new_verdicts),
                     after,
                     at: now,
                 },
@@ -409,31 +439,47 @@ fn reserve(ac: &AgentCtx, stamp: &mut Stamp, t: &TicketRef, class: Class) -> CbR
         }
         Ok(())
     })?;
-    stamp.reserved = true;
-    if class == Class::Verdict {
+    if new_verdicts > 0 {
         stamp.ticket = None;
     }
+    stamp.pending.extend_from_slice(classes);
     Ok(())
 }
 
-/// Reserve one message that is no verdict and no question before a command writes anything
-/// else, so that a refusal leaves the board as it was (`assign` writes board fields before its
-/// message). The message of the command then takes this reservation. Nothing happens for a
-/// command that is no judgment of the unattended coordinator.
-pub(crate) fn reserve_message(ac: &AgentCtx, t: &TicketRef) -> CbResult<()> {
+/// Reserve the messages of a command before it writes anything else, so that a refusal leaves
+/// the board and the ticket as they were. Each message of the command then takes its
+/// reservation. Nothing happens for a command that is no judgment of the unattended coordinator.
+fn reserve_ahead(ac: &AgentCtx, t: &TicketRef, classes: &[StampClass]) -> CbResult<()> {
     let Some(mut stamp) = ac.stamp.get() else {
         return Ok(());
     };
-    reserve(ac, &mut stamp, t, Class::Other)?;
-    stamp.pending = true;
+    reserve(ac, &mut stamp, t, classes)?;
     ac.stamp.set(stamp);
     Ok(())
+}
+
+/// Reserve one message that is no verdict and no question (`assign` writes board fields before
+/// its message).
+pub(crate) fn reserve_message(ac: &AgentCtx, t: &TicketRef) -> CbResult<()> {
+    reserve_ahead(ac, t, &[StampClass::Other])
+}
+
+/// Reserve the verify result of `verify`, and with `question` also the question to the owner
+/// that a failed verify at the round limit posts after it. Both or none: a day that has no
+/// room for the question refuses the verdict too, so no stop is half written and the limit of
+/// the questions holds.
+pub(crate) fn reserve_verdict(ac: &AgentCtx, t: &TicketRef, question: bool) -> CbResult<()> {
+    if question {
+        reserve_ahead(ac, t, &[StampClass::Verdict, StampClass::Ask])
+    } else {
+        reserve_ahead(ac, t, &[StampClass::Verdict])
+    }
 }
 
 /// The body that `send_signed` posts. Without a stamp in the context it is `body`. With one it
 /// gets the last line `unattended: <n>/<budget>`: `n` is the number of verdicts of the day, with
 /// this message when it is a verify result. The message is reserved first ([`reserve`]), unless
-/// the command reserved it already ([`reserve_message`]).
+/// the command reserved it already.
 pub(crate) fn stamp_body(
     ac: &AgentCtx,
     t: &TicketRef,
@@ -449,16 +495,22 @@ pub(crate) fn stamp_body(
         crate::protocol::acts::parse(Some(kind), body),
         Act::Verify { .. }
     ) {
-        Class::Verdict
+        StampClass::Verdict
     } else if kind == Kind::Question && *to == To::Owner {
-        Class::Ask
+        StampClass::Ask
     } else {
-        Class::Other
+        StampClass::Other
     };
-    if stamp.pending && class == Class::Other {
-        stamp.pending = false;
-    } else {
-        reserve(ac, &mut stamp, t, class)?;
+    match stamp.pending.iter().position(|c| *c == class) {
+        Some(at) => {
+            stamp.pending.remove(at);
+        }
+        None => {
+            reserve(ac, &mut stamp, t, &[class])?;
+            if let Some(at) = stamp.pending.iter().position(|c| *c == class) {
+                stamp.pending.remove(at);
+            }
+        }
     }
     // The line is strict: `n` is never above the budget.
     let line = unattended_line(stamp.used.min(stamp.budget), stamp.budget);
@@ -510,4 +562,59 @@ pub(crate) fn board_need(
         not_returned: crate::unattended::is_backlog_candidate(item)
             && !crate::unattended::returned(&msgs),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_floor_of_a_ticket_has_one_key_for_every_letter_case_of_the_repo() {
+        let typed = TicketRef::new("Acme/Widgets", 7);
+        let lower = TicketRef::new("acme/widgets", 7);
+        assert_eq!(floor_key(&typed), "acme/widgets#7");
+        assert_eq!(floor_key(&typed), floor_key(&lower));
+        // the write and the read use that key
+        let mut tick = TickState::default();
+        tick.unattended_tickets.insert(
+            floor_key(&typed),
+            TicketFloor {
+                count: 2,
+                after: 40,
+                at: 1,
+            },
+        );
+        assert_eq!(floor_of(&tick, &typed), Some((2, 40)));
+        assert_eq!(floor_of(&tick, &lower), Some((2, 40)));
+        assert_eq!(floor_of(&tick, &TicketRef::new("acme/widgets", 8)), None);
+    }
+
+    #[test]
+    fn a_count_of_a_later_day_is_refused_and_one_of_today_or_before_is_not() {
+        let floor = |day: &str| TickState {
+            unattended_messages_floor: Some((day.to_string(), 1)),
+            ..TickState::default()
+        };
+        assert!(check_clock(&TickState::default(), "2026-11-28").is_ok());
+        assert!(check_clock(&floor("2026-11-28"), "2026-11-28").is_ok());
+        assert!(check_clock(&floor("2026-11-27"), "2026-11-28").is_ok());
+        let e = check_clock(&floor("2026-11-29"), "2026-11-28").unwrap_err();
+        let text = e.to_string();
+        assert!(text.contains("[rule=unattended-budget]"), "{text}");
+        assert!(
+            text.contains("2026-11-29") && text.contains("the clock"),
+            "{text}"
+        );
+        // the memo of a feed counts too
+        let mut memo = TickState::default();
+        memo.unattended_feed.insert(
+            "a/b".into(),
+            UnattendedFeed {
+                day: "2026-11-29".into(),
+                ..UnattendedFeed::default()
+            },
+        );
+        assert!(check_clock(&memo, "2026-11-28").is_err());
+        assert!(check_clock(&memo, "2026-11-29").is_ok());
+    }
 }

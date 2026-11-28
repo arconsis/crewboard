@@ -566,7 +566,10 @@ use the list of a tick. These checks come first, and they refuse before any writ
 1. The mode. With `off`, or with an `AUTHORITY.md` that cannot be read, the refusal is
    `unattended-off`. The command reads no count.
 2. The budget of the day (below). A count that cannot be read refuses the command with
-   `unattended-budget`: the command never takes the count as 0.
+   `unattended-budget`: the command never takes the count as 0. A count in the state file that
+   has a later UTC day than today refuses it too: the clock of the host went back, or it was
+   ahead when the count was written. The `tick` then prints its line with that reason and
+   lists no ticket.
 3. The ticket. The facts under "Never on the list" hold for `verify`, the answer, `unblock`
    and `assign`: an open question to the owner, a stop at the round limit, the label
    `needs-owner`, a `done` on the owner route, a closed issue, and a board `Agent` that is not
@@ -590,6 +593,8 @@ The signed log holds an earlier assignment with a `gate:` line, and the new assi
 its signed lines. So the unattended `assign` never signs a Gate, a guard or a CI line from the
 issue body: a ticket that was never assigned is for a person. On a ticket without an assignee,
 a question to the owner of any agent refuses the `assign` until an owner comment follows it.
+The board field `Order` is not signed, so the command does not read it: the ticket goes to the
+end of the queue of the agent.
 
 **The owner keeps its questions.** `unblock` never withdraws a question to the owner and never
 releases a stop at the round limit: such a ticket is refused (check 3). An answer of `say` or
@@ -611,15 +616,24 @@ is signed.
 - `ask` is refused when the day has 5 stamped questions of coordinators to the owner. This
   number is fixed.
 - A verdict, an answer, `unblock` and `assign` are refused for a ticket that has 2 unattended
-  verdicts.
+  verdicts. An owner comment on the ticket, or an assignment without the line `unattended:`,
+  starts the count of the ticket again.
 - Each message is reserved before it is posted. The command takes the lock of the state file,
   reads the counts of the state again, refuses at a limit, and writes the counts with its own
   message: the verdicts, the stamped messages and the questions of the day, and for a verdict
   the count of the ticket. Then it posts. So two judgments that run at the same time in one
-  config dir cannot both take the last verdict. When the lock or the write fails, the message
-  is not posted. `assign` reserves its message before its first board write.
-- A message that follows in the same command is counted and not refused: the question to the
-  owner that a failed verify at the round limit posts after its result.
+  config dir cannot both take the last verdict of a day or of a ticket. When the lock or the
+  write fails, the message is not posted. `assign` reserves its message before its first board
+  write.
+- A `verify --fail` that stops the ticket at the round limit posts two messages: its result
+  and the question to the owner. The command reserves both together before its first write.
+  When the messages or the questions of the day have no room for both, the whole command is
+  refused.
+- A reserved message stays counted when its post fails. The count of the day and of the ticket
+  is then higher than the signed log shows, until the next UTC day (the ticket: until an owner
+  comment or an attended assignment). The command fails closed.
+- The stored count of a ticket holds until the log shows an owner comment or an attended
+  assignment with a higher comment id than the one the count was written at.
 - Every other writer of the state file keeps these counts: a save takes the higher count of a
   day and the newer count of a ticket from the file.
 
@@ -642,6 +656,14 @@ late interactive coordinator from the owner alert (item 8 of the headless coordi
 - The floors are in the state of one config dir on one host. A host without that state, and a
   second headless config dir, count what the signed log has left. Two judgments in two config
   dirs can both take the last verdict of a day.
+- The lock holds the counts: the verdicts, the messages and the questions of the day, and the
+  verdicts of a ticket. The rules "one open question to the owner per ticket" and "one verify
+  result per `done`" are checked when the command reads the ticket, not under the lock. Two
+  commands that run at the same time can both post; each post is counted.
+- The day comes from the clock of the host, and the count of the log from the time that GitHub
+  gives a comment. A host clock that is ahead reads a new day with a count of 0 before the UTC
+  day ends. The count that such a command stores refuses every judgment after the clock is
+  right again, until that day comes.
 - What a headless config dir merges is still a ticket whose signed Gate is `ci`, with green
   counted CI. No command of the scope writes or changes a signed Gate. A person who assigns a
   ticket signs its Gate from the body, with the warning of `assign`.

@@ -443,7 +443,7 @@ fn judgment_lines(
         if backlog && cache.tick.unattended_not_returned.get(id) == Some(&item.updated_at) {
             continue;
         }
-        let floor = crate::ops::unattended::floor_of(&cache.tick, &tref.to_string());
+        let floor = crate::ops::unattended::floor_of(&cache.tick, &tref);
         match crate::ops::unattended::board_need(ac, s.world, item, &tref, floor) {
             Ok(r) => {
                 if r.not_returned {

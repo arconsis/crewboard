@@ -25,54 +25,58 @@ Added:
   without guarded paths writes assignments without `guard:` lines (`reassign --to`, the move
   of a queued ticket, an `assign` after a `reassign`), and such an assignment ends the guard
   of the ticket without a warning. Spec: `docs/design/spec/tickets.md#guarded-paths`.
-- Unattended coordinator, the first part: the judgment list. Two new keys of `AUTHORITY.md`:
-  `unattended_coordinator: off | verify | verify-and-merge` (default `off`) and
-  `unattended_budget: <N>` (1 to 50, default 10). With a value that is not `off`, the headless
-  `tick` also prints one line `needs judgment: <repo>#<n>, <reason>` for each ticket that needs
-  the judgment of a coordinator (a Review ticket with a Gate in prose, an open question to the
-  coordinator, a plain block, a Ready ticket without an agent, a ticket that a reassign
-  returned to Backlog), and one line
-  `unattended coordinator: mode <mode>; verdicts <n>/<budget> today`. The list comes from the
-  signed log of each ticket: a board field alone puts no ticket on it. The count comes from
-  signed coordinator messages that have the new line `unattended: <n>/<budget>`. This part
-  only shows the list and the count. It starts no model, it writes no such line, and the keys
-  give no command a new right: `verify-and-merge` does what `verify` does, and the budget
-  limits nothing. The parts that follow add the limited commands, the scheduled model and the
-  merge. With the key absent or `off`, the output, the requests and the state file of `tick`
-  are as they were. With the key on, a tick makes one conditional read of the comment feed of
-  the day, and it reads the comments of each Blocked ticket, of each Ready ticket without an
-  agent, and of a Backlog ticket without an agent that has a Gate when its board item changed.
-  Any other value of a key is `authority-bad-front-matter`. Spec:
-  `docs/design/spec/agents.md#unattended-coordinator`.
-- Unattended coordinator, the second part: the scope, the budget and the stamp. With
-  `unattended_coordinator: verify` (or `verify-and-merge`, which does the same), a process in
-  a headless config dir may make five judgments: `verify --body` of a Review ticket whose
-  signed Gate is prose (also `--fail`), `say --kind answer --to <the assignee>`, `unblock` of a
-  ticket that its agent blocked, `assign <n> --to <agent>` of a ticket that a reassign
-  returned, and `ask`. Each command reads the ticket again and decides from the signed log: it
-  refuses a ticket with an open question to the owner, a stop at the round limit, the label
-  `needs-owner`, a `done` on the owner route, and a board `Agent` or Status that the signed log
-  does not support (`headless-scope`). `unblock` and an answer never withdraw a question to the
-  owner and never release a stop. `assign` needs a ticket that a coordinator announced on the
-  board, that has no assignee in the signed log, and whose log holds an assignment with a
-  `gate:` line: the new assignment copies the signed lines and never signs a Gate from the
-  issue body. A ticket that was never assigned is for a person. `--order` and
-  `--override-capabilities` stay refused. A verdict needs `--body`. Every signed message of
-  such a command gets the last body line `unattended: <n>/<budget>`; in a headless config dir
-  a text with such a line is refused. The budget: `unattended_budget` verdicts per UTC day, 2
-  unattended verdicts per ticket until an owner comment or an attended assignment, 30 stamped
-  messages and 5 questions to the owner per day. The new id `unattended-budget` refuses the
-  next one, and also a command that cannot read the count of the day. Each message is reserved
-  under the lock of the state file before the post, so parallel commands of one config dir do
-  not pass a limit, and a deleted or edited comment does not lower a count on that host. An
-  answer from a headless config dir does not refresh the coordinator heartbeat. The `tick`'s
-  own `verify` and `merge` are not stamped and not counted. An interactive config dir is not
-  restricted, not stamped and not counted. This part starts no model, and a headless config
-  dir still merges only a ticket whose Gate is `ci`. On the judgment list, a Ready or Backlog
-  ticket without an agent now needs an assignment with a Gate in its signed log, a signed log
-  that allows its Status, and no question to the owner of any agent without an owner comment
-  after it. Cost: each judgment makes one more read, the comment feed of the day per repo.
-  Spec: `docs/design/spec/agents.md#the-scope-of-the-unattended-coordinator`.
+- Unattended coordinator: the judgment list, the scope, the budget and the stamp. Two new keys
+  of `AUTHORITY.md`: `unattended_coordinator: off | verify | verify-and-merge` (default `off`)
+  and `unattended_budget: <N>` (1 to 50, default 10). Any other value of a key is
+  `authority-bad-front-matter`. crewboard starts no model, and `verify-and-merge` does what
+  `verify` does: a headless config dir merges only a ticket whose Gate is `ci`.
+  The list: with a value that is not `off`, the headless `tick` also prints one line
+  `needs judgment: <repo>#<n>, <reason>` for each ticket that needs the judgment of a
+  coordinator (a Review ticket with a Gate in prose, an open question to the coordinator, a
+  plain block, a Ready ticket without an agent, a ticket that a reassign returned to Backlog),
+  and one line `unattended coordinator: mode <mode>; verdicts <n>/<budget> today`. The list
+  comes from the signed log of each ticket: a board field alone puts no ticket on it. A Ready
+  or Backlog ticket without an agent needs an assignment with a Gate in its signed log, a
+  signed log that allows its Status, and no question to the owner of any agent without an
+  owner comment after it.
+  The scope: with the mode on, a process in a headless config dir may make five judgments:
+  `verify --body` of a Review ticket whose signed Gate is prose (also `--fail`),
+  `say --kind answer --to <the assignee>`, `unblock` of a ticket that its agent blocked,
+  `assign <n> --to <agent>` of a ticket that a reassign returned, and `ask`. Each command
+  reads the ticket again and decides from the signed log: it refuses a ticket with an open
+  question to the owner, a stop at the round limit, the label `needs-owner`, a `done` on the
+  owner route, and a board `Agent` or Status that the signed log does not support
+  (`headless-scope`). `unblock` and an answer never withdraw a question to the owner and never
+  release a stop. `assign` needs a ticket that a coordinator announced on the board, that has
+  no assignee in the signed log, and whose log holds an assignment with a `gate:` line: the
+  new assignment copies the signed lines, never signs a Gate from the issue body, and does not
+  read the board field `Order` (the ticket goes to the end of the queue). A ticket that was
+  never assigned is for a person. `--order` and `--override-capabilities` stay refused. A
+  verdict needs `--body`.
+  The stamp: every signed message of such a command gets the last body line
+  `unattended: <n>/<budget>`, and the count of the list comes from the signed coordinator
+  messages with that line.
+  The budget: `unattended_budget` verdicts per UTC day, 2 unattended verdicts per ticket until
+  an owner comment or an attended assignment, 30 stamped messages and 5 questions to the owner
+  per day. The new id `unattended-budget` refuses the next one, and also a command that cannot
+  read the count of the day or that finds a stored count of a later day (a host clock that
+  went back). The counts of the day and the count of the ticket are reserved under the lock of
+  the state file before the post, so parallel commands of one config dir do not pass these
+  counts, and a deleted or edited comment does not lower a count on that host. A
+  `verify --fail` that stops a ticket at the round limit reserves its result and its question
+  together. A post that fails after the reservation stays counted. The rules "one open
+  question to the owner per ticket" and "one verify result per `done`" are checked when the
+  command reads the ticket, not under the lock: two parallel commands can both post.
+  An answer from a headless config dir does not refresh the coordinator heartbeat. The
+  `tick`'s own `verify` and `merge` are not stamped and not counted. An interactive config dir
+  is not restricted, not stamped and not counted. With the key absent or `off`, the output,
+  the requests and the state file of `tick` are as they were. Cost with the key on: a tick
+  makes one conditional read of the comment feed of the day, and it reads the comments of each
+  Blocked ticket, of each Ready ticket without an agent, and of a Backlog ticket without an
+  agent that has a Gate when its board item changed; each judgment makes one more read, the
+  comment feed of the day per repo. Spec:
+  `docs/design/spec/agents.md#unattended-coordinator` and
+  `docs/design/spec/agents.md#the-scope-of-the-unattended-coordinator`.
 - `assign` warns about one more case. When a Backlog ticket without an Agent has a reassign
   notice or a verify result of a coordinator in its log and no valid assignment message, the
   assignment comment was deleted or is not valid. `assign` then signs the Gate and the guard
@@ -98,8 +102,13 @@ Changed:
   `headless-scope`. In a headless config dir, `verify --fail`, `unblock`, `ask`,
   `assign <n> --to <agent>` and `say --kind answer --to <agent>` now end with `unattended-off`
   and not with `headless-scope`; they load the config and read the ticket before they refuse,
-  and they still write nothing. With `--body-file <path>`, `say`, `unblock` and `ask` end with
-  `headless-scope` before any request, as they did.
+  and they still write nothing. So one of these commands can end with another refusal first,
+  the one that an attended command gets there (a config that cannot be loaded, a ticket that
+  does not exist, a token that cannot read). With `--body-file <path>`, `say`, `unblock` and
+  `ask` end with `headless-scope` before any request, as they did; `--body-file -` (standard
+  input) is taken. In a headless config dir, a signed message whose text has a line that
+  starts with `unattended:` is refused with `headless-scope` in every mode, also with the mode
+  `off`. The texts of the `headless-scope` refusal changed; the id did not.
 - Protected paths and guarded paths: a base branch cannot hide a file. The file list of a PR
   is the diff against its base branch, and the author of the PR chooses that branch. For a PR
   whose base is not the default branch, `done`, a verify pass, `close --verified` and `merge`
