@@ -353,3 +353,54 @@ fn done_with_a_cut_file_list_fails_closed_and_writes_nothing() {
     assert_eq!(writes(&fake), before);
     let _ = (t, pr);
 }
+
+/// The author of a PR chooses its base branch. A base that already holds the change of a
+/// protected file hides it from the file list of the PR; the comparison of the default branch
+/// with the head still names it (spec/tickets#the-files-of-a-pr).
+#[test]
+fn a_base_branch_that_hides_a_protected_file_does_not_hide_it_from_verify_and_merge() {
+    let (fake, c, b) = crew();
+    let (t, pr) = delivered(&fake, &c, &b, "IT hidden", &["src/it.rs"]);
+    let ts = t.to_string();
+    fake.set_pr_base(pr.number, "stage", &[WORKFLOW]);
+    let before = writes(&fake);
+    let v = run_refused(&fake, &c, &["verify", &ts], RULE);
+    assert!(v.stderr.contains(WORKFLOW), "{}", v.stderr);
+    run_refused(&fake, &c, &["merge", &ts], RULE);
+    run_refused(&fake, &c, &["close", &ts, "--verified"], RULE);
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    assert!(!merge_call(&fake));
+    // control: a stacked PR whose base hides no protected file merges
+    fake.set_pr_base(pr.number, "stage", &["src/base.rs"]);
+    run_ok(&fake, &c, &["verify", &ts]);
+    let m = run_ok(&fake, &c, &["merge", &ts]);
+    assert!(m.stdout.contains("merged"), "{}", m.stdout);
+}
+
+/// `done` reads the comparison too: its message names the protected path that the base hides.
+#[test]
+fn done_names_a_protected_path_that_the_base_branch_hides() {
+    let (fake, c, b) = crew();
+    fake.file("AUTHORITY.md", AUTHORITY);
+    let t = fake.ticket_issue(
+        "IT hidden done",
+        &format!("Goal: x.\n\n{GATE}CI: none\n"),
+        &["crew:work"],
+    );
+    let ts = t.to_string();
+    run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]);
+    run_ok(&fake, &b, &["take", &ts]);
+    let pr = fake.pr_for(t, &b.name);
+    fake.set_pr_base(pr.number, "stage", &["AUTHORITY.md"]);
+    let _ = fake.poll_json(&b);
+    run_ok(
+        &fake,
+        &b,
+        &["done", &ts, "--pr", &pr.url, "--sha", &pr.head],
+    );
+    let done = done_body(&fake, &c);
+    assert!(
+        done.lines().any(|l| l == "protected-paths: AUTHORITY.md"),
+        "{done}"
+    );
+}

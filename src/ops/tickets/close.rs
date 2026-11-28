@@ -2,8 +2,7 @@
 //! owner merge), or drops it with a stated reason.
 
 use super::owner_merge;
-use super::pr_evidence::fetch_pr;
-use super::pr_evidence::pr_files_for_protection;
+use super::pr_evidence::{fetch_pr_based, pr_files_for_protection};
 use super::{
     check_owner_route, load_world_cached, me_of, post, question_open_since, remember, set_status,
     sync_needs_owner, to_agent,
@@ -121,15 +120,15 @@ fn close_verified(ac: &AgentCtx, issue_arg: &str) -> CbResult<String> {
         // Rules `close-verified-not-merged` and `close-verified-head-moved`: Done after
         // `close --verified` means "merged at the head that the passing verify saw". Read the PR
         // before any write.
+        let (pr, pr_base) = fetch_pr_based(ac, &pu.repo, pu.number)?;
         if let Some((report, true)) = verify_report(&t.msgs, done, tref.issue) {
-            let (pr, _) = fetch_pr(ac, &pu.repo, pu.number)?;
             check_verified_head(&t.key(), &pr, kv(&report.body, "head_now").as_deref())?;
             merged_at_head = true;
         }
         // Rule `protected-path-owner-merge`: `close --verified` is refused for a PR that changes
         // a protected path now (a verify may have passed before the PR changed). The owner's
         // merge is closed with `close`.
-        let files = pr_files_for_protection(ac, &pu.repo, pu.number, &t.key())?;
+        let files = pr_files_for_protection(ac, &pr, &pr_base, &t.key())?;
         let auth = crate::ctx::load_authority(&ac.ctx)?;
         crate::rules::protected::check_unprotected(
             &ev.pr,

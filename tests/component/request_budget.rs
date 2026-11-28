@@ -141,7 +141,7 @@ fn the_headless_tick_makes_the_same_number_of_reads() {
     let before = hreads(&h);
     let o = h.headless(&["tick"]);
     assert!(o.code <= 1, "{}", o.all());
-    assert_eq!(hreads(&h) - before, 41, "reads of the headless tick"); // +1: Status read again before the write; AUTHORITY.md is read once by the context (42 before: twice)
+    assert_eq!(hreads(&h) - before, 43, "reads of the headless tick"); // +2: the PR head is read again after the file list, by verify and by merge; +1: Status read again before the write; AUTHORITY.md is read once by the context (42 before: twice)
 }
 
 /// `assign`, `done`, `say`, one `watch` cycle (the `collect` step) and one `acted` path, on a board of

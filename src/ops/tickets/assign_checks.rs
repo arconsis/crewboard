@@ -229,7 +229,8 @@ pub(super) fn sync_gate_field(
 /// every `Gate:` line of the body (`gate_field` is the fallback when the body has no such line),
 /// `ci:` says whether the body declares `CI: none`, and `guard:` holds the glob of every `Guard:`
 /// line of the body (the caller checks them first: [`crate::rules::guard::check`]). The notes
-/// name what is signed, so the coordinator sees it. `assigned_on_board`: the Status of the ticket is past Backlog or it has
+/// name what is signed, so the coordinator sees it: the guard too, as `guard none` when the
+/// body has no `Guard:` line. `assigned_on_board`: the Status of the ticket is past Backlog or it has
 /// an Agent, but the log has no valid assignment (never posted, deleted, edited or not valid);
 /// the notes then start with a warning. Pure.
 pub(super) fn first_from_body(
@@ -240,21 +241,20 @@ pub(super) fn first_from_body(
 ) -> SignedLines {
     let gate = gate_line_of(body).or(gate_field);
     let ci_none = declares_ci_none(body);
+    let guard = crate::rules::guard::of_body(body);
     let mut notes = String::new();
     if assigned_on_board {
         notes.push_str(&format!(
-            "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid). The Gate now comes from the unsigned body: check it\n"
+            "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid). The Gate and the guard now come from the unsigned body: check both (guard {})\n",
+            guard_text(&guard)
         ));
     }
-    let guard = crate::rules::guard::of_body(body);
-    let guard_note = if guard.is_empty() {
-        String::new()
-    } else {
-        format!("guard {}; ", guard_text(&guard))
-    };
+    // The guard is always named, also when there is none: the coordinator then sees that the
+    // body has no `Guard:` line at the time of the assignment.
     notes.push_str(&format!(
-        "signed from the body: gate '{}'; {guard_note}{}",
+        "signed from the body: gate '{}'; guard {}; {}",
         gate.as_deref().unwrap_or("-"),
+        guard_text(&guard),
         ci_line(ci_none)
     ));
     SignedLines {
@@ -343,12 +343,18 @@ mod tests {
         let l = first_from_body("o/r#1", "Goal\nGate: a\nGate: b\nCI: none\n", None, false);
         assert_eq!(l.gate.as_deref(), Some("a | b"));
         assert_eq!(l.ci_none, Some(true));
-        assert_eq!(l.notes, "signed from the body: gate 'a | b'; ci: none\n");
+        assert_eq!(
+            l.notes,
+            "signed from the body: gate 'a | b'; guard none; ci: none\n"
+        );
         // defence only: `assign` refuses a body without a Gate line, so no command gets here
         let l = first_from_body("o/r#1", "Goal\n", Some("ci".into()), false);
         assert_eq!(l.gate.as_deref(), Some("ci"));
         assert_eq!(l.ci_none, Some(false));
-        assert_eq!(l.notes, "signed from the body: gate 'ci'; ci: required\n");
+        assert_eq!(
+            l.notes,
+            "signed from the body: gate 'ci'; guard none; ci: required\n"
+        );
         // the board shows an assignment that the log does not have: a warning comes first
         let l = first_from_body("o/r#1", "Gate: a\n", None, true);
         let n: Vec<&str> = l.notes.lines().collect();
@@ -360,11 +366,24 @@ mod tests {
         );
         assert!(
             n[0].starts_with("warning: o/r#1 has an Agent or a Status past Backlog")
-                && n[0].ends_with("The Gate now comes from the unsigned body: check it"),
+                && n[0].ends_with(
+                    "The Gate and the guard now come from the unsigned body: check both (guard none)"
+                ),
             "{}",
             n[0]
         );
-        assert_eq!(n[1], "signed from the body: gate 'a'; ci: required");
+        assert_eq!(
+            n[1],
+            "signed from the body: gate 'a'; guard none; ci: required"
+        );
+        // the repair path names the guard that the body has now
+        let l = first_from_body("o/r#1", "Gate: a\nGuard: tests/**\n", None, true);
+        let n: Vec<&str> = l.notes.lines().collect();
+        assert!(n[0].ends_with("check both (guard 'tests/**')"), "{}", n[0]);
+        assert_eq!(
+            n[1],
+            "signed from the body: gate 'a'; guard 'tests/**'; ci: required"
+        );
     }
 
     #[test]
@@ -444,10 +463,13 @@ mod tests {
             l.message("T", "o/r#1", "x", "order: 1\n"),
             "Assigned to you: T\nticket: o/r#1\nitem=x\ngate: ci\nci: required\nguard: tests/**\nguard: ci/check.sh\norder: 1\n"
         );
-        // no Guard line: no guard, and the line of the answer does not name one
+        // no Guard line: no guard, and the line of the answer says so
         let l = first_from_body("o/r#1", "Gate: ci\n", None, false);
         assert!(l.guard.is_empty());
-        assert_eq!(l.notes, "signed from the body: gate 'ci'; ci: required\n");
+        assert_eq!(
+            l.notes,
+            "signed from the body: gate 'ci'; guard none; ci: required\n"
+        );
     }
 
     #[test]

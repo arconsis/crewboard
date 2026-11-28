@@ -37,8 +37,8 @@ fn guard_lines(msg: &str) -> Vec<String> {
         .collect()
 }
 
-/// A ticket with the guard `tests/**` and `ci/check.sh`, assigned to `b` and taken, with an
-/// open PR that changes `pr_files`.
+/// A ticket with a guard for the tests and for one check script, assigned to `b` and taken,
+/// with an open PR that changes `pr_files`.
 fn taken(fake: &FakeBoard, c: &Agent, b: &Agent, pr_files: &[&str]) -> (u64, Pull) {
     fake.file("AUTHORITY.md", AUTHORITY);
     let t = fake.ticket_issue(
@@ -142,7 +142,11 @@ fn ticket_new_guard_writes_the_body_lines_and_the_assignment_signs_them() {
     let plain = fake.ticket_issue("IT plain", &body(&[]), &["crew:work"]);
     let o = run_ok(&fake, &c, &["assign", &plain.to_string(), "--to", &b.name]);
     assert!(guard_lines(&assignment(&fake, plain)).is_empty());
-    assert!(!o.stdout.contains("guard"), "{}", o.stdout);
+    assert!(
+        o.stdout.contains("; guard none; ci: none\n"),
+        "{}",
+        o.stdout
+    );
     no_unhandled(&fake);
 }
 
@@ -548,4 +552,223 @@ fn a_split_hands_the_signed_guard_to_the_new_ticket_unless_the_file_has_its_own(
     );
     assert_eq!(guard_lines(&assignment(&fake, split_off(&o))), ["golden/"]);
     no_unhandled(&fake);
+}
+
+/// The author of a PR chooses its base branch. A base that already holds the change of the
+/// guarded file hides that file from the file list of the PR: the comparison of the default
+/// branch with the head still names it (spec/tickets#the-files-of-a-pr).
+#[test]
+fn a_base_branch_that_hides_a_guarded_file_does_not_hide_it_from_any_reader() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    fake.set_pr_base(pr.number, "stage", &["tests/a.rs"]);
+    let before = writes(&fake);
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains(RULE), "{}", o.all());
+    assert!(
+        o.stderr.contains("tests/a.rs (guard: tests/**)"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+
+    // the PR is retargeted after a clean `done`: verify, merge and close read the comparison
+    fake.set_pr_base(pr.number, "main", &[]);
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    fake.set_pr_base(pr.number, "stage", &["ci/check.sh"]);
+    let before = writes(&fake);
+    let v = run_refused(&fake, &c, &["verify", &ts], RULE);
+    assert!(v.stderr.contains("ci/check.sh"), "{}", v.stderr);
+    run_refused(&fake, &c, &["merge", &ts], RULE);
+    run_refused(&fake, &c, &["close", &ts, "--verified"], RULE);
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    assert!(!merge_call(&fake));
+
+    // a comparison that cannot be read is no pass
+    fake.fail_once("GET", "compare/main...", "");
+    let v = run_refused(&fake, &c, &["verify", &ts], "protected-path-owner-merge");
+    assert!(
+        v.stderr.contains("the comparison with the default branch"),
+        "{}",
+        v.stderr
+    );
+
+    // control: a stacked PR whose base hides no guarded file is verified
+    fake.set_pr_base(pr.number, "stage", &["src/base.rs"]);
+    let v = run_ok(&fake, &c, &["verify", &ts]);
+    assert!(v.stdout.contains("verify PASS"), "{}", v.stdout);
+    no_unhandled(&fake);
+}
+
+/// A PR onto the default branch costs no comparison, and a stacked PR costs one.
+#[test]
+fn the_comparison_with_the_default_branch_is_read_only_for_another_base() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    let compares = |fake: &FakeBoard| {
+        fake.requests()
+            .iter()
+            .filter(|r| r.path.contains("/compare/main..."))
+            // the file comparison; the "behind" hint of `done` reads the same path without `&page=1`
+            .filter(|r| r.path.contains("&page=1"))
+            .count()
+    };
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    run_ok(&fake, &c, &["verify", &ts]);
+    assert_eq!(compares(&fake), 0, "a PR onto the default branch");
+    fake.set_pr_base(pr.number, "stage", &["src/base.rs"]);
+    run_ok(&fake, &c, &["merge", &ts]);
+    assert_eq!(compares(&fake), 1, "a stacked PR");
+}
+
+/// The file list counts for the head that the command read: a head that moves while `verify`
+/// or `merge` reads the files is refused, and nothing is written.
+#[test]
+fn a_head_that_moves_while_the_files_are_read_is_refused() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    let moved = "f".repeat(40);
+    fake.move_head_after_files(pr.number, &moved);
+    let before = writes(&fake);
+    let v = run_refused(&fake, &c, &["verify", &ts], "evidence-head-moved");
+    assert!(
+        v.stderr.contains("while its files were read"),
+        "{}",
+        v.stderr
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    // the same for merge, after a passed verify on the old head
+    fake.set_pr_head(pr.number, &pr.head);
+    run_ok(&fake, &c, &["verify", &ts]);
+    fake.move_head_after_files(pr.number, &moved);
+    let before = writes(&fake);
+    run_refused(&fake, &c, &["merge", &ts], "evidence-head-moved");
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    assert!(!merge_call(&fake));
+}
+
+/// The repair path: the assignment comment is gone and the body lost its `Guard:` lines. The
+/// next `assign` signs the body, so it signs no guard. Its answer says so two times.
+#[test]
+fn an_assign_after_a_deleted_assignment_names_the_guard_that_it_signs_also_when_it_is_none() {
+    let (fake, c, b) = crew();
+    let t = fake.ticket_issue("IT repair", &body(&["tests/**"]), &["crew:work"]);
+    let ts = t.to_string();
+    run_ok(&fake, &c, &["assign", &ts, "--to", &b.name]);
+    let (id, _, _) = fake
+        .comments_of(t)
+        .into_iter()
+        .find(|(_, _, b)| b.contains("Assigned to you"))
+        .expect("the assignment comment");
+    fake.delete_comment(id);
+    fake.set_issue_body(t, &body(&[]));
+    let o = run_ok(&fake, &c, &["assign", &ts, "--to", &b.name, "--order", "3"]);
+    assert!(
+        o.stdout.contains(
+            "The Gate and the guard now come from the unsigned body: check both (guard none)"
+        ),
+        "{}",
+        o.stdout
+    );
+    assert!(
+        o.stdout.contains("; guard none; ci: none\n"),
+        "{}",
+        o.stdout
+    );
+    assert!(guard_lines(&assignment(&fake, t)).is_empty());
+}
+
+/// An assignment that an older version writes for a guarded ticket has no `guard:` lines. The
+/// latest assignment decides, so the guard is gone: `done` passes with a guarded file. The next
+/// assignment of this version copies "no guard", and it warns because the body still has the
+/// `Guard:` lines.
+#[test]
+fn an_assignment_without_guard_lines_after_a_guarded_one_ends_the_guard() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs", "tests/a.rs"]);
+    let ts = t.to_string();
+    assert_eq!(done(&fake, &b, t, &pr).code, 2);
+    let item = fake.item_of_issue(t).unwrap();
+    fake.signed(
+        &c.key,
+        &c.name,
+        &b.name,
+        Kind::Request,
+        t,
+        &format!(
+            "Assigned to you: IT guard\nticket: {REPO}#{t}\nitem={item}\ngate: the PR of this ticket is open and closes it.\nci: none\nreason: moved\n"
+        ),
+    );
+    let _ = fake.poll_json(&b);
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 0, "{}", o.all());
+    // a later assignment of this version: no guard to copy, and a warning about the body
+    let d = fake.agent("claude@fake-d", Role::Dev);
+    let o = run_ok(
+        &fake,
+        &c,
+        &[
+            "reassign",
+            &ts,
+            "--to",
+            &d.name,
+            "--reason",
+            "late",
+            "--why",
+            "it: again",
+        ],
+    );
+    assert!(guard_lines(&assignment(&fake, t)).is_empty());
+    assert!(
+        o.stdout.contains("warning: the Guard lines in the body of")
+            && o.stdout.contains("The signed guard stays: none"),
+        "{}",
+        o.stdout
+    );
+}
+
+#[test]
+fn ticket_adopt_refuses_a_guard_that_is_not_valid_or_covers_nothing() {
+    let (fake, c, _b) = crew();
+    for bad in ["/abs/path", "a//b", "./", "a/./b"] {
+        let t = fake.ticket_issue("IT adopt", &body(&[bad]), &["crew:work"]);
+        let before = writes(&fake);
+        run_refused(&fake, &c, &["ticket", "adopt", &t.to_string()], INVALID);
+        assert_eq!(writes(&fake), before, "{bad}: a refusal wrote something");
+        assert!(fake.item_of_issue(t).is_none(), "{bad}");
+    }
+    // a glob without a space after the colon keeps its stars
+    let t = fake.ticket_issue(
+        "IT stars",
+        &format!("Goal: x.\n\n{GATE}Guard:**/golden.txt\n"),
+        &["crew:work"],
+    );
+    run_ok(&fake, &c, &["ticket", "adopt", &t.to_string()]);
+}
+
+/// More than 1000 files prove nothing: `done` of a guarded ticket fails closed. The refusal has
+/// the id of the cut list, which the protected paths share.
+#[test]
+fn done_of_a_guarded_ticket_with_a_cut_file_list_fails_closed() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let many: Vec<String> = (0..1001).map(|i| format!("src/gen/f{i}.rs")).collect();
+    let mut refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    refs.push("tests/a.rs");
+    fake.set_pr_files(pr.number, &refs);
+    let before = writes(&fake);
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("protected-path-owner-merge")
+            && o.stderr.contains("more than 1000 files"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
 }

@@ -21,6 +21,8 @@ pub struct Pull {
     pub head_repo: Option<String>,
     /// `base.ref`: the branch that the PR merges into.
     pub base_ref: Option<String>,
+    /// `base.repo.default_branch`: the default branch of the repo of the PR.
+    pub base_default: Option<String>,
     pub mergeable_state: Option<String>,
     /// `merged` is true, or `merged_at` is set.
     pub merged: bool,
@@ -40,6 +42,7 @@ impl Pull {
             head_sha: s("/head/sha"),
             head_repo: s("/head/repo/full_name"),
             base_ref: s("/base/ref"),
+            base_default: s("/base/repo/default_branch"),
             mergeable_state: s("/mergeable_state"),
             merged: v.get("merged").and_then(Value::as_bool).unwrap_or(false)
                 || v.get("merged_at").is_some_and(|m| !m.is_null()),

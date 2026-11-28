@@ -33,7 +33,7 @@ const WAY_OUT: &str = "No flag overrides a guard: the owner changes such a file 
 /// without a value gives an empty glob, which [`check`] refuses.
 pub fn of_body(body: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    for g in super::text::body_field_lines(body, "Guard") {
+    for g in super::text::body_glob_lines(body, "Guard") {
         if !out.contains(&g) {
             out.push(g);
         }
@@ -74,7 +74,11 @@ fn invalid(why: String) -> Refusal {
 
 /// The limits of a guard: at most [`MAX_GLOBS`] globs, each one line of at most
 /// [`MAX_GLOB_BYTES`] bytes, not empty, a relative path glob without a `..` part
-/// ([`check_globs`]). So a signed `guard:` line is always one line that the matcher can read.
+/// ([`check_globs`]) and without a part that no path has (`.`, `./`, `a//b`, `a/./b`). So a signed
+/// `guard:` line is always one line that the matcher can read. The check finds a glob that can
+/// match no path at all. It does not find a glob that is well formed and names the wrong path:
+/// a typo such as `test/**` for `tests/**` passes and guards nothing
+/// (spec/tickets#guarded-paths).
 pub fn check(globs: &[String]) -> Verdict {
     if globs.len() > MAX_GLOBS {
         return Err(invalid(format!(
@@ -100,8 +104,35 @@ pub fn check(globs: &[String]) -> Verdict {
             )));
         }
         check_globs(std::slice::from_ref(g)).map_err(|e| invalid(format!("guard: {e}")))?;
+        if let Some(why) = covers_nothing(g) {
+            return Err(invalid(format!(
+                "the guard glob '{g}' {why}, so it covers no file"
+            )));
+        }
     }
     Ok(())
+}
+
+/// Why a glob can cover no path of a repo, or `None`. The matcher compares a path without a
+/// leading `./`; a path of a repo has no empty part and no `.` part. So a glob that is `.` or
+/// `./`, and one with an empty or a `.` part (`a//b`, `a/./b`), matches nothing: a guard that
+/// looks set and guards no file. A trailing `/` (the directory form) is no empty part.
+fn covers_nothing(glob: &str) -> Option<&'static str> {
+    let mut g = glob.trim();
+    while let Some(rest) = g.strip_prefix("./") {
+        g = rest;
+    }
+    if g.is_empty() || g == "." {
+        return Some("names only the current directory");
+    }
+    let dir = g.strip_suffix('/').unwrap_or(g);
+    if dir.split('/').any(str::is_empty) {
+        return Some("has an empty path part");
+    }
+    if dir.split('/').any(|p| p == ".") {
+        return Some("has a `.` path part");
+    }
+    None
 }
 
 /// A file name or a glob for a refusal text: a control character reads as `?`.
@@ -203,6 +234,11 @@ mod tests {
         // a line without a value is an empty glob (refused), not a line that is skipped
         assert_eq!(of_body("Guard:\n"), v(&[""]));
         assert!(check(&of_body("Guard:\n")).is_err());
+        // a glob that starts with stars keeps them, with and without a space after the colon
+        assert_eq!(
+            of_body("Guard:**/x.rs\nGuard: **/y.rs\n**Guard:** **/z.rs\n**Guard:**w.rs\n"),
+            v(&["**/x.rs", "**/y.rs", "**/z.rs", "w.rs"])
+        );
         // the template comment is no guard
         assert!(of_body("<!-- optional: Guard: tests/** -->\n").is_empty());
     }
@@ -234,6 +270,8 @@ mod tests {
     fn a_valid_guard_passes_and_each_limit_refuses() {
         assert!(check(&[]).is_ok());
         assert!(check(&v(&["tests/**", "ci/*.sh", "golden/", "Makefile"])).is_ok());
+        // a leading `./`, a dot file and a name with dots are paths of a repo
+        assert!(check(&v(&["./tests/**", ".gitignore", "a/.b/c", "a/...x", "**/"])).is_ok());
         let twenty: Vec<String> = (0..MAX_GLOBS).map(|i| format!("f{i}")).collect();
         assert!(check(&twenty).is_ok());
         assert!(check(&v(&[&"a".repeat(MAX_GLOB_BYTES)])).is_ok());
@@ -249,6 +287,13 @@ mod tests {
             (v(&["a/../b"]), "not a relative path glob"),
             (v(&[".."]), "not a relative path glob"),
             (v(&["a\\b"]), "not a relative path glob"),
+            (v(&["."]), "names only the current directory"),
+            (v(&["./"]), "names only the current directory"),
+            (v(&["././"]), "names only the current directory"),
+            (v(&["a//b"]), "an empty path part"),
+            (v(&["a//"]), "an empty path part"),
+            (v(&["a/./b"]), "a `.` path part"),
+            (v(&["a/."]), "a `.` path part"),
             (v(&["a\nguard: b"]), "line break"),
             (v(&["a\rb"]), "line break"),
         ] {

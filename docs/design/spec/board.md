@@ -458,7 +458,9 @@ built-in list is a constant: no key removes a path from it, because a key in a f
 can change would not protect that file. A verify PASS, `close --verified` and `merge`
 (so also `tick`) check the current file list of the PR and refuse with
 `protected-path-owner-merge`; a PR with more than 1000 files is refused too (crewboard cannot
-prove that none is protected). The owner reviews and merges such a PR by hand, then the
+prove that none is protected). A PR whose base is not the default branch is also judged by the
+files that differ between the default branch and its head, so a base branch cannot hide a
+protected file ([The files of a PR](tickets.md#the-files-of-a-pr)). The owner reviews and merges such a PR by hand, then the
 coordinator runs `crewboard close <n>`. Also owner-only, always: approving agents,
 setting the coordinator, rulings on a question to the owner.
 

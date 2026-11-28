@@ -39,8 +39,8 @@ fn ci_reads(requests: &[Req]) -> usize {
 // The context reads AUTHORITY.md once (for `former_repos`) and hands the text to every later
 // read of the default-branch file, so these commands read it as often as before.
 const DONE: (usize, usize) = (22, 5); // +1 compare read (head behind base), +1 Status read again before the write
-const VERIFY: (usize, usize) = (16, 5);
-const TICK: (usize, usize) = (41, 10); // +1: Status read again before the write
+const VERIFY: (usize, usize) = (17, 5); // +1: the PR head is read again after the file list
+const TICK: (usize, usize) = (43, 10); // +1: Status read again before the write; +2: the PR head is read again after the file list, by verify and by merge
 const INIT: usize = 34; // +4: the option writer reads the list again before each of its 4 writes; +3: the branch rule looks for a rule (branch, rules, rulesets)
 
 #[test]

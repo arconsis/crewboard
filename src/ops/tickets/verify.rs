@@ -203,7 +203,8 @@ fn read_verify(
     va: &VerifyArgs<'_>,
 ) -> CbResult<VerifyRead> {
     let ev = &pre.ev;
-    let (pr, base) = fetch_pr(ac, &pre.pr_url.repo, pre.pr_url.number)?;
+    let (pr, pr_base) =
+        super::pr_evidence::fetch_pr_based(ac, &pre.pr_url.repo, pre.pr_url.number)?;
     // Rule `protected-path-owner-merge`: a PR that changes AUTHORITY.md, .crewboard.toml or a
     // workflow is for the owner: a verify PASS is refused (and nothing is posted). `--fail` stays
     // allowed: the coordinator may still judge the work wrong and send the ticket back. Before
@@ -211,13 +212,9 @@ fn read_verify(
     let files = if va.gate_failed {
         None
     } else {
-        Some(pr_files_for_protection(
-            ac,
-            &pr.repo,
-            pr.number,
-            &l.t.key(),
-        )?)
+        Some(pr_files_for_protection(ac, &pr, &pr_base, &l.t.key())?)
     };
+    let base = pr_base.branch;
     let guard =
         crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, &pre.auth.protected_paths);
     check_pass_allowed(

@@ -117,7 +117,7 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
                 "number": PR, "state": if merged { "closed" } else { "open" }, "merged": merged,
                 "mergeable_state": "clean", "body": format!("Closes #{TICKET}"),
                 "head": {"sha": SHA, "ref": HEAD_REF, "repo": {"full_name": REPO}},
-                "base": {"ref": "main"},
+                "base": {"ref": "main", "repo": {"default_branch": "main"}},
             }))
         }
         ("GET", ["", "repos", _, _, "pulls", num, "files"]) if *num == PR.to_string() => {

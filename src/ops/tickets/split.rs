@@ -69,6 +69,18 @@ fn old_gate(old: &Ticket) -> Option<String> {
     crate::ticket::signed_gate(&old.msgs).or_else(|| body_field(&old.info.body, "Gate"))
 }
 
+/// The guard of the old ticket for the new one, by the rule of [`old_gate`]: the signed guard
+/// of its assignment. The body of the old ticket is not signed, so its `Guard:` lines are read
+/// only when the ticket has no signed assignment with a Gate. An assignment without a `guard:`
+/// line means no guard, whatever the body says.
+fn old_guard(old: &Ticket) -> Vec<String> {
+    if crate::ticket::signed_assignment(&old.msgs).is_some() {
+        crate::ticket::signed_guard(&old.msgs)
+    } else {
+        crate::rules::guard::of_body(&old.info.body)
+    }
+}
+
 /// What the checks of `ticket split` found: everything the writes need.
 struct SplitPlan {
     repo: String,
@@ -171,8 +183,7 @@ fn plan_split(
     if existing.is_none() && agent.is_none() {
         return Err(no_agent(&old_key));
     }
-    // The guard of the old ticket: its signed lines only (the body is not signed).
-    let old_guard = crate::ticket::signed_guard(&old.msgs);
+    let old_guard = old_guard(&old);
     let body = new_body(&file_body, old_gate(&old).as_deref(), &old_guard, &old_key);
     check_new_ticket(title, &body)?;
     if let Some(a) = &agent {

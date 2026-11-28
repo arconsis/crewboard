@@ -399,6 +399,9 @@ pub(super) fn post_pull(st: &mut State, repo: &str, body: &str) -> Resp {
         behind_by: 0,
         files: Vec::new(),
         renamed_from: BTreeMap::new(),
+        base_ref: "main".to_string(),
+        hidden_by_base: Vec::new(),
+        head_after_files: None,
     });
     Resp::json(
         201,

@@ -12,7 +12,7 @@
 //! cannot be undone, so it is the first write.
 
 use super::local_gate::local_gate_not_enabled_for_evidence;
-use super::pr_evidence::{check_pr_in_initiative, fetch_pr, fetch_pr_files};
+use super::pr_evidence::{check_pr_in_initiative, fetch_pr_files};
 use super::{
     Loaded, Me, check_verify_ticket, load_signed, needs_owner_lines, post_with,
     question_open_since, remember, to_agent,
@@ -552,10 +552,12 @@ struct MergeRead {
 
 fn read_merge(ac: &AgentCtx, l: &MergeLoad, pre: &MergePre) -> CbResult<MergeRead> {
     let (t, ev) = (&l.t, &pre.ev);
-    let (pr, base) = fetch_pr(ac, &pre.pr_url.repo, pre.pr_url.number)?;
+    let (pr, pr_base) =
+        super::pr_evidence::fetch_pr_based(ac, &pre.pr_url.repo, pre.pr_url.number)?;
     // Rule `protected-path-owner-merge`: the current file list of the PR, before any CI read. A
     // refusal writes nothing (`judge_merge` checks the same facts again).
-    let files = super::pr_evidence::pr_files_for_protection(ac, &pr.repo, pr.number, &t.key())?;
+    let files = super::pr_evidence::pr_files_for_protection(ac, &pr, &pr_base, &t.key())?;
+    let base = pr_base.branch;
     let guard =
         crate::rules::protected::Protect::new(&ac.ctx.cfg.authority, &pre.auth.protected_paths);
     let protected = crate::rules::protected::protected_hits(&files.all(), guard);
