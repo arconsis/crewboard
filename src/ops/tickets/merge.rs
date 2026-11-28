@@ -429,6 +429,20 @@ fn pass_by(t: &Ticket) -> Option<crate::unattended::PassBy> {
     crate::unattended::pass_on_head(&t.msgs, done, &ev, t.issue)
 }
 
+/// Is the headless merge of a prose Gate held (`unattended::held`)? From the comments that
+/// `merge` just read and the verify results that the tick of this config dir noted for the
+/// ticket: no request.
+fn held_by(ac: &AgentCtx, t: &Ticket) -> Option<crate::unattended::Held> {
+    let unverified = crate::ticket::unverified_comments(&t.comments, &t.msgs);
+    let cache = ac.load_cache();
+    let seen = cache
+        .tick
+        .review_results
+        .get(&crate::ops::unattended::floor_key(&t.tref()))
+        .map_or(&[][..], |r| r.ids.as_slice());
+    crate::unattended::held(&t.msgs, &unverified, seen)
+}
+
 fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<MergePre> {
     let t = &l.t;
     // The headless boundary for an open question to the owner, then the verify checks.
@@ -446,16 +460,22 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
     let pass = pass_by(t);
     if headless {
         use crate::headless::MergeJudged;
+        use crate::unattended::PassBy;
         let judged = match (auth.unattended_coordinator.merges(), pass) {
             (false, _) => MergeJudged::ModeOff,
-            (true, None) => MergeJudged::NoPass,
-            (true, Some(_)) => MergeJudged::Pass,
+            // only the judgment of the unattended coordinator: an attended coordinator that
+            // verified merges itself
+            (true, None | Some(PassBy::Attended)) => MergeJudged::NoPass,
+            (true, Some(PassBy::Unattended)) => match held_by(ac, t) {
+                Some(h) => MergeJudged::Held(h.clause(&t.key())),
+                None => MergeJudged::Pass,
+            },
         };
         crate::headless::check_merge_ticket(
             &t.key(),
             crate::ticket::signed_gate(&t.msgs).as_deref(),
             ci_none_declared(&t.msgs, &t.info.body),
-            judged,
+            &judged,
         )?;
     }
     let assignee = t.agent().map(str::to_string).ok_or_else(|| {

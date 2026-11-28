@@ -387,13 +387,38 @@ pub(crate) fn check_ticket(ac: &AgentCtx, act: UAct, t: &Ticket, to: Option<&str
 /// only crewboard writes the stamp. In a headless config dir such a text is refused with
 /// `headless-scope`; an attended agent is not restricted.
 pub(crate) fn check_no_stamp_line(ac: &AgentCtx, text: &str) -> CbResult<()> {
-    if has_unattended_line(text) && ac.ctx.cd.is_headless()? {
-        return Err(crate::headless::unattended_refusal(
-            "the text has a line that starts with `unattended:`; only crewboard writes that line",
-        )
+    let Some(key) = written_by_crewboard_only(text) else {
+        return Ok(());
+    };
+    if ac.ctx.cd.is_headless()? {
+        return Err(crate::headless::unattended_refusal(&format!(
+            "the text has a line that starts with `{key}:`; only crewboard writes that line"
+        ))
         .into());
     }
-    Ok(())
+    Err(Refusal::new(
+        ids::TEXT_READS_AS_ACT,
+        format!(
+            "the text has a line that starts with `{key}:`; only crewboard writes that line (it marks a message of the unattended coordinator, or a merge after its verdict). Write the text without that line; nothing was written"
+        ),
+    )
+    .into())
+}
+
+/// The key of a line of `text` that only crewboard writes: `unattended` (the stamp) or
+/// `verified-by` (the line of a merge notice). Blank space before the key does not hide it.
+fn written_by_crewboard_only(text: &str) -> Option<&'static str> {
+    use crate::protocol::acts::{UNATTENDED_KEY, VERIFIED_BY_KEY};
+    if has_unattended_line(text) {
+        return Some(UNATTENDED_KEY);
+    }
+    text.lines()
+        .any(|l| {
+            l.trim_start()
+                .split_once(':')
+                .is_some_and(|(k, _)| k == VERIFIED_BY_KEY)
+        })
+        .then_some(VERIFIED_BY_KEY)
 }
 
 /// Take the messages `classes` of the budget, under the lock of the state file: read the counts
@@ -532,7 +557,15 @@ pub(crate) fn stamp_body(
     kind: Kind,
     body: &str,
 ) -> CbResult<String> {
-    check_no_stamp_line(ac, body)?;
+    // every signed message of a headless config dir; an attended command checks the text that
+    // a person passed in, and a message that crewboard builds (a merge notice) is not a text
+    // of a person
+    if has_unattended_line(body) && ac.ctx.cd.is_headless()? {
+        return Err(crate::headless::unattended_refusal(
+            "the text has a line that starts with `unattended:`; only crewboard writes that line",
+        )
+        .into());
+    }
     let Some(mut stamp) = ac.stamp.get() else {
         return Ok(body.to_string());
     };
@@ -632,6 +665,22 @@ mod tests {
         assert_eq!(floor_of(&tick, &typed), Some((2, 40)));
         assert_eq!(floor_of(&tick, &lower), Some((2, 40)));
         assert_eq!(floor_of(&tick, &TicketRef::new("acme/widgets", 8)), None);
+    }
+
+    #[test]
+    fn the_keys_that_only_crewboard_writes_are_found_in_a_text() {
+        for (text, key) in [
+            ("fine\nunattended: 1/10", Some("unattended")),
+            ("  unattended: x", Some("unattended")),
+            ("fine\nverified-by: unattended", Some("verified-by")),
+            (" verified-by: me", Some("verified-by")),
+            ("verified-by:", Some("verified-by")),
+            ("it was verified-by: me", None),
+            ("unattended coordinator: mode verify", None),
+            ("", None),
+        ] {
+            assert_eq!(written_by_crewboard_only(text), key, "{text:?}");
+        }
     }
 
     #[test]

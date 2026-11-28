@@ -111,9 +111,16 @@ Added:
   rule. The rule is decided at merge time from `AUTHORITY.md` and the signed log: the latest
   `done` of the signed assignee has a verify result of a coordinator, the latest result for
   that `done` is a pass, and its `sha:` and `head_now:` lines are the SHA of the evidence. The
-  result has a valid line `unattended: <n>/<budget>`, or no such line (the verdict of an
-  attended coordinator). A newer `done`, a failed result, a stop at the round limit, a `done`
-  on the owner route and `CI: none` leave no pass. The mode widens only the check of the kind
+  result has a valid line `unattended: <n>/<budget>`: only the verdict of the unattended
+  coordinator leads to a headless merge, and after the `verify` of an attended coordinator
+  that coordinator merges as before. A newer `done`, a failed result, a stop at the round
+  limit, a `done` on the owner route and `CI: none` leave no pass. The merge is also held when
+  a comment of the ticket has a crew header or was edited and is no verified message, and when
+  a verify result that an earlier tick saw is gone (the tick notes the result ids of such a
+  ticket in its state, `review_results`, in this mode only). The limit: every account with
+  write access can delete a comment, and a failed result that is deleted before the headless
+  config dir saw it cannot be detected; the older pass then merges. Use `ask` or a block to
+  stop a merge, not a failed verify alone. The mode widens only the check of the kind
   of Gate. Every other check of a headless merge stays: `coordinator_may_merge`, a counted CI
   run that is green for the SHA, no protected path and no guarded path (also behind another
   base branch), no open question to the owner, and a PR head that still is the SHA of the
@@ -124,7 +131,9 @@ Added:
   What the owner sees: `start` and `doctor --setup` print one line with the mode and the
   budget that the default branch has now. When the verdicts of a day are used, the tick posts
   one signed `info` to the owner in the registry issue, once per UTC day (the line
-  `event=unattended-budget:<day>` is its key; a host without state finds it there). With
+  `event=unattended-budget:<day>` is its key; a host without state finds it there; only a
+  report of a coordinator counts as the key, for this note and for the deleted-message reports
+  of the tick). With
   `daily_digest: true` the digest gets a part about the unattended coordinator: the stamped
   passes and fails of the UTC day before with their ticket keys, the verdicts used, the
   counts of answers, assignments and questions to the owner, the tickets merged with the line
@@ -137,6 +146,10 @@ Added:
   is the start dir of the model, the tick of that unit runs no checks of a `checks:` Gate
   (`wake install` prints a `note:` line for it), and `--host-lock` and `--shim-dir` are
   refused.
+  Changed: the body of `say`, `unblock`, `ask` and `verify` with a line that starts with
+  `unattended:` or `verified-by:` is refused in every config dir, because only crewboard
+  writes these lines: `text-reads-as-act` in an interactive config dir, `headless-scope` in a
+  headless one. An attended coordinator that typed such a line gets a refusal now.
   Changed: `crewboard wake` in its run form is refused inside a wake (`CREWBOARD_WAKE` is set
   and not empty) with the new id `wake-inside-wake`, exit 2, in every config dir.
   `--print-cmd`, `--print-state-dir` and `wake status` are unchanged.

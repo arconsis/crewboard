@@ -120,7 +120,7 @@ pub fn unattended_summary(a: &Authority) -> String {
         }
         CoordMode::Verify => "merges only a ticket with the Gate `ci`",
         CoordMode::VerifyAndMerge => {
-            "also merges a ticket with a Gate in prose after a passing verify result"
+            "also merges a ticket with a Gate in prose after a passing verify result of the unattended coordinator"
         }
     };
     format!(
@@ -346,7 +346,7 @@ mod tests {
         assert!(m.contains("mode verify-and-merge "), "{m}");
         assert!(
             m.ends_with(
-                "also merges a ticket with a Gate in prose after a passing verify result\n"
+                "also merges a ticket with a Gate in prose after a passing verify result of the unattended coordinator\n"
             ),
             "{m}"
         );

@@ -142,7 +142,7 @@ fn the_command_merge_of_a_headless_dir_follows_the_same_rule_as_the_tick() {
     refused(&o, SCOPE);
     assert!(
         o.stderr
-            .contains("no passing verify result of a coordinator"),
+            .contains("no passing verify result of the unattended coordinator"),
         "{}",
         o.all()
     );
@@ -192,32 +192,155 @@ fn the_mode_verify_and_the_mode_off_merge_no_prose_gate() {
 }
 
 #[test]
-fn an_attended_pass_counts_in_the_merge_mode_and_its_notice_has_no_line() {
-    let h = hub();
-    h.set_authority_extra(MERGE);
-    // the interactive coordinator verifies and leaves the merge
-    let o = h.interactive(&["verify", "5", "--body", "I ran the demo"]);
-    assert_eq!(o.code, 0, "{}", o.all());
-    assert_eq!(stamps_in(&last_comment(&h)), Vec::<&str>::new());
-    let t = tick(&h);
-    assert!(h.merged(), "{}", t.all());
-    let notice = last_comment(&h);
-    assert!(notice.contains(NOTICE), "{notice}");
-    assert!(!is_verified_by_unattended(&notice), "{notice}");
-    // in the mode `verify` the same pass merges nothing
-    let v = hub();
-    v.set_authority_extra(VERIFY);
-    let o = v.interactive(&["verify", "5", "--body", "I ran the demo"]);
-    assert_eq!(o.code, 0, "{}", o.all());
-    let t = tick(&v);
-    assert!(!v.merged(), "{}", t.all());
-    // and a person who merges after a pass of the unattended coordinator gets the line
+fn an_attended_pass_is_merged_by_no_headless_dir_in_any_mode() {
+    for extra in [MERGE, VERIFY, ""] {
+        let h = hub();
+        h.set_authority_extra(extra);
+        // the interactive coordinator verifies and leaves the merge
+        let o = h.interactive(&["verify", "5", "--body", "I ran the demo"]);
+        assert_eq!(o.code, 0, "{}", o.all());
+        assert_eq!(stamps_in(&last_comment(&h)), Vec::<&str>::new());
+        let from = h.writes().len();
+        let o = h.headless_read(&["merge", "5"]);
+        refused(&o, SCOPE);
+        if extra == MERGE {
+            assert!(
+                o.stderr
+                    .contains("no passing verify result of the unattended coordinator"),
+                "{}",
+                o.all()
+            );
+        }
+        let t = tick(&h);
+        assert!(!h.merged(), "{extra:?}: {}", t.all());
+        assert_eq!(merge_calls(&h), 0, "{extra:?}");
+        assert_eq!(h.writes().len(), from, "{extra:?}");
+        assert_eq!(h.status_of_ticket().as_deref(), Some("Review"));
+        // the interactive coordinator merges it, as it always did; its notice has no line
+        let o = h.interactive(&["merge", "5"]);
+        assert_eq!(o.code, 0, "{extra:?}: {}", o.all());
+        assert!(h.merged());
+        let notice = last_comment(&h);
+        assert!(notice.contains(NOTICE), "{notice}");
+        assert!(!is_verified_by_unattended(&notice), "{notice}");
+    }
+    // a person who merges after a pass of the unattended coordinator gets the line
     let p = hub();
     p.set_authority_extra(VERIFY);
     stamped_pass(&p);
     let o = p.interactive(&["merge", "5"]);
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(is_verified_by_unattended(&last_comment(&p)));
+}
+
+/// A failed verify result of the coordinator for the latest `done` of the ticket of the hub.
+fn fail_after(h: &Hub) -> u64 {
+    verdict(h, TICKET, latest_done(h, TICKET), "")
+}
+
+#[test]
+fn an_edited_fail_after_a_stamped_pass_holds_the_headless_merge() {
+    // an edit that takes the crew header away, by another account than the author: an edited
+    // comment that is no verified message
+    let plain = hub();
+    plain.set_authority_extra(MERGE);
+    stamped_pass(&plain);
+    let fail = fail_after(&plain);
+    plain
+        .board
+        .edit_comment_by(fail, "nothing to see", "somebody-else");
+    refused(&plain.headless_read(&["merge", "5"]), SCOPE);
+    let t = tick(&plain);
+    assert!(!plain.merged(), "{}", t.all());
+
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    stamped_pass(&h);
+    let fail = fail_after(&h);
+    // somebody with write access edits the fail and keeps its header: it is no verified
+    // message any more, and the signed log shows the pass as the latest result
+    let text = h.board.comment_body(fail);
+    h.board.edit_comment(fail, &format!("{text}\nmore"));
+    let o = h.headless_read(&["merge", "5"]);
+    refused(&o, SCOPE);
+    assert!(
+        o.stderr
+            .contains(&format!("comment {fail} of {}", key(TICKET))),
+        "{}",
+        o.all()
+    );
+    assert!(o.stderr.contains("is no verified message"), "{}", o.all());
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(merge_calls(&h), 0);
+    assert!(
+        t.stdout.contains(&format!(
+            "left for the interactive coordinator: {}, merge refused: ",
+            key(TICKET)
+        )),
+        "{}",
+        t.all()
+    );
+    // the interactive coordinator reads the ticket and decides
+    let o = h.interactive(&["merge", "5"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+}
+
+#[test]
+fn a_deleted_fail_that_the_tick_saw_holds_the_headless_merge() {
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    stamped_pass(&h);
+    let fail = fail_after(&h);
+    // the tick sees the fail: no merge, and it notes the results of the ticket
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    let seen = StateCache::load(&state_path(&h)).tick.review_results;
+    assert!(seen[&key(TICKET)].ids.contains(&fail), "{seen:?}");
+    h.board.delete_comment(fail);
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(merge_calls(&h), 0);
+    let line = t
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("left for the interactive coordinator: "))
+        .expect("a left line");
+    assert!(
+        line.contains(&format!("(comment {fail}) is gone or was edited")),
+        "{}",
+        t.all()
+    );
+    // the command `merge` gets the same answer, and a later tick too
+    refused(&h.headless_read(&["merge", "5"]), SCOPE);
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+}
+
+/// The residual risk that the docs name: a fail that is deleted before any tick of the headless
+/// dir saw it leaves no trace, and the older stamped pass merges.
+#[test]
+fn a_deleted_fail_that_no_tick_saw_is_not_detected() {
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    stamped_pass(&h);
+    let fail = fail_after(&h);
+    h.board.delete_comment(fail);
+    let t = tick(&h);
+    assert!(h.merged(), "{}", t.all());
+}
+
+#[test]
+fn the_modes_off_and_verify_note_no_results_in_the_state() {
+    for extra in ["", VERIFY] {
+        let h = hub();
+        h.set_authority_extra(extra);
+        stamped_pass(&h);
+        fail_after(&h);
+        tick(&h);
+        let state = std::fs::read_to_string(state_path(&h)).unwrap_or_default();
+        assert!(!state.contains("review_results"), "{extra:?}: {state}");
+    }
 }
 
 /// One reason that must still refuse the merge in the mode `verify-and-merge`.
@@ -335,7 +458,7 @@ fn cases() -> Vec<Case> {
                 done(h, TICKET, "round: 2\n");
             },
             after: nothing,
-            refusal: "no passing verify result of a coordinator",
+            refusal: "no passing verify result of the unattended coordinator",
         },
         Case {
             name: "a moved head",
@@ -360,7 +483,7 @@ fn cases() -> Vec<Case> {
                 done(h, TICKET, "protected-paths: .github/workflows/ci.yml\n");
             },
             after: nothing,
-            refusal: "no passing verify result of a coordinator",
+            refusal: "no passing verify result of the unattended coordinator",
         },
         Case {
             name: "a later done",
@@ -369,7 +492,7 @@ fn cases() -> Vec<Case> {
             after: |h| {
                 done(h, TICKET, "round: 2\n");
             },
-            refusal: "no passing verify result of a coordinator",
+            refusal: "no passing verify result of the unattended coordinator",
         },
         Case {
             name: "a failed result after the pass",
@@ -379,7 +502,7 @@ fn cases() -> Vec<Case> {
                 let d = latest_done(h, TICKET);
                 verdict(h, TICKET, d, "");
             },
-            refusal: "no passing verify result of a coordinator",
+            refusal: "no passing verify result of the unattended coordinator",
         },
     ]
 }
@@ -507,7 +630,7 @@ fn a_gate_of_checks_is_not_merged_in_the_merge_mode() {
     });
     h.set_authority_extra(MERGE);
     let d = latest_done(&h, TICKET);
-    pass_ago(&h, TICKET, d, "", 0);
+    pass_ago(&h, TICKET, d, &format!("{}\n", unattended_line(1, 10)), 0);
     let o = h.headless_read(&["merge", "5"]);
     refused(&o, SCOPE);
     assert!(o.stderr.contains("it is not CI only"), "{}", o.all());
@@ -569,6 +692,68 @@ fn the_tick_tells_the_owner_once_per_day_that_the_verdicts_are_used() {
         StateCache::load(&state_path(&h)).tick.unattended_spent_told,
         Some(crewboard::clock::format_ts(now_epoch())[..10].to_string())
     );
+}
+
+#[test]
+fn a_dev_agent_that_posts_the_key_does_not_keep_the_note_from_the_owner() {
+    settle_day();
+    let h = hub();
+    h.set_authority_extra("unattended_coordinator: verify\nunattended_budget: 1\n");
+    let day = crewboard::clock::format_ts(now_epoch())[..10].to_string();
+    h.board.signed_now(
+        &h.dev.key,
+        &h.dev.name,
+        "owner",
+        Kind::Info,
+        REGISTRY,
+        &format!("told already\nevent=unattended-budget:{day}\n"),
+    );
+    let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    let t = tick(&h);
+    assert!(t.stdout.contains("told the owner: "), "{}", t.all());
+    let notes: Vec<String> = spent_notes(&h)
+        .into_iter()
+        .filter(|b| b.contains("The unattended coordinator used its verdicts of "))
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+}
+
+#[test]
+fn a_line_that_only_crewboard_writes_is_refused_in_an_interactive_dir_too() {
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    let dev_name = h.dev.name.clone();
+    for text in [
+        "fine\nunattended: 9/10",
+        "fine\nverified-by: unattended",
+        "  verified-by: me",
+    ] {
+        for argv in [
+            vec!["verify", "5", "--body", text],
+            vec![
+                "say", "5", "--to", &dev_name, "--kind", "answer", "--body", text,
+            ],
+            vec!["ask", "5", "--body", text],
+        ] {
+            let o = h.interactive(&argv);
+            refused(&o, "[rule=text-reads-as-act]");
+            assert!(
+                o.stderr.contains("only crewboard writes that line"),
+                "{argv:?}: {}",
+                o.all()
+            );
+        }
+        // a headless dir refuses the same text with the rule of its scope
+        let o = h.headless_read(&["verify", "5", "--body", text]);
+        refused(&o, SCOPE);
+    }
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
+    // the merge notice that crewboard writes itself is posted
+    stamped_pass(&h);
+    let o = h.interactive(&["merge", "5"]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(is_verified_by_unattended(&last_comment(&h)));
 }
 
 /// The seconds since a time of the UTC day before today, one hour before its end.

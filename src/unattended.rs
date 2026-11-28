@@ -700,8 +700,11 @@ pub enum PassBy {
     Attended,
 }
 
-/// The passing verify result of the latest `done` that a headless merge of a prose Gate may
-/// rely on (spec/agents#unattended-coordinator, the merge mode), or `None`.
+/// The passing verify result of the latest `done` of a ticket, bound to the head of its
+/// evidence, or `None`. A headless merge of a prose Gate relies on it only when it is
+/// [`PassBy::Unattended`] (spec/agents#unattended-coordinator, the merge mode): the owner
+/// allowed a merge after the judgment of the unattended coordinator, and the verify result of
+/// an attended coordinator is merged by that coordinator or by a person.
 ///
 /// `done` and `ev` are the latest `done` of the signed assignee and its evidence
 /// ([`crate::ticket::latest_done`]). The result is the LATEST verify result of a coordinator
@@ -737,6 +740,59 @@ pub fn pass_on_head(
     unattended_of(&m.body).map(|_| PassBy::Unattended)
 }
 
+/// Why a headless merge of a prose Gate is held although the signed log has a pass: the log
+/// that the command read may miss a message that would end the pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Held {
+    /// A comment of the ticket has a crew header, or was edited, and is no verified message: a
+    /// failed verify result or a stop that somebody edited looks like this.
+    Unverified(u64),
+    /// A verify result of a coordinator that an earlier tick of this config dir saw is not
+    /// among the verified messages any more: it was deleted or edited.
+    Gone(u64),
+}
+
+impl Held {
+    /// The clause of the refusal.
+    pub fn clause(&self, key: &str) -> String {
+        match self {
+            Held::Unverified(id) => format!(
+                "comment {id} of {key} has a crew header or was edited, and it is no verified message: it can be a failed verify result or a stop that somebody changed, so the signed log proves no pass"
+            ),
+            Held::Gone(id) => format!(
+                "a verify result of a coordinator on {key} that an earlier tick saw (comment {id}) is gone or was edited, so the signed log proves no pass"
+            ),
+        }
+    }
+}
+
+/// The ids of the verify results of coordinators in the signed log, in comment order: what the
+/// headless tick remembers per ticket ([`held`]). A stop at the round limit is such a result
+/// (its `case:` line).
+pub fn result_ids(msgs: &[VMsg]) -> Vec<u64> {
+    msgs.iter()
+        .filter(|m| {
+            is_coordinator(m)
+                && m.kind == Some(Kind::Report)
+                && matches!(m.act(), Act::Verify { .. })
+        })
+        .map(|m| m.comment_id)
+        .collect()
+}
+
+/// Is the headless merge of a prose Gate held? `unverified`: [`crate::ticket::unverified_comments`]
+/// of the comments that the command read. `seen`: the result ids that the tick of this config
+/// dir noted for the ticket at earlier runs.
+pub fn held(msgs: &[VMsg], unverified: &[u64], seen: &[u64]) -> Option<Held> {
+    if let Some(id) = unverified.first() {
+        return Some(Held::Unverified(*id));
+    }
+    let now = result_ids(msgs);
+    seen.iter()
+        .find(|id| !now.contains(id))
+        .map(|id| Held::Gone(*id))
+}
+
 /// What the stamped messages of one UTC day say, for the daily digest
 /// (spec/agents#headless-coordinator, 8a). Ticket keys and counts only: no text of a message.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -754,9 +810,12 @@ pub struct DayReport {
     /// The tickets that a coordinator merged with the line `verified-by: unattended`.
     pub merged: Vec<String>,
     /// The verdicts that the day used ([`used`] without a floor of the state), and the budget
-    /// of the last valid `unattended:` line of the day.
+    /// of the valid `unattended:` line of the latest message of the day (by the time of GitHub,
+    /// then by the comment id), whatever the order of the tickets is.
     pub used: u32,
     pub budget: Option<u32>,
+    /// The time and the comment id of the message that `budget` comes from.
+    pub budget_at: (i64, u64),
     /// The count behind `used` and `asks`.
     pub count: DayCount,
 }
@@ -781,8 +840,11 @@ impl DayReport {
             if !has_unattended_line(&m.body) {
                 continue;
             }
-            if let Some((_, budget)) = unattended_of(&m.body) {
+            if let Some((_, budget)) = unattended_of(&m.body)
+                && (self.budget.is_none() || (m.created, m.comment_id) >= self.budget_at)
+            {
                 self.budget = Some(budget);
+                self.budget_at = (m.created, m.comment_id);
             }
             match m.act() {
                 Act::Verify { pass: true } => self.passed.push(key.to_string()),
@@ -1041,6 +1103,30 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_is_held_for_an_unverified_comment_and_for_a_result_that_is_gone() {
+        let log = vec![
+            assignment(1, PROSE),
+            done(2, ""),
+            pass_on(3, 2, "abc", &stamp(1)),
+            verdict(4, 2, false, ""),
+            // a report of the dev agent is no result
+            dev(5, COORD, Kind::Report, "verify: fail\n"),
+        ];
+        assert_eq!(result_ids(&log), [3, 4]);
+        assert_eq!(held(&log, &[], &[]), None);
+        assert_eq!(held(&log, &[], &[3, 4]), None);
+        assert_eq!(held(&log, &[9, 12], &[3, 4]), Some(Held::Unverified(9)));
+        // the fail that a tick saw is not in the log any more
+        assert_eq!(held(&log[..3], &[], &[3, 4]), Some(Held::Gone(4)));
+        assert!(Held::Gone(4).clause("a/b#5").contains("comment 4"));
+        assert!(
+            Held::Unverified(9)
+                .clause("a/b#5")
+                .contains("comment 9 of a/b#5")
+        );
+    }
+
+    #[test]
     fn the_report_of_a_day_counts_the_stamped_messages_of_coordinators_inside_the_day() {
         let at = |m: VMsg, created: i64| VMsg { created, ..m };
         let (start, end) = (1_000_000, 1_086_400);
@@ -1114,6 +1200,21 @@ mod tests {
         );
         assert_eq!(r.passed, ["a/b#5", "a/b#6"]);
         assert_eq!(r.used, 3);
+        // the budget is the one of the latest message of the day, in every order of the tickets
+        let early = at(
+            pass_on(20, 9, "abc", &format!("{}\n", unattended_line(1, 4))),
+            start + 100,
+        );
+        let late = at(
+            pass_on(21, 9, "abc", &format!("{}\n", unattended_line(2, 7))),
+            start + 200,
+        );
+        for order in [[&early, &late], [&late, &early]] {
+            let mut r = DayReport::default();
+            r.add("a/b#7", std::slice::from_ref(order[0]), start, end);
+            r.add("a/b#8", std::slice::from_ref(order[1]), start, end);
+            assert_eq!(r.budget, Some(7));
+        }
         // a day without a stamped message
         let mut none = DayReport::default();
         none.add("a/b#5", &msgs[8..10], start, end);

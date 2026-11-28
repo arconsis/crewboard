@@ -104,6 +104,24 @@ pub fn verified_messages(comments: &[Comment], cfg: &BoardConfig, trust: &Trust)
     out
 }
 
+/// The comments of a ticket that say nothing a reader can trust and that may hide a signed
+/// message: a comment with a crew header that is no verified message (`msgs`, from
+/// [`verified_messages`] over the same comments), and a comment that was edited and is no
+/// verified message. An edit can take the header away, so the header alone does not find an
+/// edited message. An owner comment that only the owner edited is a verified message and is not
+/// listed. The ids, in comment order. Pure.
+pub fn unverified_comments(comments: &[Comment], msgs: &[VMsg]) -> Vec<u64> {
+    let verified: HashSet<u64> = msgs.iter().map(|m| m.comment_id).collect();
+    let mut ids: Vec<u64> = comments
+        .iter()
+        .filter(|c| !verified.contains(&c.id))
+        .filter(|c| c.body.starts_with(CREW_PREFIX) || c.edited())
+        .map(|c| c.id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
 /// Signed messages that are valid in every way but the replay window (`TooOld` or `FromFuture`):
 /// not edited, from an agent trusted at that comment, by the account that the approval bound to
 /// it, with a signature that verifies, and no copy: no earlier comment of the list carries the

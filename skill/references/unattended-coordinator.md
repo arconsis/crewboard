@@ -60,5 +60,8 @@ ticket of the list can be refused. That is an answer, not an error.
   is in the PR. So a pass can end in a merge that no person reads. Pass only what you checked
   at the SHA of the `done`, and fail or leave the ticket when you are not sure. In the mode
   `verify` a person merges after your pass.
+- You doubt an earlier pass on a ticket: `crewboard ask <ticket> --body "<question>"`. A
+  question to the owner stops the merge. A failed verify alone can be deleted by an account
+  with write access.
 - `ask` puts the ticket in front of the owner and stops the automatic work on it. Use it for
   a decision that only the owner can make. The day has 5 questions.

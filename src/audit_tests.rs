@@ -411,6 +411,19 @@ fn reported_events_come_from_info_messages_to_the_owner_only() {
     assert!(got.contains(&event_key("a/b", 2, 13, "bad-signature")));
     // a key without a repo stays as it is
     assert!(got.contains("claude@a/state:left"));
+    // the reader of the tick takes the reports of coordinators only
+    let by_dev = m(
+        6,
+        sender("d@x", Role::Dev),
+        "owner",
+        Kind::Info,
+        "event=unattended-budget:2026-11-28\n",
+    );
+    let all = [msgs.clone(), vec![by_dev.clone()]].concat();
+    assert!(reported_events(&all, &[]).contains("unattended-budget:2026-11-28"));
+    let strict = reported_by_coordinators(&all, std::slice::from_ref(&by_dev));
+    assert_eq!(strict.len(), 3, "{strict:?}");
+    assert!(!strict.contains("unattended-budget:2026-11-28"));
 }
 
 #[test]

@@ -294,6 +294,38 @@ pub struct TickState {
     /// that the tick has read anyway, not a second note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattended_spent_told: Option<String>,
+    /// `<repo>#<issue>` -> the verify results of coordinators that the tick saw on a Review
+    /// ticket with a Gate in prose, in the mode `verify-and-merge`. A result that is gone at a
+    /// later run (deleted or edited) holds the headless merge of the ticket.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub review_results: BTreeMap<String, SeenResults>,
+}
+
+/// The verify results that the tick saw on one ticket ([`TickState::review_results`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SeenResults {
+    /// The comment ids, at most [`MAX_SEEN_RESULTS`] (the newest).
+    pub ids: Vec<u64>,
+    /// When the tick last saw the ticket in Review (Unix seconds). An entry that is older than
+    /// [`NOTE_KEEP_SECS`] is forgotten: the ticket left Review long ago.
+    pub at: i64,
+}
+
+/// How many result ids the tick keeps per ticket.
+pub const MAX_SEEN_RESULTS: usize = 20;
+
+impl SeenResults {
+    /// These ids with `more`: no id twice, in rising order, the newest [`MAX_SEEN_RESULTS`].
+    pub fn with(&self, more: &[u64], at: i64) -> SeenResults {
+        let mut ids: Vec<u64> = self.ids.iter().chain(more).copied().collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let cut = ids.len().saturating_sub(MAX_SEEN_RESULTS);
+        SeenResults {
+            ids: ids.split_off(cut),
+            at: self.at.max(at),
+        }
+    }
 }
 
 /// A floor of the unattended verdicts on one ticket ([`TickState::unattended_tickets`]).
@@ -346,6 +378,16 @@ impl TickState {
     /// the one that was noted at the higher comment id, and the higher count of one id. The memo
     /// of a feed: the later day, and the higher counts of one day.
     pub(crate) fn merge_unattended(&mut self, disk: &TickState) {
+        // the results that a concurrent writer noted stay: an id is never taken away by a save
+        // of an older copy. An entry that is too old is not taken from the file again.
+        let keep_from = crate::clock::now_epoch() - NOTE_KEEP_SECS;
+        for (key, d) in disk.review_results.iter().filter(|(_, d)| d.at > keep_from) {
+            let merged = match self.review_results.get(key) {
+                Some(mine) => mine.with(&d.ids, d.at),
+                None => d.clone(),
+            };
+            self.review_results.insert(key.clone(), merged);
+        }
         for (mine, theirs) in [
             (&mut self.unattended_floor, &disk.unattended_floor),
             (
@@ -956,6 +998,63 @@ mod tests {
             after,
             at: 1,
         }
+    }
+
+    #[test]
+    fn the_results_that_a_tick_saw_stay_through_a_stale_save_and_are_left_out_when_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let now = crate::clock::now_epoch();
+        let mut stale = StateCache::load(&p);
+        stale.save(&p).unwrap();
+        assert!(
+            !std::fs::read_to_string(&p)
+                .unwrap()
+                .contains("review_results"),
+            "an empty map is not written"
+        );
+        StateCache::update_locked(&p, |c| {
+            c.tick.review_results.insert(
+                "a/b#5".into(),
+                SeenResults {
+                    ids: vec![3, 4],
+                    at: now,
+                },
+            );
+            c.tick.review_results.insert(
+                "a/b#6".into(),
+                SeenResults {
+                    ids: vec![9],
+                    at: now - NOTE_KEEP_SECS - 10,
+                },
+            );
+            Ok(())
+        })
+        .unwrap();
+        // a copy that knows one id of #5, and none of the other ticket
+        stale.tick.review_results.insert(
+            "a/b#5".into(),
+            SeenResults {
+                ids: vec![4, 7],
+                at: now - 5,
+            },
+        );
+        stale.save(&p).unwrap();
+        let got = StateCache::load(&p).tick.review_results;
+        assert_eq!(
+            got["a/b#5"],
+            SeenResults {
+                ids: vec![3, 4, 7],
+                at: now
+            }
+        );
+        // an entry that is too old is not taken from the file again
+        assert!(!got.contains_key("a/b#6"));
+        // the newest ids stay when a ticket has many
+        let many: Vec<u64> = (1..=30).collect();
+        let kept = SeenResults::default().with(&many, 1);
+        assert_eq!(kept.ids.len(), MAX_SEEN_RESULTS);
+        assert_eq!(kept.ids.first(), Some(&11));
     }
 
     #[test]

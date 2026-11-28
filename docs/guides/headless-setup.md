@@ -256,9 +256,18 @@ What it means: the tick after a passing verify result merges the PR of a ticket 
 prose. The merge needs `coordinator_may_merge: true`, a counted CI run that is green for the
 SHA of the `done`, no protected path and no guarded path in the PR, no open question to you,
 and a PR head that is still that SHA. A push after the verdict, a new `done`, a failed result
-and a stop at the round limit all end the pass. The verify result of your interactive
-coordinator counts as the one of the model does. A ticket with `CI: none`, a local gate or a
+and a stop at the round limit all end the pass. Only the verify result of the model counts
+here: after a `verify` of your interactive coordinator nothing is merged by the tick, and that
+coordinator runs `merge` itself. A ticket with `CI: none`, a local gate or a
 `Gate: checks: ...` is not merged this way.
+
+One limit of "a failed result ends the pass": GitHub lets every account with write access
+delete or edit the comments of others, and the agent accounts have write access. The tick
+holds the merge when a comment of the ticket was edited, and when a verify result that it saw
+is gone. A failed result that is deleted before the tick saw it cannot be detected, and the
+older pass then merges. So when you or your interactive coordinator disagree with a pass of
+the model, do not only post a failed verify: run `crewboard ask <ticket> --body "..."` or block
+the ticket. A question to the owner stops the merge until you answer.
 
 What stays with you: every PR that changes a protected path, every ticket with a question to
 you or a stop at the round limit, the first assignment of a ticket, and the key itself. No

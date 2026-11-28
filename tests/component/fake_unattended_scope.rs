@@ -975,10 +975,7 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
                 5,
                 vec!["verify", "5", "--fail", "--body", "the demo does not run"],
             ),
-            (
-                6,
-                answer("6", &dev_name, "Use the test key.\nunattended: 9/10"),
-            ),
+            (6, answer("6", &dev_name, "Use the test key.")),
             (6, vec!["unblock", "6"]),
             (6, vec!["ask", "6", "--body", "May it go?"]),
             // the interactive coordinator withdraws a question to the owner
@@ -997,15 +994,10 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
             let o = h.interactive(argv);
             assert_eq!(o.code, 0, "{extra:?} {argv:?}: {}", o.all());
             let (_, _, body) = h.board.comments_of(*n).pop().unwrap();
-            // no stamp of crewboard; the line that the person typed stays as typed
-            let typed = argv.iter().any(|a| a.contains("unattended: 9/10"));
+            // no stamp of crewboard
             assert_eq!(
                 stamps_in(&body),
-                if typed {
-                    vec!["unattended: 9/10".to_string()]
-                } else {
-                    Vec::new()
-                },
+                Vec::<String>::new(),
                 "{extra:?} {argv:?}: {body}"
             );
         }

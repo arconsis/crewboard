@@ -261,13 +261,17 @@ impl Gate {
 /// What the merge mode of the unattended coordinator says about one ticket
 /// (spec/agents#unattended-coordinator). The caller decides it from AUTHORITY.md and the signed
 /// log at merge time (`unattended::pass_on_head`), never from a list or a board field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeJudged {
     /// `unattended_coordinator` is not `verify-and-merge`: only a Gate `ci` is merged.
     ModeOff,
-    /// The mode is `verify-and-merge`, and the latest `done` has no passing verify result of a
-    /// coordinator for the head of its evidence.
+    /// The mode is `verify-and-merge`, and the latest `done` has no passing verify result of
+    /// the unattended coordinator for the head of its evidence. A passing result of an attended
+    /// coordinator is no such result: that coordinator or a person merges after it.
     NoPass,
+    /// The mode is `verify-and-merge` and the signed log has such a result, but the log may miss
+    /// a message that ends it. The clause says why (`unattended::Held`).
+    Held(String),
     /// The mode is `verify-and-merge`, and the latest `done` has such a result.
     Pass,
 }
@@ -284,7 +288,7 @@ pub fn check_merge_ticket(
     key: &str,
     signed: Option<&str>,
     ci_none: bool,
-    judged: MergeJudged,
+    judged: &MergeJudged,
 ) -> Result<(), Refusal> {
     let Some(gate) = signed else {
         return Err(Refusal::new(
@@ -299,7 +303,7 @@ pub fn check_merge_ticket(
     if ci_only && !ci_none {
         return Ok(());
     }
-    if matches!(parsed, Gate::Text(_)) && judged != MergeJudged::ModeOff {
+    if matches!(parsed, Gate::Text(_)) && *judged != MergeJudged::ModeOff {
         if ci_none {
             return Err(Refusal::new(
                 ids::HEADLESS_SCOPE,
@@ -308,15 +312,21 @@ pub fn check_merge_ticket(
                 ),
             ));
         }
-        if judged == MergeJudged::Pass {
-            return Ok(());
-        }
-        return Err(Refusal::new(
-            ids::HEADLESS_SCOPE,
-            format!(
-                "this config is headless: the Gate of {key} is not CI only, and its latest done has no passing verify result of a coordinator for the SHA of its evidence (a later done, a failed result, a stop at the round limit or a result for another head leaves none). `unattended_coordinator: verify-and-merge` merges such a ticket only after that result. Leave the merge for the interactive coordinator and note it"
-            ),
-        ));
+        return match judged {
+            MergeJudged::Pass => Ok(()),
+            MergeJudged::Held(why) => Err(Refusal::new(
+                ids::HEADLESS_SCOPE,
+                format!(
+                    "this config is headless: the Gate of {key} is not CI only, and {why}. The interactive coordinator reads the ticket and merges it; leave the merge and note it"
+                ),
+            )),
+            _ => Err(Refusal::new(
+                ids::HEADLESS_SCOPE,
+                format!(
+                    "this config is headless: the Gate of {key} is not CI only, and its latest done has no passing verify result of the unattended coordinator for the SHA of its evidence (a later done, a failed result, a stop at the round limit, a result for another head or a result without the line `unattended:` leaves none). `unattended_coordinator: verify-and-merge` merges such a ticket only after that result; after a verify of an attended coordinator, that coordinator merges. Leave the merge for the interactive coordinator and note it"
+                ),
+            )),
+        };
     }
     let why = if ci_none && ci_only {
         format!("the ticket {key} declares `CI: none`: it is not CI only")
@@ -483,17 +493,17 @@ mod tests {
 
     #[test]
     fn a_ticket_that_declares_ci_none_is_not_ci_only() {
-        assert!(check_merge_ticket("o/r#1", Some("ci"), false, OFF).is_ok());
-        assert!(check_merge_ticket("o/r#1", Some("ci"), true, OFF).is_err());
-        let r = check_merge_ticket("o/r#1", Some("ci"), true, OFF).unwrap_err();
+        assert!(check_merge_ticket("o/r#1", Some("ci"), false, &OFF).is_ok());
+        assert!(check_merge_ticket("o/r#1", Some("ci"), true, &OFF).is_err());
+        let r = check_merge_ticket("o/r#1", Some("ci"), true, &OFF).unwrap_err();
         assert_eq!(r.rule, "headless-scope");
         assert!(r.message.contains("CI: none"), "{}", r.message);
     }
 
     #[test]
     fn merge_refusal_names_the_signed_gate_or_its_absence() {
-        assert!(check_merge_ticket("o/r#1", Some("ci"), false, OFF).is_ok());
-        let r = check_merge_ticket("o/r#1", Some("demo by hand"), false, OFF).unwrap_err();
+        assert!(check_merge_ticket("o/r#1", Some("ci"), false, &OFF).is_ok());
+        let r = check_merge_ticket("o/r#1", Some("demo by hand"), false, &OFF).unwrap_err();
         assert_eq!(r.rule, "headless-scope");
         assert!(
             r.message
@@ -501,7 +511,7 @@ mod tests {
             "{}",
             r.message
         );
-        let r = check_merge_ticket("o/r#1", None, false, OFF).unwrap_err();
+        let r = check_merge_ticket("o/r#1", None, false, &OFF).unwrap_err();
         assert_eq!(r.rule, "headless-scope");
         assert!(
             r.message
@@ -513,9 +523,9 @@ mod tests {
 
     #[test]
     fn the_merge_mode_widens_the_check_for_a_prose_gate_with_a_pass_and_for_nothing_else() {
-        use MergeJudged::{NoPass, Pass};
+        use MergeJudged::{Held, NoPass, Pass};
         let rule = |gate: Option<&str>, ci_none: bool, j: MergeJudged| {
-            check_merge_ticket("o/r#1", gate, ci_none, j).map_err(|r| {
+            check_merge_ticket("o/r#1", gate, ci_none, &j).map_err(|r| {
                 assert_eq!(r.rule, ids::HEADLESS_SCOPE);
                 r.message
             })
@@ -525,9 +535,22 @@ mod tests {
         // no pass, and the mode off with a pass that the caller did not even look for
         let e = rule(Some("the demo runs"), false, NoPass).unwrap_err();
         assert!(
-            e.contains("no passing verify result of a coordinator"),
+            e.contains("no passing verify result of the unattended coordinator"),
             "{e}"
         );
+        // a log that may miss a message: the clause of the caller, and the way out
+        let e = rule(
+            Some("the demo runs"),
+            false,
+            MergeJudged::Held("comment 9 is odd".into()),
+        )
+        .unwrap_err();
+        assert!(e.contains("comment 9 is odd"), "{e}");
+        assert!(
+            e.contains("The interactive coordinator reads the ticket"),
+            "{e}"
+        );
+        assert!(rule(Some("checks: ara"), false, MergeJudged::Held("x".into())).is_err());
         let e = rule(Some("the demo runs"), false, OFF).unwrap_err();
         assert!(e.contains("it is not CI only"), "{e}");
         // `CI: none`, a Gate of checks and no signed gate stay refused with a pass
@@ -538,8 +561,8 @@ mod tests {
         let e = rule(None, false, Pass).unwrap_err();
         assert!(e.contains("no signed gate line"), "{e}");
         // a Gate `ci` needs no pass, and `CI: none` refuses it in every mode
-        for j in [OFF, NoPass, Pass] {
-            assert_eq!(rule(Some("ci"), false, j), Ok(()));
+        for j in [OFF, NoPass, Pass, Held("x".into())] {
+            assert_eq!(rule(Some("ci"), false, j.clone()), Ok(()));
             assert!(rule(Some("ci"), true, j).is_err());
         }
     }
