@@ -1019,18 +1019,15 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
 }
 
 #[test]
-fn the_other_mode_acts_as_verify_and_merges_no_prose_gate() {
+fn the_other_mode_judges_as_verify_does() {
     let h = hub();
     h.set_authority_extra("unattended_coordinator: verify-and-merge\n");
     let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
     passed(&o);
     assert_eq!(stamps_of_last(&h, TICKET), [unattended_line(1, 10)]);
-    // the merge of a ticket whose Gate is not `ci` stays with the interactive coordinator
-    let o = h.headless_read(&["merge", "5"]);
-    refused(&o, SCOPE);
+    // the verdict itself merges nothing: the tick does, after it (`fake_unattended_merge`)
     assert!(!h.merged());
-    let t = tick(&h);
-    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(h.status_of_ticket().as_deref(), Some("Review"));
 }
 
 #[test]
@@ -1468,7 +1465,13 @@ fn a_post_that_fails_after_the_reservation_keeps_the_count() {
     let state = StateCache::load(&state_path(&h));
     assert_eq!(state.tick.unattended_floor.map(|f| f.1), Some(1));
     let t = tick(&h);
-    assert_eq!(coord_lines(&t), [count_text("verify", 1, 1)], "{}", t.all());
+    // the count line, then the line of the note that tells the owner of the used budget
+    assert_eq!(
+        coord_lines(&t)[0],
+        count_text("verify", 1, 1),
+        "{}",
+        t.all()
+    );
     let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
     refused(&o, BUDGET);
     assert!(o.stderr.contains("1 of its 1 verdicts"), "{}", o.all());

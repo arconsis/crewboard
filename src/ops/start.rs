@@ -69,6 +69,7 @@ pub fn check_authority(ctx: &Ctx) -> CbResult<AuthorityCheck> {
                 None => {}
             }
             out.push_str(&authority_summary(&a));
+            out.push_str(&unattended_summary(&a));
             out.push_str(&authority_keys_line(&ctx.cfg.authority));
             out.push_str(&merge_advice_warning(&a, &ctx.cfg.authority));
         }
@@ -104,6 +105,28 @@ pub fn authority_summary(a: &Authority) -> String {
         a.branch_prefix(),
         a.protected.join(", "),
         a.needs_owner.join(", ")
+    )
+}
+
+/// The line of `start` and of `doctor --setup` about the unattended coordinator
+/// (spec/agents#unattended-coordinator): the mode and the budget of the file as it is on the
+/// default branch now. The line of a model wake in `doctor --setup` names the mode of the last
+/// model wake; this one is the mode that decides the next command.
+pub fn unattended_summary(a: &Authority) -> String {
+    use crate::authority::CoordMode;
+    let merge = match a.unattended_coordinator {
+        CoordMode::Off => {
+            return "unattended coordinator: off (unattended_coordinator); a headless config dir makes no judgment and merges only a ticket with the Gate `ci`\n".to_string();
+        }
+        CoordMode::Verify => "merges only a ticket with the Gate `ci`",
+        CoordMode::VerifyAndMerge => {
+            "also merges a ticket with a Gate in prose after a passing verify result"
+        }
+    };
+    format!(
+        "unattended coordinator: mode {} (unattended_coordinator), {} verdicts per UTC day (unattended_budget); a headless config dir judges inside that budget and {merge}\n",
+        a.unattended_coordinator.as_str(),
+        a.unattended_budget
     )
 }
 
@@ -299,6 +322,38 @@ pub fn run(ac: &AgentCtx) -> CbResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_line_of_the_unattended_coordinator_names_the_live_mode_and_the_budget() {
+        use crate::authority::CoordMode;
+        let mut a = Authority::default();
+        let off = unattended_summary(&a);
+        assert!(off.starts_with("unattended coordinator: off "), "{off}");
+        assert!(off.contains("makes no judgment"), "{off}");
+        a.unattended_coordinator = CoordMode::Verify;
+        a.unattended_budget = 4;
+        let v = unattended_summary(&a);
+        assert!(
+            v.starts_with("unattended coordinator: mode verify (unattended_coordinator), 4 verdicts per UTC day"),
+            "{v}"
+        );
+        assert!(
+            v.ends_with("merges only a ticket with the Gate `ci`\n"),
+            "{v}"
+        );
+        a.unattended_coordinator = CoordMode::VerifyAndMerge;
+        let m = unattended_summary(&a);
+        assert!(m.contains("mode verify-and-merge "), "{m}");
+        assert!(
+            m.ends_with(
+                "also merges a ticket with a Gate in prose after a passing verify result\n"
+            ),
+            "{m}"
+        );
+        for line in [off, v, m] {
+            assert_eq!(line.lines().count(), 1, "{line}");
+        }
+    }
 
     #[test]
     fn the_owner_key_note_names_owner_login_as_the_one_source() {

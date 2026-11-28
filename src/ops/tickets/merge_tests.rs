@@ -811,7 +811,30 @@ fn step_facts<'a>(
         head_repo,
         labelled_needs_owner: false,
         question_open: false,
+        unattended_pass: false,
     }
+}
+
+#[test]
+fn the_notice_after_a_pass_of_the_unattended_coordinator_says_so_in_its_last_line() {
+    let auth = allowed();
+    let ev = evidence("https://github.com/a/b/actions/runs/1");
+    let mut f = step_facts(&auth, &ev, "crew/hermes@b/12-fix-it", Some("a/b"));
+    f.unattended_pass = true;
+    let body = merge_steps(&f).notice_body("abc123");
+    assert_eq!(
+        body,
+        format!(
+            "Merged by the coordinator.\npr: {PR_URL}\nsha: {SHA}\nmethod: squash\nmerge-commit: abc123\nbranch: crew/hermes@b/12-fix-it\nverified-by: unattended"
+        )
+    );
+    // the notice is a merge notice as any other, and it is no stamped message
+    assert!(matches!(
+        crate::protocol::acts::parse(Some(Kind::Info), &body),
+        crate::protocol::acts::Act::Closed(crate::protocol::acts::CloseKind::Merged)
+    ));
+    assert!(crate::protocol::acts::is_verified_by_unattended(&body));
+    assert!(!crate::protocol::acts::has_unattended_line(&body));
 }
 
 #[test]

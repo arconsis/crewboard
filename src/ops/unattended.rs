@@ -145,6 +145,51 @@ fn load_day(ac: &AgentCtx, world: &World, now: i64, cache: &mut StateCache) -> C
     })
 }
 
+/// What the stamped messages of the UTC day `[start, end)` say, for the daily digest: one read
+/// of the comment feed per repo of the initiative, from `start`. The read has no memo: the
+/// digest asks once per day, for a day that is over. Only verified messages of a coordinator
+/// count.
+pub(crate) fn load_day_report(
+    ac: &AgentCtx,
+    world: &World,
+    start: i64,
+    end: i64,
+) -> CbResult<crate::unattended::DayReport> {
+    let cfg = &ac.ctx.cfg;
+    let mut report = crate::unattended::DayReport::default();
+    for repo in &cfg.repos {
+        let Some(feed) = crate::feed::feed_since_unresolved(&ac.ctx.client, repo, start, None)?
+        else {
+            continue;
+        };
+        let mut by_issue: BTreeMap<u64, Vec<Comment>> = BTreeMap::new();
+        for c in feed.comments {
+            by_issue.entry(c.issue).or_default().push(c);
+        }
+        for (issue, comments) in &by_issue {
+            let msgs = verified_messages(comments, cfg, &world.trust);
+            report.add(&TicketRef::new(repo, *issue).to_string(), &msgs, start, end);
+        }
+    }
+    Ok(report)
+}
+
+/// The key (`event=` line) of the note to the owner that the verdicts of the UTC day `day` are
+/// used. It has no `#`, so no reader takes a part of it for a repo.
+pub(crate) fn budget_spent_key(day: &str) -> String {
+    format!("unattended-budget:{day}")
+}
+
+/// The text of that note. No line of it starts with the key of the protocol line
+/// (`unattended:`): the note is a fact that the tick posts, no message of the unattended
+/// coordinator, and it counts for no budget.
+pub(crate) fn budget_spent_body(day: &str, used: u32, budget: u32, authority: &str) -> String {
+    format!(
+        "The unattended coordinator used its verdicts of {day} (UTC): {used} of {budget}.\nevent={}\nIt gives no verify result before 00:00 UTC. The tickets that still need a judgment are in the output of `crewboard tick`; the interactive coordinator can take them now. For more verdicts per day, raise `unattended_budget` in {authority} on the default branch.\n",
+        budget_spent_key(day)
+    )
+}
+
 /// A count of the state that is of a later day than `today` refuses the command: the clock of
 /// this host went back, or it was ahead when the count was noted. With such a clock a count of
 /// "today" would start at 0 again, so nothing is counted and nothing is posted until the day of
@@ -587,6 +632,24 @@ mod tests {
         assert_eq!(floor_of(&tick, &typed), Some((2, 40)));
         assert_eq!(floor_of(&tick, &lower), Some((2, 40)));
         assert_eq!(floor_of(&tick, &TicketRef::new("acme/widgets", 8)), None);
+    }
+
+    #[test]
+    fn the_note_of_a_spent_budget_has_its_key_and_no_line_of_the_protocol_key() {
+        let body = budget_spent_body("2026-11-28", 10, 10, "AUTHORITY.md");
+        assert!(
+            body.lines()
+                .any(|l| l == "event=unattended-budget:2026-11-28"),
+            "{body}"
+        );
+        assert!(body.starts_with(
+            "The unattended coordinator used its verdicts of 2026-11-28 (UTC): 10 of 10.\n"
+        ));
+        assert!(!has_unattended_line(&body), "{body}");
+        assert_ne!(
+            budget_spent_key("2026-11-28"),
+            budget_spent_key("2026-11-29")
+        );
     }
 
     #[test]

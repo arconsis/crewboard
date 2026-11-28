@@ -52,6 +52,10 @@ struct Pr {
     failing_writes: Vec<(String, u16)>,
     /// GitHub reports the repo as [`MIXED`].
     mixed_case: bool,
+    /// The CI run of the head SHA is still in progress.
+    ci_pending: bool,
+    /// The head of the PR, when a push moved it from [`SHA`].
+    head: Option<String>,
 }
 
 pub struct Hub {
@@ -175,7 +179,8 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
             ok(json!({
                 "number": PR, "state": if merged { "closed" } else { "open" }, "merged": merged,
                 "mergeable_state": "clean", "body": format!("Closes #{TICKET}"),
-                "head": {"sha": SHA, "ref": HEAD_REF, "repo": {"full_name": REPO}},
+                "head": {"sha": pr.lock().unwrap().head.clone().unwrap_or_else(|| SHA.to_string()),
+                         "ref": HEAD_REF, "repo": {"full_name": REPO}},
                 "base": {"ref": base_ref, "repo": {"default_branch": "main"}},
             }))
         }
@@ -224,6 +229,17 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
                     })
                     .collect(),
             ))
+        }
+        ("GET", ["", "repos", _, _, "actions", "runs"]) if pr.lock().unwrap().ci_pending => {
+            ok(json!({
+                "total_count": 1,
+                "workflow_runs": [{
+                    "id": 9002, "name": "CI", "head_sha": SHA, "status": "in_progress",
+                    "conclusion": null,
+                    "run_attempt": 1, "event": "pull_request",
+                    "html_url": format!("{base}/{REPO}/actions/runs/9002"),
+                }],
+            }))
         }
         ("GET", ["", "repos", _, _, "actions", "runs"]) => ok(json!({
             "total_count": 1,
@@ -381,6 +397,16 @@ impl Hub {
             .unwrap()
             .failing_writes
             .push((part.to_string(), status));
+    }
+
+    /// The CI run of the head SHA runs still (`true`) or is complete again.
+    pub fn set_ci_pending(&self, pending: bool) {
+        self.pr.lock().unwrap().ci_pending = pending;
+    }
+
+    /// A push moved the head of the PR to `sha`.
+    pub fn set_head(&self, sha: &str) {
+        self.pr.lock().unwrap().head = Some(sha.to_string());
     }
 
     /// The files that the PR changes now.

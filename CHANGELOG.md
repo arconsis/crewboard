@@ -25,12 +25,15 @@ Added:
   without guarded paths writes assignments without `guard:` lines (`reassign --to`, the move
   of a queued ticket, an `assign` after a `reassign`), and such an assignment ends the guard
   of the ticket without a warning. Spec: `docs/design/spec/tickets.md#guarded-paths`.
-- Unattended coordinator: the judgment list, the scope, the budget, the stamp and the model
-  wake. Two new keys
+- Unattended coordinator: the keys, the judgment list, the scope, the budget, the stamp, the
+  model wake, the merge mode and the digest. It is off by default and optional: a scheduled
+  model that judges the tickets that the headless `tick` leaves, inside limits that crewboard
+  holds. Two new keys
   of `AUTHORITY.md`: `unattended_coordinator: off | verify | verify-and-merge` (default `off`)
   and `unattended_budget: <N>` (1 to 50, default 10). Any other value of a key is
-  `authority-bad-front-matter`. The keys alone start no model, and `verify-and-merge` does
-  what `verify` does: a headless config dir merges only a ticket whose Gate is `ci`.
+  `authority-bad-front-matter`. The keys alone start no model. With `off` and `verify` a
+  headless config dir merges only a ticket whose Gate is `ci`; only `verify-and-merge` also
+  merges a ticket whose Gate is prose (the merge mode, below).
   The list: with a value that is not `off`, the headless `tick` also prints one line
   `needs judgment: <repo>#<n>, <reason>` for each ticket that needs the judgment of a
   coordinator (a Review ticket with a Gate in prose, an open question to the coordinator, a
@@ -101,7 +104,35 @@ Added:
   `doctor --setup` shows the tick (`wake`) and the model (`unattended coordinator`) as two
   checks; the model check is a fault for a model command that cannot be built, and a warning
   for a stored day or a last start in the future. A third check `wake environment` warns
-  after a `wake` that was refused inside a wake. Changed with
+  after a `wake` that was refused inside a wake.
+  The merge mode: with `unattended_coordinator: verify-and-merge`, the headless `tick` merges
+  a Review ticket whose signed Gate is prose, in the run after its verify result. No model
+  takes part in the merge, and the command `merge` of a headless config dir follows the same
+  rule. The rule is decided at merge time from `AUTHORITY.md` and the signed log: the latest
+  `done` of the signed assignee has a verify result of a coordinator, the latest result for
+  that `done` is a pass, and its `sha:` and `head_now:` lines are the SHA of the evidence. The
+  result has a valid line `unattended: <n>/<budget>`, or no such line (the verdict of an
+  attended coordinator). A newer `done`, a failed result, a stop at the round limit, a `done`
+  on the owner route and `CI: none` leave no pass. The mode widens only the check of the kind
+  of Gate. Every other check of a headless merge stays: `coordinator_may_merge`, a counted CI
+  run that is green for the SHA, no protected path and no guarded path (also behind another
+  base branch), no open question to the owner, and a PR head that still is the SHA of the
+  evidence. A Gate `checks: ...` is not merged headless. The merge notice is not stamped and
+  counts for no budget; after a pass with the line it ends with `verified-by: unattended`
+  (also when a person merges). The limit: in this mode the judgment of a model can end in a
+  merge that no person read. The mode `verify` never merges a Gate in prose.
+  What the owner sees: `start` and `doctor --setup` print one line with the mode and the
+  budget that the default branch has now. When the verdicts of a day are used, the tick posts
+  one signed `info` to the owner in the registry issue, once per UTC day (the line
+  `event=unattended-budget:<day>` is its key; a host without state finds it there). With
+  `daily_digest: true` the digest gets a part about the unattended coordinator: the stamped
+  passes and fails of the UTC day before with their ticket keys, the verdicts used, the
+  counts of answers, assignments and questions to the owner, the tickets merged with the line
+  `verified-by: unattended`, the model wakes of that day (in a `--tick --runtime` unit only),
+  and the Review tickets that the unattended coordinator verified and that are not merged.
+  It holds counts and ticket keys only, no text of a message. It costs one read of the comment
+  feed per repo and day. With the key off and no stamped message in the state of the day
+  before, the digest is byte for byte as it was and the tick makes no such read. Changed with
   it: `--tick` and `--runtime` no longer exclude each other. In a unit with both, `--work-dir`
   is the start dir of the model, the tick of that unit runs no checks of a `checks:` Gate
   (`wake install` prints a `note:` line for it), and `--host-lock` and `--shim-dir` are

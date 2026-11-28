@@ -219,7 +219,7 @@ the tickets that need a judgment, when `AUTHORITY.md` allows it
    | `verify --body` of a ticket whose signed Gate is `ci` | refused (`headless-scope`): such a verify only reads the evidence and the CI again, and a free text on it is counted by nothing |
    | `verify --run-check` | refused as a command (`headless-scope`, no request): it runs code of the PR on this host. `tick` runs the checks itself, and only for a Gate that names nothing but checks (see 5a) |
    | `say`, `ask`, `unblock` with `--body-file <path>` | refused (`headless-scope`, no request): the command would publish a file of this host. The text comes from `--body` or from standard input (`--body-file -`) |
-   | `merge` | allowed, with the checks of 4 (no `--run`); a ticket with an open question to the owner is refused, as for `verify` |
+   | `merge` | allowed, with the checks of 4 (no `--run`); a ticket with an open question to the owner is refused, as for `verify`. With `unattended_coordinator: verify-and-merge` also a ticket whose Gate is prose, after a passing verify result ([The merge mode](#the-merge-mode)) |
    | `close` (bare) | allowed (the owner merged the PR by hand: a fact, not a judgment; [Close after an owner merge](tickets.md#close-after-an-owner-merge)); a ticket with an open question is allowed too |
    | `close --verified`, `close --why` | refused (a judgment of the interactive coordinator; [Close without a PR](tickets.md#close-without-a-pr)) |
    | `assign <n> --to <agent>`, `unblock`, `ask`, `say --kind answer --to <agent>` | a judgment of the [unattended coordinator](#unattended-coordinator): refused with `unattended-off` unless `AUTHORITY.md` allows it |
@@ -249,7 +249,9 @@ the tickets that need a judgment, when `AUTHORITY.md` allows it
    `local` is not CI only: the headless `merge` refuses it before any read, and `tick` leaves it
    with a "left for the interactive coordinator" line. The same holds for `runs` evidence that
    names a CI run by hand (`done --run`, a `named` entry in its `ci-runs:` line): a run by hand
-   is part of a Gate that is not CI only.
+   is part of a Gate that is not CI only. One value of `AUTHORITY.md` widens (a), and nothing
+   else: with `unattended_coordinator: verify-and-merge` a Gate in prose passes after a passing
+   verify result ([The merge mode](#the-merge-mode)). (b) and every other check stay.
 5. **CI only, exactly.** The Gate is the signed `gate:` line of the latest assignment message
    (a coordinator `request`; the first `assign` of a ticket writes it from the ticket body,
    every later assignment copies it forward; [Ticket content](tickets.md#ticket-content)). The issue body is NOT read: any holder
@@ -330,6 +332,9 @@ the tickets that need a judgment, when `AUTHORITY.md` allows it
    `left for the interactive coordinator: <repo>#<n>, <reason>`, and nothing is written for
    it. A lost event is therefore recovered on the next tick. The tick is idempotent: a merged
    ticket is Done; a verified ticket is not verified again; a refused merge writes nothing.
+   With `unattended_coordinator: verify-and-merge` the tick also calls `merge` for a Review
+   ticket whose Gate is prose and whose latest `done` has a passing verify result
+   ([The merge mode](#the-merge-mode)); the tick writes no verify result for such a ticket.
    One exception is the request that `merge` sends to the dev for a conflict: the tick sends
    it once per `done` (`tick_requested` in the state cache). `tick` is refused with
    `tick-headless-only` in a config dir that is not headless: it merges without a model that
@@ -389,7 +394,9 @@ the tickets that need a judgment, when `AUTHORITY.md` allows it
    at the key once per day, so a change of the key takes effect on the next day, and a post
    that fails is one line of the log ("digest: not posted today: ...") and is not tried again
    that day. A status update that a coordinator types is still outside the headless scope: its
-   health value is a judgment.
+   health value is a judgment. With the unattended coordinator on, the text has one more part
+   ([What the owner sees](#what-the-owner-sees)); with the key off and no stamped message in
+   the state of the day before, the text is byte for byte the one without the key.
 9. **The source of the scope.** The scope is on when an agent config of the config dir has
    `headless = true` (item 1, a guardrail). Every rule of this section (verdicts, `merge`,
    own cursor, `tick`) follows from it. `crewboard doctor` says whether the key is on.
@@ -419,10 +426,12 @@ a unit that the owner installs with `crewboard wake install --tick --runtime <ru
 ([The model wake](#the-model-wake)).
 
 With the mode `off`, a headless config dir makes no judgment. With `verify`, it may make the
-judgments of [the scope](#the-scope-of-the-unattended-coordinator) below, inside a budget. The
-value `verify-and-merge` does what `verify` does: the `merge` of a headless config dir is for a
-ticket whose Gate is `ci` only, in every mode. An interactive config dir is not restricted and
-not counted, whatever the keys say.
+judgments of [the scope](#the-scope-of-the-unattended-coordinator) below, inside a budget, and
+it merges a ticket whose Gate is `ci` only. With `verify-and-merge` it makes the same
+judgments, and it also merges a ticket whose Gate is prose after a passing verify result
+([The merge mode](#the-merge-mode)). Only that value does, and only the owner writes it: no
+default and no other value merges a Gate in prose. An interactive config dir is not restricted
+and not counted, whatever the keys say.
 
 With a value that is not `off`, the headless `tick` prints two more kinds of line after its
 other lines:
@@ -556,7 +565,7 @@ has the verdict of the [headless scope](#headless-coordinator).
 | `verify --body` of such a ticket | `headless-scope` | the same |
 | `verify --body` of any other ticket; `verify --fail --body` | `unattended-off` | allowed for a ticket that is "prose Gate" on the judgment list; a verdict. Without `--body`: `headless-scope` |
 | `verify --run`, `verify --local-run`, `verify --run-check` | `headless-scope`, no request | the same |
-| `merge` | a ticket whose Gate is `ci` only | the same |
+| `merge` | a ticket whose Gate is `ci` only | `verify`: the same. `verify-and-merge`: also a ticket whose Gate is prose, after a passing verify result ([The merge mode](#the-merge-mode)) |
 | `say --kind answer --to <agent>` | `unattended-off` | allowed when `<agent>` is the signed assignee |
 | `unblock` | `unattended-off` | allowed for a Blocked ticket that is "blocked" or "question" on the judgment list |
 | `assign <n> --to <agent>` | `unattended-off` | allowed for a ticket that is "ready, no agent" or "returned" on the judgment list |
@@ -564,8 +573,9 @@ has the verdict of the [headless scope](#headless-coordinator).
 | `ask` | `unattended-off` | allowed for an open ticket that has no open question to the owner |
 | `say`, `unblock`, `ask` with `--body-file <path>` | `headless-scope`, no request | the same |
 
-The tick's own `verify` of a `ci` Gate or a `checks:` Gate, and its `merge`, are no judgments:
-they are not stamped and not counted.
+The tick's own `verify` of a `ci` Gate or a `checks:` Gate, and every `merge`, are no
+judgments: they are not stamped and not counted. A merge changes no count of the day and no
+count of a ticket.
 
 **Each judgment decides again.** The command reads the ticket and its comments, and it does not
 use the list of a tick. These checks come first, and they refuse before any write:
@@ -671,13 +681,112 @@ late interactive coordinator from the owner alert (item 8 of the headless coordi
   gives a comment. A host clock that is ahead reads a new day with a count of 0 before the UTC
   day ends. The count that such a command stores refuses every judgment after the clock is
   right again, until that day comes.
-- What a headless config dir merges is still a ticket whose signed Gate is `ci`, with green
-  counted CI. No command of the scope writes or changes a signed Gate. A person who assigns a
-  ticket signs its Gate from the body, with the warning of `assign`.
+- With `off` and `verify`, what a headless config dir merges is a ticket whose signed Gate is
+  `ci`, with green counted CI. With `verify-and-merge` it is also a ticket whose Gate is prose,
+  with green counted CI and a passing verify result: the judgment of a model can then end in a
+  merge ([The merge mode](#the-merge-mode)). No command of the scope writes or changes a signed
+  Gate. A person who assigns a ticket signs its Gate from the body, with the warning of
+  `assign`.
 - The scope limits what a process does through crewboard. The headless OS user holds the token
   and the signing key of the coordinator. Outside crewboard it can call the GitHub API and
   sign a message without the line. The token rights and the branch protection are the
   boundary, as for the headless scope (item 9).
+
+### The merge mode
+
+`unattended_coordinator: verify-and-merge` lets a headless config dir merge a ticket whose
+signed Gate is prose. The owner writes this value; the default is `off`, and `verify` never
+merges such a ticket.
+
+**Who merges.** The `tick` does, in the run after the verify result. It is the same code that
+merges a `Gate: ci` ticket, and no model takes part in the decision. The command `merge` in a
+headless config dir follows the same rule, because the rule is inside the merge operation: a
+model that runs `merge` gets the answer that the tick gets. The tick writes no verify result
+for a Gate in prose. That judgment comes from the unattended coordinator or from a person.
+
+**The rule.** The decision is made at merge time, from `AUTHORITY.md` on the default branch and
+from the signed log of the ticket. The judgment list and the board fields give no right. A
+headless `merge` of a ticket whose signed Gate is prose passes the Gate check when all of this
+holds:
+
+1. `unattended_coordinator` is `verify-and-merge`.
+2. The latest `done` of the signed assignee has a verify result of a coordinator, and the
+   latest result for exactly that `done` is a pass. A newer `done` has no result yet, so the
+   pass of an older `done` counts for nothing. A failed result after a pass decides.
+3. The lines `sha:` and `head_now:` of that result are both the SHA of the evidence of the
+   `done`: the coordinator saw the head that the `done` names.
+4. The result has a valid line `unattended: <n>/<budget>` (a verdict of the unattended
+   coordinator), or no line with that key (a verdict of an attended coordinator; a person's
+   verdict is at least as good). A result with a line of that key that is not valid is no pass.
+5. The round limit did not stop the ticket, and that `done` is not on the owner route (it has
+   no line `owner-route:` or `protected-paths:`).
+6. The ticket does not declare `CI: none`.
+
+Only a verified message of a coordinator is a verify result. A dev agent cannot write one, with
+or without the line.
+
+**What stays.** The mode widens one check: the kind of the Gate. Every other check of the
+headless `merge` is as it is for a `Gate: ci` ticket, and each refuses before the merge call:
+`coordinator_may_merge`; no protected path and no guarded path in the files of the PR, read at
+merge time, with the comparison against the default branch for a PR on another base branch; a
+counted CI run that is green for the SHA (red, pending and missing CI refuse); no evidence
+without a CI run, no run named by hand and no local gate; no open question to the owner; no
+`done` on the owner route; the Status Review; and the head of the PR is still the SHA of the
+evidence. The merge call carries that SHA, so GitHub refuses a head that moves after the check.
+A dev agent that pushes after the pass gets no merge: the head is not the SHA of the evidence
+any more, and a new `done` has no verify result.
+
+A ticket whose Gate is `checks: ...` and a ticket without a signed Gate are not merged headless
+in any mode.
+
+**The notice.** The merge posts its notice to the dev agent as every merge does. The notice is
+not stamped and counts for no budget: it is a fact, and the verdict before it was counted.
+When the verify result that the merge relied on has the line `unattended:`, the notice ends
+with the line `verified-by: unattended` ([Acts](messages.md#acts)). A person who merges after
+such a result gets the same line. So the signed log says which merges followed a verdict that
+no person gave.
+
+**Requests.** In the mode `verify-and-merge` the tick makes no request more than in `verify`
+for a ticket without a passing verify result. For a ticket with one it makes the requests of
+one `merge`, as for a `Gate: ci` ticket, at each tick until the ticket is merged or a new
+`done` arrives. A merge that asked the dev agent for a rebase is not tried again for that
+`done`.
+
+### What the owner sees
+
+**The mode in `start` and `doctor --setup`.** Both print one line with the mode and the budget
+of `AUTHORITY.md` as the default branch has it now, and what a headless config dir merges with
+that mode. The line of the model in `doctor --setup` names the mode of the last model wake
+([The model wake](#the-model-wake)); this line names the mode that decides the next command.
+
+**The note of a spent budget.** When the verdicts of the day are `unattended_budget` or more,
+the tick posts one signed `info` to the owner in the registry issue, once per UTC day. Its
+line `event=unattended-budget:<UTC day>` is the key: a tick that finds the key in the registry
+issue posts nothing, also on a host that lost its state. The state of the config dir notes the
+day, so a later tick of that day does not look. The note is not stamped and counts for no
+budget. A post that fails is one line of the tick, and the next tick tries again.
+
+**The daily digest.** With `daily_digest: true`, the digest of the first tick of a UTC day
+(item 8a of the headless coordinator) has a part about the unattended coordinator. The part is
+there when the mode is not `off`, or when the state of the config dir holds a stamped message
+of the day before. It has facts only: counts and ticket keys, no text of a message and no text
+of a model.
+
+- The stamped verify results of the UTC day before: the passes and the fails, each with its
+  ticket keys, and the verdicts used of the budget.
+- The stamped answers, assignments and questions to the owner of that day (counts).
+- The tickets that a coordinator merged on that day with the line `verified-by: unattended`.
+- The model wakes of that day, when the tick runs in a `wake --tick --runtime` unit. The count
+  is a file of that unit; a `tick` by hand and a `--tick` unit without a model do not know it
+  and print no such line.
+- The Review tickets of this tick whose latest `done` has a passing verify result of the
+  unattended coordinator and that are not merged: in the mode `verify` they wait for a person,
+  and in the mode `verify-and-merge` a check of the merge refused them.
+
+The part costs one read of the comment feed per repo, from 00:00 UTC of the day before, once
+per day. With the mode `off` and no stamped message in the state, the tick makes no such read
+and the text has no such part. A read that fails is one line of the part. The part changes no
+health value: a ticket that waits is among the tickets that wait for a person already.
 
 ### The model wake
 

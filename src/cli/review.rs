@@ -145,7 +145,8 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                     }),
                     None => None,
                 };
-                ops::tickets::tick(&mut ac, checks.as_ref()).map(|t| (ac, t))
+                // a `tick` by hand is no unit that starts a model: it knows no model wakes
+                ops::tickets::tick(&mut ac, checks.as_ref(), None).map(|t| (ac, t))
             }) {
             Ok((ac, t)) => {
                 print!("{}", t.text);

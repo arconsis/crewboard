@@ -42,6 +42,12 @@
 //! Gate, once per change of its board item. A read for the list that fails is one line, and the
 //! tick goes on. With the key off the tick reads and prints nothing of this.
 //!
+//! With `unattended_coordinator: verify-and-merge` the tick also merges a Review ticket whose
+//! Gate is prose, when the latest `done` has a passing verify result (`one_judged`). The tick
+//! has no rule of its own for that either: `merge_ticket` decides from AUTHORITY.md and the
+//! signed log, as it does for the command `merge`. No model takes part in the merge. When the
+//! verdicts of the day are used, the tick tells the owner once per UTC day (`judgment_lines`).
+//!
 //! A lost event cannot hide a finished ticket from the tick. A second run changes nothing: a
 //! merged ticket is Done, a verified ticket is not verified again (`verify_result` for the
 //! latest `done`), and a refused merge writes nothing.
@@ -111,6 +117,21 @@ struct Scan<'a> {
     checks: Option<&'a TickChecks>,
     /// The mode and the budget of the unattended coordinator (AUTHORITY.md).
     coord: crate::ops::unattended::Settings,
+    /// The Review tickets whose latest `done` has a passing verify result of the unattended
+    /// coordinator and that this tick did not merge: for the daily digest. Empty while the
+    /// unattended coordinator is off.
+    judged: std::cell::RefCell<Vec<String>>,
+    /// The model wakes that the caller counted, when it is a unit that starts a model.
+    model_wakes: Option<&'a ModelWakes>,
+}
+
+/// The count of the model wakes of the unattended coordinator, as the unit of a
+/// `wake --tick --runtime` holds it: a UTC day (`YYYY-MM-DD`, empty when the unit has no count
+/// yet) and the wakes of that day. The daily digest names the count of the day before today.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelWakes {
+    pub day: String,
+    pub count: u32,
 }
 
 /// What the tick needs to run the checks of a ticket whose Gate is `checks: ...`.
@@ -377,7 +398,7 @@ fn handle_review(
                 s.now,
             )?);
         }
-        let lines = one(ac, &t, &key, s.checks)?;
+        let lines = one(ac, s, &t, &key)?;
         // The judgment list holds a Review ticket only when this tick wrote nothing for it: the
         // ticket is then as it was loaded.
         if !s.coord.mode.is_off()
@@ -475,6 +496,27 @@ fn judgment_lines(
         out.push_str(&need_line(&t.to_string(), *n));
     }
     out.push_str(&count_line(coord.mode, used, coord.budget));
+    // The verdicts of the day are used: the owner hears it once per UTC day. The memo of the
+    // state saves the look at the registry; the `event=` line of the note is the truth.
+    if used >= coord.budget {
+        let before = cache.tick.unattended_spent_told.clone();
+        match tell_budget_spent(ac, s.world, &mut cache, s.now, used, coord.budget) {
+            Ok(Some(url)) => out.push_str(&format!(
+                "{}: the verdicts of today are used ({used}/{}); told the owner: {url}\n",
+                crate::unattended::TICK_LINE,
+                coord.budget
+            )),
+            Ok(None) => {}
+            Err(e) => out.push_str(&format!(
+                "{}: the verdicts of today are used, and the owner could not be told: {}\n",
+                crate::unattended::TICK_LINE,
+                e.to_string().lines().next().unwrap_or("").trim()
+            )),
+        }
+        if cache.tick.unattended_spent_told != before {
+            ac.save_cache(&mut cache);
+        }
+    }
     let listed = crate::unattended::Listed {
         mode: coord.mode,
         needs: needs.iter().map(|(t, n)| (t.to_string(), *n)).collect(),
@@ -482,6 +524,48 @@ fn judgment_lines(
         budget: coord.budget,
     };
     (out, Some(listed))
+}
+
+/// Tell the owner that the verdicts of today are used: one signed `info` in the registry issue
+/// per UTC day. `Some(url)` when the note was posted now.
+///
+/// Two things keep it at one note. The memo of the state (`cache`, which the caller saves)
+/// names the day of the last note, so a later tick of the day does not even look. The `event=`
+/// line of the note is in the registry issue, which the tick has read: a tick with a lost
+/// state, or of another host, finds it there and posts nothing.
+fn tell_budget_spent(
+    ac: &AgentCtx,
+    world: &World,
+    cache: &mut crate::state::StateCache,
+    now: i64,
+    used: u32,
+    budget: u32,
+) -> CbResult<Option<String>> {
+    let now_text = crate::clock::format_ts(now);
+    let today = crate::ops::digest::day_of(&now_text);
+    if cache.tick.unattended_spent_told.as_deref() == Some(today) {
+        return Ok(None);
+    }
+    let reported = crate::audit::reported_events(
+        &crate::ctx::registry_msgs(ac, world),
+        &crate::ctx::registry_late_msgs(ac, world),
+    );
+    let told = if reported.contains(&crate::ops::unattended::budget_spent_key(today)) {
+        None
+    } else {
+        let body =
+            crate::ops::unattended::budget_spent_body(today, used, budget, &ac.ctx.cfg.authority);
+        let p = crate::ops::registry_post::post_registry(
+            ac,
+            crate::protocol::names::To::Owner,
+            crate::protocol::names::Kind::Info,
+            crate::protocol::names::Re::None,
+            &body,
+        )?;
+        Some(p.url)
+    };
+    cache.tick.unattended_spent_told = Some(today.to_string());
+    Ok(told)
 }
 
 /// What `tick` gives its caller: the output, the judgment list as values, and the deleted notes
@@ -506,7 +590,14 @@ impl TickOut {
 
 /// `tick`: see the module text. Returns one line per Review ticket; the caller prints it, then
 /// calls [`TickOut::settle`].
-pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut> {
+///
+/// `model_wakes`: the count of the caller, when it is a unit that starts a model; the daily
+/// digest names it. `None`: this tick knows no model wakes.
+pub fn tick(
+    ac: &mut AgentCtx,
+    checks: Option<&TickChecks>,
+    model_wakes: Option<&ModelWakes>,
+) -> CbResult<TickOut> {
     if !ac.ctx.cd.is_headless()? {
         return Err(CbError::refused(
             ids::TICK_HEADLESS_ONLY,
@@ -541,6 +632,8 @@ pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut>
         shown: std::cell::RefCell::default(),
         checks,
         coord: crate::ops::unattended::settings(ac),
+        judged: std::cell::RefCell::default(),
+        model_wakes,
     };
     let buckets = Buckets::of(&scan);
     let judgment = !scan.coord.mode.is_off();
@@ -606,6 +699,7 @@ fn daily_digest(ac: &AgentCtx, s: &Scan<'_>, tick_text: &str) -> CbResult<String
             _ => {}
         }
     }
+    facts.unattended = unattended_part(ac, s);
     let health = digest::health(&facts);
     let text = digest::text(&facts, today);
     Ok(
@@ -619,6 +713,43 @@ fn daily_digest(ac: &AgentCtx, s: &Scan<'_>, tick_text: &str) -> CbResult<String
             Err(e) => format!("digest: not posted today: {e}\n"),
         },
     )
+}
+
+/// The part of the daily digest about the unattended coordinator: the stamped messages of the
+/// UTC day before today, from one read of the comment feed per repo, and the Review tickets of
+/// this tick that it verified. `None` when the mode is `off` and the state holds no stamped
+/// message of that day: the digest is then the one without the key, and nothing is read. A read
+/// that fails is one line of the part.
+fn unattended_part(ac: &AgentCtx, s: &Scan<'_>) -> Option<crate::ops::digest::Unattended> {
+    use crate::ops::digest;
+    let start = crate::unattended::day_start(s.now) - 86_400;
+    let start_text = crate::clock::format_ts(start);
+    let day = digest::day_of(&start_text);
+    let stamped_then =
+        crate::unattended::floor_on(ac.load_cache().tick.unattended_messages_floor.as_ref(), day)
+            > 0;
+    if s.coord.mode.is_off() && !stamped_then {
+        return None;
+    }
+    let report = crate::ops::unattended::load_day_report(ac, s.world, start, start + 86_400)
+        .map_err(|e| {
+            e.to_string()
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        });
+    Some(digest::Unattended {
+        mode: s.coord.mode.as_str(),
+        day: day.to_string(),
+        budget: s.coord.budget,
+        report,
+        wakes: s
+            .model_wakes
+            .map(|w| if w.day == day { w.count } else { 0 }),
+        waiting: s.judged.borrow().clone(),
+    })
 }
 
 /// A Review ticket that waits for a verify while the coordinator is late. The tick
@@ -740,7 +871,8 @@ fn is_in_work(status: Option<&str>) -> bool {
 }
 
 /// One Review ticket: its line or lines.
-fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) -> CbResult<String> {
+fn one(ac: &mut AgentCtx, s: &Scan<'_>, t: &Ticket, key: &str) -> CbResult<String> {
+    let checks = s.checks;
     // A stop at the round limit that an earlier run did not finish (the result is in the log, a
     // later write failed): only the writes that are missing, and no result. That is no judgment,
     // so no Gate rule applies. The entry reads the ticket again and never judges: a stop that
@@ -765,6 +897,9 @@ fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) ->
         return one_checks(ac, t, key, names, checks);
     }
     if let Gate::Text(g) = &gate {
+        if let Some(lines) = one_judged(ac, s, t, key)? {
+            return Ok(lines);
+        }
         let shown: String = g.chars().take(80).collect();
         return Ok(left(
             key,
@@ -781,6 +916,82 @@ fn one(ac: &mut AgentCtx, t: &Ticket, key: &str, checks: Option<&TickChecks>) ->
         ));
     }
     one_ci_only(ac, t, key)
+}
+
+/// One Review ticket whose Gate is prose, with the unattended coordinator on
+/// (spec/agents#unattended-coordinator). `None`: the tick has nothing to do, and the caller
+/// writes the line of a Gate that is not CI only.
+///
+/// The latest `done` of the signed assignee has a passing verify result for the head of its
+/// evidence ([`crate::unattended::pass_on_head`]). With the mode `verify-and-merge` the tick
+/// then calls `merge_ticket`, which reads the ticket and AUTHORITY.md again and decides alone:
+/// this function is a filter that saves the reads of a merge that cannot pass, and gives no
+/// right. With the mode `verify` the tick merges nothing. A ticket that stays in Review after a
+/// pass of the unattended coordinator is noted for the daily digest.
+fn one_judged(ac: &mut AgentCtx, s: &Scan<'_>, t: &Ticket, key: &str) -> CbResult<Option<String>> {
+    if s.coord.mode.is_off() {
+        return Ok(None);
+    }
+    let Some((done, ev)) = t.agent().and_then(|a| latest_done(&t.msgs, a)) else {
+        return Ok(None);
+    };
+    let Some(by) = crate::unattended::pass_on_head(&t.msgs, done, &ev, t.issue) else {
+        return Ok(None);
+    };
+    let waits = |s: &Scan<'_>| {
+        if by == crate::unattended::PassBy::Unattended {
+            s.judged.borrow_mut().push(key.to_string());
+        }
+    };
+    if !s.coord.mode.merges() {
+        waits(s);
+        return Ok(None);
+    }
+    let mut cache = ac.load_cache();
+    if cache.tick.tick_requested.get(key) == Some(&done.comment_id) {
+        waits(s);
+        return Ok(Some(left(
+            key,
+            "a merge attempt asked the dev for a change; waiting for a new done",
+        )));
+    }
+    let mut out = String::new();
+    let merged = merge_step(ac, &mut cache, key, done.comment_id, &mut out)?;
+    if !merged {
+        waits(s);
+    }
+    Ok(Some(out))
+}
+
+/// The merge of a verified ticket by the tick: the lines of `merge_ticket`, or one `left` line
+/// with its refusal. A merge that sent the dev a request (a conflict) is noted, so the tick
+/// asks once per `done`. Returns whether the PR was merged.
+fn merge_step(
+    ac: &mut AgentCtx,
+    cache: &mut crate::state::StateCache,
+    key: &str,
+    done_comment: u64,
+    out: &mut String,
+) -> CbResult<bool> {
+    match merge_ticket(ac, key, "squash", &[]) {
+        Ok(m) => {
+            out.push_str(&m);
+            Ok(true)
+        }
+        Err(CbError::Refused(r)) => {
+            if r.message.contains(". Request ") {
+                // The merge sent the dev a request (a conflict). Once per `done` is enough.
+                cache
+                    .tick
+                    .tick_requested
+                    .insert(key.to_string(), done_comment);
+                ac.save_cache_required(cache)?;
+            }
+            out.push_str(&left(key, &format!("merge refused: {r}")));
+            Ok(false)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// One Review ticket whose Gate is a list of checks (`checks: a, b`): the tool runs them on a
@@ -946,21 +1157,7 @@ fn one_ci_only(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
             }
         }
     }
-    match merge_ticket(ac, key, "squash", &[]) {
-        Ok(m) => out.push_str(&m),
-        Err(CbError::Refused(r)) => {
-            if r.message.contains(". Request ") {
-                // The merge sent the dev a request (a conflict). Once per `done` is enough.
-                cache
-                    .tick
-                    .tick_requested
-                    .insert(key.to_string(), done.comment_id);
-                ac.save_cache_required(&mut cache)?;
-            }
-            out.push_str(&left(key, &format!("merge refused: {r}")));
-        }
-        Err(e) => return Err(e),
-    }
+    merge_step(ac, &mut cache, key, done.comment_id, &mut out)?;
     Ok(out)
 }
 

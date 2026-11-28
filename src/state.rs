@@ -288,6 +288,12 @@ pub struct TickState {
     /// does not read the comments again while the item is unchanged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub unattended_not_returned: BTreeMap<String, String>,
+    /// The UTC day (`YYYY-MM-DD`) for which the tick told the owner that the verdicts of the
+    /// unattended coordinator are used. A memo only: the `event=` line of the note in the
+    /// registry issue is the truth, and a lost memo costs one look at the registry messages
+    /// that the tick has read anyway, not a second note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended_spent_told: Option<String>,
 }
 
 /// A floor of the unattended verdicts on one ticket ([`TickState::unattended_tickets`]).

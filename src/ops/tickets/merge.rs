@@ -416,6 +416,17 @@ struct MergePre {
     coordinator_gate: Option<String>,
     pr_url: PrUrl,
     named: CiRuns,
+    /// The passing verify result of that `done` has a valid `unattended:` line: the notice
+    /// says so.
+    unattended_pass: bool,
+}
+
+/// The passing verify result of the latest `done` of the signed assignee for the head of its
+/// evidence (spec/agents#unattended-coordinator, the merge mode), from the signed log that
+/// `merge` just read.
+fn pass_by(t: &Ticket) -> Option<crate::unattended::PassBy> {
+    let (done, ev) = latest_done(&t.msgs, t.agent()?)?;
+    crate::unattended::pass_on_head(&t.msgs, done, &ev, t.issue)
 }
 
 fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<MergePre> {
@@ -427,13 +438,24 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
     auth.check_merge()?;
     // spec/agents#headless-coordinator: a headless coordinator merges only a ticket whose Gate is
     // CI only. The check is here, in the operation, and not only in `dispatch`, so that no other
-    // caller skips it.
+    // caller skips it. spec/agents#unattended-coordinator: with `verify-and-merge` it also
+    // merges a ticket whose Gate is prose, after a passing verify result for the head of the
+    // latest `done`. The mode is the one of AUTHORITY.md as read now, and the result comes from
+    // the signed log as read now.
     let headless = ac.ctx.cd.is_headless()?;
+    let pass = pass_by(t);
     if headless {
+        use crate::headless::MergeJudged;
+        let judged = match (auth.unattended_coordinator.merges(), pass) {
+            (false, _) => MergeJudged::ModeOff,
+            (true, None) => MergeJudged::NoPass,
+            (true, Some(_)) => MergeJudged::Pass,
+        };
         crate::headless::check_merge_ticket(
             &t.key(),
             crate::ticket::signed_gate(&t.msgs).as_deref(),
             ci_none_declared(&t.msgs, &t.info.body),
+            judged,
         )?;
     }
     let assignee = t.agent().map(str::to_string).ok_or_else(|| {
@@ -478,6 +500,7 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
         coordinator_gate,
         pr_url,
         named,
+        unattended_pass: pass == Some(crate::unattended::PassBy::Unattended),
     })
 }
 
@@ -648,6 +671,8 @@ struct StepFacts<'a> {
     labelled_needs_owner: bool,
     /// A question to the owner is still open on the ticket.
     question_open: bool,
+    /// The passing verify result has the line of the unattended coordinator.
+    unattended_pass: bool,
 }
 
 /// The writes after the merge is decided. Plain data; [`act_merge`] performs them.
@@ -667,11 +692,28 @@ struct MergeSteps {
     /// The local gates of the dev and of the coordinator that stood in for CI: the notice names
     /// them (spec/ci#local-run-ci_mode-local).
     local_gates: Option<(String, String)>,
+    /// The notice gets the line `verified-by: unattended`.
+    unattended_pass: bool,
 }
 
 impl MergeSteps {
-    /// The text of the notice to the dev agent, once the merge commit is known.
+    /// The text of the notice to the dev agent, once the merge commit is known. After a pass of
+    /// the unattended coordinator it ends with the line `verified-by: unattended`: the log then
+    /// says which merges followed a verdict that no person gave.
     fn notice_body(&self, merge_sha: &str) -> String {
+        let body = self.merged_body(merge_sha);
+        if self.unattended_pass {
+            format!(
+                "{}\n{}",
+                body.trim_end(),
+                crate::protocol::acts::verified_by_unattended_line()
+            )
+        } else {
+            body
+        }
+    }
+
+    fn merged_body(&self, merge_sha: &str) -> String {
         crate::protocol::acts::merged_body(
             &self.pr_url,
             &self.sha,
@@ -714,6 +756,7 @@ fn merge_steps(f: &StepFacts<'_>) -> MergeSteps {
         branch,
         clear_needs_owner: f.labelled_needs_owner && !f.question_open,
         local_gates,
+        unattended_pass: f.unattended_pass,
     }
 }
 
@@ -853,6 +896,7 @@ fn plan_merge(
             .iter()
             .any(|x| x == crate::labels::NEEDS_OWNER),
         question_open: question_open(&t.msgs, t.agent()).is_some(),
+        unattended_pass: pre.unattended_pass,
     }))))
 }
 

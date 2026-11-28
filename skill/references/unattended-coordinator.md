@@ -54,5 +54,11 @@ ticket of the list can be refused. That is an answer, not an error.
 - Pass a text with `--body`. A file path (`--body-file <path>`) is refused.
 - You merge nothing, you create, split and reassign no ticket, you change no file and push
   nothing. You never withdraw a question to the owner.
+- Do not run `crewboard merge`. The tick merges, and only when the owner set the mode
+  `verify-and-merge` (the judgment file names the mode): after your passing verify result it
+  merges the PR in a later run, when CI is green for that SHA and no protected or guarded path
+  is in the PR. So a pass can end in a merge that no person reads. Pass only what you checked
+  at the SHA of the `done`, and fail or leave the ticket when you are not sure. In the mode
+  `verify` a person merges after your pass.
 - `ask` puts the ticket in front of the owner and stops the automatic work on it. Use it for
   a decision that only the owner can make. The day has 5 questions.

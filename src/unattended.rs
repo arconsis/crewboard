@@ -606,10 +606,15 @@ pub fn day_start(now: i64) -> i64 {
 /// Only a signed message of a trusted coordinator is in `msgs` with that role, so no other
 /// account can raise or lower the count.
 pub fn verdicts_on_day(msgs: &[VMsg], day_start: i64) -> DayCount {
+    verdicts_between(msgs, day_start, i64::MAX)
+}
+
+/// [`verdicts_on_day`] for the messages that GitHub created in `[start, end)`.
+pub fn verdicts_between(msgs: &[VMsg], start: i64, end: i64) -> DayCount {
     let mut c = DayCount::default();
     for m in msgs
         .iter()
-        .filter(|m| is_coordinator(m) && m.created >= day_start)
+        .filter(|m| is_coordinator(m) && m.created >= start && m.created < end)
     {
         if !has_unattended_line(&m.body) {
             continue;
@@ -683,6 +688,112 @@ pub fn count_unread_line(mode: CoordMode, why: &str) -> String {
         mode.as_str(),
         why.lines().next().unwrap_or("").trim()
     )
+}
+
+/// Who gave the passing verify result that a merge relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PassBy {
+    /// The result has a valid line `unattended: <n>/<budget>`: a judgment of the unattended
+    /// coordinator, inside its budget.
+    Unattended,
+    /// The result has no line with that key: an attended coordinator gave it.
+    Attended,
+}
+
+/// The passing verify result of the latest `done` that a headless merge of a prose Gate may
+/// rely on (spec/agents#unattended-coordinator, the merge mode), or `None`.
+///
+/// `done` and `ev` are the latest `done` of the signed assignee and its evidence
+/// ([`crate::ticket::latest_done`]). The result is the LATEST verify result of a coordinator
+/// that answers exactly this `done` ([`crate::ticket::verify_report`]): a newer `done` has no
+/// result yet, and a failed result after a passing one decides. It must pass, and its `sha:`
+/// and `head_now:` lines must both be the SHA of the evidence: the coordinator saw the head
+/// that the `done` names. The merge then checks that the PR head still is that SHA.
+///
+/// Only a verified message of a coordinator is a result, so no dev agent can write one. A
+/// result with an `unattended:` line that is not valid is no pass: nobody can tell what it is.
+/// A ticket that the round limit stopped has no pass: the owner decides there. A `done` on the
+/// owner route (a line `owner-route:` or `protected-paths:`) has none either: the owner merges
+/// that PR, whatever its files are now.
+pub fn pass_on_head(
+    msgs: &[VMsg],
+    done: &VMsg,
+    ev: &crate::protocol::acts::EvidenceMsg,
+    issue: u64,
+) -> Option<PassBy> {
+    if crate::ticket::fold_rounds(msgs).stopped || crate::ticket::is_owner_route_done(done) {
+        return None;
+    }
+    let (m, pass) = crate::ticket::verify_report(msgs, done, issue)?;
+    let on_head = |key: &str| {
+        crate::ticket::kv(&m.body, key).is_some_and(|v| v.eq_ignore_ascii_case(&ev.sha))
+    };
+    if !(pass && on_head("sha") && on_head("head_now")) {
+        return None;
+    }
+    if !has_unattended_line(&m.body) {
+        return Some(PassBy::Attended);
+    }
+    unattended_of(&m.body).map(|_| PassBy::Unattended)
+}
+
+/// What the stamped messages of one UTC day say, for the daily digest
+/// (spec/agents#headless-coordinator, 8a). Ticket keys and counts only: no text of a message.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DayReport {
+    /// The tickets with a stamped passing verify result, one entry per result.
+    pub passed: Vec<String>,
+    /// The tickets with a stamped failed verify result, one entry per result.
+    pub failed: Vec<String>,
+    /// The stamped answers to an assignee.
+    pub answers: u32,
+    /// The stamped assignments.
+    pub assigns: u32,
+    /// The stamped questions to the owner.
+    pub asks: u32,
+    /// The tickets that a coordinator merged with the line `verified-by: unattended`.
+    pub merged: Vec<String>,
+    /// The verdicts that the day used ([`used`] without a floor of the state), and the budget
+    /// of the last valid `unattended:` line of the day.
+    pub used: u32,
+    pub budget: Option<u32>,
+    /// The count behind `used` and `asks`.
+    pub count: DayCount,
+}
+
+impl DayReport {
+    /// Add the verified messages `msgs` of the ticket `key` that GitHub created in
+    /// `[start, end)`. Only messages of a coordinator count, as in [`verdicts_on_day`].
+    pub fn add(&mut self, key: &str, msgs: &[VMsg], start: i64, end: i64) {
+        self.count = self.count.with(verdicts_between(msgs, start, end));
+        self.used = used(self.count, 0);
+        for m in msgs
+            .iter()
+            .filter(|m| is_coordinator(m) && m.created >= start && m.created < end)
+        {
+            if matches!(
+                m.act(),
+                Act::Closed(crate::protocol::acts::CloseKind::Merged)
+            ) && crate::protocol::acts::is_verified_by_unattended(&m.body)
+            {
+                self.merged.push(key.to_string());
+            }
+            if !has_unattended_line(&m.body) {
+                continue;
+            }
+            if let Some((_, budget)) = unattended_of(&m.body) {
+                self.budget = Some(budget);
+            }
+            match m.act() {
+                Act::Verify { pass: true } => self.passed.push(key.to_string()),
+                Act::Verify { pass: false } => self.failed.push(key.to_string()),
+                Act::Assignment { .. } => self.assigns += 1,
+                _ if m.kind == Some(Kind::Answer) => self.answers += 1,
+                _ => {}
+            }
+        }
+        self.asks = self.count.asks;
+    }
 }
 
 /// What a tick found for the unattended coordinator, as values: the mode (never `off`), the
@@ -844,6 +955,169 @@ mod tests {
 
     fn never_in(status: &str, msgs: &[VMsg]) -> Option<Never> {
         never(&facts(&item(status, Some(DEV)), msgs))
+    }
+
+    /// A passing verify result on the head `abc` of the `done` in comment `done`.
+    fn pass_on(id: u64, done: u64, head_now: &str, extra: &str) -> VMsg {
+        verdict(id, done, true, &format!("head_now: {head_now}\n{extra}"))
+    }
+
+    fn pass_of(msgs: &[VMsg]) -> Option<PassBy> {
+        let (d, ev) = crate::ticket::latest_done(msgs, DEV)?;
+        pass_on_head(msgs, d, &ev, ISSUE)
+    }
+
+    #[test]
+    fn the_pass_for_a_merge_is_bound_to_the_latest_done_and_to_the_head_of_its_evidence() {
+        let base = review_log();
+        let with = |more: Vec<VMsg>| -> Vec<VMsg> { base.iter().cloned().chain(more).collect() };
+        // no result yet
+        assert_eq!(pass_of(&base), None);
+        // a stamped pass and an attended pass on the head of the evidence
+        assert_eq!(
+            pass_of(&with(vec![pass_on(3, 2, "abc", &stamp(1))])),
+            Some(PassBy::Unattended)
+        );
+        assert_eq!(
+            pass_of(&with(vec![pass_on(3, 2, "ABC", "")])),
+            Some(PassBy::Attended)
+        );
+        // a failed result, also after a pass: the latest result decides
+        assert_eq!(pass_of(&with(vec![verdict(3, 2, false, &stamp(1))])), None);
+        assert_eq!(
+            pass_of(&with(vec![
+                pass_on(3, 2, "abc", &stamp(1)),
+                verdict(4, 2, false, "head_now: abc\n")
+            ])),
+            None
+        );
+        // the coordinator saw another head than the evidence names, or named none
+        assert_eq!(pass_of(&with(vec![pass_on(3, 2, "def", &stamp(1))])), None);
+        assert_eq!(pass_of(&with(vec![verdict(3, 2, true, &stamp(1))])), None);
+        // a later `done`: the pass of the older one is stale
+        assert_eq!(
+            pass_of(&with(vec![pass_on(3, 2, "abc", &stamp(1)), done(4, "")])),
+            None
+        );
+        // a line with the key that is not valid is neither a stamp nor an attended result
+        assert_eq!(
+            pass_of(&with(vec![pass_on(3, 2, "abc", "unattended: many\n")])),
+            None
+        );
+        // a "result" of the dev agent is none, with any line
+        let forged = VMsg {
+            re: Re::Comment {
+                issue: ISSUE,
+                comment: 2,
+            },
+            ..dev(
+                3,
+                COORD,
+                Kind::Report,
+                &format!("verify: pass\nsha: abc\nhead_now: abc\n{}", stamp(1)),
+            )
+        };
+        assert_eq!(pass_of(&with(vec![forged])), None);
+        // a stop at the round limit: the owner decides, whatever a later result says
+        let stopped = with(vec![
+            verdict(3, 2, false, "case: round limit 1 of 1; the owner decides\n"),
+            done(4, ""),
+            pass_on(5, 4, "abc", &stamp(1)),
+        ]);
+        assert!(crate::ticket::fold_rounds(&stopped).stopped);
+        assert_eq!(pass_of(&stopped), None);
+        // a `done` on the owner route: the owner merges it
+        for line in [
+            "protected-paths: .github/workflows/ci.yml\n",
+            "owner-route: docs/patches/5-workflow.patch\n",
+        ] {
+            let log = vec![
+                assignment(1, PROSE),
+                done(2, line),
+                pass_on(3, 2, "abc", ""),
+            ];
+            assert_eq!(pass_of(&log), None, "{line}");
+        }
+    }
+
+    #[test]
+    fn the_report_of_a_day_counts_the_stamped_messages_of_coordinators_inside_the_day() {
+        let at = |m: VMsg, created: i64| VMsg { created, ..m };
+        let (start, end) = (1_000_000, 1_086_400);
+        let merged = |extra: &str| {
+            format!(
+                "Merged by the coordinator.\npr: p\nsha: abc\nmethod: squash\nmerge-commit: m\nbranch: b{extra}"
+            )
+        };
+        let msgs = vec![
+            // the day before, and the day after: not counted
+            at(pass_on(1, 9, "abc", &stamp(3)), start - 1),
+            at(pass_on(2, 9, "abc", &stamp(1)), end),
+            // inside the day
+            at(pass_on(3, 9, "abc", &stamp(1)), start),
+            at(verdict(4, 9, false, &stamp(2)), start + 10),
+            at(
+                coord(5, DEV, Kind::Answer, &format!("Use the key.\n{}", stamp(2))),
+                start + 20,
+            ),
+            at(
+                coord(
+                    6,
+                    "owner",
+                    Kind::Question,
+                    &format!("May it go?\n{}", stamp(2)),
+                ),
+                start + 30,
+            ),
+            at(
+                coord(
+                    7,
+                    DEV,
+                    Kind::Request,
+                    &format!(
+                        "Assigned to you: Fix it\nticket: a/b#5\nitem=PVTI_5\ngate: g\n{}",
+                        stamp(2)
+                    ),
+                ),
+                start + 40,
+            ),
+            at(
+                coord(8, DEV, Kind::Info, &merged("\nverified-by: unattended")),
+                end - 1,
+            ),
+            // not stamped: an attended result, a merge after an attended pass
+            at(pass_on(9, 9, "abc", ""), start + 50),
+            at(coord(10, DEV, Kind::Info, &merged("")), start + 60),
+            // a dev agent writes the lines: not counted
+            at(
+                dev(11, COORD, Kind::Info, &merged("\nverified-by: unattended")),
+                start + 70,
+            ),
+            at(
+                dev(12, COORD, Kind::Answer, &format!("x\n{}", stamp(9))),
+                start + 80,
+            ),
+        ];
+        let mut r = DayReport::default();
+        r.add("a/b#5", &msgs, start, end);
+        assert_eq!(r.passed, ["a/b#5"]);
+        assert_eq!(r.failed, ["a/b#5"]);
+        assert_eq!((r.answers, r.assigns, r.asks), (1, 1, 1));
+        assert_eq!(r.merged, ["a/b#5"]);
+        assert_eq!((r.used, r.budget), (2, Some(10)));
+        // a second ticket adds to the counts
+        r.add(
+            "a/b#6",
+            &[at(pass_on(3, 9, "abc", &stamp(3)), start + 5)],
+            start,
+            end,
+        );
+        assert_eq!(r.passed, ["a/b#5", "a/b#6"]);
+        assert_eq!(r.used, 3);
+        // a day without a stamped message
+        let mut none = DayReport::default();
+        none.add("a/b#5", &msgs[8..10], start, end);
+        assert_eq!(none, DayReport::default());
     }
 
     #[test]
