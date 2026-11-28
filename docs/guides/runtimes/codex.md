@@ -98,6 +98,14 @@ Codex reads it, or write the rules into `AGENTS.md` of the work dir). The agent 
 the model's `crewboard` calls through the gh shim: `crewboard` finds no `GH_TOKEN`, runs
 `gh auth token`, and the first `gh` on the `PATH` is the shim.
 
+## As the model of the unattended coordinator
+
+`crewboard wake install --tick --runtime codex --work-dir <dir> --agent-dir <headless dir>`
+makes Codex the scheduled model of a headless coordinator, for the tickets that need a
+judgment. It is optional and off by default. The flags are the ones of a dev wake, with another
+prompt and no events hook. The steps and the limits are in
+[headless-setup.md](../headless-setup.md#a-model-for-the-tickets-that-need-a-judgment-optional).
+
 ## Stop, pause, remove
 
 Run `crewboard pause`, then `crewboard wake uninstall --agent-dir <agent dir>`.

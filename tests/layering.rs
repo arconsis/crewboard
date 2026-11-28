@@ -282,6 +282,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ("wake", "protocol"),
     ("wake", "skill_embed"),
     ("wake", "spawn"),
+    ("wake", "unattended"),
 ];
 
 fn rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {

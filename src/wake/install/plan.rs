@@ -213,6 +213,16 @@ fn is_dev(a: &WakeArgs) -> bool {
     !a.tick
 }
 
+/// `--tick --runtime`: the tick, then the model wake of the unattended coordinator.
+fn is_coordinator_model(a: &WakeArgs) -> bool {
+    a.tick && a.agent_job.runtime.is_some()
+}
+
+/// Does the unit start a model: a dev agent, or a coordinator with `--runtime`?
+fn has_model(a: &WakeArgs) -> bool {
+    is_dev(a) || is_coordinator_model(a)
+}
+
 /// `auto`: launchd on macOS; on Linux systemd --user when it works, else cron; Hermes for a
 /// Hermes agent.
 pub fn pick_scheduler(
@@ -244,12 +254,27 @@ pub fn pick_scheduler(
     }
 }
 
-/// The checks of a dev agent; the text of the first wrong option.
-fn check_dev(a: &WakeArgs, t: &Target, sys: &dyn Sys) -> Result<String, String> {
-    if t.agent.is_none() {
+/// The checks of a unit that starts a model (a dev agent, or a coordinator with `--runtime`);
+/// the text of the first wrong option. Every runtime of the table is allowed for both.
+fn check_model(a: &WakeArgs, t: &Target, sys: &dyn Sys) -> Result<String, String> {
+    if is_dev(a) && t.agent.is_none() {
         return Err("--agent is required for a dev agent".into());
     }
     let j = &a.agent_job;
+    if is_coordinator_model(a) {
+        if j.no_events_hook {
+            return Err("--no-events-hook is for a dev agent: the model wake of a coordinator (--tick --runtime) has no events hook".into());
+        }
+        if j.events_every.is_some() {
+            return Err("--events-every is for a dev agent: the model wake of a coordinator (--tick --runtime) has no events hook".into());
+        }
+        if a.events_file.is_some() {
+            return Err("--events-file is for a dev agent: the model wake of a coordinator (--tick --runtime) reads the judgment file of its state dir".into());
+        }
+        if j.work_dir.is_none() {
+            return Err("--work-dir is required with --tick --runtime: the model of the coordinator starts there".into());
+        }
+    }
     match j.work_dir.as_deref() {
         Some(w) if sys.is_dir(&abs(w)) => {}
         Some(w) => {
@@ -276,7 +301,8 @@ fn check_dev(a: &WakeArgs, t: &Target, sys: &dyn Sys) -> Result<String, String> 
 }
 
 /// The words after `crewboard wake` in the wrapper: the options that the run needs, in a fixed
-/// order, paths made absolute. A coordinator gets only the options of the tick.
+/// order, paths made absolute. A coordinator gets only the options of the tick, and with
+/// `--runtime` also the options of its model wake.
 fn wake_words(i: &InstallIn, runtime: Option<&str>, rt_bin: Option<&Path>) -> Vec<String> {
     let a = i.run;
     let j = &a.agent_job;
@@ -299,7 +325,7 @@ fn wake_words(i: &InstallIn, runtime: Option<&str>, rt_bin: Option<&Path>) -> Ve
         put("--env-file", p(e));
     }
     put("--config-dir", p(&i.target.config_dir));
-    if is_dev(a) {
+    if has_model(a) {
         put("--runtime", runtime.map(str::to_string));
         put("--work-dir", j.work_dir.as_deref().and_then(p));
         if let Some(s) = &j.shim_dir {
@@ -329,6 +355,8 @@ fn wake_words(i: &InstallIn, runtime: Option<&str>, rt_bin: Option<&Path>) -> Ve
         {
             put("--events-every", Some(e.clone()));
         }
+    }
+    if has_model(a) {
         put("--runtime-bin", rt_bin.and_then(p));
     }
     if let Some(x) = &a.state_dir {
@@ -393,11 +421,8 @@ fn pick_name(host: &Host, t: &Target, sys: &dyn Sys, s: Scheduler) -> (String, O
 /// Make the plan of an install, or say what is wrong with the options (exit 4).
 pub fn plan_install(host: &Host, sys: &dyn Sys, i: &InstallIn) -> Result<InstallPlan, String> {
     let a = i.run;
-    if a.tick && a.agent_job.runtime.is_some() {
-        return Err("--runtime and --tick exclude each other: a tick starts no model".into());
-    }
-    let runtime = if is_dev(a) {
-        Some(check_dev(a, i.target, sys)?)
+    let runtime = if has_model(a) {
+        Some(check_model(a, i.target, sys)?)
     } else {
         None
     };

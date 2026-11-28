@@ -159,6 +159,9 @@ mod fake_tickets;
 mod fake_unattended;
 #[path = "component/fake_unattended_scope.rs"]
 mod fake_unattended_scope;
+#[cfg(unix)]
+#[path = "component/fake_unattended_wake.rs"]
+mod fake_unattended_wake;
 #[path = "component/fake_verify_fail.rs"]
 mod fake_verify_fail;
 #[cfg(unix)]

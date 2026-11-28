@@ -206,7 +206,7 @@ modules on the `ops` list of `tests/layering.rs`.
 
 The unattended wake for a scheduler. It imports `agent_env`, `base`, `clock`, `config`, `ctx`, `error`, `fsutil`, `headless`, `lock`, `ops`, `protocol` and `spawn`, never `cli`.
 
-- One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file with its hourly try, net back-off), `precheck.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model).
+- One run: `cmd.rs` (`crewboard wake`), `flow.rs` (the phases and what they share), `preflight.rs` (old version, stop file with its hourly try, net back-off), `precheck.rs` (one `poll --quiet` before the lock), `finish.rs` (the wake and its end), `tick.rs` (`--tick`, the headless coordinator without a model), `coordinator.rs` (`--tick --runtime`: after the tick, the model wake of the unattended coordinator; its start rule is in `policy.rs`).
 - The wake command: `job.rs` (options and argument vector), `adapters.rs` (one row per runtime), `runtime.rs` (process group, time budget, signals), `heartbeat.rs`, `procs.rs` (`stop_group`), `words.rs` (shell words), `describe_head.rs` (where the work is after a time-out).
 - Events: `events.rs` (the text of the events file), `wake_events.rs` (the file, the receipts, the `.unhandled` copy), `receipts.rs`, `results.rs` (result files of detached jobs), `hook.rs` and `hook_cmd.rs` (`crewboard hook post-tool-use`).
 - State and rules: `settings.rs` (flags and `Settings`), `policy.rs` (pure rules, time as an argument), `state.rs` (the state dir), `lockdir.rs` (the wake lock), `steps.rs` (the board calls behind a trait: in process or as a subprocess).

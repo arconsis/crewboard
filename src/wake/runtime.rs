@@ -112,7 +112,10 @@ impl Flow<'_, '_> {
         let started = std::time::Instant::now();
         let budget = (self.s.max_wake.secs > 0).then(|| Duration::from_secs(self.s.max_wake.secs));
         let every = Duration::from_secs(self.s.heartbeat_every);
-        let beat = (self.s.heartbeat_every > 0)
+        // The model wake of a coordinator (`--tick --runtime`) writes no heartbeat: the
+        // heartbeat of the coordinator item says that the interactive coordinator is there, and
+        // the tick tells the owner when it is late.
+        let beat = (self.s.heartbeat_every > 0 && !self.s.tick)
             .then_some(self.heartbeat_steps)
             .flatten();
         let (ctl, stop_rx, report_tx) = heartbeat::Control::new();

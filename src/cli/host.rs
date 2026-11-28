@@ -157,19 +157,43 @@ fn wake_check(agent: Option<(&std::path::Path, &str)>) -> Vec<ops::doctor::Extra
     use crate::wake::health;
     use ops::doctor::CheckVerdict;
     let env = |k: &str| std::env::var(k).ok();
-    let verdict = match agent {
-        None => CheckVerdict::Skip("needs the agent config".into()),
-        Some((dir, initiative)) => match health::state_dir(
+    let state = agent.and_then(|(dir, initiative)| {
+        health::state_dir(
             dir,
             initiative,
             env("XDG_STATE_HOME").as_deref(),
             env("HOME").as_deref(),
-        ) {
-            None => CheckVerdict::Skip("no state dir: HOME is not set".into()),
-            Some(state) => wake_verdict(&health::read(&state), &state),
-        },
+        )
+    });
+    let verdict = match (agent, &state) {
+        (None, _) => CheckVerdict::Skip("needs the agent config".into()),
+        (Some(_), None) => CheckVerdict::Skip("no state dir: HOME is not set".into()),
+        (Some(_), Some(state)) => wake_verdict(&health::read(state), state),
     };
-    vec![("wake".to_string(), verdict)]
+    let mut checks = vec![("wake".to_string(), verdict)];
+    // a line only for a unit that started a model of the unattended coordinator
+    if let Some(w) = state.as_deref().and_then(health::coordinator) {
+        checks.push((
+            "unattended coordinator".to_string(),
+            CheckVerdict::Ok(coordinator_line(&w)),
+        ));
+    }
+    checks
+}
+
+/// The line of the model wakes of the unattended coordinator: the mode and the runtime of the
+/// last start, and the count of its day. The mode is the one that the tick read then; the key
+/// of AUTHORITY.md decides at each run.
+fn coordinator_line(w: &crate::wake::policy::CoordWakes) -> String {
+    format!(
+        "mode {} and runtime {} at the last model wake ({}); {} of {} model wakes on {} (UTC)",
+        w.mode,
+        w.runtime,
+        crate::clock::format_ts(w.last),
+        w.count,
+        crate::wake::policy::MAX_COORD_WAKES_PER_DAY,
+        w.day
+    )
 }
 
 /// The line of one wake health. Only a state that stops the work of the agent is a FAIL.
@@ -348,6 +372,22 @@ mod wake_check_tests {
 
     fn verdict(h: Health) -> CheckVerdict {
         wake_verdict(&h, Path::new("/s/demo-dev"))
+    }
+
+    #[test]
+    fn the_line_of_the_unattended_coordinator_names_the_mode_the_runtime_and_the_count() {
+        let w = crate::wake::policy::CoordWakes {
+            day: "2026-11-28".into(),
+            count: 2,
+            last: 0,
+            hash: "00ff".into(),
+            mode: "verify".into(),
+            runtime: "codex".into(),
+        };
+        assert_eq!(
+            super::coordinator_line(&w),
+            "mode verify and runtime codex at the last model wake (1970-01-01T00:00:00Z); 2 of 6 model wakes on 2026-11-28 (UTC)"
+        );
     }
 
     #[test]

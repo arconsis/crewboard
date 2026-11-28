@@ -294,6 +294,13 @@ crewboard wake install --tick --initiative <initiative> \
 
 Its log is `~/.local/state/crewboard/agents/<initiative>-<agent-dir>-headless/wake.log`.
 
+A model for the tickets that the tick leaves for a judgment is optional and off by default.
+`crewboard wake install --tick --runtime claude --work-dir <dir> --agent-dir <headless dir>`
+makes Claude Code that model: the flags of a dev wake with a shorter list of tools, another
+prompt and no events hook. Codex and Hermes work the same way (`--runtime codex`, `--runtime
+hermes`). The steps and the limits are in
+[headless-setup.md](../headless-setup.md#a-model-for-the-tickets-that-need-a-judgment-optional).
+
 ## Stop, pause, remove
 
 Run `crewboard pause` so the coordinator assigns nothing. Then run

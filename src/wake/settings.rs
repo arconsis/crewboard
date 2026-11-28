@@ -23,7 +23,9 @@ pub struct WakeArgs {
     /// The initiative (default: the only one of the agent dir).
     #[arg(long)]
     pub initiative: Option<String>,
-    /// Run `crewboard tick` under the lock on every run and start no model.
+    /// Run `crewboard tick` under the lock on every run and start no model. With `--runtime`:
+    /// after the tick, start that model when a ticket needs a judgment and
+    /// `unattended_coordinator` of AUTHORITY.md is not `off` (at most 6 times per UTC day).
     #[arg(long)]
     pub tick: bool,
     /// The agent name.
@@ -113,7 +115,9 @@ pub struct Settings {
     pub retry_delays: Vec<u64>,
     pub events_file: Option<PathBuf>,
     pub crewboard: Option<String>,
-    /// The wake command of a dev agent (`--runtime`); else `wake_cmd` runs with `sh -c`.
+    /// The wake command of a dev agent (`--runtime`); else `wake_cmd` runs with `sh -c`. With
+    /// `tick`: the model wake of the unattended coordinator, which starts after the tick only
+    /// when the judgment list needs it.
     pub direct: Option<Direct>,
     pub max_wake: MaxWake,
     /// Seconds between heartbeats; 0 sends none.
@@ -426,10 +430,11 @@ fn numbers(
     })
 }
 
-/// The text of `--print-cmd`: the wake command, or the tick command.
+/// The text of `--print-cmd`: the wake command, the tick command, or both for `--tick --runtime`.
 fn print_cmd_text(direct: &Option<Direct>, tick: bool, paths: &Paths) -> Result<String, BadFlag> {
     match (direct, tick) {
-        (Some(d), _) => Ok(d.text.clone()),
+        (Some(d), true) => Ok(wake_job::coordinator_text(&paths.log, &d.text)),
+        (Some(d), false) => Ok(d.text.clone()),
         (None, true) => Ok(wake_job::tick_text(&paths.log)),
         (None, false) => Err(BadFlag {
             code: WakeExit::Usage.code(),
@@ -492,7 +497,10 @@ pub fn resolve(
         empty_grace: n.empty_grace,
         work_backoff: n.work_backoff,
         retry_delays: n.retry_delays,
-        events_file: events_file.or_else(|| direct.as_ref().map(|_| default_events.clone())),
+        // the model wake of a coordinator (`--tick --runtime`) has no events file
+        events_file: events_file
+            .or_else(|| direct.as_ref().map(|_| default_events.clone()))
+            .filter(|_| !a.tick),
         crewboard: nonempty(a.crewboard.as_deref()).map(str::to_string),
         direct,
         max_wake: n.max_wake,

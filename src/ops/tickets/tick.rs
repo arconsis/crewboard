@@ -404,18 +404,18 @@ fn judgment_lines(
     b: &Buckets,
     scan_failed: Option<&str>,
     mut needs: Vec<(TicketRef, Need)>,
-) -> String {
+) -> (String, Option<crate::unattended::Listed>) {
     use crate::unattended::{count_line, count_unread_line, need_line, unread_line};
     let coord = s.coord;
     if coord.mode.is_off() {
-        return String::new();
+        return (String::new(), None);
     }
     // The state as the tick left it: `verify` and `merge` wrote it meanwhile.
     let mut cache = ac.load_cache();
     let before = cache.tick.clone();
     let used = match crate::ops::unattended::load_used_today(ac, s.world, s.now, &mut cache) {
         Ok(n) => n,
-        Err(e) => return count_unread_line(coord.mode, &e.to_string()),
+        Err(e) => return (count_unread_line(coord.mode, &e.to_string()), None),
     };
     let mut out = String::new();
     if let Some(why) = scan_failed {
@@ -475,13 +475,24 @@ fn judgment_lines(
         out.push_str(&need_line(&t.to_string(), *n));
     }
     out.push_str(&count_line(coord.mode, used, coord.budget));
-    out
+    let listed = crate::unattended::Listed {
+        mode: coord.mode,
+        needs: needs.iter().map(|(t, n)| (t.to_string(), *n)).collect(),
+        used,
+        budget: coord.budget,
+    };
+    (out, Some(listed))
 }
 
-/// What `tick` gives its caller: the output, and the deleted notes that it showed in it and
-/// reported to the owner.
+/// What `tick` gives its caller: the output, the judgment list as values, and the deleted notes
+/// that it showed in the output and reported to the owner.
 pub struct TickOut {
     pub text: String,
+    /// The judgment list and the verdicts of the day (spec/agents#unattended-coordinator), from
+    /// the same values as the lines of `text`. `None`: the mode is `off`, or the verdicts of
+    /// the day could not be read. `wake --tick --runtime` decides from it whether a model
+    /// starts; it reads no printed line.
+    pub judgment: Option<crate::unattended::Listed>,
     shown: Vec<crate::events::SecurityEvent>,
 }
 
@@ -542,19 +553,15 @@ pub fn tick(ac: &mut AgentCtx, checks: Option<&TickChecks>) -> CbResult<TickOut>
         let review = review_tickets(&buckets.review, &cache, &mut out);
         handle_review(ac, &scan, review, &cache, &mut out, &mut needs)?;
     }
-    out.push_str(&judgment_lines(
-        ac,
-        &scan,
-        &buckets,
-        scan_failed.as_deref(),
-        needs,
-    ));
+    let (lines, judgment) = judgment_lines(ac, &scan, &buckets, scan_failed.as_deref(), needs);
+    out.push_str(&lines);
     out.push_str(&daily_digest(ac, &scan, &out)?);
     // The output is complete and goes to the caller, which forgets the reported deleted notes
     // after its print (`TickOut::settle`). A failure before keeps them, and the next tick raises
     // them again.
     Ok(TickOut {
         text: out,
+        judgment,
         shown: scan.shown.take(),
     })
 }

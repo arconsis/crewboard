@@ -492,9 +492,155 @@ fn refusals_name_the_wrong_option() {
     let mut bad = dev("claude");
     bad.agent_job.events_every = Some("5m".into());
     assert!(go(&bad, Scheduler::Systemd, &h).contains("--events-every needs whole seconds"));
-    let mut bad = dev("codex");
-    bad.tick = true;
-    assert!(go(&bad, Scheduler::Systemd, &h).contains("exclude each other"));
+}
+
+/// A coordinator unit with a model: `--tick --runtime`.
+fn coordinator(runtime: &str) -> WakeArgs {
+    WakeArgs {
+        tick: true,
+        ..dev(runtime)
+    }
+}
+
+fn headless_target() -> Target {
+    Target {
+        agent: None,
+        ..target("demo-coord-headless")
+    }
+}
+
+#[test]
+fn a_coordinator_with_a_runtime_gets_the_tick_and_the_options_of_its_model_for_each_runtime() {
+    let t = headless_target();
+    for rt in ["claude", "codex", "hermes"] {
+        let mut run = coordinator(rt);
+        run.agent_job.model = Some("m 1".into());
+        run.max_wake = Some("20m".into());
+        let p = make(&host(Os::Linux), &fake(), &run, &t, Scheduler::Systemd, 300).unwrap();
+        assert_eq!(p.name, "crewboard-demo-coord-headless", "{rt}");
+        assert_eq!(
+            p.files[0].content,
+            format!(
+                "#!/bin/bash\n# Written by crewboard wake install (systemd) on 2026-10-25T10:00:00Z. Run it again to change it.\n# PATH: the PATH of the installing shell, so that the model finds the build tools.\nexport PATH='/usr/bin:/bin'\nexec '/cb/crewboard' 'wake' '--tick' '--initiative' 'demo' '--env-file' '/e/demo.env' '--config-dir' '/h/.config/crewboard/agents/demo-coord-headless' '--runtime' '{rt}' '--work-dir' '/w' '--model' 'm 1' '--runtime-bin' '/nvm/{rt}' '--max-wake' '20m' \"$@\"\n"
+            ),
+            "{rt}"
+        );
+        // no agent name: the unit is the one of the coordinator, as for a plain tick
+        assert!(
+            content(&p, ".service")
+                .contains("Description=crewboard wake for the coordinator in demo\n"),
+            "{rt}"
+        );
+    }
+    // `--allow` is a word of the wrapper for the runtime that has a list of tools
+    let mut run = coordinator("claude");
+    run.agent_job.allow = vec!["Bash(gh api *)".into()];
+    run.agent_job.prompt_extra = Some("Answer in English.".into());
+    let p = make(&host(Os::Mac), &fake(), &run, &t, Scheduler::Launchd, 300).unwrap();
+    assert!(
+        p.files[0].content.contains(
+            "'--runtime' 'claude' '--work-dir' '/w' '--allow' 'Bash(gh api *)' '--prompt-extra' 'Answer in English.' '--runtime-bin' '/nvm/claude' \"$@\""
+        ),
+        "{}",
+        p.files[0].content
+    );
+}
+
+#[test]
+fn a_coordinator_with_a_runtime_installs_on_each_scheduler_that_its_runtime_can_use() {
+    let t = headless_target();
+    let sys = fake();
+    let words = "'wake' '--tick' '--initiative' 'demo'";
+    for rt in ["claude", "codex", "hermes"] {
+        let run = coordinator(rt);
+        for (os, sched, file) in [
+            (Os::Linux, Scheduler::Systemd, ".timer"),
+            (Os::Linux, Scheduler::Cron, ".cron"),
+            (Os::Mac, Scheduler::Launchd, ".plist"),
+        ] {
+            let p = make(&host(os), &sys, &run, &t, sched, 300).unwrap();
+            assert!(p.files[0].content.contains(words), "{rt} {sched:?}");
+            assert!(!content(&p, file).is_empty(), "{rt} {sched:?}");
+        }
+        // the Hermes scheduler runs the wrapper of every runtime
+        let p = make(&host(Os::Linux), &sys, &run, &t, Scheduler::Hermes, 300).unwrap();
+        assert_eq!(
+            p.files[0].path,
+            Path::new("/h/.hermes/scripts/crewboard-demo-coord-headless-wake.sh"),
+            "{rt}"
+        );
+        assert!(
+            p.next
+                .as_deref()
+                .unwrap()
+                .starts_with("hermes cron create ")
+        );
+    }
+    // `auto`: the scheduler of the host, and the Hermes scheduler for a Hermes model, as for a
+    // dev agent
+    let auto = |rt: &str, os: Os| {
+        make(&host(os), &sys, &coordinator(rt), &t, Scheduler::Auto, 300)
+            .unwrap()
+            .scheduler
+    };
+    assert_eq!(auto("claude", Os::Mac), Scheduler::Launchd);
+    assert_eq!(auto("codex", Os::Mac), Scheduler::Launchd);
+    assert_eq!(auto("codex", Os::Linux), Scheduler::Cron);
+    assert_eq!(auto("hermes", Os::Mac), Scheduler::Hermes);
+}
+
+#[test]
+fn a_coordinator_with_a_runtime_refuses_what_cannot_work() {
+    let t = headless_target();
+    let sys = fake();
+    let h = host(Os::Linux);
+    let go = |run: &WakeArgs, s, h: &Host| make(h, &sys, run, &t, s, 300).unwrap_err();
+    // the same limits of the host as for a dev agent
+    assert!(
+        go(&coordinator("claude"), Scheduler::Cron, &host(Os::Mac)).contains("keychain"),
+        "cron on macOS cannot hold the claude login"
+    );
+    assert!(
+        go(&coordinator("codex"), Scheduler::Launchd, &h)
+            .contains("launchd is the scheduler of macOS")
+    );
+    let mut bad = coordinator("vim");
+    assert!(go(&bad, Scheduler::Systemd, &h).contains("--runtime must be claude, codex or hermes"));
+    bad = coordinator("hermes");
+    bad.agent_job.runtime_bin = Some("/nope/hermes".into());
+    assert!(go(&bad, Scheduler::Systemd, &h).contains("hermes is not on the PATH of this shell"));
+    bad = coordinator("codex");
+    bad.agent_job.work_dir = None;
+    assert!(
+        go(&bad, Scheduler::Systemd, &h).contains("--work-dir is required with --tick --runtime")
+    );
+    bad = coordinator("codex");
+    bad.agent_job.work_dir = Some("/missing".into());
+    assert!(go(&bad, Scheduler::Systemd, &h).contains("--work-dir must be an existing directory"));
+    bad = coordinator("hermes");
+    bad.agent_job.allow = vec!["x".into()];
+    assert!(go(&bad, Scheduler::Systemd, &h).contains("--allow is for --runtime claude"));
+    // the options of the events of a dev agent
+    for rt in ["claude", "codex", "hermes"] {
+        bad = coordinator(rt);
+        bad.agent_job.events_every = Some("60".into());
+        assert!(
+            go(&bad, Scheduler::Systemd, &h).contains("--events-every is for a dev agent"),
+            "{rt}"
+        );
+        bad = coordinator(rt);
+        bad.agent_job.no_events_hook = true;
+        assert!(
+            go(&bad, Scheduler::Systemd, &h).contains("--no-events-hook is for a dev agent"),
+            "{rt}"
+        );
+        bad = coordinator(rt);
+        bad.events_file = Some("/e.txt".into());
+        assert!(
+            go(&bad, Scheduler::Systemd, &h).contains("--events-file is for a dev agent"),
+            "{rt}"
+        );
+    }
 }
 
 #[test]

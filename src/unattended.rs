@@ -17,7 +17,7 @@
 //! hide a question or a `done` of the signed assignee. The list is a view and gives no right:
 //! every command that writes reads the ticket again and decides with [`check_act`].
 
-use crate::authority::CoordMode;
+pub use crate::authority::CoordMode;
 use crate::base::fields::Field;
 use crate::headless::{Gate, UAct};
 use crate::items::ItemSnapshot;
@@ -683,6 +683,46 @@ pub fn count_unread_line(mode: CoordMode, why: &str) -> String {
         mode.as_str(),
         why.lines().next().unwrap_or("").trim()
     )
+}
+
+/// What a tick found for the unattended coordinator, as values: the mode (never `off`), the
+/// judgment list and the verdicts of the day. The lines of the tick are made from the same
+/// values; the wake decides from these values and reads no printed line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub mode: CoordMode,
+    /// The tickets on the list: the key `<repo>#<n>` and the judgment, in the order of the lines.
+    pub needs: Vec<(String, Need)>,
+    /// The verdicts of today ([`used`]).
+    pub used: u32,
+    /// `unattended_budget` of AUTHORITY.md.
+    pub budget: u32,
+}
+
+impl Listed {
+    /// The lines of the list, one `<key>, <reason>` per ticket. Only ticket keys and the reason
+    /// words of this module: no text of an issue, a PR or a message.
+    pub fn list_lines(&self) -> Vec<String> {
+        self.needs
+            .iter()
+            .map(|(key, need)| format!("{key}, {}", need.reason()))
+            .collect()
+    }
+
+    /// The text of the judgment file that the wake writes for the model: the mode, the verdicts
+    /// of the day and the list. `written` is the time of the write (a UTC timestamp).
+    pub fn file_text(&self, written: &str) -> String {
+        let mut out = format!(
+            "judgment list, written by crewboard wake at {written}\nmode: {}\nverdicts today: {}/{}\n",
+            self.mode.as_str(),
+            self.used,
+            self.budget
+        );
+        for (key, need) in &self.needs {
+            out.push_str(&need_line(key, *need));
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -2014,5 +2054,52 @@ mod tests {
         }
         // control: the protocol line is one
         assert!(has_unattended_line(&unattended_line(3, 10)));
+    }
+}
+
+#[cfg(test)]
+mod listed_tests {
+    use super::*;
+
+    #[test]
+    fn the_judgment_file_has_the_mode_the_count_and_one_line_per_ticket_and_no_other_text() {
+        let l = Listed {
+            mode: CoordMode::VerifyAndMerge,
+            needs: vec![
+                ("a/b#5".into(), Need::ProseGate),
+                ("a/b#6".into(), Need::Question),
+                ("a/b#7".into(), Need::Blocked),
+                ("a/b#8".into(), Need::ReadyNoAgent),
+                ("a/c#9".into(), Need::Returned),
+            ],
+            used: 2,
+            budget: 10,
+        };
+        assert_eq!(
+            l.file_text("2026-11-28T08:00:00Z"),
+            "judgment list, written by crewboard wake at 2026-11-28T08:00:00Z\nmode: verify-and-merge\nverdicts today: 2/10\nneeds judgment: a/b#5, prose Gate\nneeds judgment: a/b#6, question\nneeds judgment: a/b#7, blocked\nneeds judgment: a/b#8, ready, no agent\nneeds judgment: a/c#9, returned\n"
+        );
+        assert_eq!(
+            l.list_lines(),
+            [
+                "a/b#5, prose Gate",
+                "a/b#6, question",
+                "a/b#7, blocked",
+                "a/b#8, ready, no agent",
+                "a/c#9, returned"
+            ]
+        );
+        // the lines of the file are the lines of the tick
+        for (key, need) in &l.needs {
+            assert!(l.file_text("t").contains(&need_line(key, *need)));
+        }
+        // no line of the file starts with the key of the protocol line
+        assert!(!has_unattended_line(&l.file_text("t")));
+        let none = Listed {
+            needs: Vec::new(),
+            ..l
+        };
+        assert!(none.list_lines().is_empty());
+        assert!(none.file_text("t").ends_with("verdicts today: 2/10\n"));
     }
 }

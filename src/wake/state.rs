@@ -11,6 +11,8 @@
 //! stopped        "<ts> <call>: <reason>"; its presence stops all wakes (tried again each hour)
 //! wake.log       the log; wake.log.quiet counts the silent polls
 //! last-tick      the output of the last `tick`
+//! coordinator-wakes  "<UTC day> <model wakes> <epoch of the last start> <list hash> <mode> <runtime>"
+//! judgment.txt   the judgment list for the model of the unattended coordinator
 //! ```
 
 use crate::base::ignore::best_effort_output;
@@ -147,6 +149,10 @@ pub struct Paths {
     pub wake_fail: PathBuf,
     pub last_tick: PathBuf,
     pub budget_streak: PathBuf,
+    /// The count of the model wakes of the unattended coordinator.
+    pub coord_wakes: PathBuf,
+    /// The judgment list that the model of the unattended coordinator reads.
+    pub judgment: PathBuf,
 }
 
 impl Paths {
@@ -166,6 +172,8 @@ impl Paths {
             wake_fail: dir.join("wake-fail"),
             last_tick: dir.join("last-tick"),
             budget_streak: dir.join("budget-streak"),
+            coord_wakes: dir.join("coordinator-wakes"),
+            judgment: dir.join("judgment.txt"),
             dir,
         }
     }
@@ -188,6 +196,12 @@ pub fn read_budget_streak(p: &Path) -> Option<(u32, String)> {
 /// The epoch in `last-wake`; `None` when the file is missing or not a number.
 pub fn read_last_wake(p: &Path) -> Option<i64> {
     i64::try_from(super::policy::parse_whole_secs(&read_text(p)?)?).ok()
+}
+
+/// The model wakes of the unattended coordinator in `coordinator-wakes`; `None` when the file is
+/// missing or broken.
+pub fn read_coord_wakes(p: &Path) -> Option<super::policy::CoordWakes> {
+    super::policy::CoordWakes::parse(&read_text(p)?)
 }
 
 /// The log of a run: `<UTC ts> poll-and-wake: <text>`. `say` also writes the line to standard

@@ -19,6 +19,10 @@ pub(super) struct Scripted {
     pub(super) acted_check: Vec<String>,
     pub(super) acted_rc: u8,
     pub(super) acted_calls: Vec<String>,
+    /// The values that each tick gives for the unattended coordinator ([`Steps::judgment`]).
+    pub(super) judgment: Option<Listed>,
+    /// The checkout that each tick got.
+    pub(super) tick_dirs: Vec<Option<PathBuf>>,
     /// The heads of PRs by `<repo>#<n>`, and the open PRs of every repo.
     pub(super) heads: std::collections::HashMap<String, PrHead>,
     pub(super) open: Vec<OpenPrRef>,
@@ -101,9 +105,14 @@ impl Steps for Scripted {
             .push(format!("say {ticket} anyway={anyway} {body}"));
         self.next(&mut Vec::new())
     }
-    fn tick(&mut self, _work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
+    fn tick(&mut self, work_dir: Option<&Path>, out: &mut Vec<u8>) -> StepRc {
         self.calls.push("tick".into());
+        self.tick_dirs.push(work_dir.map(Path::to_path_buf));
         self.next(out)
+    }
+    fn judgment(&mut self) -> Option<Listed> {
+        // no call to the board: the values of the tick that just ran
+        self.judgment.clone()
     }
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc {
         self.acted_calls

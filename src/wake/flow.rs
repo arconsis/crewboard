@@ -6,7 +6,8 @@
 //! 1. `preflight`: an older version, the stop file, the net back-off. `Done(code)` or go on.
 //! 2. `precheck`: the cheap poll. `Wake(reason)`, `Quiet` or `End(code)`.
 //! 3. the lock (here): `Held` or `End(code)`.
-//! 4. under the lock: `tick`, or `wake_events` (the events file and the receipts) and
+//! 4. under the lock: `tick` (with `--runtime` then `coordinator`, the model wake of the
+//!    unattended coordinator), or `wake_events` (the events file and the receipts) and
 //!    `finish` (the wake command through `runtime`, then its results and the back-off).
 
 use super::{WakeExit, precheck, preflight, wake_events};
@@ -29,6 +30,8 @@ use crate::base::ignore::best_effort_cleanup;
 pub enum Reason {
     Events,
     Work,
+    /// The model wake of the unattended coordinator: a ticket needs a judgment.
+    Judgment,
 }
 
 impl Reason {
@@ -36,6 +39,7 @@ impl Reason {
         match self {
             Reason::Events => "events",
             Reason::Work => "work",
+            Reason::Judgment => "judgment",
         }
     }
 }
@@ -220,7 +224,7 @@ impl Flow<'_, '_> {
     // --- failed wakes ---
 
     /// Is the wake command paused after wakes that failed in a row?
-    fn wake_paused(&self) -> bool {
+    pub(super) fn wake_paused(&self) -> bool {
         state::read_text(&self.s.paths.wake_fail)
             .map(|t| NetBackoff::parse(&t))
             .is_some_and(|b| b.pauses(self.clock.now()))
@@ -239,7 +243,9 @@ impl Flow<'_, '_> {
     }
 
     /// The wake command failed with `rc`: count it, pause the next wakes, and at the third in a
-    /// row tell the coordinator once. Returns the text for the log line.
+    /// row tell the coordinator once. The model wake of a coordinator (`--tick --runtime`) tells
+    /// nobody on the board, because the headless scope refuses its `say`: one line goes to
+    /// standard error and the log. Returns the text for the log line.
     pub(super) fn wake_failed(&mut self, rc: u8) -> String {
         let prev = state::read_text(&self.s.paths.wake_fail)
             .map(|t| NetBackoff::parse(&t))
@@ -247,7 +253,11 @@ impl Flow<'_, '_> {
         let now = self.clock.now();
         let next = policy::wake_failed(prev, now);
         self.put(&self.s.paths.wake_fail, next.render().as_bytes());
-        if next.fails == policy::WAKE_TELL_RUN {
+        if self.s.tick {
+            if next.fails == policy::COORD_TELL_RUN {
+                self.log.say(&policy::coord_fail_text(next.fails, rc));
+            }
+        } else if next.fails == policy::WAKE_TELL_RUN {
             let agent = self.s.agent.clone().unwrap_or_else(|| "this agent".into());
             self.tell_coordinator(&policy::wake_fail_text(&agent, next.fails, rc));
         }

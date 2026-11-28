@@ -1715,16 +1715,16 @@ Options:
           The initiative (default: the only one of the agent dir)
 
       --tick
-          Run `crewboard tick` under the lock on every run and start no model
+          Run `crewboard tick` under the lock on every run and start no model. With `--runtime`: after the tick, start that model when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off` (at most 6 times per UTC day)
 
       --agent <AGENT>
           The agent name
 
       --runtime <RUNTIME>
-          The runtime of the wake: claude, codex or hermes. The wake command, its prompt and its permission flags come from it (`--print-cmd` shows them)
+          The runtime of the wake: claude, codex or hermes. The wake command, its prompt and its permission flags come from it (`--print-cmd` shows them). With `--tick`: the model of the unattended coordinator, which starts after the tick only when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off`
 
       --work-dir <WORK_DIR>
-          The checkout of the agent. The wake command starts there
+          The checkout of the agent. The wake command starts there. With `--tick` and no `--runtime`: the checkout where the tick runs the checks of a `checks:` Gate
 
       --model <MODEL>
           The model of the wake, given to the runtime as `--model ID`
@@ -1773,16 +1773,16 @@ Options:
           The initiative (default: the only one of the agent dir)
 
       --tick
-          Run `crewboard tick` under the lock on every run and start no model
+          Run `crewboard tick` under the lock on every run and start no model. With `--runtime`: after the tick, start that model when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off` (at most 6 times per UTC day)
 
       --agent <AGENT>
           The agent name
 
       --runtime <RUNTIME>
-          The runtime of the wake: claude, codex or hermes. The wake command, its prompt and its permission flags come from it (`--print-cmd` shows them)
+          The runtime of the wake: claude, codex or hermes. The wake command, its prompt and its permission flags come from it (`--print-cmd` shows them). With `--tick`: the model of the unattended coordinator, which starts after the tick only when a ticket needs a judgment and `unattended_coordinator` of AUTHORITY.md is not `off`
 
       --work-dir <WORK_DIR>
-          The checkout of the agent. The wake command starts there
+          The checkout of the agent. The wake command starts there. With `--tick` and no `--runtime`: the checkout where the tick runs the checks of a `checks:` Gate
 
       --model <MODEL>
           The model of the wake, given to the runtime as `--model ID`

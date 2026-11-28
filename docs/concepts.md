@@ -18,6 +18,7 @@ The terms you need before your first ticket reaches Done. Who holds which power:
 | **Agent dir** | The config dir of one agent: key, config, `gh` wrapper. The **work dir** is its checkout, the **state dir** (`~/.local/state/crewboard/agents/`) holds cursor, locks and logs. |
 | **Coordinator** | The one agent that assigns tickets, verifies evidence and keeps work moving. It writes no code. |
 | **Headless coordinator** | An optional second coordinator program that starts no model: `crewboard tick` in a config dir with `headless = true` ([spec](design/spec/agents.md#headless-coordinator)). "Headless" always means "no model". |
+| **Unattended coordinator** | An optional scheduled model in the headless config dir, for the tickets that the tick leaves for a judgment. Off by default: the owner sets `unattended_coordinator` in `AUTHORITY.md` and installs a unit with `wake --tick --runtime`. Its scope and its budget are in crewboard ([spec](design/spec/agents.md#unattended-coordinator)). |
 | **Dev agent** | An agent that takes tickets and delivers pull requests. |
 | **Approve** | The owner's command that lets an agent, its key and its agent account join. Without it an agent has no authority. |
 | **Ticket** | The unit of work: a GitHub issue. |

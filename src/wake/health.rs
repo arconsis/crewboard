@@ -21,6 +21,13 @@ pub enum Health {
     Network { fails: u64 },
 }
 
+/// The model wakes of the unattended coordinator that the unit of this state dir started
+/// (`coordinator-wakes`): the mode and the runtime of the last start, and the count of its day.
+/// `None`: the unit started no model yet, or it is no `--tick --runtime` unit.
+pub fn coordinator(dir: &Path) -> Option<crate::wake::policy::CoordWakes> {
+    state::read_coord_wakes(&Paths::new(dir.to_path_buf(), None, None).coord_wakes)
+}
+
 /// Wake commands that failed in a row, from this count on, are a fault to show: one failed
 /// wake can be a model limit or a restart.
 pub const FAILING_FROM: u64 = 2;
@@ -117,6 +124,26 @@ mod tests {
                 line: "ts poll: HTTP 401".into()
             }
         );
+    }
+
+    #[test]
+    fn the_model_wakes_of_the_coordinator_are_read_from_their_count_file() {
+        let d = dir();
+        assert_eq!(coordinator(d.path()), None, "a unit that started no model");
+        std::fs::write(
+            d.path().join("coordinator-wakes"),
+            "2026-11-28 2 1795860000 00ff verify-and-merge hermes\n",
+        )
+        .unwrap();
+        let w = coordinator(d.path()).unwrap();
+        assert_eq!(
+            (w.day.as_str(), w.count, w.mode.as_str(), w.runtime.as_str()),
+            ("2026-11-28", 2, "verify-and-merge", "hermes")
+        );
+        // the file changes nothing in the health of the wakes
+        assert_eq!(read(d.path()), Health::Running { last: None });
+        std::fs::write(d.path().join("coordinator-wakes"), "broken\n").unwrap();
+        assert_eq!(coordinator(d.path()), None);
     }
 
     #[test]
