@@ -210,18 +210,28 @@ fn install(a: &InstallArgs, f: &Flags, host: &Host, sys: &dyn Sys) -> Result<Str
         .iter()
         .map(|f| replace_plan(host, sys, &t, f, &date))
         .collect();
+    // a unit with a model of the unattended coordinator: its tick runs no checks
+    let with_note = |mut out: String| {
+        if super::plan::is_coordinator_model(&a.run) {
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("note: {}\n", crate::wake::job::NO_CHECKS));
+        }
+        out
+    };
     if a.dry_run {
         let mut out = render_dry(&plan);
         for r in &gone {
             out.push_str(&render_removal(r));
         }
-        return Ok(out);
+        return Ok(with_note(out));
     }
     for r in &gone {
         let text = apply_removal(r, sys)?;
         eprint!("{text}");
     }
-    apply_install(plan, host, sys)
+    apply_install(plan, host, sys).map(with_note)
 }
 
 /// The refusal for jobs of other names: one line per job, then the fix.

@@ -24,6 +24,7 @@ const PAGE: &str = "docs/reference/cli.md";
 
 fn help(path: &[String]) -> String {
     let out = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .args(path)
         .arg("--help")
         .env_remove("CREWBOARD_CONFIG_DIR")
@@ -38,6 +39,7 @@ fn help(path: &[String]) -> String {
 /// The text of a help topic, `crewboard help <topic>`.
 fn topic(name: &str) -> String {
     let out = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .args(["help", name])
         .env_remove("CREWBOARD_CONFIG_DIR")
         .env("NO_COLOR", "1")

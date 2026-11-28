@@ -398,7 +398,10 @@ fn an_unread_answer_refuses_say_and_override_unread_posts_and_the_cursor_stays()
     assert!(text.contains("unread-message-on-ticket"), "{text}");
     assert!(text.contains(&format!("issuecomment-{unread}")), "{text}");
     // the refusal shows the text of the message: no extra watch call to see it
-    assert!(text.contains("    decision: use the other crate"), "{text}");
+    assert!(
+        text.contains("    | decision: use the other crate"),
+        "{text}"
+    );
     assert_eq!(posts(), before, "a refusal posts nothing");
 
     // --override-unread posts, with the override line

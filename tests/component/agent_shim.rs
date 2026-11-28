@@ -26,6 +26,7 @@ fn agent_dir(s: &Setup) -> PathBuf {
 
 fn shim(s: &Setup, extra: &[&str], path: &str) -> Out {
     let mut c = Command::new(EXE);
+    c.env_remove("CREWBOARD_WAKE");
     c.arg("agent")
         .arg("shim")
         .args(extra)
@@ -520,6 +521,7 @@ fn with_env_works_without_home_for_an_explicit_file_and_not_without_one() {
     let s = Setup::new();
     let run = |args: &[&str]| {
         let mut c = Command::new(EXE);
+        c.env_remove("CREWBOARD_WAKE");
         c.args(args)
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
@@ -551,6 +553,7 @@ fn with_env_works_without_home_for_an_explicit_file_and_not_without_one() {
         ),
     );
     let mut c = Command::new(EXE);
+    c.env_remove("CREWBOARD_WAKE");
     c.args([
         "init",
         "--initiative",
@@ -589,6 +592,7 @@ fn shim_has_no_default_agent_dir_and_writes_nothing_without_one() {
     // twin: $CREWBOARD_CONFIG_DIR names the dir
     let d = agent_dir(&s);
     let mut c = Command::new(EXE);
+    c.env_remove("CREWBOARD_WAKE");
     c.args(["agent", "shim"])
         .env_clear()
         .env("PATH", std_path(&s))
@@ -662,6 +666,7 @@ fn git_runs_without_the_token_variables_of_the_caller() {
         ),
     );
     let mut c = Command::new(EXE);
+    c.env_remove("CREWBOARD_WAKE");
     c.args([
         "agent",
         "shim",

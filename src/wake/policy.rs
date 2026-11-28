@@ -314,7 +314,7 @@ pub fn tick_log_lines(out: &str) -> Vec<String> {
 pub const MAX_COORD_WAKES_PER_DAY: u32 = 6;
 /// A judgment list that did not change starts the next model wake after this many seconds.
 pub const COORD_BACKOFF_SECS: i64 = 7200;
-/// The least time between two model starts of one UTC day, in seconds. A dev agent can change
+/// The least time between two model starts, in seconds (it holds across midnight too). A dev agent can change
 /// the list at will (a block, a question), so a change alone must not start models in a row.
 pub const COORD_MIN_DISTANCE_SECS: i64 = 1800;
 /// The run of failed model wakes at which one line goes to standard error.
@@ -459,7 +459,7 @@ pub enum CoordQuiet {
     DayLimit { count: u32 },
     /// Model wakes failed in a row: the pause of `wake-fail`.
     Paused,
-    /// The last start of today is less than [`COORD_MIN_DISTANCE_SECS`] ago.
+    /// The last start is less than [`COORD_MIN_DISTANCE_SECS`] ago (also across midnight).
     TooSoon { next: i64 },
     /// The list did not change since the last model wake, and the back-off is not over.
     Unchanged { next: i64 },
@@ -498,8 +498,10 @@ impl CoordQuiet {
 ///
 /// A model starts only when all of this holds: the mode is not `off`; the list is not empty;
 /// the verdicts of the day are not used; the stored day is not later than today; the day has
-/// fewer than [`MAX_COORD_WAKES_PER_DAY`] model wakes; the wakes do not pause; the last start of
-/// today is [`COORD_MIN_DISTANCE_SECS`] ago or more (the first start of a day needs no distance);
+/// fewer than [`MAX_COORD_WAKES_PER_DAY`] model wakes; the wakes do not pause; the last start
+/// is [`COORD_MIN_DISTANCE_SECS`] ago or more, also when it was on the day before (a unit that
+/// never started a model needs no distance, and a last start in the future waits until that
+/// time plus the distance);
 /// and the list changed since the last model wake, or [`COORD_BACKOFF_SECS`] passed since its
 /// start (a last start in the future counts as "not passed"). "Changed": the list differs from
 /// the list of the last tick, or an earlier tick noted a change that no model saw (`pending`,
@@ -531,7 +533,7 @@ pub fn coord_start(f: &CoordFacts<'_>) -> Result<CoordWakes, CoordQuiet> {
     if f.paused {
         return Err(CoordQuiet::Paused);
     }
-    if let Some(s) = f.stored.filter(|_| count > 0) {
+    if let Some(s) = f.stored.filter(|s| s.last > 0) {
         let next = s.last.saturating_add(COORD_MIN_DISTANCE_SECS);
         if f.now < next {
             return Err(CoordQuiet::TooSoon { next });
@@ -908,7 +910,7 @@ mod coord_tests {
         let s = same(NOW - COORD_BACKOFF_SECS);
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 2);
         // the list of the last wake of an earlier day counts too: the back-off is 2 h, not a day
-        let s = stored("2026-11-27", 3, NOW - 60, "h1");
+        let s = stored("2026-11-27", 3, NOW - COORD_MIN_DISTANCE_SECS, "h1");
         assert!(matches!(
             coord_start(&facts(Some(&s))),
             Err(CoordQuiet::Unchanged { .. })
@@ -1012,7 +1014,7 @@ mod coord_tests {
     }
 
     #[test]
-    fn two_starts_of_a_day_are_30_minutes_apart_and_the_first_start_needs_no_distance() {
+    fn two_starts_are_30_minutes_apart_also_across_midnight_and_the_first_one_ever_needs_none() {
         // a changed list one second before the distance is over
         let s = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS + 1, "h0");
         assert_eq!(
@@ -1021,12 +1023,21 @@ mod coord_tests {
         );
         let s = stored(TODAY, 1, NOW - COORD_MIN_DISTANCE_SECS, "h0");
         assert!(coord_start(&facts(Some(&s))).is_ok());
-        // the first start of a day: a start of yesterday one minute ago does not count, and a
-        // record without a start of today does not
+        // across midnight: a start of yesterday one minute ago counts for the distance, and the
+        // count of the new day starts at 1 when the distance is over
         let s = stored("2026-11-27", 2, NOW - 60, "h0");
+        assert_eq!(
+            coord_start(&facts(Some(&s))),
+            Err(CoordQuiet::TooSoon {
+                next: NOW - 60 + COORD_MIN_DISTANCE_SECS
+            })
+        );
+        let s = stored("2026-11-27", 6, NOW - COORD_MIN_DISTANCE_SECS, "h0");
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
-        let s = stored(TODAY, 0, NOW - 60, "h0");
+        // the first start ever: a record that only noted a list has no start time
+        let s = stored(TODAY, 0, 0, "h0");
         assert_eq!(coord_start(&facts(Some(&s))).unwrap().count, 1);
+        assert_eq!(coord_start(&facts(None)).unwrap().count, 1);
         // the limit of the day and the pause come first
         let s = stored(TODAY, 6, NOW - 60, "h0");
         assert!(matches!(

@@ -41,6 +41,7 @@ impl Setup {
     /// Run the command `words` with `input` on standard input and the options `extra`.
     fn run(&self, words: &[&str], input: &str, extra: &[&str]) -> Out {
         let mut c = Command::new(env!("CARGO_BIN_EXE_crewboard"));
+        c.env_remove("CREWBOARD_WAKE");
         c.args(words)
             .args(extra)
             .env_clear()

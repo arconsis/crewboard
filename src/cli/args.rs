@@ -905,7 +905,12 @@ pub enum WatchCmd {
     /// or edited) is not shown; one line counts them. A long message is cut with a note. Only the
     /// newest 15 messages are shown; a note counts the older ones. Read it at the start of each wake and before you
     /// ask the coordinator. Exit 0. A ticket that the signed log does not assign to you is refused
-    /// (`mine-not-your-ticket`). It writes nothing.
+    /// (`mine-not-your-ticket`). It writes nothing. The text of a message stands after `| `.
+    ///
+    /// For an agent with the coordinator role, `mine <ticket>` prints the signed log of any
+    /// ticket of the initiative: lines `signed: ...` (the assignee, the Gate, the guard, the
+    /// latest `done` with its PR and SHA and its verify result, an open question) and the
+    /// messages that count since the latest assignment.
     #[command(display_order = 27)]
     Mine {
         /// Your ticket: an issue number, or `<owner>/<repo>#<n>`. Without it: the list of your

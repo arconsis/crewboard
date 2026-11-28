@@ -143,6 +143,7 @@ fn dt3_a_kill_of_the_caller_group_leaves_the_job_and_its_lock_the_job_ends_later
             "{BIN} lock run {l} --holder a@hostA --no-board --detach --result {res} -- sh -c 'sleep 4; echo done3' >{out} 2>&1; sleep 60"
         ),
     ])
+    .env_remove("CREWBOARD_WAKE")
     .env("HOST_LOCK_HOST", HOST)
     .env("HOST_LOCK_PS_CMD", format!("cat {}", r.s("ps.txt")))
     .stdin(Stdio::null());

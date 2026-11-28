@@ -214,7 +214,7 @@ fn is_dev(a: &WakeArgs) -> bool {
 }
 
 /// `--tick --runtime`: the tick, then the model wake of the unattended coordinator.
-fn is_coordinator_model(a: &WakeArgs) -> bool {
+pub(super) fn is_coordinator_model(a: &WakeArgs) -> bool {
     a.tick && a.agent_job.runtime.is_some()
 }
 

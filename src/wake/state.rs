@@ -153,6 +153,10 @@ pub struct Paths {
     pub coord_wakes: PathBuf,
     /// The judgment list that the model of the unattended coordinator reads.
     pub judgment: PathBuf,
+    /// The error of a model command that cannot be built, as the last run told it.
+    pub model_error: PathBuf,
+    /// The time of a `wake` call that was refused inside a wake (`CREWBOARD_WAKE` was set).
+    pub inside_wake: PathBuf,
 }
 
 impl Paths {
@@ -174,6 +178,8 @@ impl Paths {
             budget_streak: dir.join("budget-streak"),
             coord_wakes: dir.join("coordinator-wakes"),
             judgment: dir.join("judgment.txt"),
+            model_error: dir.join("model-error"),
+            inside_wake: dir.join("inside-wake"),
             dir,
         }
     }

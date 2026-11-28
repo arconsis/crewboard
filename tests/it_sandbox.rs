@@ -347,6 +347,7 @@ struct Out {
 
 fn run_env(cfg_dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Out {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_crewboard"));
+    cmd.env_remove("CREWBOARD_WAKE");
     cmd.arg("--config-dir").arg(cfg_dir).args(args);
     for (k, v) in env {
         cmd.env(k, v);

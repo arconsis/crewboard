@@ -261,13 +261,32 @@ fn dispatch(cli: &Cli) -> Outcome {
     if let Err(e) = scope::guard(&cli.command, cli.config_dir.as_deref()) {
         return fail(e);
     }
-    if let Some(what) = wake_child_command(&cli.command) {
-        let headless = match crate::headless::in_scope(cli.config_dir.as_deref()) {
-            Ok(h) => h,
-            Err(e) => return fail(e),
-        };
-        let wake = crate::headless::in_wake_child();
-        if let Some(r) = crate::headless::wake_child_refusal(what, wake, headless) {
+    if let Some(what) = wake_child_command(&cli.command)
+        && crate::headless::in_wake_child()
+    {
+        // the unit commands name their config dir with `--agent-dir`
+        let mut headless = false;
+        for d in [cli.config_dir.as_deref()]
+            .into_iter()
+            .chain(unit_agent_dir(&cli.command).map(Some))
+        {
+            match crate::headless::in_scope(d) {
+                Ok(h) => headless |= h,
+                Err(e) => return fail(e),
+            }
+        }
+        if let Some(r) = crate::headless::wake_child_refusal(what, true, headless) {
+            #[cfg(unix)]
+            if let Command::Host(HostCmd::Wake { w, action: None }) = &cli.command {
+                crate::wake::cmd::note_refused_inside_wake(
+                    w,
+                    &crate::wake::cmd::GlobalFlags {
+                        config_dir: cli.config_dir.clone(),
+                        env_file: cli.env_file.clone(),
+                        exe: None,
+                    },
+                );
+            }
             return refused(r);
         }
     }
@@ -298,6 +317,29 @@ fn wake_child_command(c: &Command) -> Option<crate::headless::WakeChild> {
         Command::Crew(CrewCmd::Heartbeat { .. } | CrewCmd::Start { .. }) => {
             Some(WakeChild::Heartbeat)
         }
+        Command::Host(HostCmd::Wake {
+            action:
+                Some(
+                    crate::wake::install::WakeAction::Install(_)
+                    | crate::wake::install::WakeAction::Uninstall(_),
+                ),
+            ..
+        }) => Some(WakeChild::Units),
+        _ => None,
+    }
+}
+
+/// The `--agent-dir` of `wake install` and `wake uninstall`: the config dir of their unit.
+fn unit_agent_dir(c: &Command) -> Option<&std::path::Path> {
+    match c {
+        Command::Host(HostCmd::Wake {
+            action: Some(crate::wake::install::WakeAction::Install(a)),
+            ..
+        }) => a.run.agent_dir.as_deref(),
+        Command::Host(HostCmd::Wake {
+            action: Some(crate::wake::install::WakeAction::Uninstall(a)),
+            ..
+        }) => a.agent_dir.as_deref(),
         _ => None,
     }
 }

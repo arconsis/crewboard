@@ -160,7 +160,7 @@ new events only at its next wake, so every such crossing costs one poll interval
    sender, kind, signing time and URL. It also shows the text, so the agent needs no extra
    `watch` call to read it: for the first 5 messages the first 3 non-blank lines, each cut to
    200 characters (`[...]` marks a cut line; a line `[... n more line(s) at the URL]` marks a
-   cut text). A later message gets its sender line only. It says: handle them, run
+   cut text). Each line of the text has the prefix `    | ` (item 10). A later message gets its sender line only. It says: handle them, run
    `crewboard watch --timeout 1s` (it marks them as read), then run the command again, or pass
    `--override-unread`. The command posts nothing and changes no status.
 4. **`--override-unread`.** The flag passes the check and records the override in the signed message:
@@ -183,11 +183,16 @@ new events only at its next wake, so every such crossing costs one poll interval
    extra read of the ticket's comments (the ticket's comment list is not loaded by `say`
    otherwise). An agent without a cursor (never watched) or with an unreadable cursor passes.
 9. **A headless config dir.** A headless config dir never moves the cursor, so the check has its
-   own mark there: per ticket the highest comment id that a refusal showed. The refusal shows
-   the messages above the mark and says "read these, then run the same command again". The
-   same command then passes without a flag, until a newer message comes. `--override-unread` is
-   refused there (`headless-scope`). See
+   own mark there: per ticket the highest comment id and the latest update time that a refusal
+   showed. The refusal shows the messages that the mark does not cover (at most 5 per run) and
+   says "read these, then run the same command again". It names `crewboard mine <ticket>` for
+   the full text and no URL. The same command then passes without a flag, until a newer message
+   comes or an owner comment is edited. A mark counts in one model run of the unattended
+   coordinator only. `--override-unread` is refused there (`headless-scope`). See
    [The model wake](agents.md#the-model-wake).
+10. **Quoted text.** Each line of a message text in a refusal and in the output of `take` has
+   the prefix `    | `, and a control character or a Unicode line separator in it is a space.
+   So no line of a message text starts at column 0.
 
 ## Stale work
 

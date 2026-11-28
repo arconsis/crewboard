@@ -29,11 +29,21 @@ pub fn coordinator(dir: &Path) -> Option<crate::wake::policy::CoordWakes> {
 }
 
 /// The state of the model of a `--tick --runtime` unit: the model wakes that failed in a row,
-/// and the ones in a row that ended at the time budget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// the ones in a row that ended at the time budget, and the error of a model command that
+/// the last run could not build.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Model {
     pub fails: u64,
     pub budget_stops: u32,
+    pub error: Option<String>,
+}
+
+/// The time text of a `wake` call for this state dir that was refused inside a wake
+/// (`CREWBOARD_WAKE` was set), when no run of the unit came after it. A unit whose own
+/// environment has the variable never runs: each of its wakes ends there with exit 2.
+pub fn refused_inside_wake(dir: &Path) -> Option<String> {
+    state::read_text(&Paths::new(dir.to_path_buf(), None, None).inside_wake)
+        .map(|t| t.lines().next().unwrap_or("").to_string())
 }
 
 /// Read the model state of the state dir.
@@ -42,6 +52,7 @@ pub fn model(dir: &Path) -> Model {
     Model {
         fails: state::read_text(&p.wake_fail).map_or(0, |t| NetBackoff::parse(&t).fails),
         budget_stops: state::read_budget_streak(&p.budget_streak).map_or(0, |(n, _)| n),
+        error: state::read_text(&p.model_error).filter(|t| !t.trim().is_empty()),
     }
 }
 

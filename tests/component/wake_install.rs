@@ -100,6 +100,7 @@ impl Rig {
     /// `crewboard <args>` with a clean environment: the fake HOME, the fake scheduler programs.
     fn run(&self, os: &str, args: &[&str]) -> Out {
         let o = Command::new(EXE)
+            .env_remove("CREWBOARD_WAKE")
             .args(args)
             .env_clear()
             .env("HOME", self.home())

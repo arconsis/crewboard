@@ -34,6 +34,7 @@ fn skill_in(home: &Path, cwd: &Path, args: &[&str]) -> Run {
 /// The same, with `path` as PATH (default: HOME, which has no binary).
 fn skill_path(home: &Path, cwd: &Path, path: Option<&Path>, args: &[&str]) -> Run {
     let o: Output = Command::new(bin())
+        .env_remove("CREWBOARD_WAKE")
         .arg("skill")
         .args(args)
         .env("HOME", home)
@@ -862,6 +863,7 @@ fn a_headless_config_may_print_the_path_but_not_install() {
     .unwrap();
     let run = |args: &[&str]| {
         Command::new(bin())
+            .env_remove("CREWBOARD_WAKE")
             .args(["--config-dir", cfg.to_str().unwrap()])
             .args(args)
             .env("HOME", &h)
@@ -996,6 +998,7 @@ fn doctor_reports_the_installed_skill_from_the_manifest() {
     // the binary: a PATH without gh fails the report, but every host line is printed
     let doctor = |home: &Path| {
         let o = Command::new(bin())
+            .env_remove("CREWBOARD_WAKE")
             .args(["--config-dir"])
             .arg(home.join("cfg"))
             .arg("doctor")

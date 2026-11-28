@@ -330,6 +330,16 @@ impl AgentCtx {
         self.ctx.cd.state_path(&self.ctx.cfg.initiative, &self.name)
     }
 
+    /// A model run of the unattended coordinator starts at `now`: the unread check of this
+    /// config dir starts a new run (`PollState::start_unread_run`), under the lock of the state
+    /// file. An error means that the run is not stored.
+    pub fn start_unread_run(&self, now: i64) -> crate::error::CbResult<()> {
+        StateCache::update_locked(&self.state_path(), |cache| {
+            cache.poll.start_unread_run(now);
+            Ok(())
+        })
+    }
+
     pub fn load_cache(&self) -> StateCache {
         StateCache::load(&self.state_path())
     }

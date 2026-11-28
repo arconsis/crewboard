@@ -109,13 +109,11 @@ fn uc1_with_the_mode_off_the_unit_does_what_a_tick_unit_does_and_starts_no_proce
     }
     assert_eq!(a.calls, b.calls);
     assert_eq!(b.calls, rep(plan.len(), "tick"));
-    // the log of the unit with a runtime has one more line per run: its tick runs no checks
+    // the log of the unit with a runtime has one more line with each tick that is not quiet:
+    // its tick runs no checks. A quiet tick writes what the one of a tick unit writes.
     let note = crate::wake::job::NO_CHECKS;
     let model_log = model.log();
-    assert_eq!(
-        model_log.lines().filter(|l| l.ends_with(note)).count(),
-        plan.len()
-    );
+    assert_eq!(model_log.lines().filter(|l| l.ends_with(note)).count(), 2);
     let without: String = model_log
         .lines()
         .filter(|l| !l.ends_with(note))
@@ -224,11 +222,13 @@ fn uc3_a_list_starts_the_model_once_then_after_a_change_or_after_the_back_off() 
     );
     assert!(!rig.state().join("last-wake").exists() && !rig.lock().exists());
 
+    // the unread check of the config dir got a new run at the start
+    assert_eq!(st.model_runs, [NOW]);
     // the same list: no second model, and no line for it (the tick is quiet)
-    // (one line per run says that the tick runs no checks)
     let lines = rig.log().lines().count();
     assert_eq!(run(&rig, &mut st, &flags), 0);
-    assert_eq!(rig.log().lines().count(), lines + 1);
+    assert_eq!(rig.log().lines().count(), lines);
+    assert_eq!(st.model_runs, [NOW]);
     rig.clock.advance(policy_backoff() - 1);
     assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 1);
@@ -621,7 +621,8 @@ fn uc10_a_model_setup_that_is_broken_does_not_stop_the_tick() {
         assert_eq!(run(&model, &mut b, &flags), 0, "the exit code of the tick");
     }
     assert_eq!(a.calls, b.calls);
-    // the log of the tick is the one of a tick unit, with two more lines per run
+    // the log of the tick is the one of a tick unit, with one more line per run (the error)
+    // and one with the tick that is not quiet
     let extra = |l: &str| {
         l.ends_with(crate::wake::job::NO_CHECKS)
             || l.contains("the model of this unit cannot start: ")
@@ -629,7 +630,7 @@ fn uc10_a_model_setup_that_is_broken_does_not_stop_the_tick() {
     let model_log = model.log();
     assert_eq!(
         model_log.lines().filter(|l| extra(l)).count(),
-        2 * plan.len()
+        plan.len() + 1
     );
     let without: String = model_log
         .lines()
@@ -637,8 +638,14 @@ fn uc10_a_model_setup_that_is_broken_does_not_stop_the_tick() {
         .map(|l| format!("{l}\n"))
         .collect();
     assert_eq!(plain.log(), without);
+    // standard error gets the error once, not at each run: a cron unit mails what it gets
     let err = model.stderr();
-    assert_eq!(err.lines().count(), plan.len(), "{err}");
+    assert_eq!(err.lines().count(), 1, "{err}");
+    let told = model.state_text("model-error").unwrap();
+    assert!(
+        told.starts_with("--work-dir must be an existing directory"),
+        "{told}"
+    );
     assert!(
         err.contains(
             "the model of this unit cannot start: --work-dir must be an existing directory"
@@ -649,6 +656,82 @@ fn uc10_a_model_setup_that_is_broken_does_not_stop_the_tick() {
     // a tick that fails still gives its code
     let mut st = steps("2||refused [rule=tick-headless-only] x", 1, None);
     assert_eq!(run(&model, &mut st, &flags), 2);
+    // another error text goes to standard error once more; a setup that works again removes
+    // the note
+    std::fs::create_dir_all(model.p("wd")).unwrap();
+    let mut st = steps(TICKOUT, 3, None);
+    assert_eq!(run(&model, &mut st, &flags), 0);
+    assert_eq!(run(&model, &mut st, &flags), 0);
+    let told_lines = |r: &Rig| {
+        r.stderr()
+            .lines()
+            .filter(|l| l.contains("the model of this unit cannot start: "))
+            .count()
+    };
+    assert_eq!(told_lines(&model), 2, "{}", model.stderr());
+    assert_ne!(model.state_text("model-error").unwrap(), told);
+    runtime(&model, 0);
+    assert_eq!(run(&model, &mut st, &flags), 0);
+    assert_eq!(model.state_text("model-error"), None);
+    assert_eq!(told_lines(&model), 2);
+}
+
+#[test]
+fn uc13_a_list_that_alternates_starts_one_model_per_30_minutes_also_across_midnight() {
+    let rig = Rig::new();
+    let rt = runtime(&rig, 0);
+    let flags = unit(&rig, &rt);
+    let a = listed(&[6], 0);
+    let b = listed(&[7], 0);
+    let hash = |n: u64| crate::wake::policy::list_hash(&[format!("demo/app#{n}, prose Gate")]);
+    let mut st = steps(LIST6, 14, a.clone());
+    // a dev agent changes the list at each tick (a block, then no block): ticks every 5 min
+    let mut seen = Vec::new();
+    for tick in 0..14 {
+        st.judgment = if tick % 2 == 0 { a.clone() } else { b.clone() };
+        assert_eq!(run(&rig, &mut st, &flags), 0);
+        let w = wakes_file(&rig).unwrap();
+        // the file has the list of this tick after each run
+        assert_eq!(
+            w.hash,
+            hash(if tick % 2 == 0 { 6 } else { 7 }),
+            "tick {tick}"
+        );
+        seen.push((rig.wakes(), w.count, w.last - NOW, w.pending));
+        rig.clock.advance(300);
+    }
+    // a start at the ticks 0, 6 and 12 (0, 30 and 60 minutes), and a change that waits between
+    let want: Vec<(usize, u32, i64, bool)> = (0..14)
+        .map(|tick| {
+            let starts = tick / 6 + 1;
+            let last = (tick / 6) * 1800;
+            (starts as usize, starts as u32, last, tick % 6 != 0)
+        })
+        .collect();
+    assert_eq!(seen, want);
+    assert_eq!(st.model_runs, [NOW, NOW + 1800, NOW + 3600]);
+
+    // across midnight: the start of the day before still counts for the 30 minutes
+    let late = Rig::new();
+    let rt = runtime(&late, 0);
+    let flags = unit(&late, &rt);
+    plant_wakes(&late, "2023-11-13", 6, NOW - 60, "other");
+    let mut st = steps(LIST6, 2, listed(&[6], 0));
+    assert_eq!(run(&late, &mut st, &flags), 0);
+    assert_eq!(late.wakes(), 0, "{}", late.log());
+    assert!(
+        late.log().contains("started less than 30 min ago"),
+        "{}",
+        late.log()
+    );
+    late.clock.advance(policy_distance() - 60);
+    assert_eq!(run(&late, &mut st, &flags), 0);
+    assert_eq!(late.wakes(), 1);
+    assert_eq!(
+        wakes_file(&late).unwrap().count,
+        1,
+        "the count of the new day"
+    );
 }
 
 #[test]

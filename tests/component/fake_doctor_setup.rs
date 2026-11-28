@@ -299,6 +299,7 @@ fn red_an_agent_dir_without_a_token_source_fails_the_token_source_check() {
     let path = format!("{}:/usr/bin:/bin", s.path_head.display());
     let home = s.home.path().display().to_string();
     let raw = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&s.agent.dir)
         .args(["doctor", "--setup"])

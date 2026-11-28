@@ -23,7 +23,9 @@ Never work around a refusal. Never retry it unchanged.
    (`--help` shows the options), then wait for the owner to approve. The account of your token is
    your agent account, never the owner's. A setup gap: `crewboard doctor --setup`.
 2. Each session: `crewboard start`. After a restart: `crewboard resume`. Both print your brief
-   and the command that re-arms your loop.
+   and the command that re-arms your loop. The unattended coordinator (a scheduled model in a
+   headless config dir) runs neither: it reads its judgment file
+   ([unattended coordinator](references/unattended-coordinator.md)).
 3. Read your role file: [coordinator](references/coordinator.md) or [dev agent](references/dev.md).
    A `scope:` line in the output of `start`: read
    [references/headless-coordinator.md](references/headless-coordinator.md). A wake prompt that

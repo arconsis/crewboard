@@ -140,10 +140,14 @@ pub fn in_scope(config_dir: Option<&std::path::Path>) -> CbResult<bool> {
 }
 
 /// Is this process a child of a wake: `CREWBOARD_WAKE` is set and not empty? The wake sets it
-/// for the command that it starts. A runtime that gives the model a full shell can clear the
-/// variable, so a check on it is a guardrail against a mistake, not a boundary.
+/// for the model of `--runtime` (a command of the test seam `--wake-cmd` does not get it). A
+/// runtime that gives the model a full shell can clear the variable, so a check on it is a
+/// guardrail against a mistake, not a boundary.
+///
+/// A unit test never is a wake child: the test suite can run inside a wake (a dev agent runs
+/// the gate in its wake), and the tests of this rule pass the fact as a value.
 pub fn in_wake_child() -> bool {
-    std::env::var_os("CREWBOARD_WAKE").is_some_and(|v| !v.is_empty())
+    !cfg!(test) && std::env::var_os("CREWBOARD_WAKE").is_some_and(|v| !v.is_empty())
 }
 
 /// What a wake child must not run (spec/agents#the-model-wake). `wake` is the fact of
@@ -156,6 +160,9 @@ pub enum WakeChild {
     Shell,
     /// `heartbeat` and `start` in a headless config dir: they write the coordinator heartbeat.
     Heartbeat,
+    /// `wake install` and `wake uninstall` for a headless config dir: they change the units of
+    /// the scheduler.
+    Units,
 }
 
 /// The refusal for a wake child, or `None` when the command may run.
@@ -174,7 +181,10 @@ pub fn wake_child_refusal(what: WakeChild, wake: bool, headless: bool) -> Option
         WakeChild::Heartbeat if headless => Some(unattended_refusal(
             "the model of a wake writes no heartbeat of the coordinator: the heartbeat says that the interactive coordinator is there",
         )),
-        WakeChild::Shell | WakeChild::Heartbeat => None,
+        WakeChild::Units if headless => Some(unattended_refusal(
+            "`wake install` and `wake uninstall` change the units of the scheduler, and the model of a wake does not do that",
+        )),
+        WakeChild::Shell | WakeChild::Heartbeat | WakeChild::Units => None,
     }
 }
 
@@ -298,7 +308,12 @@ mod tests {
     fn a_wake_child_runs_no_wake_and_in_a_headless_dir_no_shell_and_no_heartbeat() {
         let rule = |w, wake, headless| wake_child_refusal(w, wake, headless).map(|r| r.rule);
         // outside a wake nothing is refused here
-        for w in [WakeChild::Wake, WakeChild::Shell, WakeChild::Heartbeat] {
+        for w in [
+            WakeChild::Wake,
+            WakeChild::Shell,
+            WakeChild::Heartbeat,
+            WakeChild::Units,
+        ] {
             for headless in [false, true] {
                 assert_eq!(rule(w, false, headless), None, "{w:?}");
             }
@@ -314,7 +329,7 @@ mod tests {
         );
         // the shell commands and the heartbeat: in a headless config dir only (the wake of a
         // dev agent uses the gh shim, which runs `agent with-env`, and writes its heartbeat)
-        for w in [WakeChild::Shell, WakeChild::Heartbeat] {
+        for w in [WakeChild::Shell, WakeChild::Heartbeat, WakeChild::Units] {
             assert_eq!(rule(w, true, false), None, "{w:?}");
             assert_eq!(rule(w, true, true), Some(ids::HEADLESS_SCOPE), "{w:?}");
         }

@@ -11,6 +11,7 @@ fn lock_refuses_with_unix_only_on_windows_and_runs_on_unix() {
     let ps = d.path().join("ps.txt");
     std::fs::write(&ps, "").unwrap();
     let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .env("HOST_LOCK_HOST", "hostA")
         .env("HOST_LOCK_PS_CMD", format!("cat {}", ps.display()))
         .args(["lock", "status"])

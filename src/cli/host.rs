@@ -174,17 +174,39 @@ fn wake_check(agent: Option<(&std::path::Path, &str)>) -> Vec<ops::doctor::Extra
         return vec![("wake".to_string(), CheckVerdict::Skip(why.into()))];
     };
     let health = health::read(&state);
-    // a unit with a model of the unattended coordinator: the tick and the model apart
-    match health::coordinator(&state) {
-        Some(w) => vec![
+    let model = health::model(&state);
+    let wakes = health::coordinator(&state);
+    // a unit with a model of the unattended coordinator: the tick and the model apart. The
+    // state dir does not say whether the unit still has `--runtime`: the files of a model stay
+    // when the option goes, so the model line speaks of the last model wake.
+    let mut checks = if wakes.is_some() || model.error.is_some() {
+        vec![
             ("wake".to_string(), tick_verdict(&health, &state)),
             (
                 "unattended coordinator".to_string(),
-                model_verdict(&w, &health::model(&state), &today, &state),
+                model_verdict(
+                    wakes.as_ref(),
+                    &model,
+                    &today,
+                    crate::clock::now_epoch(),
+                    &state,
+                ),
             ),
-        ],
-        None => vec![("wake".to_string(), wake_verdict(&health, &state))],
+        ]
+    } else {
+        vec![("wake".to_string(), wake_verdict(&health, &state))]
+    };
+    if let Some(at) = health::refused_inside_wake(&state) {
+        checks.push(("wake environment".to_string(), inside_wake_verdict(&at)));
     }
+    checks
+}
+
+/// The hint for a `wake` call that was refused inside a wake and no run of the unit after it.
+fn inside_wake_verdict(at: &str) -> ops::doctor::CheckVerdict {
+    ops::doctor::CheckVerdict::Ok(format!(
+        "warning: a `crewboard wake` for this agent was refused at {at} because CREWBOARD_WAKE was set, and no wake ran after it. When the unit of the scheduler has that variable in its own environment, each wake ends with exit 2 and nothing runs: remove the variable from the unit (crontab, plist or systemd unit). A call that a model made inside a wake gives this line until the next run"
+    ))
 }
 
 /// The line of the tick of a unit with a model. A model that fails does not stop the tick, so
@@ -195,9 +217,9 @@ fn tick_verdict(
 ) -> ops::doctor::CheckVerdict {
     use crate::wake::health::Health;
     match h {
-        Health::Running { .. } | Health::Failing { .. } => ops::doctor::CheckVerdict::Ok(
-            "the tick runs (a unit with a model of the unattended coordinator)".into(),
-        ),
+        Health::Running { .. } | Health::Failing { .. } => {
+            ops::doctor::CheckVerdict::Ok("the tick runs".into())
+        }
         other => wake_verdict(other, state),
     }
 }
@@ -207,12 +229,25 @@ fn tick_verdict(
 /// then); else the mode, the runtime and the count of the last model wake, and the wakes in a
 /// row that ended at the time budget.
 fn model_verdict(
-    w: &crate::wake::policy::CoordWakes,
+    w: Option<&crate::wake::policy::CoordWakes>,
     m: &crate::wake::health::Model,
     today: &str,
+    now: i64,
     state: &std::path::Path,
 ) -> ops::doctor::CheckVerdict {
     use ops::doctor::CheckVerdict;
+    if let Some(e) = &m.error {
+        return CheckVerdict::failed(
+            format!(
+                "the model of the unit cannot start: {}; the tick still runs, and no ticket gets a judgment",
+                e.lines().next().unwrap_or("")
+            ),
+            "repair what the line names, or install the unit again (crewboard wake install --tick --runtime <runtime> --work-dir <dir> ...); the next run tries again by itself".to_string(),
+        );
+    }
+    let Some(w) = w else {
+        return CheckVerdict::Ok("no model wake yet".into());
+    };
     if m.fails >= crate::wake::health::FAILING_FROM {
         return CheckVerdict::failed(
             format!(
@@ -232,6 +267,14 @@ fn model_verdict(
             state.join("coordinator-wakes").display()
         ));
     }
+    if w.last > now {
+        return CheckVerdict::Ok(format!(
+            "warning: the last model wake has a start time in the future ({}): the clock of this host went back. No model starts before that time plus {} minutes. Check the clock; to start again now, remove {}",
+            crate::clock::format_ts(w.last),
+            crate::wake::policy::COORD_MIN_DISTANCE_SECS / 60,
+            state.join("coordinator-wakes").display()
+        ));
+    }
     let mut line = coordinator_line(w);
     if m.budget_stops >= 2 {
         line.push_str(&format!(
@@ -248,15 +291,15 @@ fn model_verdict(
 fn coordinator_line(w: &crate::wake::policy::CoordWakes) -> String {
     if w.count == 0 {
         return format!(
-            "mode {} and runtime {}; no model wake yet",
+            "no model wake yet; mode {} and runtime {} at the last tick that noted a list",
             w.mode, w.runtime
         );
     }
     format!(
-        "mode {} and runtime {} at the last model wake ({}); {} of {} model wakes on {} (UTC)",
+        "last model wake {}: mode {}, runtime {}, wake {} of {} on {} (UTC). A unit starts a model only with --runtime",
+        crate::clock::format_ts(w.last),
         w.mode,
         w.runtime,
-        crate::clock::format_ts(w.last),
         w.count,
         crate::wake::policy::MAX_COORD_WAKES_PER_DAY,
         w.day
@@ -454,18 +497,19 @@ mod wake_check_tests {
         };
         assert_eq!(
             super::coordinator_line(&w),
-            "mode verify and runtime codex at the last model wake (1970-01-01T00:00:00Z); 2 of 6 model wakes on 2026-11-28 (UTC)"
+            "last model wake 1970-01-01T00:00:00Z: mode verify, runtime codex, wake 2 of 6 on 2026-11-28 (UTC). A unit starts a model only with --runtime"
         );
     }
 
     #[test]
     fn a_unit_with_a_model_shows_the_tick_and_the_model_apart() {
         use crate::wake::health::Model;
+        const NOW: i64 = 1_795_000_000;
         let state = Path::new("/s/demo-coord");
         let w = |day: &str, count: u32| crate::wake::policy::CoordWakes {
             day: day.into(),
             count,
-            last: 0,
+            last: NOW - 100,
             hash: "00ff".into(),
             mode: "verify".into(),
             runtime: "hermes".into(),
@@ -475,21 +519,21 @@ mod wake_check_tests {
             CheckVerdict::Ok(t) => t,
             v => panic!("{v:?}"),
         };
+        let model = |w: &crate::wake::policy::CoordWakes, m: &Model| {
+            super::model_verdict(Some(w), m, "2026-11-28", NOW, state)
+        };
         // a model that fails is no fault of the tick line, and a fault of the model line
         let tick = ok(super::tick_verdict(&Health::Failing { fails: 7 }, state));
-        assert!(tick.starts_with("the tick runs"), "{tick}");
-        assert!(!tick.contains("no wake command has run yet"), "{tick}");
+        assert_eq!(tick, "the tick runs");
         assert!(matches!(
             super::tick_verdict(&Health::Network { fails: 3 }, state),
             CheckVerdict::Fail { .. }
         ));
         let failing = Model {
             fails: 3,
-            budget_stops: 0,
+            ..Model::default()
         };
-        let CheckVerdict::Fail { what, fix } =
-            super::model_verdict(&w("2026-11-28", 2), &failing, "2026-11-28", state)
-        else {
+        let CheckVerdict::Fail { what, fix } = model(&w("2026-11-28", 2), &failing) else {
             panic!("fail expected");
         };
         assert!(
@@ -500,12 +544,7 @@ mod wake_check_tests {
         assert!(fix.contains("/s/demo-coord/wake.log"), "{fix}");
         // a stored day after today is a warning, not a plain OK line
         let fine = Model::default();
-        let t = ok(super::model_verdict(
-            &w("2026-11-29", 1),
-            &fine,
-            "2026-11-28",
-            state,
-        ));
+        let t = ok(model(&w("2026-11-29", 1), &fine));
         assert!(
             t.starts_with(
                 "warning: the count of model wakes is of 2026-11-29, a later day than today"
@@ -513,38 +552,52 @@ mod wake_check_tests {
             "{t}"
         );
         assert!(t.contains("/s/demo-coord/coordinator-wakes"), "{t}");
-        // the normal line, a unit that noted a list and started no model, and the budget stops
-        let t = ok(super::model_verdict(
-            &w("2026-11-28", 2),
-            &fine,
-            "2026-11-28",
-            state,
-        ));
+        // a last start in the future is a warning too
+        let mut ahead = w("2026-11-28", 1);
+        ahead.last = NOW + 600;
+        let t = ok(model(&ahead, &fine));
         assert!(
-            t.starts_with("mode verify and runtime hermes at the last model wake"),
+            t.starts_with("warning: the last model wake has a start time in the future"),
             "{t}"
         );
-        let t = ok(super::model_verdict(
-            &w("2026-11-28", 0),
-            &fine,
-            "2026-11-28",
-            state,
-        ));
-        assert_eq!(t, "mode verify and runtime hermes; no model wake yet");
+        // the normal line, a unit that noted a list and started no model, and the budget stops
+        let t = ok(model(&w("2026-11-28", 2), &fine));
+        assert!(t.starts_with("last model wake "), "{t}");
+        assert!(
+            t.contains("mode verify, runtime hermes, wake 2 of 6"),
+            "{t}"
+        );
+        let t = ok(model(&w("2026-11-28", 0), &fine));
+        assert!(t.starts_with("no model wake yet; mode verify"), "{t}");
         let slow = Model {
-            fails: 0,
             budget_stops: 3,
+            ..Model::default()
         };
-        let t = ok(super::model_verdict(
-            &w("2026-11-28", 2),
-            &slow,
-            "2026-11-28",
-            state,
-        ));
+        let t = ok(model(&w("2026-11-28", 2), &slow));
         assert!(
             t.ends_with("warning: the last 3 model wakes ended at the time budget (--max-wake), not by themselves"),
             "{t}"
         );
+        // a model command that cannot be built: a fault, also without a count file
+        let broken = Model {
+            error: Some("--work-dir must be an existing directory: /gone".into()),
+            ..Model::default()
+        };
+        for stored in [None, Some(w("2026-11-28", 2))] {
+            let CheckVerdict::Fail { what, fix } =
+                super::model_verdict(stored.as_ref(), &broken, "2026-11-28", NOW, state)
+            else {
+                panic!("fail expected");
+            };
+            assert!(
+                what.starts_with("the model of the unit cannot start: --work-dir must be"),
+                "{what}"
+            );
+            assert!(fix.contains("crewboard wake install"), "{fix}");
+        }
+        // a wake that was refused inside a wake
+        let t = ok(super::inside_wake_verdict("2026-11-28T10:00:00Z"));
+        assert!(t.contains("refused at 2026-11-28T10:00:00Z because CREWBOARD_WAKE was set"));
     }
 
     #[test]

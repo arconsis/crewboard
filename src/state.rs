@@ -79,12 +79,62 @@ pub struct PollState {
     /// `watch` read and move this one and never write the `Cursor` field of the shared agent item.
     #[serde(default)]
     pub local_cursor: Option<String>,
-    /// `<repo>#<issue>` -> the highest comment id of a message that the unread check of a
-    /// headless config dir showed in a refusal (spec/events#unread-messages-on-a-ticket). A
-    /// message up to that id counts as read there: a headless config dir never moves the board
-    /// cursor that the check reads.
+    /// `<repo>#<issue>` -> what the unread check of a headless config dir showed in a refusal
+    /// (spec/events#unread-messages-on-a-ticket). A message that the mark covers counts as read
+    /// there: a headless config dir never moves the board cursor that the check reads. A mark
+    /// counts only in the model run that wrote it ([`PollState::unread_run`]).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub unread_shown: BTreeMap<String, u64>,
+    pub unread_shown: BTreeMap<String, UnreadShown>,
+    /// The start time of the last model run of the unattended coordinator in this config dir
+    /// (Unix seconds; 0: none). The wake sets it before it starts a model, so each model run
+    /// sees an unread message once: a mark of an earlier run does not count.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_run: i64,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
+
+/// What the unread check of a headless config dir showed for one ticket.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnreadShown {
+    /// The highest comment id that a refusal showed.
+    pub id: u64,
+    /// The latest update time (Unix seconds) of a comment that a refusal showed. A comment
+    /// that changed after it (an owner comment that was edited) is shown again.
+    pub updated: i64,
+    /// The model run that wrote the mark ([`PollState::unread_run`] then).
+    pub run: i64,
+}
+
+impl UnreadShown {
+    /// Does the mark cover the comment version (`id`, `updated`) in the run `run`?
+    pub fn covers(&self, run: i64, id: u64, updated: i64) -> bool {
+        self.run == run && id <= self.id && updated <= self.updated
+    }
+
+    /// The mark after one more refusal of the run `run` showed up to (`id`, `updated`). A mark
+    /// of another run starts again.
+    pub fn with(self, run: i64, id: u64, updated: i64) -> UnreadShown {
+        if self.run != run {
+            return UnreadShown { id, updated, run };
+        }
+        UnreadShown {
+            id: self.id.max(id),
+            updated: self.updated.max(updated),
+            run,
+        }
+    }
+}
+
+impl PollState {
+    /// A model run of the unattended coordinator starts at `now`: no mark of an earlier run
+    /// counts, and the map holds the marks of one run only. The run stamp never goes back.
+    pub fn start_unread_run(&mut self, now: i64) {
+        self.unread_run = now.max(self.unread_run + 1);
+        self.unread_shown.clear();
+    }
 }
 
 /// The ticket index and the last snapshot of each ticket.
@@ -790,11 +840,20 @@ impl StateCache {
         out.liveness.deferred = merged;
         out.notes.merge_disk(&disk.notes, crate::clock::now_epoch());
         out.tick.merge_unattended(&disk.tick);
-        // the higher id of a ticket: a message that one command showed stays shown
-        for (key, id) in disk.poll.unread_shown {
-            let mine = out.poll.unread_shown.entry(key).or_insert(id);
-            *mine = (*mine).max(id);
+        // the later model run wins; inside one run a message that one command showed stays
+        // shown. A mark of an earlier run that an old copy brings back does not count, and it
+        // is dropped here.
+        out.poll.unread_run = out.poll.unread_run.max(disk.poll.unread_run);
+        let run = out.poll.unread_run;
+        for (key, theirs) in disk.poll.unread_shown {
+            let mine = out.poll.unread_shown.entry(key).or_insert(theirs);
+            if mine.run == theirs.run {
+                *mine = mine.with(theirs.run, theirs.id, theirs.updated);
+            } else if theirs.run > mine.run {
+                *mine = theirs;
+            }
         }
+        out.poll.unread_shown.retain(|_, m| m.run == run);
         out
     }
 
@@ -1650,21 +1709,90 @@ mod tests {
         // a long command loaded the file; two refusals note their marks meanwhile
         let mut stale = StateCache::load(&p);
         let mut cmd = StateCache::load(&p);
-        cmd.poll.unread_shown.insert("o/r#1".into(), 40);
-        cmd.poll.unread_shown.insert("o/r#2".into(), 7);
+        let mark = |id, updated, run| UnreadShown { id, updated, run };
+        cmd.poll
+            .unread_shown
+            .insert("o/r#1".into(), mark(40, 400, 0));
+        cmd.poll.unread_shown.insert("o/r#2".into(), mark(7, 70, 0));
         cmd.save(&p).unwrap();
         // the older copy has a lower mark for one ticket and a higher one for another
-        stale.poll.unread_shown.insert("o/r#1".into(), 30);
-        stale.poll.unread_shown.insert("o/r#3".into(), 9);
+        stale
+            .poll
+            .unread_shown
+            .insert("o/r#1".into(), mark(30, 500, 0));
+        stale
+            .poll
+            .unread_shown
+            .insert("o/r#3".into(), mark(9, 90, 0));
         stale.save(&p).unwrap();
         let back = StateCache::load(&p);
         assert_eq!(
             back.poll.unread_shown,
             BTreeMap::from([
-                ("o/r#1".to_string(), 40),
-                ("o/r#2".to_string(), 7),
-                ("o/r#3".to_string(), 9)
+                ("o/r#1".to_string(), mark(40, 500, 0)),
+                ("o/r#2".to_string(), mark(7, 70, 0)),
+                ("o/r#3".to_string(), mark(9, 90, 0))
             ])
+        );
+        assert!(!std::fs::read_to_string(&p).unwrap().contains("unread_run"));
+
+        // a model run starts: the marks are gone, and an old copy does not bring them back
+        let old = StateCache::load(&p);
+        StateCache::update_locked(&p, |c| {
+            c.poll.start_unread_run(1000);
+            Ok(())
+        })
+        .unwrap();
+        let mut old = old;
+        old.save(&p).unwrap();
+        let back = StateCache::load(&p);
+        assert_eq!(back.poll.unread_run, 1000);
+        assert!(
+            back.poll.unread_shown.is_empty(),
+            "{:?}",
+            back.poll.unread_shown
+        );
+        // a mark of the new run stays, and a second start at the same second is a new run
+        let mut next = StateCache::load(&p);
+        next.poll
+            .unread_shown
+            .insert("o/r#1".into(), mark(41, 410, 1000));
+        next.save(&p).unwrap();
+        assert_eq!(StateCache::load(&p).poll.unread_shown.len(), 1);
+        let mut again = StateCache::load(&p);
+        again.poll.start_unread_run(1000);
+        assert_eq!(again.poll.unread_run, 1001);
+    }
+
+    #[test]
+    fn a_mark_covers_a_comment_version_of_its_run_only() {
+        let m = UnreadShown {
+            id: 9,
+            updated: 90,
+            run: 5,
+        };
+        assert!(m.covers(5, 9, 90) && m.covers(5, 3, 10));
+        assert!(!m.covers(5, 10, 80), "a newer comment");
+        assert!(
+            !m.covers(5, 3, 91),
+            "a comment that was edited after the mark"
+        );
+        assert!(!m.covers(6, 3, 10), "another model run");
+        assert_eq!(
+            m.with(5, 12, 80),
+            UnreadShown {
+                id: 12,
+                updated: 90,
+                run: 5
+            }
+        );
+        assert_eq!(
+            m.with(6, 2, 20),
+            UnreadShown {
+                id: 2,
+                updated: 20,
+                run: 6
+            }
         );
     }
 

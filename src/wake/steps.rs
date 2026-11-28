@@ -63,6 +63,12 @@ pub trait Steps {
     fn judgment(&mut self) -> Option<Listed> {
         None
     }
+    /// A model of the unattended coordinator starts at `now`: the unread check of the headless
+    /// config dir starts a new run, so this model sees each unread message once
+    /// ([`crate::state::PollState::start_unread_run`]). An error means: no model starts.
+    fn model_run_starts(&mut self, _now: i64) -> StepRc {
+        StepRc::ok()
+    }
     /// `acted --events-file F --list`: `<repo>#<n> <kind>` per event of the file. No board read.
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc;
     /// `acted --events-file F --since T --redeliver-to U`: the events that need an act and got
@@ -262,6 +268,13 @@ impl Steps for InProcess {
 
     fn judgment(&mut self) -> Option<Listed> {
         self.judgment.take()
+    }
+
+    fn model_run_starts(&mut self, now: i64) -> StepRc {
+        match self.with(|ac| plain(ac.start_unread_run(now))) {
+            Ok(()) => StepRc::ok(),
+            Err(rc) => rc,
+        }
     }
 
     fn heartbeat(&mut self) -> StepRc {
