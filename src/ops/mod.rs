@@ -48,6 +48,7 @@ pub(crate) mod skill_cmd;
 pub(crate) mod start;
 pub mod status;
 pub(crate) mod tickets;
+pub(crate) mod unattended;
 pub mod update_cmd;
 pub(crate) mod watch;
 

@@ -87,5 +87,6 @@ pub mod state;
 pub(crate) mod testkit;
 pub(crate) mod ticket;
 pub(crate) mod toolchain;
+pub(crate) mod unattended;
 pub(crate) mod unread;
 pub(crate) mod wake;
