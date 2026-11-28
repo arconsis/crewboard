@@ -46,8 +46,8 @@ struct Pr {
     /// The base branch of the PR, when it is not `main`, and the files that this branch hides:
     /// the comparison of `main` with the head names them, and the file list of the PR does not.
     base: Option<(String, Vec<String>)>,
-    /// The HTTP status that the comment feed of the repo answers with, when it fails.
-    feed_status: Option<u16>,
+    /// `(part of a path, HTTP status)`: a GET whose path contains the part fails with the status.
+    failing: Vec<(String, u16)>,
 }
 
 pub struct Hub {
@@ -80,6 +80,27 @@ fn forward(client: &reqwest::blocking::Client, board_base: &str, r: &Req) -> Res
     }
 }
 
+/// The comment feed of a repo (`GET issues/comments?...`) gets an ETag of its body, and a
+/// request that names that ETag gets a 304, as GitHub answers a conditional request.
+fn with_feed_etag(r: &Req, mut resp: Resp) -> Resp {
+    use std::hash::{Hash, Hasher};
+    if r.method != "GET" || !r.path.contains("/issues/comments?") || resp.status != 200 {
+        return resp;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    resp.body.hash(&mut h);
+    let etag = format!("W/\"{:x}\"", h.finish());
+    if r.if_none_match.as_deref() == Some(etag.as_str()) {
+        return Resp {
+            status: 304,
+            body: String::new(),
+            headers: vec![("etag".to_string(), etag)],
+        };
+    }
+    resp.headers.push(("etag".to_string(), etag));
+    resp
+}
+
 /// The `Gate:` lines of a ticket body, joined with ` | ` (what `assign` signs). The bodies of
 /// these tests use the plain `Gate: text` form.
 fn gate_lines(body: &str) -> String {
@@ -103,6 +124,16 @@ fn authority_text(may_merge: bool, extra: &str) -> String {
 }
 
 fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> {
+    if r.method == "GET"
+        && let Some((_, status)) = pr
+            .lock()
+            .unwrap()
+            .failing
+            .iter()
+            .find(|(part, _)| r.path.contains(part.as_str()))
+    {
+        return Some(Resp::json(*status, r#"{"message":"failed by the test"}"#));
+    }
     let path = r.path.split('?').next().unwrap_or("");
     let seg: Vec<&str> = path.split('/').collect();
     let ok = |v: Value| Some(Resp::json(200, &v.to_string()));
@@ -116,12 +147,6 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
             "content": STANDARD.encode(authority_text(s.may_merge, &pr.lock().unwrap().authority_extra)),
             "encoding": "base64",
         })),
-        ("GET", ["", "repos", _, _, "issues", "comments"])
-            if pr.lock().unwrap().feed_status.is_some() =>
-        {
-            let status = pr.lock().unwrap().feed_status.unwrap_or(404);
-            Some(Resp::json(status, r#"{"message":"Not Found"}"#))
-        }
         ("GET", ["", "repos", _, _, "pulls", num]) if *num == PR.to_string() => {
             let merged = pr.lock().unwrap().merged;
             let base_ref = pr
@@ -266,7 +291,9 @@ impl Hub {
         let front = FakeGithub::start_with(move |base| {
             let base = base.to_string();
             move |r: &Req| {
-                route(&s, &pr2, &base, r).unwrap_or_else(|| forward(&client, &board_base, r))
+                let resp =
+                    route(&s, &pr2, &base, r).unwrap_or_else(|| forward(&client, &board_base, r));
+                with_feed_etag(r, resp)
             }
         });
         let _ = THREAD;
@@ -290,9 +317,18 @@ impl Hub {
         self.pr.lock().unwrap().authority_extra = lines.to_string();
     }
 
-    /// From now on the comment feed of the repo (`GET issues/comments`) answers with `status`.
-    pub fn fail_feed(&self, status: u16) {
-        self.pr.lock().unwrap().feed_status = Some(status);
+    /// From now on a GET whose path contains `part` answers with `status`.
+    pub fn fail_get(&self, part: &str, status: u16) {
+        self.pr
+            .lock()
+            .unwrap()
+            .failing
+            .push((part.to_string(), status));
+    }
+
+    /// No GET fails any more.
+    pub fn fail_nothing(&self) {
+        self.pr.lock().unwrap().failing.clear();
     }
 
     /// The files that the PR changes now.

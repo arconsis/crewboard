@@ -394,84 +394,122 @@ limits it. The prompt does not.
 
 ## Unattended coordinator
 
-The owner can ask for a coordinator that judges with nobody watching. The key
-`unattended_coordinator` in `AUTHORITY.md` has the values `off` (default), `verify` and
-`verify-and-merge`. The key `unattended_budget: <N>` is the number of verdicts per UTC day
-(1 to 50, default 10). crewboard reads both keys from the default branch only.
+The key `unattended_coordinator` in `AUTHORITY.md` has the values `off` (default), `verify` and
+`verify-and-merge`. The key `unattended_budget: <N>` is a number of verdicts per UTC day
+(1 to 50, default 10). crewboard reads both keys from the default branch only. The keys are
+reserved for a coordinator that judges with nobody watching.
 
-This version shows what such a coordinator has to do, and it counts. It starts no model, and
-the keys give no command a new right: the [verdict table](#headless-coordinator) of the
-headless scope is as it is without the keys, and the two values that are not `off` do the same.
+This version only shows what such a coordinator has to do, and it counts. It starts no model.
+The keys give no command a new right: the [verdict table](#headless-coordinator) of the headless
+scope is as it is without the keys. The two values that are not `off` do the same. The budget
+limits nothing; the tick prints it.
 
 With a value that is not `off`, the headless `tick` prints two more kinds of line after its
 other lines:
 
 - one line `needs judgment: <repo>#<n>, <reason>` for each ticket on the judgment list;
-- one line `unattended: mode <mode>; verdicts <n>/<budget> today`.
+- one line `unattended coordinator: mode <mode>; verdicts <n>/<budget> today`.
 
-The tick writes nothing for these lines. Its `left for the interactive coordinator` lines stay.
-With the key absent or `off`, the tick prints none of these lines and makes no request for them.
-When `AUTHORITY.md` cannot be read or its front matter does not parse, the tick takes the mode
-as `off`; `verify` and `merge` refuse such a file themselves.
+The tick writes nothing to GitHub for these lines. Its `left for the interactive coordinator`
+lines stay. With the key absent or `off`, the tick prints none of these lines, makes no request
+for them and keeps nothing about them in its state. When `AUTHORITY.md` cannot be read or its
+front matter does not parse, the tick takes the mode as `off`; `verify` and `merge` refuse such
+a file themselves.
 
-**The judgment list.** A ticket is on the list when one of these rules holds. The reason of the
-line is the name in quotes.
+**The list gives no right.** It is a view for a reader. A command that writes checks the signed
+log itself, and a ticket on the list can be refused there.
 
-1. "prose Gate": the ticket is in Review, its signed Gate is prose (not `ci`, not
-   `checks: ...`), its latest `done` has CI evidence, and that `done` has no verify result.
-2. "question": the ticket is in Review or Blocked, and its assignee sent a `question` to the
-   coordinator. No `answer` of a coordinator and no owner comment came after it.
-3. "blocked": the ticket is Blocked, and the latest block is a plain `blocked` message of its
-   assignee: no park, no question to the owner. No answer came after it.
-4. "ready, no agent": the ticket is in Ready and has no Agent.
-5. "returned": the ticket is in Backlog, has no Agent and has a Gate, and the last assignment
-   or reassign of a coordinator in its signed log is a reassign.
+**What the tick reads for a ticket.** The Status of the board says which rule to try; a board
+field is not signed. Everything else comes from the verified messages of the ticket:
 
-**Never on the list.** One of these facts keeps a ticket off the list, whatever else holds:
+- For a Review ticket the tick has the issue, its labels and its comments.
+- For a Blocked ticket, a Ready ticket without an Agent and a Backlog ticket without an Agent
+  that has a Gate, the tick reads the comments. It does not read the issue, so it does not know
+  the labels of such a ticket.
+- The assignee is the agent of the signed log: the agent of the latest signed assignment, until
+  a signed reassign. When the board `Agent` names another agent, or names one while the log has
+  none, the ticket is not on the list, and the tick prints no line for that (`audit` and
+  `status` report such a board field). An empty board `Agent` hides nothing: the questions and
+  the `done` of the signed assignee still count.
+- The tick puts no ticket on the list from board fields alone.
 
-- a question to the owner is open, the [round limit](tickets.md#round-limit) stopped the
-  ticket, or the issue has the label `needs-owner`;
-- the latest `done` is on the owner route (a line `owner-route:` or `protected-paths:`);
+**Never on the list.** One of these facts keeps a ticket off the list, for every rule below:
+
+- a question to the owner is open, or the [round limit](tickets.md#round-limit) stopped the
+  ticket. Both come from the signed log. For a Review ticket the label `needs-owner` of the
+  issue has the same effect;
+- the latest `done` of the signed assignee is on the owner route (a line `owner-route:` or
+  `protected-paths:`); for a ticket without an assignee, the latest `done` of the log;
 - the ticket has 2 unattended verdicts (see the count below);
-- the issue is closed.
+- the issue is closed;
+- the board `Agent` is not the agent of the signed log.
 
 Three more facts keep a ticket in Review off the list, because they are about the verdict on a
 `done`: the ticket has no signed gate, no assignee or no `done` with evidence; the evidence is
 a local gate and the Gate names no checks, or the ticket declares `CI: none`; the latest `done`
 has a verify result.
 
-A Review ticket is on the list only when the tick wrote nothing for it in this run. The Status
-and the Agent come from the board fields, which are not signed. The list is a view. A command
-that writes checks the signed log itself.
+**The judgment list.** A ticket that passed the facts above is on the list when one of these
+rules holds. The reason of the line is the name in quotes.
+
+1. "prose Gate": the ticket is in Review, and its signed Gate is prose (not `ci`, not
+   `checks: ...`). Its latest `done` then has CI evidence and no verify result.
+2. "question": the ticket is in Review or Blocked, and its assignee sent a `question` to the
+   coordinator. No `answer` of a coordinator and no owner comment came after it.
+3. "blocked": the ticket is Blocked, and the latest block is a plain `blocked` message of its
+   assignee: no park, no question to the owner. No answer came after it.
+4. "ready, no agent": the ticket is in Ready, the board has no Agent, and the signed log has no
+   assignee: the ticket was never assigned, or a reassign came after the last assignment.
+5. "returned": the ticket is in Backlog, has no Agent and has a Gate, and the last assignment
+   or reassign of a coordinator in its signed log is a reassign.
+
+A Review ticket is on the list only when the tick wrote nothing for it in this run.
 
 **The verdict count.** An unattended verdict is a verify result of a coordinator that has the
-line `unattended: <n>/<budget>` ([Acts](messages.md#acts)). The count of the day comes from
-the signed messages only:
+line `unattended: <n>/<budget>` ([Acts](messages.md#acts)). No command of this version writes
+that line, so the count is 0 on a board that only this version worked on. The count of the day
+comes from the signed messages:
 
 - The tick reads the comment feed of each repo of the initiative from 00:00 UTC, and it takes
-  the verified messages of coordinators that GitHub created at or after that time.
+  the verified messages of coordinators that GitHub created at or after that time. A message
+  that was edited is not verified.
 - The count is the number of verify results among them that have the line.
-- The count never goes below two floors: the highest `n` of a valid line in these messages, and
-  a number in the local state cache of the config dir. So a deleted comment does not lower the
-  count while a later stamped message is left. The cache can only raise the count.
+- The count is never below the highest `n` of a valid line in these messages. So the deletion
+  of a stamped message does not lower the count while a later stamped message is left.
+- The signed log alone does not protect the count when the latest stamped message is deleted
+  or edited. Two values of the local state of the config dir do, on the host that has them.
+  The tick remembers the count of each repo for the day and never goes below what it read
+  before. A second value is a floor for a command that posts a verdict; no command of this
+  version writes it. A host without that state counts what the log has left.
 - A comment of the owner or a message of a dev agent with such a line counts for nothing.
 
 When the tick cannot read the feed, it does not print a count of 0. It prints one line
-`unattended: mode <mode>; the verdicts of today could not be read, so no ticket is listed: ...`,
-it lists no ticket, and it reads no ticket for the list.
+`unattended coordinator: mode <mode>; the verdicts of today could not be read, so no ticket is
+listed: ...`, it lists no ticket, and it reads no ticket for the list.
 
 The count of one ticket is the number of unattended verdicts in its signed log. It starts
-again after an owner comment, and after an assignment or a reassign of a coordinator that has
-no `unattended:` line. At 2 the ticket is off the list.
+again after an owner comment, and after an assignment of a coordinator that has no
+`unattended:` line. A reassign does not start it again: the duty for a dead agent posts one
+with nobody watching. At 2 the ticket is off the list.
 
-**Read cost.** With a mode that is not `off`, a tick makes these requests in addition: one
-read of the comment feed per repo (more for a feed of more than one page, and one for the
-editors of an edited owner comment); one read of the comments for each Blocked ticket; one for
-each Backlog ticket that has a Gate and no Agent. A Ready ticket costs no read. A board item
-of the list that the state cache does not know costs one scan of the open tickets. The tick
-scans again only when the set of such items changes. A Blocked or Ready item that a scan does
-not find gets the line `left for the interactive coordinator: <item id>, a board item in
-<Status> has no signed info comment with its ticket`.
+**Read cost.** With a mode that is not `off`, a tick makes these requests in addition:
+
+- one read of the comment feed of the day per repo. The tick sends the ETag of its last read,
+  so a feed that did not change is a conditional request (a 304). A feed of more than one page
+  costs one request per page;
+- one read of the comments for each Blocked ticket and for each Ready ticket without an Agent;
+- one read of the comments for each Backlog ticket that has a Gate and no Agent. When the
+  signed log says that no reassign returned the ticket, the tick notes the `updatedAt` of the
+  board item and does not read the ticket again while the item is unchanged. A ticket that is
+  on the list as "returned" is read at every tick;
+- one scan of the open tickets when a board item of the list is new and the state cache does
+  not know its ticket. A Blocked or Ready item that a scan does not find gets the line
+  `left for the interactive coordinator: <item id>, a board item in <Status> has no signed
+  info comment with its ticket`.
+
+A read for the list that fails does not fail the tick. The tick prints one line
+`unattended coordinator: <what> could not be read for the list: ...`, leaves that ticket off
+the list of this run, prints its other lines and ends as it would without the failure.
 
 ## Board config refresh
 

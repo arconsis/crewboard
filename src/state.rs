@@ -201,16 +201,40 @@ pub struct TickState {
     /// per day: the tick then reads `daily_digest` of AUTHORITY.md and posts when it is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest_day: Option<String>,
-    /// The floor of the verdict count of the unattended coordinator
-    /// (spec/agents#unattended-coordinator): a UTC day (`YYYY-MM-DD`) and the count of that day,
-    /// noted before a verdict is posted. A comment that is deleted later cannot lower the count
-    /// below it. It can only raise the count that the signed messages give.
+    /// A floor of the verdict count of the unattended coordinator
+    /// (spec/agents#unattended-coordinator): a UTC day (`YYYY-MM-DD`) and a count of that day.
+    /// It is for a command that posts a verdict and notes the count first. No command of this
+    /// version writes it; the tick reads it and never takes a count below it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattended_floor: Option<(String, u32)>,
     /// The board items of the judgment list whose ticket a scan of the issues did not find.
-    /// The tick scans again only when this set changes.
+    /// The tick scans again only when an item that is not in this list appears.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unattended_unknown: Vec<String>,
+    /// Repo -> what the tick last read from the comment feed of the UTC day for the verdict
+    /// count. An unchanged feed then costs a conditional request, and a comment that is deleted
+    /// or edited after a read does not lower the count of this host.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unattended_feed: BTreeMap<String, UnattendedFeed>,
+    /// Item id of a Backlog ticket without an agent -> the `updatedAt` of the board item when
+    /// the tick read its comments and the signed log said "no reassign returned it". The tick
+    /// does not read the comments again while the item is unchanged.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unattended_not_returned: BTreeMap<String, String>,
+}
+
+/// One read of the comment feed of a repo for the verdict count ([`TickState::unattended_feed`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnattendedFeed {
+    /// The UTC day (`YYYY-MM-DD`) of the read. The values of another day count for nothing.
+    pub day: String,
+    /// The ETag of the first page of the feed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    /// The stamped verify results that the read counted, never below an earlier read of the day.
+    pub verdicts: u32,
+    /// The highest `n` of a valid `unattended:` line, never below an earlier read of the day.
+    pub highest: u32,
 }
 
 /// The owner-route safety net.
