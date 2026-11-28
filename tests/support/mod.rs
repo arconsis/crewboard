@@ -28,6 +28,8 @@ pub struct Req {
     pub body: String,
     /// The token of the `Authorization: Bearer` header, if any.
     pub bearer: Option<String>,
+    /// The value of the `If-None-Match` header, if any (a conditional request).
+    pub if_none_match: Option<String>,
 }
 
 /// One answer.
@@ -148,6 +150,7 @@ fn serve(conn: TcpStream, handler: &Handler, log: &Mutex<Vec<Req>>) {
         let method = parts.next().unwrap_or("").to_string();
         let path = parts.next().unwrap_or("").to_string();
         let (mut len, mut bearer, mut close) = (0usize, None, false);
+        let mut if_none_match = None;
         loop {
             let mut h = String::new();
             if r.read_line(&mut h).unwrap_or(0) == 0 || h.trim().is_empty() {
@@ -159,6 +162,7 @@ fn serve(conn: TcpStream, handler: &Handler, log: &Mutex<Vec<Req>>) {
                     "content-length" => len = v.parse().unwrap_or(0),
                     "authorization" => bearer = v.strip_prefix("Bearer ").map(str::to_string),
                     "connection" => close = v.eq_ignore_ascii_case("close"),
+                    "if-none-match" => if_none_match = Some(v.to_string()),
                     _ => {}
                 }
             }
@@ -172,6 +176,7 @@ fn serve(conn: TcpStream, handler: &Handler, log: &Mutex<Vec<Req>>) {
             path,
             body: String::from_utf8_lossy(&body).to_string(),
             bearer,
+            if_none_match,
         };
         log.lock().unwrap().push(req.clone());
         let resp = handler(&req);

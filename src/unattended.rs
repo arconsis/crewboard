@@ -4,12 +4,16 @@
 //! Pure. The callers read the board items and the comments; this module decides what they mean.
 //!
 //! - [`never`] names the tickets that are never on the list (N1 to N7), whatever else holds.
-//! - [`need_of`] names the judgment that a ticket needs (L1 to L5), or `None`.
+//! - [`need_of`] names the judgment that a ticket needs (L1 to L5), or `None`. No rule holds for
+//!   a ticket whose messages the caller did not read: every ticket of the list passed N1 to N4.
 //! - [`ticket_verdicts`], [`verdicts_on_day`] and [`used`] count the verdicts from the signed
 //!   messages that carry the line `unattended: <n>/<budget>`.
 //!
-//! A board field is not signed. The list is a view for a reader, so it reads the Status and the
-//! Agent from the board; every command that writes checks the signed log on its own.
+//! A board field is not signed. The Status of the board says which rule to try. The assignee
+//! is the agent of the signed log ([`crate::ticket::log::fold_ticket`]): a board `Agent` that
+//! the log does not support keeps the ticket off the list, and an empty board `Agent` does not
+//! hide a question or a `done` of the signed assignee. The list is a view and gives no right:
+//! every command that writes checks the signed log on its own.
 
 use crate::authority::CoordMode;
 use crate::base::fields::Field;
@@ -60,6 +64,8 @@ pub enum Never {
     VerdictCap,
     /// N4: the issue is closed.
     Closed,
+    /// The board `Agent` is not the agent of the signed log (a hand edit of the board).
+    AgentNotSigned,
     /// N5: in Review without a signed gate.
     NoGate,
     /// N5: in Review without an assignee.
@@ -83,7 +89,7 @@ pub enum Need {
     Question,
     /// L3: the assignee blocked the ticket, and nobody answered.
     Blocked,
-    /// L4: in Ready without an agent.
+    /// L4: in Ready without an agent, on the board and in the signed log.
     ReadyNoAgent,
     /// L5: a reassign returned the ticket to Backlog.
     Returned,
@@ -131,10 +137,14 @@ fn ci_none(msgs: &[VMsg], body: Option<&str>) -> bool {
     }
 }
 
-/// Is the ticket never on the list? The first rule that holds, in the order N4, N1, N2, N3, and
-/// for a ticket in Review N5, N6, N7. The rules N5 to N7 are about the verdict on a `done`, so
-/// they apply in Review only: a ticket that went back to its agent after a failed verify, and is
-/// Blocked now, still has that old result.
+/// Is the ticket never on the list? The first rule that holds, in the order N4, the label of N1,
+/// the board `Agent` against the signed log, the rest of N1, N2, N3, and for a ticket in Review
+/// N5, N6, N7. The rules N5 to N7 are about the verdict on a `done`, so they apply in Review
+/// only: a ticket that went back to its agent after a failed verify, and is Blocked now, still
+/// has the result of that verify.
+///
+/// `None` without the messages means "not judged", not "passed": [`need_of`] lists no ticket
+/// whose messages were not read.
 pub fn never(f: &Facts<'_>) -> Option<Never> {
     if f.closed || f.item.issue_closed() {
         return Some(Never::Closed);
@@ -143,14 +153,21 @@ pub fn never(f: &Facts<'_>) -> Option<Never> {
         return Some(Never::NeedsOwnerLabel);
     }
     let msgs = f.msgs?;
+    let log = crate::ticket::log::fold_ticket(msgs);
     let assignee = f.item.get(Field::Agent);
-    if crate::ticket::question_open(msgs, assignee).is_some() {
+    if crate::ticket::log::agent_contradicts(&log, assignee) {
+        return Some(Never::AgentNotSigned);
+    }
+    // The signed assignee, also when the board `Agent` is empty: a cleared field does not hide
+    // the question or the `done` of the agent that the log names.
+    let signed = log.agent.as_deref();
+    if crate::ticket::question_open(msgs, signed).is_some() {
         return Some(Never::OwnerQuestion);
     }
     if crate::ticket::fold_rounds(msgs).stopped {
         return Some(Never::RoundStop);
     }
-    if latest_done_message(msgs, assignee).is_some_and(crate::ticket::is_owner_route_done) {
+    if latest_done_message(msgs, signed).is_some_and(crate::ticket::is_owner_route_done) {
         return Some(Never::OwnerRoute);
     }
     if ticket_verdicts(msgs) >= MAX_VERDICTS_PER_TICKET {
@@ -180,34 +197,47 @@ pub fn never(f: &Facts<'_>) -> Option<Never> {
     None
 }
 
-/// The judgment that the ticket needs, or `None`. [`never`] is checked first. The first rule that
-/// holds, in the order L1 to L5; a rule that needs the messages does not hold without them.
+/// The judgment that the ticket needs, or `None`. [`never`] is checked first, and no rule holds
+/// without the messages. The first rule that holds, in the order L1 to L5. The assignee of L1 to
+/// L3 is the board `Agent`, which [`never`] checked against the signed log.
 pub fn need_of(f: &Facts<'_>) -> Option<Need> {
     if never(f).is_some() {
         return None;
     }
+    let msgs = f.msgs?;
     let assignee = f.item.get(Field::Agent);
     match status_of(f.item)? {
         Status::Review => {
-            let msgs = f.msgs?;
             if prose_gate(msgs) {
                 return Some(Need::ProseGate);
             }
             open_question(msgs, assignee?).then_some(Need::Question)
         }
         Status::Blocked => {
-            let (msgs, assignee) = (f.msgs?, assignee?);
+            let assignee = assignee?;
             if open_question(msgs, assignee) {
                 return Some(Need::Question);
             }
             plain_block_open(msgs, assignee).then_some(Need::Blocked)
         }
-        Status::Ready => assignee.is_none().then_some(Need::ReadyNoAgent),
+        // No agent on the board and no live assignment in the signed log: an `assign` of such a
+        // ticket takes it from nobody.
+        Status::Ready => (assignee.is_none()
+            && crate::ticket::log::fold_ticket(msgs).agent.is_none())
+        .then_some(Need::ReadyNoAgent),
         Status::Backlog => {
-            (is_backlog_candidate(f.item) && returned(f.msgs?)).then_some(Need::Returned)
+            (is_backlog_candidate(f.item) && returned(msgs)).then_some(Need::Returned)
         }
         Status::InProgress | Status::Done | Status::Dropped => None,
     }
+}
+
+/// The filter for L4 that needs the board fields only: in Ready, no Agent, the issue not
+/// closed. The caller reads the messages of such a ticket.
+pub fn is_ready_candidate(item: &ItemSnapshot) -> bool {
+    status_of(item) == Some(Status::Ready)
+        && item.get(Field::Agent).is_none()
+        && !item.issue_closed()
 }
 
 /// The filter for L5 that needs the board fields only: in Backlog, no Agent, the Gate field set
@@ -259,7 +289,7 @@ fn plain_block_open(msgs: &[VMsg], assignee: &str) -> bool {
 }
 
 /// L5: the last assignment or reassign of a coordinator in the log is a reassign.
-fn returned(msgs: &[VMsg]) -> bool {
+pub fn returned(msgs: &[VMsg]) -> bool {
     msgs.iter()
         .rev()
         .filter(|m| is_coordinator(m))
@@ -273,8 +303,10 @@ fn returned(msgs: &[VMsg]) -> bool {
 
 /// The unattended verdicts that count on one ticket (N3): the verify results of a coordinator
 /// with an `unattended:` line. The count starts again after an owner comment and after an
-/// assignment or a reassign of a coordinator that has no `unattended:` line. A line that is not
-/// valid counts as a line: it cannot lower the count.
+/// assignment of a coordinator that has no `unattended:` line: a person or an attended
+/// coordinator looked at the ticket. A reassign never starts it again, because the duty for a
+/// dead agent posts one with nobody watching. A line that is not valid counts as a line: it
+/// cannot lower the count.
 pub fn ticket_verdicts(msgs: &[VMsg]) -> usize {
     let mut n = 0;
     for m in msgs {
@@ -287,7 +319,7 @@ pub fn ticket_verdicts(msgs: &[VMsg]) -> usize {
         }
         let stamped = has_unattended_line(&m.body);
         match m.act() {
-            Act::Assignment { .. } | Act::Reassigned if !stamped => n = 0,
+            Act::Assignment { .. } if !stamped => n = 0,
             Act::Verify { .. } if stamped => n += 1,
             _ => {}
         }
@@ -310,6 +342,15 @@ impl DayCount {
         DayCount {
             verdicts: self.verdicts.saturating_add(other.verdicts),
             highest: self.highest.max(other.highest),
+        }
+    }
+
+    /// This count, never below `seen`: what an earlier read of the same messages on the same
+    /// day gave. A comment that was deleted or edited since then does not lower the count.
+    pub fn at_least(self, seen: DayCount) -> DayCount {
+        DayCount {
+            verdicts: self.verdicts.max(seen.verdicts),
+            highest: self.highest.max(seen.highest),
         }
     }
 }
@@ -341,8 +382,8 @@ pub fn verdicts_on_day(msgs: &[VMsg], day_start: i64) -> DayCount {
     c
 }
 
-/// The floor that the local state holds for `today` (`YYYY-MM-DD`): the count that a command
-/// wrote before it posted a verdict. A floor of another day is 0.
+/// The floor that the local state holds for `today` (`YYYY-MM-DD`): a count that a command
+/// notes before it posts a verdict. A floor of another day is 0.
 pub fn floor_on(stored: Option<&(String, u32)>, today: &str) -> u32 {
     stored
         .filter(|(day, _)| day == today)
@@ -361,11 +402,24 @@ pub fn need_line(key: &str, need: Need) -> String {
     format!("{NEEDS_JUDGMENT}: {key}, {}\n", need.reason())
 }
 
+/// The start of the lines of `tick` about the unattended coordinator. It is not the key of the
+/// protocol line (`unattended:`), so a message that quotes a tick line is not a stamped message.
+pub const TICK_LINE: &str = "unattended coordinator";
+
 /// The line of `tick` with the mode and the verdicts of the day.
 pub fn count_line(mode: CoordMode, used: u32, budget: u32) -> String {
     format!(
-        "unattended: mode {}; verdicts {used}/{budget} today\n",
+        "{TICK_LINE}: mode {}; verdicts {used}/{budget} today\n",
         mode.as_str()
+    )
+}
+
+/// The line of `tick` for a read of the list that failed: the ticket (or the scan) is not
+/// judged in this tick.
+pub fn unread_line(what: &str, why: &str) -> String {
+    format!(
+        "{TICK_LINE}: {what} could not be read for the list: {}\n",
+        why.lines().next().unwrap_or("").trim()
     )
 }
 
@@ -373,7 +427,7 @@ pub fn count_line(mode: CoordMode, used: u32, budget: u32) -> String {
 /// ticket: nobody can tell whether a verdict is left.
 pub fn count_unread_line(mode: CoordMode, why: &str) -> String {
     format!(
-        "unattended: mode {}; the verdicts of today could not be read, so no ticket is listed: {}\n",
+        "{TICK_LINE}: mode {}; the verdicts of today could not be read, so no ticket is listed: {}\n",
         mode.as_str(),
         why.lines().next().unwrap_or("").trim()
     )
@@ -651,20 +705,114 @@ mod tests {
     }
 
     #[test]
-    fn l4_a_ready_ticket_without_an_agent_needs_the_board_fields_only() {
+    fn l4_a_ready_ticket_without_an_agent_on_the_board_and_in_the_signed_log() {
+        // never assigned, and returned by a reassign
+        assert_eq!(need("Ready", None, &[]), Some(Need::ReadyNoAgent));
+        let back = vec![
+            assignment(1, PROSE),
+            coord(2, DEV, Kind::Info, &reassigned_body("the agent is dead")),
+        ];
+        assert_eq!(need("Ready", None, &back), Some(Need::ReadyNoAgent));
+        assert!(is_ready_candidate(&item("Ready", None)));
+        // the board fields alone do not put a ticket on the list
         let it = item("Ready", None);
         let board_only = Facts {
             msgs: None,
             ..facts(&it, &[])
         };
-        assert_eq!(need_of(&board_only), Some(Need::ReadyNoAgent));
-        assert_eq!(need("Ready", None, &[]), Some(Need::ReadyNoAgent));
+        assert_eq!(need_of(&board_only), None);
+        // not L4: the signed log has a live assignment (somebody cleared the board Agent)
+        assert_eq!(need("Ready", None, &[assignment(1, PROSE)]), None);
         // not L4: an agent, another Status, a closed issue
-        assert_eq!(need("Ready", Some(DEV), &[]), None);
+        assert_eq!(need("Ready", Some(DEV), &[assignment(1, PROSE)]), None);
+        assert!(!is_ready_candidate(&item("Ready", Some(DEV))));
         assert_eq!(need("In Progress", None, &[]), None);
         let mut closed = item("Ready", None);
         closed.issue_state = Some("CLOSED".into());
+        assert!(!is_ready_candidate(&closed));
         assert_eq!(need_of(&facts(&closed, &[])), None);
+    }
+
+    #[test]
+    fn a_ready_ticket_without_an_agent_passes_n1_to_n3_first() {
+        // Somebody set a stopped ticket to Ready and cleared its Agent on the board. The signed
+        // log still has the stop, the open question and the assignee.
+        let ready = |msgs: &[VMsg]| never(&facts(&item("Ready", None), msgs));
+        let mut asked = blocked_log();
+        asked.push(dev(3, "owner", Kind::Question, "may I delete it?"));
+        assert_eq!(ready(&asked), Some(Never::OwnerQuestion));
+        assert_eq!(need("Ready", None, &asked), None);
+        // the same after a reassign: the question of the earlier assignee has no asker that
+        // counts, and the ticket is free
+        asked.push(coord(4, DEV, Kind::Info, &reassigned_body("late")));
+        assert_eq!(need("Ready", None, &asked), Some(Need::ReadyNoAgent));
+        // a question of a coordinator to the owner counts whoever the assignee is
+        asked.push(coord(5, "owner", Kind::Question, "drop it?"));
+        assert_eq!(ready(&asked), Some(Never::OwnerQuestion));
+
+        let mut stopped = review_log();
+        stopped.push(verdict(
+            3,
+            2,
+            false,
+            "case: round limit 2 of 2; the owner decides\n",
+        ));
+        assert_eq!(ready(&stopped), Some(Never::RoundStop));
+        assert_eq!(need("Ready", None, &stopped), None);
+
+        let route = vec![
+            assignment(1, PROSE),
+            done(2, "protected-paths: AUTHORITY.md\n"),
+        ];
+        assert_eq!(ready(&route), Some(Never::OwnerRoute));
+
+        let mut capped = vec![assignment(1, PROSE), done(2, "")];
+        capped.push(verdict(3, 2, false, &stamp(1)));
+        capped.push(verdict(4, 2, false, &stamp(2)));
+        capped.push(coord(5, DEV, Kind::Info, &reassigned_body("late")));
+        assert_eq!(ready(&capped), Some(Never::VerdictCap));
+        assert_eq!(need("Ready", None, &capped), None);
+    }
+
+    #[test]
+    fn a_board_agent_that_the_signed_log_does_not_name_keeps_a_ticket_off_the_list() {
+        // The ticket is assigned to DEV, and DEV has an open question to the owner. Another dev
+        // agent writes its own name into the board Agent and posts a signed `blocked`.
+        let other =
+            |id, to: &str, kind, body: &str| msg(id, agent(OTHER, Role::Dev), to, Some(kind), body);
+        let mut log = blocked_log();
+        log.push(dev(3, "owner", Kind::Question, "may I delete it?"));
+        log.push(other(4, "coordinator", Kind::Blocked, "stuck"));
+        let it = item("Blocked", Some(OTHER));
+        assert_eq!(never(&facts(&it, &log)), Some(Never::AgentNotSigned));
+        assert_eq!(need_of(&facts(&it, &log)), None);
+        // with the signed assignee on the board, the question of DEV keeps it off the list
+        assert_eq!(never_in("Blocked", &log), Some(Never::OwnerQuestion));
+        // and so it does with an empty board Agent
+        assert_eq!(
+            never(&facts(&item("Blocked", None), &log)),
+            Some(Never::OwnerQuestion)
+        );
+        // the same in Review, with a `done` of the other agent
+        let mut log = vec![
+            assignment(1, PROSE),
+            done(2, "protected-paths: AUTHORITY.md\n"),
+        ];
+        log.push(other(
+            3,
+            COORD,
+            Kind::Done,
+            "Done. Evidence follows.\npr: https://github.com/a/b/pull/8\nsha: def\nci: success\n",
+        ));
+        let it = item("Review", Some(OTHER));
+        assert_eq!(never(&facts(&it, &log)), Some(Never::AgentNotSigned));
+        assert_eq!(need_of(&facts(&it, &log)), None);
+        assert_eq!(never_in("Review", &log), Some(Never::OwnerRoute));
+        // a board Agent on a ticket whose log has no assignment at all
+        let it = item("Blocked", Some(DEV));
+        assert_eq!(never(&facts(&it, &[])), Some(Never::AgentNotSigned));
+        // control: the agent that the log names passes
+        assert_eq!(never_in("Blocked", &blocked_log()), None);
     }
 
     #[test]
@@ -724,16 +872,34 @@ mod tests {
             withdrawn.push(coord(9, DEV, Kind::Answer, &withdraw_body("solved")));
             assert_eq!(never_in(status, &withdrawn), None);
 
+            // the stop alone: the verify result at the limit, and no question to the owner
             let mut stopped = base.clone();
-            stopped.push(coord(
+            stopped.push(verdict(
                 8,
+                2,
+                false,
+                "case: round limit 2 of 2; the owner decides\n",
+            ));
+            assert!(crate::ticket::question_open(&stopped, Some(DEV)).is_none());
+            assert_eq!(never_in(status, &stopped), Some(Never::RoundStop));
+            assert_eq!(need(status, Some(DEV), &stopped), None);
+            // the question of the stop is a question to the owner too
+            stopped.push(coord(
+                9,
                 "owner",
                 Kind::Question,
                 &round_limit_question(2, 2, "https://example.invalid/r"),
             ));
-            assert!(crate::ticket::fold_rounds(&stopped).stopped);
-            assert!(never_in(status, &stopped).is_some());
-            assert_eq!(need(status, Some(DEV), &stopped), None);
+            assert_eq!(never_in(status, &stopped), Some(Never::OwnerQuestion));
+            // an owner comment ends the stop and closes the question
+            stopped.push(owner(10, "go on"));
+            assert!(
+                !matches!(
+                    never_in(status, &stopped),
+                    Some(Never::RoundStop | Never::OwnerQuestion)
+                ),
+                "{status}"
+            );
 
             let it = item(status, Some(DEV));
             let labelled = Facts {
@@ -743,15 +909,6 @@ mod tests {
             assert_eq!(never(&labelled), Some(Never::NeedsOwnerLabel));
             assert_eq!(need_of(&labelled), None);
         }
-        // a stop that the verify result alone shows (its question was not posted)
-        let mut stopped = review_log();
-        stopped.push(verdict(
-            3,
-            2,
-            false,
-            "case: round limit 2 of 2; the owner decides\n",
-        ));
-        assert_eq!(never_in("Blocked", &stopped), Some(Never::RoundStop));
     }
 
     #[test]
@@ -846,15 +1003,20 @@ mod tests {
         // a line that is not valid counts: it cannot lower the count
         log.push(verdict(7, 2, false, "unattended: many\n"));
         assert_eq!(ticket_verdicts(&log), 2);
-        // an assignment or a reassign without the line starts the count again
-        for reset in [
-            assignment(8, PROSE),
-            coord(8, DEV, Kind::Info, &reassigned_body("late")),
-        ] {
-            let mut l = log.clone();
-            l.push(reset);
-            assert_eq!(ticket_verdicts(&l), 0);
-        }
+        // an assignment without the line starts the count again: a person or an attended
+        // coordinator looked at the ticket
+        let mut l = log.clone();
+        l.push(assignment(8, PROSE));
+        assert_eq!(ticket_verdicts(&l), 0);
+        // a reassign does not: the duty for a dead agent posts one with nobody watching
+        let mut l = log.clone();
+        l.push(coord(
+            8,
+            DEV,
+            Kind::Info,
+            &reassigned_body("the agent is dead"),
+        ));
+        assert_eq!(ticket_verdicts(&l), 2);
         // an assignment with the line (an unattended assign) does not
         let mut l = log.clone();
         l.push(coord(
@@ -910,7 +1072,7 @@ mod tests {
             ),
             done(2, ""),
         ];
-        assert_eq!(never_in("Review", &forged), Some(Never::NoGate));
+        assert_eq!(never_in("Review", &forged), Some(Never::AgentNotSigned));
         assert_eq!(
             never(&facts(&item("Review", None), &review_log())),
             Some(Never::NoAssignee)
@@ -1072,6 +1234,10 @@ mod tests {
         assert_eq!(used(day(2, 3), 0), 3);
         // every stamped message is gone: the floor of the local state holds
         assert_eq!(used(day(0, 0), 3), 3);
+        // what an earlier read of the day gave is a floor too
+        assert_eq!(day(1, 1).at_least(day(2, 2)), day(2, 2));
+        assert_eq!(day(3, 2).at_least(day(2, 4)), day(3, 4));
+        assert_eq!(day(3, 3).at_least(DayCount::default()), day(3, 3));
         // the log knows more than this host (a verdict from another host)
         assert_eq!(used(day(5, 4), 3), 5);
         // the floor is of one day
@@ -1109,15 +1275,32 @@ mod tests {
         );
         assert_eq!(
             count_line(CoordMode::Verify, 3, 10),
-            "unattended: mode verify; verdicts 3/10 today\n"
+            "unattended coordinator: mode verify; verdicts 3/10 today\n"
         );
         assert_eq!(
             count_line(CoordMode::VerifyAndMerge, 0, 50),
-            "unattended: mode verify-and-merge; verdicts 0/50 today\n"
+            "unattended coordinator: mode verify-and-merge; verdicts 0/50 today\n"
         );
         assert_eq!(
             count_unread_line(CoordMode::Verify, "network: timeout\nmore"),
-            "unattended: mode verify; the verdicts of today could not be read, so no ticket is listed: network: timeout\n"
+            "unattended coordinator: mode verify; the verdicts of today could not be read, so no ticket is listed: network: timeout\n"
         );
+        assert_eq!(
+            unread_line("a/b#6", "network: timeout\nmore"),
+            "unattended coordinator: a/b#6 could not be read for the list: network: timeout\n"
+        );
+        // no line of the tick is a protocol line: a message that quotes one is not stamped
+        for line in [
+            need_line("a/b#5", Need::ProseGate),
+            count_line(CoordMode::Verify, 3, 10),
+            count_unread_line(CoordMode::Verify, "x"),
+            unread_line("a/b#6", "x"),
+        ] {
+            assert!(!has_unattended_line(&line), "{line}");
+            assert_eq!(unattended_of(&line), None, "{line}");
+            assert!(!has_unattended_line(&format!("  > {line}")), "{line}");
+        }
+        // control: the protocol line is one
+        assert!(has_unattended_line(&unattended_line(3, 10)));
     }
 }

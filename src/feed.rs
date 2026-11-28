@@ -129,20 +129,38 @@ pub fn feed_since(
     etag: Option<&str>,
     owner: &str,
 ) -> CbResult<Feed> {
+    match feed_since_unresolved(client, repo, since_epoch, etag)? {
+        None => Ok(Feed {
+            comments: Vec::new(),
+            etag: etag.map(str::to_string),
+        }),
+        Some(mut feed) => {
+            resolve_owner_edits(client, &mut feed.comments, owner)?;
+            Ok(feed)
+        }
+    }
+}
+
+/// [`feed_since`] for a reader that takes no word of the owner from the feed: the editors of
+/// edited owner comments are not read, so such a comment is not trusted
+/// ([`Comment::untrusted_owner_edit`]). `None`: GitHub answered 304 for `etag`, the feed is as it
+/// was.
+pub fn feed_since_unresolved(
+    client: &Client,
+    repo: &str,
+    since_epoch: i64,
+    etag: Option<&str>,
+) -> CbResult<Option<Feed>> {
     let since = crate::clock::format_ts(since_epoch);
     let path = format!(
         "repos/{repo}/issues/comments?since={since}&sort=updated&direction=desc&per_page=100"
     );
     match client.get_conditional(&path, etag)? {
-        Conditional::NotModified => Ok(Feed {
-            comments: Vec::new(),
-            etag: etag.map(str::to_string),
-        }),
+        Conditional::NotModified => Ok(None),
         Conditional::Modified(first) => {
             let (mut comments, etag) = read_all(client, first, repo)?;
-            resolve_owner_edits(client, &mut comments, owner)?;
             comments.sort_by_key(|c| (c.updated_epoch, c.id));
-            Ok(Feed { comments, etag })
+            Ok(Some(Feed { comments, etag }))
         }
     }
 }

@@ -25,11 +25,13 @@
 //! - `max_rounds`: the round limit of repair (spec/tickets#round-limit). The failed verify that
 //!   spends the last round moves the ticket to Blocked with a question to the owner. Off without
 //!   the key.
-//! - `unattended_coordinator`: `off` (default), `verify` or `verify-and-merge`: what a scheduled
-//!   model coordinator may do with nobody watching (spec/agents#unattended-coordinator). Read
-//!   from the default branch only.
-//! - `unattended_budget`: how many verdicts that coordinator may give per UTC day (1 to 50,
-//!   default 10).
+//! - `unattended_coordinator`: `off` (default), `verify` or `verify-and-merge`. The key is
+//!   reserved for the unattended coordinator (spec/agents#unattended-coordinator). In this
+//!   version a value that is not `off` makes the headless `tick` list the tickets that need a
+//!   judgment; it gives no command a new right, and both values do the same. Read from the
+//!   default branch only.
+//! - `unattended_budget`: the verdict budget per UTC day that the `tick` prints next to the
+//!   count (1 to 50, default 10).
 //! - `former_repos`: earlier names of the main repo, each with an exclusive cutoff. A message
 //!   that fails under the current name also verifies under such a name if its signed `ts` is
 //!   before the cutoff (spec/messages#repository-moves). A block list of
@@ -101,9 +103,10 @@ pub struct Authority {
     /// The round limit: after this many failed verifies that count, a ticket goes to the owner
     /// (spec/tickets#round-limit). `None`: no limit.
     pub max_rounds: Option<u32>,
-    /// What the unattended coordinator may do (spec/agents#unattended-coordinator).
+    /// The mode of the unattended coordinator (spec/agents#unattended-coordinator). In this
+    /// version it switches the judgment list of the `tick` on and nothing else.
     pub unattended_coordinator: CoordMode,
-    /// The verdicts of the unattended coordinator per UTC day ([`DEFAULT_UNATTENDED_BUDGET`]
+    /// The verdict budget per UTC day that the `tick` prints ([`DEFAULT_UNATTENDED_BUDGET`]
     /// without the key).
     pub unattended_budget: u32,
     /// Earlier names of the main repo with a cutoff (a transfer or a rename).
@@ -136,16 +139,18 @@ impl CiMode {
     }
 }
 
-/// The value of `unattended_coordinator` (spec/agents#unattended-coordinator): what a scheduled
-/// model coordinator may do with nobody watching.
+/// The value of `unattended_coordinator` (spec/agents#unattended-coordinator). The key is
+/// reserved for the unattended coordinator. In this version the two values that are not `off`
+/// do the same: the headless `tick` lists the tickets that need a judgment and counts the
+/// verdicts of the day. No value starts a model or gives a command a new right.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CoordMode {
-    /// No unattended coordinator (the default).
+    /// The default: the `tick` lists nothing and reads nothing for a list.
     #[default]
     Off,
-    /// It may give verdicts, within the budget.
+    /// The `tick` shows the judgment list and the count.
     Verify,
-    /// It may give verdicts and merge what it verified.
+    /// The same as [`CoordMode::Verify`] in this version.
     VerifyAndMerge,
 }
 

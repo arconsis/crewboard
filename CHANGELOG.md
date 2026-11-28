@@ -31,15 +31,18 @@ Added:
   `tick` also prints one line `needs judgment: <repo>#<n>, <reason>` for each ticket that needs
   the judgment of a coordinator (a Review ticket with a Gate in prose, an open question to the
   coordinator, a plain block, a Ready ticket without an agent, a ticket that a reassign
-  returned to Backlog), and one line `unattended: mode <mode>; verdicts <n>/<budget> today`.
-  The count comes from signed coordinator messages that have the new line
-  `unattended: <n>/<budget>`. This part only shows the list and the count. It starts no model,
-  it writes no such line, and the keys give no command a new right: `verify-and-merge` does
-  what `verify` does. The parts that follow add the limited commands, the scheduled model and
-  the merge. With the key absent or `off`, the output and the requests of `tick` are as they
-  were. With the key on, a tick reads the comment feed of the day and the comments of each
-  Blocked ticket and of each Backlog ticket without an agent that has a Gate. Any other value
-  of a key is `authority-bad-front-matter`. Spec:
+  returned to Backlog), and one line
+  `unattended coordinator: mode <mode>; verdicts <n>/<budget> today`. The list comes from the
+  signed log of each ticket: a board field alone puts no ticket on it. The count comes from
+  signed coordinator messages that have the new line `unattended: <n>/<budget>`. This part
+  only shows the list and the count. It starts no model, it writes no such line, and the keys
+  give no command a new right: `verify-and-merge` does what `verify` does, and the budget
+  limits nothing. The parts that follow add the limited commands, the scheduled model and the
+  merge. With the key absent or `off`, the output, the requests and the state file of `tick`
+  are as they were. With the key on, a tick makes one conditional read of the comment feed of
+  the day, and it reads the comments of each Blocked ticket, of each Ready ticket without an
+  agent, and of a Backlog ticket without an agent that has a Gate when its board item changed.
+  Any other value of a key is `authority-bad-front-matter`. Spec:
   `docs/design/spec/agents.md#unattended-coordinator`.
 
 Changed:

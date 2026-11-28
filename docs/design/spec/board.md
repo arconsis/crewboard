@@ -413,8 +413,8 @@ protected: [main]
 # check_timeout: 1h                 # optional: the time limit of one check
 # daily_digest: true                # optional: one project status update per day by the headless tick
 # max_rounds: 3                     # optional: after 3 failed verifies a ticket goes to the owner
-# unattended_coordinator: verify    # optional: off (default), verify or verify-and-merge; see agents.md
-# unattended_budget: 10             # optional: the verdicts of the unattended coordinator per UTC day
+# unattended_coordinator: verify    # optional: off (default), verify or verify-and-merge; the tick lists tickets, see agents.md
+# unattended_budget: 10             # optional: the verdict budget per UTC day that the tick prints
 # former_repos:                     # optional: after a repo transfer or rename, see messages.md
 #   - { name: old-owner/old-repo, until: 2026-11-01T12:00:00Z }
 # ADVICE: crewboard does not read these keys; the models read them as the owner's rules
