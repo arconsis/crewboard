@@ -28,6 +28,23 @@ pub fn coordinator(dir: &Path) -> Option<crate::wake::policy::CoordWakes> {
     state::read_coord_wakes(&Paths::new(dir.to_path_buf(), None, None).coord_wakes)
 }
 
+/// The state of the model of a `--tick --runtime` unit: the model wakes that failed in a row,
+/// and the ones in a row that ended at the time budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Model {
+    pub fails: u64,
+    pub budget_stops: u32,
+}
+
+/// Read the model state of the state dir.
+pub fn model(dir: &Path) -> Model {
+    let p = Paths::new(dir.to_path_buf(), None, None);
+    Model {
+        fails: state::read_text(&p.wake_fail).map_or(0, |t| NetBackoff::parse(&t).fails),
+        budget_stops: state::read_budget_streak(&p.budget_streak).map_or(0, |(n, _)| n),
+    }
+}
+
 /// Wake commands that failed in a row, from this count on, are a fault to show: one failed
 /// wake can be a model limit or a restart.
 pub const FAILING_FROM: u64 = 2;
@@ -132,7 +149,7 @@ mod tests {
         assert_eq!(coordinator(d.path()), None, "a unit that started no model");
         std::fs::write(
             d.path().join("coordinator-wakes"),
-            "2026-11-28 2 1795860000 00ff verify-and-merge hermes\n",
+            "2026-11-28 2 1795860000 00ff verify-and-merge hermes 0\n",
         )
         .unwrap();
         let w = coordinator(d.path()).unwrap();

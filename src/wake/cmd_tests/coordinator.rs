@@ -80,7 +80,7 @@ fn wakes_file(rig: &Rig) -> Option<CoordWakes> {
 fn plant_wakes(rig: &Rig, day: &str, count: u32, last: i64, hash: &str) {
     rig.write_state(
         "coordinator-wakes",
-        &format!("{day} {count} {last} {hash} verify claude\n"),
+        &format!("{day} {count} {last} {hash} verify claude 0\n"),
     );
 }
 
@@ -109,7 +109,19 @@ fn uc1_with_the_mode_off_the_unit_does_what_a_tick_unit_does_and_starts_no_proce
     }
     assert_eq!(a.calls, b.calls);
     assert_eq!(b.calls, rep(plan.len(), "tick"));
-    assert_eq!(plain.log(), model.log());
+    // the log of the unit with a runtime has one more line per run: its tick runs no checks
+    let note = crate::wake::job::NO_CHECKS;
+    let model_log = model.log();
+    assert_eq!(
+        model_log.lines().filter(|l| l.ends_with(note)).count(),
+        plan.len()
+    );
+    let without: String = model_log
+        .lines()
+        .filter(|l| !l.ends_with(note))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_eq!(plain.log(), without);
     assert!(!plain.log().is_empty());
     assert_eq!(
         (plain.stderr(), model.stderr()),
@@ -134,6 +146,7 @@ fn uc2_an_empty_list_a_used_budget_and_a_tick_that_fails_start_no_model() {
         listed(&[], 0),
     );
     assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert!(wakes_file(&rig).is_none(), "nothing to note");
     // a ticket needs a judgment, and the verdicts of the day are used
     let mut st = steps(LIST6, 1, listed(&[6], 10));
     assert_eq!(run(&rig, &mut st, &flags), 0);
@@ -148,7 +161,10 @@ fn uc2_an_empty_list_a_used_budget_and_a_tick_that_fails_start_no_model() {
     let mut st = steps("2||refused [rule=tick-headless-only] x", 1, listed(&[6], 0));
     assert_eq!(run(&rig, &mut st, &flags), 2);
     assert_eq!(rig.wakes(), 0);
-    assert!(wakes_file(&rig).is_none() && !rig.state().join("judgment.txt").exists());
+    // no start is counted; the list of the tick is noted for the next run
+    let w = wakes_file(&rig).unwrap();
+    assert_eq!((w.count, w.last, w.pending), (0, 0, true));
+    assert!(!rig.state().join("judgment.txt").exists());
     assert_eq!(
         rig.stderr().lines().count(),
         1,
@@ -162,7 +178,7 @@ fn uc3_a_list_starts_the_model_once_then_after_a_change_or_after_the_back_off() 
     let rig = Rig::new();
     let rt = runtime(&rig, 0);
     let flags = unit(&rig, &rt);
-    let mut st = steps(LIST6, 8, listed(&[6], 3));
+    let mut st = steps(LIST6, 9, listed(&[6], 3));
     assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 1);
     assert_eq!(read(&rig.p("wakes")), "judgment\n");
@@ -185,7 +201,7 @@ fn uc3_a_list_starts_the_model_once_then_after_a_change_or_after_the_back_off() 
     let hash = crate::wake::policy::list_hash(&["demo/app#6, prose Gate".to_string()]);
     assert_eq!(
         rig.state_text("coordinator-wakes").unwrap(),
-        format!("{TODAY} 1 {NOW} {hash} verify claude\n")
+        format!("{TODAY} 1 {NOW} {hash} verify claude 0\n")
     );
     assert_eq!(
         rig.state_text("judgment.txt").unwrap(),
@@ -209,9 +225,10 @@ fn uc3_a_list_starts_the_model_once_then_after_a_change_or_after_the_back_off() 
     assert!(!rig.state().join("last-wake").exists() && !rig.lock().exists());
 
     // the same list: no second model, and no line for it (the tick is quiet)
+    // (one line per run says that the tick runs no checks)
     let lines = rig.log().lines().count();
     assert_eq!(run(&rig, &mut st, &flags), 0);
-    assert_eq!(rig.log().lines().count(), lines);
+    assert_eq!(rig.log().lines().count(), lines + 1);
     rig.clock.advance(policy_backoff() - 1);
     assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 1);
@@ -227,20 +244,62 @@ fn uc3_a_list_starts_the_model_once_then_after_a_change_or_after_the_back_off() 
         (NEXT_DAY, 1, NOW + policy_backoff())
     );
 
-    // a list that changed starts a model at once
+    // a list that changed starts a model, but not inside 30 minutes after the last start: the
+    // change is noted and waits
     st.judgment = listed(&[6, 7], 3);
     assert_eq!(run(&rig, &mut st, &flags), 0);
+    rig.clock.advance(policy_distance() - 1);
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(rig.wakes(), 2);
+    let w = wakes_file(&rig).unwrap();
+    assert_eq!(
+        (w.count, w.pending, w.last),
+        (1, true, NOW + policy_backoff())
+    );
+    rig.clock.advance(1);
+    assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 3);
-    assert_eq!(wakes_file(&rig).unwrap().count, 2);
+    let w = wakes_file(&rig).unwrap();
+    assert_eq!((w.count, w.pending), (2, false));
     assert!(rig.state_text("judgment.txt").unwrap().ends_with(
         "needs judgment: demo/app#6, prose Gate\nneeds judgment: demo/app#7, prose Gate\n"
     ));
     // a list that got shorter is a change too
     st.judgment = listed(&[7], 3);
+    rig.clock.advance(policy_distance());
     assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 4);
     assert_eq!(run(&rig, &mut st, &flags), 0);
     assert_eq!(rig.wakes(), 4);
+}
+
+#[test]
+fn uc3b_a_ticket_that_leaves_the_list_and_comes_back_starts_a_model_inside_the_back_off() {
+    let rig = Rig::new();
+    let rt = runtime(&rig, 0);
+    let flags = unit(&rig, &rt);
+    let mut st = steps(LIST6, 6, listed(&[6], 0));
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(rig.wakes(), 1);
+    // the verdict was a fail: the ticket is off the list
+    rig.clock.advance(600);
+    st.judgment = listed(&[], 1);
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    let w = wakes_file(&rig).unwrap();
+    assert_eq!(
+        (w.count, w.last, w.pending, w.hash.as_str()),
+        (1, NOW, false, crate::wake::policy::list_hash(&[]).as_str())
+    );
+    // the dev delivers again: the same line as before, 30 minutes after the start
+    rig.clock.advance(policy_distance() - 600);
+    st.judgment = listed(&[6], 1);
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(rig.wakes(), 2, "the same line again is a change");
+    assert_eq!(wakes_file(&rig).unwrap().count, 2);
+}
+
+fn policy_distance() -> i64 {
+    crate::wake::policy::COORD_MIN_DISTANCE_SECS
 }
 
 fn policy_backoff() -> i64 {
@@ -374,8 +433,9 @@ fn uc7_failed_model_wakes_pause_the_model_and_the_tick_goes_on() {
         rig.log()
     );
 
-    // 3: after the pause the model starts again; one line tells the owner on standard error
-    rig.clock.advance(300);
+    // 3: after the pause and the 30 minutes the model starts again (the change waited); one
+    // line tells the owner on standard error
+    rig.clock.advance(policy_distance());
     assert_eq!(run(&rig, &mut st, &flags), 70);
     assert_eq!((rig.wakes(), fails(&rig).map(|b| b.fails)), (3, Some(3)));
     let err = rig.stderr();
@@ -383,6 +443,10 @@ fn uc7_failed_model_wakes_pause_the_model_and_the_tick_goes_on() {
         err.contains(
             "the model wake of the unattended coordinator failed 3 times in a row (last exit 9)"
         ),
+        "{err}"
+    );
+    assert!(
+        err.contains("Each failed start used one of the 6 model wakes of the day"),
         "{err}"
     );
     // nobody is told on the board: the headless scope refuses a `say`, so none is tried
@@ -442,7 +506,7 @@ fn uc9_the_settings_of_a_coordinator_unit_and_print_cmd_shows_both_parts() {
     let flags = unit(&rig, &rt);
     let refs: Vec<&str> = flags.iter().map(String::as_str).collect();
     let s = rig.settings(&refs, &[]).unwrap();
-    assert!(s.tick && s.direct.is_some());
+    assert!(s.tick && s.direct.is_some() && s.model_unit && s.model_error.is_none());
     assert_eq!(s.events_file, None, "no events file");
     assert_eq!(s.direct.as_ref().map(|d| d.runtime), Some("claude"));
     // `--print-cmd`: the tick, then the model command
@@ -454,7 +518,10 @@ fn uc9_the_settings_of_a_coordinator_unit_and_print_cmd_shows_both_parts() {
     else {
         panic!("print")
     };
-    let (first, second) = text.split_once('\n').unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "{text}");
+    assert_eq!(lines[1], crate::wake::job::NO_CHECKS);
+    let (first, second) = (lines[0], lines[2]);
     assert_eq!(
         first,
         format!(
@@ -496,14 +563,33 @@ fn uc9_the_settings_of_a_coordinator_unit_and_print_cmd_shows_both_parts() {
             "--no-events-hook is for a dev agent",
         ),
         (
+            vec!["--host-lock", "/l/heavy.lock.d"],
+            "--host-lock is not for a unit with --tick --runtime",
+        ),
+        (
+            vec!["--shim-dir", "/a/bin"],
+            "--shim-dir is not for a unit with --tick --runtime",
+        ),
+        (
             vec!["--wake-cmd", "true"],
             "--runtime and --wake-cmd exclude each other",
         ),
     ] {
+        // `--print-cmd` shows the error; a run goes on with the tick and no model
+        let mut a = vec!["--state-dir", state.to_str().unwrap(), "--print-cmd"];
+        a.extend(&refs);
+        a.extend(extra.clone());
+        let e = resolve(&parse(&a), &GlobalFlags::default(), &|_| None, None).unwrap_err();
+        assert!(e.text.contains(text), "{}", e.text);
         let mut a = refs.clone();
         a.extend(extra);
-        let e = rig.settings(&a, &[]).unwrap_err();
-        assert!(e.text.contains(text), "{}", e.text);
+        let s = rig.settings(&a, &[]).unwrap();
+        assert!(s.direct.is_none() && s.model_unit, "{text}");
+        assert!(
+            s.model_error.as_deref().is_some_and(|m| m.contains(text)),
+            "{:?}",
+            s.model_error
+        );
     }
     // a tick unit with a checkout runs the checks there; with a runtime the checkout is the
     // start dir of the model, and the tick gets none
@@ -514,4 +600,122 @@ fn uc9_the_settings_of_a_coordinator_unit_and_print_cmd_shows_both_parts() {
         0
     );
     assert_eq!(st.tick_dirs, [Some(wd)]);
+}
+
+#[test]
+fn uc10_a_model_setup_that_is_broken_does_not_stop_the_tick() {
+    let plain = Rig::new();
+    let model = Rig::new();
+    // the runtime binary moved, and the work dir is gone
+    let rt = runtime(&model, 0);
+    let flags = unit(&model, &rt);
+    std::fs::remove_file(&rt).unwrap();
+    std::fs::remove_dir_all(model.p("wd")).unwrap();
+    let plan = [TICKOUT, TICKOUT, "0|tick: no ticket in Review|"];
+    let mut a = Scripted::new(&plan);
+    let mut b = Scripted::new(&plan);
+    // also with a list: no model can start, and nothing is counted
+    b.judgment = listed(&[6], 0);
+    for _ in 0..plan.len() {
+        assert_eq!(plain.run(&mut a, &["--tick"]), 0);
+        assert_eq!(run(&model, &mut b, &flags), 0, "the exit code of the tick");
+    }
+    assert_eq!(a.calls, b.calls);
+    // the log of the tick is the one of a tick unit, with two more lines per run
+    let extra = |l: &str| {
+        l.ends_with(crate::wake::job::NO_CHECKS)
+            || l.contains("the model of this unit cannot start: ")
+    };
+    let model_log = model.log();
+    assert_eq!(
+        model_log.lines().filter(|l| extra(l)).count(),
+        2 * plan.len()
+    );
+    let without: String = model_log
+        .lines()
+        .filter(|l| !extra(l))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    assert_eq!(plain.log(), without);
+    let err = model.stderr();
+    assert_eq!(err.lines().count(), plan.len(), "{err}");
+    assert!(
+        err.contains(
+            "the model of this unit cannot start: --work-dir must be an existing directory"
+        ),
+        "{err}"
+    );
+    assert!(wakes_file(&model).is_none() && model.wakes() == 0);
+    // a tick that fails still gives its code
+    let mut st = steps("2||refused [rule=tick-headless-only] x", 1, None);
+    assert_eq!(run(&model, &mut st, &flags), 2);
+}
+
+#[test]
+fn uc11_a_model_that_runs_until_the_time_budget_is_stopped_and_counted_as_no_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let rig = Rig::new();
+    let slow = rig.p("slow");
+    std::fs::write(&slow, "#!/bin/sh\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut flags = unit(&rig, slow.to_str().unwrap());
+    flags.extend(["--max-wake", "1"].map(str::to_string));
+    let mut st = steps(LIST6, 2, listed(&[6], 0));
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    let log = rig.log();
+    assert!(
+        log.contains("model wake stopped at the time budget of 1 (1 in a row)"),
+        "{log}"
+    );
+    assert_eq!(rig.state_text("wake-fail"), None, "no failed wake");
+    assert_eq!(wakes_file(&rig).unwrap().count, 1, "the start is counted");
+    assert_eq!(
+        state::read_budget_streak(&rig.state().join("budget-streak")),
+        Some((1, "-".to_string()))
+    );
+    // nobody is told on the board, and the board is asked for the tick only
+    assert_eq!(st.calls, ["tick"]);
+    // a second stop in a row is counted; a model that ends by itself ends the count
+    rig.clock.advance(policy_backoff());
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(
+        state::read_budget_streak(&rig.state().join("budget-streak")).map(|(n, _)| n),
+        Some(2)
+    );
+    rig.clock.advance(policy_backoff());
+    let good = runtime(&rig, 0);
+    let mut st = steps(LIST6, 1, listed(&[6], 0));
+    assert_eq!(run(&rig, &mut st, &unit(&rig, &good)), 0);
+    assert!(!rig.state().join("budget-streak").exists());
+}
+
+#[test]
+fn uc12_a_ticket_key_that_is_not_plain_stays_out_of_the_judgment_file() {
+    let rig = Rig::new();
+    let rt = runtime(&rig, 0);
+    let flags = unit(&rig, &rt);
+    let mut st = steps(LIST6, 1, None);
+    st.judgment = Some(Listed {
+        mode: CoordMode::Verify,
+        needs: vec![
+            ("demo/app#6".into(), Need::Blocked),
+            ("demo/app#7\nmode: off".into(), Need::Blocked),
+            ("demo/app #8".into(), Need::Blocked),
+        ],
+        used: 0,
+        budget: 10,
+    });
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(rig.wakes(), 1);
+    assert!(
+        rig.state_text("judgment.txt")
+            .unwrap()
+            .ends_with("verdicts today: 0/10\nneeds judgment: demo/app#6, blocked\n")
+    );
+    assert!(
+        rig.log()
+            .contains("2 ticket(s) of the judgment list have a key that is not <owner>/<repo>#<n>"),
+        "{}",
+        rig.log()
+    );
 }

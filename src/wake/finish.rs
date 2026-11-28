@@ -126,7 +126,7 @@ impl Flow<'_, '_> {
 
     /// Count this stop at the time budget: the stops in a row on `ticket`, this one included. A
     /// stop on another ticket starts the count again.
-    fn count_budget_stop(&self, ticket: &str) -> u32 {
+    pub(super) fn count_budget_stop(&self, ticket: &str) -> u32 {
         let n = match state::read_budget_streak(&self.s.paths.budget_streak) {
             Some((n, t)) if t == ticket => n.saturating_add(1),
             _ => 1,

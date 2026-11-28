@@ -182,6 +182,12 @@ new events only at its next wake, so every such crossing costs one poll interval
 8. **Cost.** `done`, `block` and `ask` use the comments that they load anyway. `say` makes one
    extra read of the ticket's comments (the ticket's comment list is not loaded by `say`
    otherwise). An agent without a cursor (never watched) or with an unreadable cursor passes.
+9. **A headless config dir.** A headless config dir never moves the cursor, so the check has its
+   own mark there: per ticket the highest comment id that a refusal showed. The refusal shows
+   the messages above the mark and says "read these, then run the same command again". The
+   same command then passes without a flag, until a newer message comes. `--override-unread` is
+   refused there (`headless-scope`). See
+   [The model wake](agents.md#the-model-wake).
 
 ## Stale work
 

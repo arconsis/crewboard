@@ -198,14 +198,28 @@ things must be on before a model starts: the key in `AUTHORITY.md`, and a unit w
    see both parts: the tick, and the command of the model.
 
 Each run does the tick first. A model starts only when a ticket needs a judgment, the verdicts
-of the day are not used, the day has fewer than 6 model wakes, and the list changed since the
-last model wake or 2 hours passed. The log (`wake.log`) has one line for each start. The file
-`judgment.txt` in the state dir holds the list that the model got.
+of the day are not used, the day has fewer than 6 model wakes, the last start of the day is 30
+minutes ago or more, and the list changed since the last model wake or 2 hours passed. The log
+(`wake.log`) has one line for each start. The file `judgment.txt` in the state dir holds the
+list that the model got.
+
+**The cost.** crewboard has no limit of model tokens. One unit starts at most 6 models per UTC
+day, and each runs at most `--max-wake`: at most 6 times `--max-wake` of model time per day. A
+start that fails is one of the 6. Set `--max-wake` and the limits of your model account with
+that in mind.
+
+**No tick while the model runs.** The model runs under the lock of the unit. Until it ends (at
+most `--max-wake` later) no tick runs, so a `Gate: ci` merge waits that long.
+
+**A model setup that breaks** (a work dir that is gone, a runtime binary that moved) does not
+stop the tick. Each run writes one line about it to the log and to standard error, runs the
+tick and starts no model.
 
 `--work-dir` is the dir where the model starts. A checkout of the repo lets it read the code
 with `git`. In a unit with `--runtime`, `--work-dir` is for the model only: the tick of such a
 unit runs no checks of a `Gate: checks: ...` ticket (the section above), and you or the
-interactive coordinator verify such a ticket.
+interactive coordinator verify such a ticket. Each run writes one log line that says so.
+`--host-lock` and `--shim-dir` are refused for such a unit.
 
 **Switch off.** Set `unattended_coordinator: off` (or remove the key) on the default branch.
 The next run starts no model and refuses every judgment in the headless config dir. The unit
@@ -217,7 +231,10 @@ ticket confuse the dev agents.
 
 **What the model may do.** Verify a Review ticket whose Gate is prose (pass or fail, with its
 reason in the message), answer and unblock an agent, assign a ticket that a reassign returned,
-and ask you a question. Each message has a last line `unattended: <n>/<budget>`. It merges
+and ask you a question. It reads a ticket with `crewboard mine <owner>/<repo>#<n>`, which
+prints only what passed the signature check: the Gate and the guard of the signed assignment,
+the latest `done`, and the signed messages. Each message has a last line
+`unattended: <n>/<budget>`. It merges
 nothing: a headless config dir merges only a `Gate: ci` ticket, and that is the tick. The
 limits per UTC day: `unattended_budget` verdicts, 30 messages, 5 questions to you, 6 model
 wakes; one ticket gets 2 verdicts until you comment on it.
@@ -229,11 +246,14 @@ for each runtime. The runtimes differ in what else the model can do on the host:
 - **Claude Code** (`--runtime claude`). crewboard passes a list of allowed tools: `crewboard`,
   the reading forms of `git` and `gh` (`git log`, `git show`, `git diff`, `git status`,
   `gh pr view`, `gh pr diff`, `gh pr checks`, `gh run view`, `gh issue view`), the read tools
-  and a few shell helpers. It has no tool that edits a file. `--allow <tool>` adds one. On
-  macOS use launchd: cron cannot read the keychain login.
+  and a few shell helpers. The list has no `Edit` and no `Write`. It is no boundary: a
+  reading form can still write a file (`git diff --output=<file>`). `--allow <tool>` adds a
+  tool. On macOS use launchd: cron cannot read the keychain login.
 - **Codex** (`--runtime codex`). Codex has no list of tools. crewboard starts it in its
   `workspace-write` sandbox with network access: the model can run every program, and it can
-  write in `--work-dir` and in the config dir.
+  write in `--work-dir` and in the config dir. The config dir holds the local counts, the
+  marks of the unread check and the `headless` key, so such a model can change them. The
+  verdict budget still holds: its count comes from the signed messages on GitHub.
 - **Hermes** (`--runtime hermes`). Hermes has no list of tools and crewboard passes no sandbox
   flag: the model can run every program as the OS user. `wake install` uses the Hermes
   scheduler for it by default; pass `--scheduler` for another one.
@@ -244,10 +264,22 @@ For Claude Code the list of tools makes that harder, but a list of a runtime is 
 either. In each case the token rights above are the limit. `--runtime-flags "<flags>"` replaces
 the flags that crewboard passes, when you want a stricter setting of your runtime.
 
+**Inside a wake.** crewboard sets `CREWBOARD_WAKE` for the model. With it set, `crewboard wake`
+starts no second wake, and in the headless config dir `agent exec`, `agent with-env`,
+`heartbeat` and `start` are refused, and `poll` and `watch` write no heartbeat. For a runtime
+with a full shell (Codex, Hermes) this variable is a guardrail, not a boundary: the model can
+clear it. `--override-unread` is refused in a headless config dir. A `say`, `unblock` or `ask`
+that finds an unread message prints it and refuses once; the same command then passes.
+
 **When it fails.** A model that exits with an error is one line in the log. From the second
 failure in a row the model wakes pause (5 minutes, then longer, at most 1 hour); the tick goes
-on. The third failure in a row also goes to standard error of the unit. `crewboard doctor
---setup` shows the mode, the runtime and the count of the day of the last model wake.
+on. The third failure in a row also goes to standard error of the unit. After a failed start
+the next one waits for that pause, for the 30 minutes, and for a change of the list or 2
+hours. `crewboard doctor --setup` shows two checks for such a unit: `wake` is the state of the
+tick, and `unattended coordinator` is the state of the model (the mode, the runtime and the
+count of the last model wake; a fault after 2 failed model wakes in a row; a warning when the
+model ended at `--max-wake` several times in a row, or when the stored day is later than
+today).
 
 ## One digest per day
 

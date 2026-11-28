@@ -562,6 +562,16 @@ impl Hub {
         self.run(self.headless_dir.path(), args)
     }
 
+    /// [`Hub::headless`] as a reader runs a command: a refusal `unread-message-on-ticket` shows
+    /// the messages, and the same command runs once more. The result is the one of the last run.
+    pub fn headless_read(&self, args: &[&str]) -> Out {
+        let first = self.headless(args);
+        if first.code == 2 && first.stderr.contains("[rule=unread-message-on-ticket]") {
+            return self.headless(args);
+        }
+        first
+    }
+
     pub fn interactive(&self, args: &[&str]) -> Out {
         self.run(&self.coord.dir, args)
     }

@@ -271,6 +271,12 @@ fn check_model(a: &WakeArgs, t: &Target, sys: &dyn Sys) -> Result<String, String
         if a.events_file.is_some() {
             return Err("--events-file is for a dev agent: the model wake of a coordinator (--tick --runtime) reads the judgment file of its state dir".into());
         }
+        if !j.host_lock.is_empty() {
+            return Err("--host-lock is not for a unit with --tick --runtime: the model of a coordinator runs no heavy job and gets no grant for `lock run`".into());
+        }
+        if j.shim_dir.is_some() {
+            return Err("--shim-dir is not for a unit with --tick --runtime: the gh shim runs `agent with-env`, which a headless config dir refuses inside a wake. gh reads the token of --env-file".into());
+        }
         if j.work_dir.is_none() {
             return Err("--work-dir is required with --tick --runtime: the model of the coordinator starts there".into());
         }

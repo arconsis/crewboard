@@ -10,9 +10,14 @@ impl Flow<'_, '_> {
     ///
     /// A unit with `--runtime` then asks whether a model starts (`Flow::coordinator`). It
     /// gives the tick no checkout: `--work-dir` is the start dir of the model there, and the
-    /// tick of such a unit runs no checks of a `checks:` Gate.
+    /// tick of such a unit runs no checks of a `checks:` Gate. Each run says so in the log.
+    /// The tick does not depend on the model: a model command that could not be built is one
+    /// line, and the exit code is the one of the tick.
     pub(super) fn tick(&mut self) -> u8 {
-        let model = self.s.direct.is_some();
+        let model = self.s.model_unit;
+        if model {
+            self.log.line(super::job::NO_CHECKS);
+        }
         let wd = self.s.work_dir.clone().filter(|_| !model);
         let (rc, out) = self.call("tick", &mut |s, o| s.tick(wd.as_deref(), o));
         if let Some(code) = self.signalled() {
@@ -36,6 +41,12 @@ impl Flow<'_, '_> {
             }
         }
         if !model {
+            return 0;
+        }
+        if let Some(e) = &self.s.model_error {
+            self.log.say(&format!(
+                "the model of this unit cannot start: {e}. The tick ran; repair the unit (crewboard wake install)"
+            ));
             return 0;
         }
         let listed = self.steps.judgment();
