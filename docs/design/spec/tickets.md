@@ -37,8 +37,8 @@ lines, joined with ` | `), `ci: none` or `ci: required`, and one `guard: <glob>`
 `Guard:` line. `done`, `verify`, `merge` and the headless "CI only" check read these lines, not
 the body; without a `ci:` line the body decides.
 Only the first assignment of a ticket reads the body, and `assign` prints what it signs
-(`signed from the body: gate '<text>'; ci: required`, with `guard '<glob>, <glob>';` before the
-CI part when the ticket has a guard). Every later assignment message copies
+(`signed from the body: gate '<text>'; guard '<glob>, <glob>'; ci: required`, or `guard none`
+for a ticket without a guard). Every later assignment message copies
 the signed lines forward: `reassign --to`, the move of a queued ticket, and an `assign` after a
 `reassign`. A line that the earlier assignment does not have is not added from the body. If the
 body then has another Gate, CI or Guard line, the command prints a warning and the signed lines
@@ -54,8 +54,10 @@ has no `gate:` line prints a note: the new message has none either.
 No command changes the signed Gate of a ticket that has one. Work with another Gate is a new
 ticket (`close --why`, then `ticket new`). One exception stays: when the log of a ticket has no
 valid assignment message (never posted, deleted, edited or not valid), an `assign` signs the
-body. It prints a warning when the ticket has an Agent or a Status past Backlog, and the
-coordinator checks the Gate that it prints.
+body, so it signs the Gate and the guard that the body has then. It prints a warning when the
+ticket has an Agent or a Status past Backlog. The warning and the `signed from the body:` line
+both name the guard, as `guard none` when the body has no `Guard:` line, and the coordinator
+checks the Gate and the guard that they print.
 
 ### Guarded paths
 
@@ -71,28 +73,75 @@ delivery.
 - **The limits.** At most 20 globs. Each glob is one line of at most 200 bytes, not empty, and
   a relative path glob: no leading `/`, no `\`, no `..` part. `*` matches inside a name, `**`
   across directories, `?` one character; a trailing `/` means the directory and all below it.
-  The match ignores ASCII letter case. `ticket new`, `ticket adopt`, `ticket split` and the
-  first `assign` refuse another guard with `ticket-guard-invalid`, before the first write.
+  The match ignores ASCII letter case. A glob that can cover no path is refused too: `.` or
+  `./`, and a glob with an empty or a `.` part (`a//b`, `a/./b`). `ticket new`,
+  `ticket adopt`, `ticket split` and the first `assign` refuse such a guard with
+  `ticket-guard-invalid`, before the first write. Write a glob that starts with stars after a
+  space (`Guard: **/x`); `Guard:**/x` reads the same.
+- **Before the first assignment.** Until `assign`, the guard is body text, and the body is not
+  signed: the holder of an agent token can remove a `Guard:` line. `assign` prints the guard
+  that it signs, also `guard none`, so the coordinator sees a line that is gone.
+  `ticket new --assign` writes and signs in one command.
 - **The signed lines.** The first assignment signs the globs as `guard:` lines, and every
   later assignment copies the signed lines ([Ticket content](#ticket-content)). The readers
   below take the signed lines only. A `Guard:` line that the body gets after the assignment
   guards nothing, and a line that the body loses stays signed. An assignment without a
   `guard:` line means no guard. No command changes the signed guard of a ticket.
-- **`done`.** It reads the file list of the PR. A file that a signed glob covers is
+- **Every coordinator host needs this version.** The latest assignment decides. A version of
+  crewboard without guarded paths copies `gate:` and `ci:` and writes no `guard:` line. Its
+  `reassign --to`, its move of a queued ticket and its `assign` after a `reassign` end the
+  guard of the ticket, and it prints no warning. So update every host that runs a coordinator
+  before the first `--guard`. A later assignment of this version then warns that the body and
+  the signed guard differ, and the signed guard stays `none`.
+- **`done`.** It reads the files of the PR ([The files of a PR](#the-files-of-a-pr)). A file that a signed glob covers is
   `guarded-path-changed`: added, modified or deleted, and both names of a renamed file. The
   text names up to 5 files, each with its glob. Nothing is written, and no check of
   `--run-check` runs.
 - **The backstops.** A `verify` without `--fail`, `close --verified` and `merge` read the file
   list again and refuse in the same way, so a PR that changed after its `done` does not pass.
   The headless `tick` verifies and merges through these commands, so it leaves such a ticket.
-  `verify --fail` stays possible. A file list of more than 1000 files proves nothing and is
-  refused.
+  `verify --fail` stays possible. A file list that is cut or cannot be read proves nothing and
+  is refused ([The files of a PR](#the-files-of-a-pr)).
 - **No override.** No flag lets a guarded file through. The owner changes the file in a
   separate change, or the work goes on in a new ticket without that guard (`close --why`, then
   `ticket new`). A PR that the owner merged by hand is closed with `close <n>`
   ([Close after an owner merge](#close-after-an-owner-merge)).
 - **The red run.** For `--must-fail-at`, the signed globs join the protected paths of the rule
   "the same check on both commits" ([A check that must be red first](ci.md#a-check-that-must-be-red-first)).
+- **What a guard does not cover.** The guard is a list of paths, not of effects. A glob that
+  is well formed and names the wrong path (`test/**` for `tests/**`) guards nothing. A
+  submodule is one path, its gitlink: a glob below that path covers no file. A symlink to a
+  guarded file, and a helper outside the guard that the test loads, are not covered: name
+  them too. `?` is one byte, and only ASCII letters match without regard to case. The guard
+  holds for the PR of its ticket: a second ticket without the guard, a direct push, or a merge
+  with `git` or `gh` can still change the file. For a file that no ticket may change, use
+  `protected_paths`.
+
+### The files of a PR
+
+The rules for protected paths ([Authority](board.md#authority)) and for guarded paths read the
+files that a PR changes. Four facts decide what the list proves.
+
+1. **The list of the PR.** GitHub lists the added, modified and deleted files, and for a
+   renamed file the new name and the old one. Both names count. crewboard reads up to 1001
+   files, so "more than 1000" is known.
+2. **The base branch.** The file list of a PR is the diff against its base branch, and the
+   author of the PR chooses that branch. A base branch that already holds the change of a
+   file hides that file. So for a PR whose base is not the default branch of its repo,
+   crewboard also reads the files that differ between the default branch and the head of the
+   PR (the three-dot comparison `<default>...<head sha>`, one request) and judges both lists
+   together. A stacked PR stays possible: only a protected or guarded file in one of the two
+   lists refuses it. A PR onto the default branch needs no comparison. The PR answer names the
+   default branch; when it does not, crewboard reads the repo (one more request).
+3. **The commit.** The comparison is read for a SHA, so it belongs to that commit. The list of
+   the PR belongs to the head at the time of the read. For an open PR onto the default branch,
+   `verify`, `close --verified` and `merge` read the head again after the list (one request).
+   A head that moved is `evidence-head-moved`, and nothing is written. `done` reads the head
+   again after the CI facts, as it always does.
+4. **Fail closed.** A list that proves nothing is refused: more than 1000 files in the PR, 300
+   or more files in the comparison (GitHub lists no more for a comparison), or a list that
+   cannot be read. The refusal is `protected-path-owner-merge`, also for a ticket with a
+   guard.
 
 ## Status flow and writers
 
@@ -654,7 +703,9 @@ A refusal writes nothing. Then:
 
 1. The new ticket gets the file text and `Split from: <repo>#<n>`, and the signed Gate of the
    old ticket if the file has none. It also gets the signed guard of the old ticket as `Guard:`
-   lines, unless the file has `Guard:` lines of its own.
+   lines, unless the file has `Guard:` lines of its own. As for the Gate, the body of the old
+   ticket is read only when its log has no signed assignment with a Gate; an assignment
+   without a `guard:` line hands on no guard.
 2. The old body gets one line `Split off: <repo>#<new> - <title>`.
 3. The new ticket goes into the queue of the same agent.
 4. A signed note on the old ticket says where the open part went and to run `done` on the old

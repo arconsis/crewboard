@@ -51,7 +51,7 @@ find goes into a `report` to the coordinator.
   first; one that passes there is `check-not-red`. Give the SHA: a rev such as `HEAD~1` is read
   in the checkout of `--work-dir`, not on the PR head.
 - A `status-no-change` refusal on a second `done` means the first one landed. Do nothing.
-- `done` says `guarded-path-changed`: the ticket guards that file (`Guard:`). Take its change out of the PR.
+- `done` says `guarded-path-changed` (`verify` and `merge` check it too): the ticket guards that file. Take its change out of the PR.
 
 ## Blocked, asked, split
 

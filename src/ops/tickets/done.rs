@@ -186,7 +186,7 @@ struct DonePr {
 
 fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) -> CbResult<DonePr> {
     let named = named_runs(ac, &l.pr_url.repo, a.runs)?;
-    let (pr, base) = fetch_pr(ac, &l.pr_url.repo, l.pr_url.number)?;
+    let (pr, pr_base) = super::pr_evidence::fetch_pr_based(ac, &l.pr_url.repo, l.pr_url.number)?;
     // A push to the branch of a merged PR goes nowhere. Before any write.
     merged_pr::check_not_merged(ac, &pr)?;
     pre.auth.check_head_branch(&pr.head_ref)?;
@@ -195,12 +195,21 @@ fn read_done_pr(ac: &AgentCtx, a: &DoneArgs<'_>, l: &DoneLoad, pre: &DonePre) ->
     // token. Decide the route before any CI call, so a missing patch is named at once.
     // Read one file more than the limit, so that "more than that" is known. A cut list cannot
     // prove that no workflow file or protected path is in the PR: fail closed.
-    let files = fetch_pr_files_upto(ac, &pr.repo, pr.number, MAX_FILES + 1)?;
-    if files.over(MAX_FILES) {
+    let mut files = fetch_pr_files_upto(ac, &pr.repo, pr.number, MAX_FILES + 1)?;
+    files.truncated = files.over(MAX_FILES);
+    // spec/tickets#the-files-of-a-pr: a PR whose base is not the default branch also counts
+    // with the files that differ between the default branch and its head. The head is read
+    // again after the CI facts (`head_after`), so both lists belong to the judged commit.
+    if let Some(hidden) = super::pr_evidence::files_hidden_by_base(ac, &pr, &pr_base, &pr.head_sha)?
+    {
+        files.join(hidden);
+    }
+    let base = pr_base.branch;
+    if files.truncated {
         return Err(Refusal::new(
             ids::PROTECTED_PATH_OWNER_MERGE,
             format!(
-                "{} has more than {MAX_FILES} files; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
+                "{} has more than {MAX_FILES} files, or its comparison with the default branch is cut; crewboard cannot prove that none is a workflow file or a protected path, so it cannot choose the route: split the PR into smaller PRs",
                 format_args!("{}#{}", l.pr_url.repo, l.pr_url.number)
             ),
         )

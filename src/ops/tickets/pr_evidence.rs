@@ -78,6 +78,23 @@ pub(super) fn check_pr_in_initiative(
 }
 
 pub(super) fn fetch_pr(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<(PrFacts, String)> {
+    fetch_pr_based(ac, repo, number).map(|(pr, base)| (pr, base.branch))
+}
+
+/// The base of a PR: the branch that it merges into, and the default branch of its repo as the
+/// PR answer names it (`None`: the answer has none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PrBase {
+    pub branch: String,
+    pub default: Option<String>,
+}
+
+/// [`fetch_pr`] with the default branch of the repo (the same one request).
+pub(super) fn fetch_pr_based(
+    ac: &AgentCtx,
+    repo: &str,
+    number: u64,
+) -> CbResult<(PrFacts, PrBase)> {
     let Some(pr) = optional(pulls::get(&ac.ctx.client, repo, number))? else {
         return Err(CbError::refused(
             ids::EVIDENCE_PR_MISSING,
@@ -87,7 +104,10 @@ pub(super) fn fetch_pr(ac: &AgentCtx, repo: &str, number: u64) -> CbResult<(PrFa
     let need = |v: Option<String>, p: &str| {
         v.ok_or_else(|| GhError::Shape(format!("PR answer has no {p}")))
     };
-    let base = need(pr.base_ref, "/base/ref")?;
+    let base = PrBase {
+        branch: need(pr.base_ref, "/base/ref")?,
+        default: pr.base_default,
+    };
     Ok((
         PrFacts {
             repo: repo.to_string(),
@@ -137,29 +157,166 @@ pub(super) fn fetch_pr_files_upto(
     })
 }
 
-/// The files of a PR for the rule `protected-path-owner-merge`: up to one file more than
-/// [`crate::rules::protected::MAX_FILES`], so that "more than that" is known. A list that cannot
-/// be read is a refusal of the same rule, not a pass (fail closed).
+/// The refusal for a file list that cannot be read: no proof that no file is protected or
+/// guarded, so no pass (fail closed).
+fn unreadable_files(repo: &str, number: u64, ticket: &str, why: &str) -> CbError {
+    Refusal::new(
+        ids::PROTECTED_PATH_OWNER_MERGE,
+        format!(
+            "the files of {repo}#{number} cannot be read ({why}); crewboard cannot prove that none is protected: try again, or the owner merges it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\""
+        ),
+    )
+    .into()
+}
+
+/// The files that the base branch of a PR hides (spec/tickets#the-files-of-a-pr). The file list
+/// of a PR is the diff against its base branch, and the author of the PR chooses that branch: a
+/// branch that already holds the change of a protected or guarded file hides that file. So for
+/// a PR whose base is not the default branch of its repo, this reads the files that differ
+/// between the default branch and the commit `sha` (one request, the three-dot comparison), and
+/// the caller joins them with the list of the PR. `None`: the base is the default branch, and
+/// nothing is read. The list belongs to `sha`, whatever the head of the PR is now. A default
+/// branch that the PR answer does not name is read from the repo (one more request). A
+/// comparison that cannot be read is an error: the callers refuse.
+pub(super) fn files_hidden_by_base(
+    ac: &AgentCtx,
+    pr: &PrFacts,
+    base: &PrBase,
+    sha: &str,
+) -> Result<Option<PrFileList>, GhError> {
+    let default = match &base.default {
+        Some(d) => d.clone(),
+        None => ac
+            .ctx
+            .client
+            .get(&format!("repos/{}", pr.repo))?
+            .body
+            .get("default_branch")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| GhError::Shape(format!("{} names no default branch", pr.repo)))?,
+    };
+    if base.branch == default {
+        return Ok(None);
+    }
+    compare_files(&ac.ctx.client, &pr.repo, &default, sha).map(Some)
+}
+
+/// The most files that GitHub lists for one comparison of two commits.
+const COMPARE_MAX_FILES: usize = 300;
+
+/// The files that differ between the merge base of `base` and `head` and the commit `head`
+/// (the three-dot comparison `base...head`), in the repo `repo`. `head` is a SHA, so the list
+/// belongs to exactly that commit, and a commit of a fork needs no `owner:` form: the repo of a
+/// PR holds the commits of its head. One request: GitHub gives the files of the whole
+/// comparison with the first page, at most [`COMPARE_MAX_FILES`], and has no further page of
+/// files. `truncated`: the list has that many files, so it may be cut.
+fn compare_files(
+    client: &crate::github::Client,
+    repo: &str,
+    base: &str,
+    head: &str,
+) -> Result<PrFileList, GhError> {
+    let enc = |s: &str| crate::rules::text::url_encode(s, true);
+    let path = format!(
+        "repos/{repo}/compare/{}...{}?per_page=1&page=1",
+        enc(base),
+        enc(head)
+    );
+    let r = client.get(&path)?;
+    let files = r
+        .body
+        .get("files")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            GhError::Shape(format!(
+                "the comparison {base}...{head} of {repo} has no file list"
+            ))
+        })?;
+    let mut list = PrFileList::default();
+    for f in files {
+        let s = |k: &str| {
+            f.get(k)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        // a file without a name is a shape that proves nothing: no silent skip
+        let filename = s("filename").ok_or_else(|| {
+            GhError::Shape(format!(
+                "a file of the comparison {base}...{head} of {repo} has no name"
+            ))
+        })?;
+        list.names.push(filename);
+        list.previous.extend(s("previous_filename"));
+    }
+    list.truncated = list.names.len() >= COMPARE_MAX_FILES;
+    Ok(list)
+}
+
+/// The files of a PR for the rules `protected-path-owner-merge` and `guarded-path-changed`, as
+/// `verify`, `close --verified` and `merge` read them. `pr` and `base` are the PR as the caller
+/// read it just before.
+///
+/// - The list of the PR: up to one file more than [`crate::rules::protected::MAX_FILES`], so
+///   that "more than that" is known.
+/// - A PR whose base is not the default branch: joined with [`files_hidden_by_base`] for the
+///   head `pr.head_sha`. That list belongs to the commit, so nothing more is read.
+/// - An open PR onto the default branch: the head of the PR is read again after the list (one
+///   request; none for a merged PR, whose head does not move). A head that is not `pr.head_sha` any more is `evidence-head-moved`: the list may
+///   be the one of another commit than the commit that the command judges.
+///
+/// A list that cannot be read is a refusal of the rule `protected-path-owner-merge`, not a pass
+/// (fail closed). A cut list has `truncated` set, and the rules refuse it.
 pub(crate) fn pr_files_for_protection(
     ac: &AgentCtx,
-    repo: &str,
-    number: u64,
+    pr: &PrFacts,
+    base: &PrBase,
     ticket: &str,
 ) -> CbResult<PrFileList> {
-    match fetch_pr_files_upto(ac, repo, number, MAX_FILES + 1) {
-        Ok(f) => Ok(PrFileList {
+    let (repo, number) = (pr.repo.as_str(), pr.number);
+    let mut files = match fetch_pr_files_upto(ac, repo, number, MAX_FILES + 1) {
+        Ok(f) => PrFileList {
             truncated: f.over(MAX_FILES),
             names: f.names,
             previous: f.previous,
-        }),
-        Err(e) => Err(Refusal::new(
-            ids::PROTECTED_PATH_OWNER_MERGE,
-            format!(
-                "the files of {repo}#{number} cannot be read ({e}); crewboard cannot prove that none is protected: try again, or the owner merges it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\""
-            ),
-        )
-        .into()),
+        },
+        Err(e) => return Err(unreadable_files(repo, number, ticket, &e.to_string())),
+    };
+    match files_hidden_by_base(ac, pr, base, &pr.head_sha) {
+        Ok(Some(hidden)) => files.join(hidden),
+        // the head of a merged PR does not move any more
+        Ok(None) if pr.merged => {}
+        Ok(None) => {
+            let now = fetch_pr(ac, repo, number)
+                .map_err(|e| unreadable_files(repo, number, ticket, &e.to_string()))?
+                .0;
+            check_head_of_list(pr, &now.head_sha)?;
+        }
+        Err(e) => {
+            return Err(unreadable_files(
+                repo,
+                number,
+                ticket,
+                &format!("the comparison with the default branch: {e}"),
+            ));
+        }
     }
+    Ok(files)
+}
+
+/// Rule `evidence-head-moved` for a file list: the head of the PR after the read of the list
+/// (`head_now`) is the head that the command read before it. Pure.
+fn check_head_of_list(pr: &PrFacts, head_now: &str) -> Result<(), Refusal> {
+    if head_now.eq_ignore_ascii_case(&pr.head_sha) {
+        return Ok(());
+    }
+    Err(Refusal::new(
+        ids::EVIDENCE_HEAD_MOVED,
+        format!(
+            "the head of PR {}#{} moved from {} to {head_now} while its files were read: the file list may belong to another commit. Nothing was written; run the command again",
+            pr.repo, pr.number, pr.head_sha
+        ),
+    ))
 }
 
 /// spec/ci#files-that-every-workflow-ignores: the judgement for a head without any CI run, for
@@ -233,6 +390,29 @@ mod tests {
 
     fn former() -> Vec<FormerRepo> {
         vec![FormerRepo::parse(OLD, "2026-11-01T12:00:00Z").unwrap()]
+    }
+
+    #[test]
+    fn a_file_list_counts_only_for_the_head_that_the_command_read() {
+        let pr = PrFacts {
+            repo: MAIN.to_string(),
+            number: 7,
+            state: "open".into(),
+            merged: false,
+            head_sha: "abc123".into(),
+            head_ref: "crew/a@h/5-x".into(),
+            title: String::new(),
+            body: String::new(),
+        };
+        assert!(check_head_of_list(&pr, "abc123").is_ok());
+        assert!(check_head_of_list(&pr, "ABC123").is_ok());
+        let r = check_head_of_list(&pr, "def456").unwrap_err();
+        assert_eq!(r.rule, ids::EVIDENCE_HEAD_MOVED);
+        assert!(
+            r.message.contains("moved from abc123 to def456"),
+            "{}",
+            r.message
+        );
     }
 
     #[test]

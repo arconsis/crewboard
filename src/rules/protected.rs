@@ -55,6 +55,22 @@ impl PrFileList {
         self.truncated || self.names.len() > limit
     }
 
+    /// Add the files of `other` (a second list for the same change): each path once. The
+    /// result is cut when one of the two is.
+    pub fn join(&mut self, other: PrFileList) {
+        for n in other.names {
+            if !self.names.contains(&n) {
+                self.names.push(n);
+            }
+        }
+        for p in other.previous {
+            if !self.previous.contains(&p) {
+                self.previous.push(p);
+            }
+        }
+        self.truncated |= other.truncated;
+    }
+
     /// Every path that the PR touches: the paths, then the old paths of renamed files
     /// (spec/ci#files-that-every-workflow-ignores).
     pub fn all(&self) -> Vec<String> {
@@ -343,6 +359,28 @@ mod tests {
             protected_hits(&v(&[custom, "AUTHORITY.md"]), Protect::new(custom, &[])),
             v(&[custom])
         );
+    }
+
+    #[test]
+    fn two_lists_of_one_change_join_without_a_duplicate_and_a_cut_stays_a_cut() {
+        let mut a = PrFileList {
+            names: v(&["src/a.rs", "b"]),
+            previous: v(&["old"]),
+            truncated: false,
+        };
+        a.join(PrFileList {
+            names: v(&["b", "tests/t.rs"]),
+            previous: v(&["old", "older"]),
+            truncated: false,
+        });
+        assert_eq!(a.names, v(&["src/a.rs", "b", "tests/t.rs"]));
+        assert_eq!(a.previous, v(&["old", "older"]));
+        assert!(!a.truncated);
+        a.join(PrFileList {
+            truncated: true,
+            ..PrFileList::default()
+        });
+        assert!(a.truncated);
     }
 
     #[test]

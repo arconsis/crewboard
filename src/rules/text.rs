@@ -56,14 +56,20 @@ pub fn branch_agent_ok(agent: &str) -> bool {
 /// Text after `Name:` on every ticket body line that has it, in order. Accepts `Gate: x`,
 /// `**Gate:** x`, `**Gate**: x` and list markers. An empty value is skipped.
 pub fn body_fields(body: &str, name: &str) -> Vec<String> {
-    let mut out = body_field_lines(body, name);
+    let mut out = field_lines(body, name, false);
     out.retain(|v| !v.is_empty());
     out
 }
 
-/// [`body_fields`] with the lines that have no value: such a line gives an empty text. For a
-/// field whose empty line is a fault that the writer must see (`Guard`).
-pub fn body_field_lines(body: &str, name: &str) -> Vec<String> {
+/// [`body_fields`] for a field whose value is a path glob (`Guard`), with two differences. A
+/// line that has no value gives an empty text: an empty line is a fault that the writer must
+/// see. And stars that start the glob stay: `Guard:**/x` gives `**/x`, where the stars of
+/// `**Guard:**x` close the bold name.
+pub fn body_glob_lines(body: &str, name: &str) -> Vec<String> {
+    field_lines(body, name, true)
+}
+
+fn field_lines(body: &str, name: &str, glob: bool) -> Vec<String> {
     let mut out = Vec::new();
     for line in body.lines() {
         let t = line
@@ -79,7 +85,15 @@ pub fn body_field_lines(body: &str, name: &str) -> Vec<String> {
         let Some(value) = rest.strip_prefix(':') else {
             continue;
         };
-        out.push(value.trim_start_matches('*').trim().to_string());
+        // The `**` that closes a bold name (`**Gate:** x`, `**Gate:**x`) is no part of the
+        // value. Stars right before a `/` start a path glob (`**/x`).
+        let after = value.trim_start_matches('*');
+        let value = if glob && after.starts_with('/') {
+            value
+        } else {
+            after
+        };
+        out.push(value.trim().to_string());
     }
     out
 }

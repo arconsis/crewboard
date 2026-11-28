@@ -99,6 +99,13 @@ struct Pr {
     files: Vec<String>,
     /// `previous_filename` of a renamed file: new path, old path.
     renamed_from: BTreeMap<String, String>,
+    /// `base.ref`: the branch that the PR merges into (`main` is the default branch).
+    base_ref: String,
+    /// Files that differ between the default branch and the head and are not in `files`: the
+    /// base branch of the PR holds their change already.
+    hidden_by_base: Vec<String>,
+    /// The head that the PR gets right after the next read of its file list.
+    head_after_files: Option<String>,
 }
 
 struct State {
@@ -1352,7 +1359,9 @@ fn route(st: &mut State, r: &Req) -> Resp {
             tickets::get_compare(st, &format!("{o}/{n}"), &spec.join("/"))
         }
         ("GET", ["", "repos", o, n, "pulls", num, "files"]) => {
-            tickets::get_pull_files(st, &format!("{o}/{n}"), num, query)
+            let resp = tickets::get_pull_files(st, &format!("{o}/{n}"), num, query);
+            tickets::move_head_after_files(st, num);
+            resp
         }
         ("PUT", ["", "repos", o, n, "pulls", num, "merge"]) => {
             tickets::put_merge(st, &format!("{o}/{n}"), num, &r.body)

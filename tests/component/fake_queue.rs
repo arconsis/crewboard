@@ -905,7 +905,7 @@ fn a_body_with_two_gate_lines_agrees_with_its_signed_line() {
     let o = run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
     assert!(
         o.stdout.contains(
-            "signed from the body: gate 'the build passes | the demo runs'; ci: required"
+            "signed from the body: gate 'the build passes | the demo runs'; guard none; ci: required"
         ),
         "{}",
         o.stdout
@@ -943,7 +943,7 @@ fn assign_of_a_ticket_whose_assignment_message_is_gone_warns_and_names_what_it_s
         let o = run_ok(&fake, &c, &["assign", &s, "--to", &b.name]);
         assert!(
             o.stdout.contains(&format!(
-                "signed from the body: gate '{SIGNED_GATE}'; ci: required"
+                "signed from the body: gate '{SIGNED_GATE}'; guard none; ci: required"
             )),
             "{}",
             o.stdout
@@ -967,13 +967,13 @@ fn assign_of_a_ticket_whose_assignment_message_is_gone_warns_and_names_what_it_s
                 "warning: {key} has an Agent or a Status past Backlog, but its log has no valid signed assignment (never posted, deleted, edited or not valid)"
             )) && o
                 .stdout
-                .contains("The Gate now comes from the unsigned body: check it"),
+                .contains("The Gate and the guard now come from the unsigned body: check both (guard none)"),
             "deleted={deleted}: {}",
             o.stdout
         );
         assert!(
             o.stdout
-                .contains("signed from the body: gate 'ci'; ci: none"),
+                .contains("signed from the body: gate 'ci'; guard none; ci: none"),
             "deleted={deleted}: {}",
             o.stdout
         );

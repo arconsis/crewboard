@@ -214,7 +214,8 @@ root, `.github/CODEOWNERS`, `CODEOWNERS`, `docs/CODEOWNERS`, and everything unde
 shorten it. A rename out of a protected path counts.
 
 `verify`, `close --verified` and `merge` (so also `tick`) refuse such a pull request with the
-rule `protected-path-owner-merge`. You review and merge it on GitHub, then the coordinator runs
+rule `protected-path-owner-merge`. A base branch does not hide a file: for a pull request that
+does not go onto the default branch, the files that differ from the default branch count too. You review and merge it on GitHub, then the coordinator runs
 `crewboard close <n>`.
 
 The key `protected_paths` adds globs: add the files that define "green" for your repo (test
@@ -224,7 +225,8 @@ directory and all below it. `start` refuses a bad entry and names it. `git` and 
 crewboard code: the [branch rule](branch-rule.md) covers them.
 
 One ticket can also guard paths of its own, with the same globs: `ticket new --guard <glob>`.
-`done` then refuses a pull request that changes such a file (rule `guarded-path-changed`). Use
+`done`, `verify`, `close --verified` and `merge` then refuse a pull request that changes such a
+file (rule `guarded-path-changed`). Use
 it for the test or the check script of a ticket that says "make this pass"
 ([Guarded paths](../design/spec/tickets.md#guarded-paths)).
 
