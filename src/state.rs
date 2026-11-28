@@ -210,6 +210,9 @@ pub struct TickState {
     /// The same floor for the stamped messages of the day (verdicts and other messages).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattended_messages_floor: Option<(String, u32)>,
+    /// The same floor for the stamped questions to the owner of the day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended_asks_floor: Option<(String, u32)>,
     /// `<repo>#<issue>` -> a floor of the unattended verdicts on that ticket, noted before the
     /// post of a verdict. A deleted or edited verdict does not lower the count of the ticket on
     /// this host.
@@ -259,6 +262,63 @@ pub struct UnattendedFeed {
     /// The stamped messages that the read counted, never below an earlier read of the day.
     #[serde(default)]
     pub messages: u32,
+    /// The stamped questions to the owner that the read counted, never below an earlier read of
+    /// the day.
+    #[serde(default)]
+    pub asks: u32,
+}
+
+/// The floor of a UTC day that is later, or the higher count of one day.
+fn later_day_floor(a: Option<(String, u32)>, b: Option<(String, u32)>) -> Option<(String, u32)> {
+    match (a, b) {
+        (None, x) | (x, None) => x,
+        (Some(a), Some(b)) if a.0 == b.0 => Some((a.0, a.1.max(b.1))),
+        (Some(a), Some(b)) => Some(if a.0 > b.0 { a } else { b }),
+    }
+}
+
+impl TickState {
+    /// Take the counts of the unattended coordinator that a concurrent writer saved (`disk`)
+    /// into this copy, so that a save of a copy that was loaded earlier lowers none of them.
+    /// A floor of a day: the later day, and the higher count of one day. A floor of a ticket:
+    /// the one that was noted at the higher comment id, and the higher count of one id. The memo
+    /// of a feed: the later day, and the higher counts of one day.
+    pub(crate) fn merge_unattended(&mut self, disk: &TickState) {
+        for (mine, theirs) in [
+            (&mut self.unattended_floor, &disk.unattended_floor),
+            (
+                &mut self.unattended_messages_floor,
+                &disk.unattended_messages_floor,
+            ),
+            (&mut self.unattended_asks_floor, &disk.unattended_asks_floor),
+        ] {
+            *mine = later_day_floor(mine.take(), theirs.clone());
+        }
+        for (key, d) in &disk.unattended_tickets {
+            let keep = self
+                .unattended_tickets
+                .get(key)
+                .is_some_and(|m| (m.after, m.count) >= (d.after, d.count));
+            if !keep {
+                self.unattended_tickets.insert(key.clone(), d.clone());
+            }
+        }
+        for (repo, d) in &disk.unattended_feed {
+            match self.unattended_feed.get_mut(repo) {
+                None => {
+                    self.unattended_feed.insert(repo.clone(), d.clone());
+                }
+                Some(m) if m.day == d.day => {
+                    m.verdicts = m.verdicts.max(d.verdicts);
+                    m.highest = m.highest.max(d.highest);
+                    m.messages = m.messages.max(d.messages);
+                    m.asks = m.asks.max(d.asks);
+                }
+                Some(m) if m.day < d.day => *m = d.clone(),
+                Some(_) => {}
+            }
+        }
+    }
 }
 
 /// The owner-route safety net.
@@ -723,7 +783,35 @@ impl StateCache {
         }
         out.liveness.deferred = merged;
         out.notes.merge_disk(&disk.notes, crate::clock::now_epoch());
+        out.tick.merge_unattended(&disk.tick);
         out
+    }
+
+    /// Read the state of `path`, let `change` change it and write it, all under the lock of the
+    /// file: no other writer of the file comes between the read and the write. For a count that
+    /// two processes must not both take (the budget of the unattended coordinator). An error of
+    /// `change` writes nothing. A lock that cannot be taken and a write that fails are errors:
+    /// the caller must not go on as if the change were saved.
+    pub fn update_locked<R>(
+        path: &Path,
+        change: impl FnOnce(&mut StateCache) -> crate::error::CbResult<R>,
+    ) -> crate::error::CbResult<R> {
+        let mut lock_name = path.as_os_str().to_os_string();
+        lock_name.push(".lock");
+        let _lock = crate::fsutil::lock_exclusive(Path::new(&lock_name)).map_err(|e| {
+            crate::error::CbError::config(format!(
+                "cannot lock state {}: {e}",
+                Path::new(&lock_name).display()
+            ))
+        })?;
+        let mut state = Self::load(path);
+        let out = change(&mut state)?;
+        let text = serde_json::to_string_pretty(&state)
+            .map_err(|e| crate::error::CbError::config(format!("state {}: {e}", path.display())))?;
+        crate::fsutil::write_atomic_private(path, text.as_bytes()).map_err(|e| {
+            crate::error::CbError::config(format!("cannot save state {}: {e}", path.display()))
+        })?;
+        Ok(out)
     }
 
     /// Take into this copy the notes that a concurrent writer recorded or forgot since this copy
@@ -774,6 +862,132 @@ mod tests {
     use super::*;
     use crate::events::EventClass;
     use serde_json::Value;
+
+    fn feed(day: &str, verdicts: u32, messages: u32) -> UnattendedFeed {
+        UnattendedFeed {
+            day: day.into(),
+            etag: Some(format!("e-{verdicts}")),
+            verdicts,
+            highest: verdicts,
+            messages,
+            asks: 0,
+        }
+    }
+
+    fn floor(count: u32, after: u64) -> TicketFloor {
+        TicketFloor {
+            count,
+            after,
+            at: 1,
+        }
+    }
+
+    #[test]
+    fn a_save_of_a_stale_copy_does_not_lower_the_counts_of_the_unattended_coordinator() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        // a watch loads the state; then a judgment notes its counts under the lock
+        let mut stale = StateCache::load(&p);
+        let day = |n: u32| Some(("2026-11-28".to_string(), n));
+        StateCache::update_locked(&p, |c| {
+            c.tick.unattended_floor = day(3);
+            c.tick.unattended_messages_floor = day(7);
+            c.tick.unattended_asks_floor = day(2);
+            c.tick
+                .unattended_tickets
+                .insert("a/b#5".into(), floor(2, 40));
+            c.tick
+                .unattended_feed
+                .insert("a/b".into(), feed("2026-11-28", 3, 7));
+            Ok(())
+        })
+        .unwrap();
+        // the watch saves its copy, which has none of them
+        stale.save(&p).unwrap();
+        let now = StateCache::load(&p);
+        assert_eq!(now.tick.unattended_floor, day(3));
+        assert_eq!(now.tick.unattended_messages_floor, day(7));
+        assert_eq!(now.tick.unattended_asks_floor, day(2));
+        assert_eq!(now.tick.unattended_tickets["a/b#5"], floor(2, 40));
+        assert_eq!(now.tick.unattended_feed["a/b"], feed("2026-11-28", 3, 7));
+        // the rules, value by value
+        let mut mine = TickState {
+            unattended_floor: day(5),
+            unattended_messages_floor: Some(("2026-11-27".into(), 30)),
+            unattended_asks_floor: Some(("2026-11-29".into(), 1)),
+            ..TickState::default()
+        };
+        // a ticket floor that is newer on disk (a count after a release), one that is older on
+        // disk, and one of the same comment id
+        mine.unattended_tickets.insert("a/b#5".into(), floor(2, 40));
+        mine.unattended_tickets.insert("a/b#6".into(), floor(1, 90));
+        mine.unattended_tickets.insert("a/b#7".into(), floor(1, 10));
+        mine.unattended_feed
+            .insert("a/b".into(), feed("2026-11-28", 1, 9));
+        mine.unattended_feed
+            .insert("a/c".into(), feed("2026-11-27", 9, 9));
+        mine.unattended_feed
+            .insert("a/d".into(), feed("2026-11-29", 0, 0));
+        let mut disk = TickState {
+            unattended_floor: day(4),
+            unattended_messages_floor: day(2),
+            unattended_asks_floor: day(4),
+            ..TickState::default()
+        };
+        disk.unattended_tickets.insert("a/b#5".into(), floor(1, 60));
+        disk.unattended_tickets.insert("a/b#6".into(), floor(2, 50));
+        disk.unattended_tickets.insert("a/b#7".into(), floor(2, 10));
+        disk.unattended_tickets.insert("a/b#8".into(), floor(1, 5));
+        disk.unattended_feed
+            .insert("a/b".into(), feed("2026-11-28", 3, 7));
+        disk.unattended_feed
+            .insert("a/c".into(), feed("2026-11-28", 1, 1));
+        disk.unattended_feed
+            .insert("a/d".into(), feed("2026-11-28", 8, 8));
+        mine.merge_unattended(&disk);
+        assert_eq!(mine.unattended_floor, day(5), "the higher count of one day");
+        assert_eq!(mine.unattended_messages_floor, day(2), "the later day");
+        assert_eq!(
+            mine.unattended_asks_floor,
+            Some(("2026-11-29".into(), 1)),
+            "the later day"
+        );
+        assert_eq!(mine.unattended_tickets["a/b#5"], floor(1, 60));
+        assert_eq!(mine.unattended_tickets["a/b#6"], floor(1, 90));
+        assert_eq!(mine.unattended_tickets["a/b#7"], floor(2, 10));
+        assert_eq!(mine.unattended_tickets["a/b#8"], floor(1, 5));
+        let both = &mine.unattended_feed["a/b"];
+        assert_eq!((both.verdicts, both.highest, both.messages), (3, 3, 9));
+        assert_eq!(mine.unattended_feed["a/c"], feed("2026-11-28", 1, 1));
+        assert_eq!(mine.unattended_feed["a/d"], feed("2026-11-29", 0, 0));
+        // an empty disk state changes nothing, and adds no key to the file
+        let before = mine.clone();
+        mine.merge_unattended(&TickState::default());
+        assert_eq!(mine, before);
+        let mut empty = TickState::default();
+        empty.merge_unattended(&TickState::default());
+        assert_eq!(empty, TickState::default());
+    }
+
+    #[test]
+    fn an_update_under_the_lock_writes_nothing_when_the_change_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        StateCache::update_locked(&p, |c| {
+            c.tick.unattended_floor = Some(("2026-11-28".into(), 1));
+            Ok(())
+        })
+        .unwrap();
+        let r: crate::error::CbResult<()> = StateCache::update_locked(&p, |c| {
+            c.tick.unattended_floor = Some(("2026-11-28".into(), 9));
+            Err(crate::error::CbError::config("no"))
+        });
+        assert!(r.is_err());
+        assert_eq!(
+            StateCache::load(&p).tick.unattended_floor,
+            Some(("2026-11-28".into(), 1))
+        );
+    }
 
     /// The flat format as the current build writes it (19 fields).
     const FIXTURE: &str = include_str!("../tests/fixtures/state/current-format.json");

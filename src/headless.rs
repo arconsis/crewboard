@@ -46,9 +46,9 @@ pub enum ScopeVerdict {
 /// What the unattended coordinator may do with one command, when its mode allows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UAct {
-    /// `verify`: a verify result on a ticket whose Gate is not the typed `ci`, `verify --fail`
-    /// and `verify --run-check`. The command decides which of them counts: a plain `verify` of a
-    /// ticket whose signed Gate is `ci` is no judgment and needs no mode.
+    /// `verify`: a verify result on a ticket whose Gate is not the typed `ci`, and
+    /// `verify --fail`. The command decides which of them counts: a plain `verify` of a ticket
+    /// whose signed Gate is `ci` is no judgment and needs no mode.
     Verdict,
     /// `say --kind answer --to <agent>`.
     Answer,
@@ -83,6 +83,8 @@ pub(crate) const DENY_CLOSE_JUDGMENT: &str =
     "close --why and close --verified are judgments of the interactive coordinator";
 pub(crate) const DENY_RUN: &str =
     "--run names a CI run for a Gate that needs a by-hand run; such a Gate is not CI only";
+pub(crate) const DENY_RUN_CHECK: &str = "--run-check runs code of the PR on this host; the `tick` runs the checks of a ticket whose signed Gate is `checks: ...`, and the interactive coordinator runs any other";
+pub(crate) const DENY_BODY_FILE: &str = "--body-file <path> would publish a file of this host; in a headless config dir the text comes from --body or from standard input (--body-file -)";
 pub(crate) const DENY_ASSIGN_ARGS: &str = "the unattended coordinator assigns with `assign <n> --to <agent>` only; `--order` and `--override-capabilities` are for the interactive coordinator";
 
 /// The refusal for a ticket or a text that the unattended coordinator must leave alone. `what`

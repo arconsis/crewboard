@@ -423,6 +423,39 @@ impl Hub {
         }
     }
 
+    /// Run the CLI `n` times at the same time in the headless config dir, with the same
+    /// arguments. Returns the outputs.
+    pub fn headless_parallel(&self, args: &[&str], n: usize) -> Vec<Out> {
+        let children: Vec<_> = (0..n)
+            .map(|_| {
+                Command::new(env!("CARGO_BIN_EXE_crewboard"))
+                    .arg("--config-dir")
+                    .arg(self.headless_dir.path())
+                    .args(args)
+                    .env("CREWBOARD_API_BASE", self.front.base())
+                    .env("GH_TOKEN", "ghp_faketoken")
+                    .env(crewboard::github::TEST_GH_AUTH_TOKEN_ENV, "ghp_faketoken")
+                    .env_remove("GITHUB_TOKEN")
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .expect("start crewboard")
+            })
+            .collect();
+        children
+            .into_iter()
+            .map(|c| {
+                let o = c.wait_with_output().expect("wait for crewboard");
+                Out {
+                    code: o.status.code().unwrap_or(-1),
+                    stdout: String::from_utf8_lossy(&o.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&o.stderr).to_string(),
+                }
+            })
+            .collect()
+    }
+
     pub fn headless(&self, args: &[&str]) -> Out {
         self.run(self.headless_dir.path(), args)
     }

@@ -55,7 +55,10 @@ No command changes the signed Gate of a ticket that has one. Work with another G
 ticket (`close --why`, then `ticket new`). One exception stays: when the log of a ticket has no
 valid assignment message (never posted, deleted, edited or not valid), an `assign` signs the
 body, so it signs the Gate and the guard that the body has then. It prints a warning when the
-ticket has an Agent or a Status past Backlog. The warning and the `signed from the body:` line
+ticket has an Agent or a Status past Backlog, and when the log of a Backlog ticket without an
+Agent shows an earlier assignment (a reassign notice or a verify result of a coordinator). In
+a headless config dir `assign` is refused for such a ticket
+([the scope](agents.md#the-scope-of-the-unattended-coordinator)). The warning and the `signed from the body:` line
 both name the guard, as `guard none` when the body has no `Guard:` line, and the coordinator
 checks the Gate and the guard that they print.
 

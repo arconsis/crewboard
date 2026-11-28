@@ -129,7 +129,7 @@ pub(crate) fn hub() -> Hub {
 /// - 8: Blocked, stopped at the round limit: not on the list.
 /// - 9: Review, the `done` names a protected path: not on the list.
 /// - 10: Review, two unattended verdicts and a new `done`: not on the list.
-/// - 11: Ready without an agent, never assigned; the owner moved it to Ready: on the list.
+/// - 11: Ready without an agent, after a reassign: on the list.
 /// - 12: Backlog, returned by a reassign: on the list.
 /// - 13: Backlog, never assigned: not on the list.
 /// - 14: Ready with an agent: not on the list.
@@ -189,9 +189,10 @@ fn board() -> Hub {
     verdict(&h, 10, d, &stamp(2));
     done(&h, 10, "");
 
+    // a reassign of an older version left it in Ready
     ticket(&h, 11, "Ready", false);
-    // the owner moved it to Ready: the signed log allows the Status
-    h.board.owner_comment(11, "/crew move Ready");
+    assign(&h, 11);
+    coord(&h, 11, &h.dev.name, Kind::Info, &reassigned_body("late"));
 
     ticket(&h, 12, "Backlog", false);
     assign(&h, 12);
@@ -537,8 +538,8 @@ fn the_cost_of_the_key_verify_per_tick() {
         ticket(&h, n, "Backlog", false);
     }
     ticket(&h, 14, "Ready", false);
-    // the owner moved it to Ready: the signed log allows the Status
-    h.board.owner_comment(14, "/crew move Ready");
+    assign(&h, 14);
+    coord(&h, 14, &h.dev.name, Kind::Info, &reassigned_body("late"));
     tick(&h);
     let (_, off) = tick_requests(&h);
     h.set_authority_extra(VERIFY);
@@ -695,10 +696,13 @@ fn the_floor_of_the_state_cache_holds_the_count_up_for_its_day_only() {
     let path = state_path(&h);
     let day = now_epoch().div_euclid(86_400);
     let set_floor = |day: i64, n: u32| {
-        let mut c = StateCache::load(&path);
+        // written as it is: a plain save keeps the floor of the later day
         let text = format_ts(day * 86_400);
-        c.tick.unattended_floor = Some((text.split('T').next().unwrap().to_string(), n));
-        c.save(&path).unwrap();
+        StateCache::update_locked(&path, |c| {
+            c.tick.unattended_floor = Some((text.split('T').next().unwrap().to_string(), n));
+            Ok(())
+        })
+        .unwrap();
     };
     let count = |h: &Hub| coord_lines(&tick(h)).join("\n");
     assert_eq!(count(&h), count_text("verify", 0, 10));

@@ -123,6 +123,12 @@ pub fn unblock(
     if let Some(b) = &body {
         crate::ops::unattended::check_no_stamp_line(ac, b)?;
     }
+    // the reader of the line decides: a body with the line `withdraws: question` reads as an
+    // answer that takes a question to the owner back
+    let body_withdraws = body.as_deref().is_some_and(|b| {
+        crate::protocol::acts::parse(Some(Kind::Answer), b)
+            == crate::protocol::acts::Act::WithdrawsQuestion
+    });
     let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
     // The unattended coordinator (a headless config dir): its mode and its budget, then the
     // signed log of the ticket. It never releases a ticket that waits for the owner.
@@ -130,6 +136,12 @@ pub fn unblock(
     let assignee = t.agent().map(str::to_string);
     crate::rules::status::check_unblock(from, me.actor, assignee.is_some())?;
     let assignee = assignee.unwrap_or_default();
+    if unattended && body_withdraws {
+        return Err(crate::headless::unattended_refusal(
+            "the answer has the line `withdraws: question`; a question to the owner stays open until the owner answers or the interactive coordinator withdraws it",
+        )
+        .into());
+    }
     if unattended {
         crate::ops::unattended::check_ticket(ac, UAct::Unblock, &t, None)?;
     }

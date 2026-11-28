@@ -167,7 +167,7 @@ pub fn send_signed(
     ts: &str,
 ) -> CbResult<Posted> {
     check_body_text(body)?;
-    let body = &super::unattended::stamp_body(ac, &TicketRef::new(repo, issue), kind, body)?;
+    let body = &super::unattended::stamp_body(ac, &TicketRef::new(repo, issue), &to, kind, body)?;
     check_body_text(body)?;
     let issue_ref = crate::protocol::canonical::IssueRef::parse(&format!("{repo}#{issue}"))?;
     let msg = sign_message(
