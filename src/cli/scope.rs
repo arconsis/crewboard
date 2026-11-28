@@ -114,9 +114,14 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         {
             Deny(headless::DENY_RUN)
         }
+        // `verify --run-check` runs code of the PR head on this host for any check name: not as
+        // a command in a headless dir. `tick` runs the checks of a signed `checks:` Gate itself
+        Command::Review(ReviewCmd::Verify { run_check, .. }) if !run_check.is_empty() => {
+            Deny(headless::DENY_RUN_CHECK)
+        }
         // `verify` of a ticket whose signed Gate is `ci` is no judgment. Any other `verify`
-        // (another Gate, `--fail`, `--run-check`) is one: the command asks the mode of the
-        // unattended coordinator, after it read the signed Gate
+        // (another Gate, `--fail`) is one: the command asks the mode of the unattended
+        // coordinator, after it read the signed Gate
         Command::Review(ReviewCmd::Verify { .. }) => Unattended(UAct::Verdict),
         Command::Review(ReviewCmd::Merge { .. }) => Allow,
         // a bare `close` ends a ticket whose PR the owner merged by hand. It is no
@@ -131,6 +136,17 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         | Command::Crew(CrewCmd::Join { .. })
         | Command::Crew(CrewCmd::Approve { .. })
         | Command::Crew(CrewCmd::Move { .. }) => Deny(headless::DENY_OWNER),
+        // a path of `--body-file` would make the command read a file of this host and publish
+        // it; the text of a headless dir comes from `--body` or from standard input
+        Command::Dev(DevCmd::Say {
+            body_file: Some(f), ..
+        })
+        | Command::Dev(DevCmd::Ask {
+            body_file: Some(f), ..
+        })
+        | Command::Plan(PlanCmd::Unblock {
+            body_file: Some(f), ..
+        }) if f != "-" => Deny(headless::DENY_BODY_FILE),
         // the judgments of the unattended coordinator: the command asks its mode, its budget
         // and the signed log of the ticket (spec/agents#unattended-coordinator)
         Command::Dev(DevCmd::Say {
@@ -247,6 +263,40 @@ mod tests {
         (&["ask", "1", "--body", "x"], V::Mode(UAct::Ask)),
         (&["unblock", "1"], V::Mode(UAct::Unblock)),
         (&["unblock", "1", "--body", "x"], V::Mode(UAct::Unblock)),
+        // a file of the host is not a source of a text in a headless dir; standard input is
+        (&["unblock", "1", "--body-file", "/x/f"], D),
+        (
+            &["unblock", "1", "--body-file", "-"],
+            V::Mode(UAct::Unblock),
+        ),
+        (&["ask", "1", "--body-file", "/x/f"], D),
+        (&["ask", "1", "--body-file", "-"], V::Mode(UAct::Ask)),
+        (
+            &[
+                "say",
+                "1",
+                "--to",
+                "hermes@host-b",
+                "--kind",
+                "answer",
+                "--body-file",
+                "/x/f",
+            ],
+            D,
+        ),
+        (
+            &[
+                "say",
+                "1",
+                "--to",
+                "hermes@host-b",
+                "--kind",
+                "answer",
+                "--body-file",
+                "-",
+            ],
+            V::Mode(UAct::Answer),
+        ),
         (
             &["assign", "1", "--to", "hermes@host-b"],
             V::Mode(UAct::Assign),
@@ -281,10 +331,11 @@ mod tests {
         ),
         (&["verify", "1", "--fail", "--body", "x", "--run", "9"], D),
         (&["verify", "1", "--body", "x"], V::Mode(UAct::Verdict)),
-        (&["verify", "1", "--run-check", "a"], V::Mode(UAct::Verdict)),
+        // a run of checks by the command is not in the scope, with or without a red run
+        (&["verify", "1", "--run-check", "a"], D),
         (
             &["verify", "1", "--run-check", "a", "--must-fail-at", "abc"],
-            V::Mode(UAct::Verdict),
+            D,
         ),
         (&["verify", "1", "--local-run", "host-a: make test rc=0"], D),
         (&["merge", "1"], A),

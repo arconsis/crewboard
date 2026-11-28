@@ -389,7 +389,10 @@ fn a_headless_coordinator_never_acts_on_a_ticket_with_an_open_question() {
         "AUTHORITY.md",
         &AUTHORITY.replacen("---\n", "---\nunattended_coordinator: verify\n", 1),
     );
-    for args in [vec!["verify", k.ts.as_str()], vec!["merge", k.ts.as_str()]] {
+    for args in [
+        vec!["verify", k.ts.as_str(), "--body", "I read the docs"],
+        vec!["merge", k.ts.as_str()],
+    ] {
         let before = writes(&fake);
         let o = fake.run(headless.path(), &args);
         assert_eq!(o.code, 2, "{args:?}: {}", o.all());

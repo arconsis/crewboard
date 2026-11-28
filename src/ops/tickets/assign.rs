@@ -157,6 +157,23 @@ fn ticket_on_board(
     Ok((t, status, signed.is_some()))
 }
 
+/// Does the signed log show that the ticket was assigned, although it holds no assignment
+/// message: a reassign notice or a verify result of a coordinator? Both follow an assignment.
+fn assigned_before(msgs: &[crate::ticket::VMsg]) -> bool {
+    use crate::ticket::Act;
+    msgs.iter().any(|m| {
+        m.sender.actor().is_coordinator() && matches!(m.act(), Act::Reassigned | Act::Verify { .. })
+    })
+}
+
+/// The warning of `assign` for a ticket that the board shows as new and whose log shows an
+/// earlier assignment that is gone ([`assigned_before`]).
+fn lost_assignment_warning(key: &str) -> String {
+    format!(
+        "warning: {key} was assigned before (its log has a reassign notice or a verify result), but its log has no valid signed assignment (deleted, edited or not valid). The Gate and the guard now come from the unsigned body: check both\n"
+    )
+}
+
 /// The ticket is Ready and a signed assignment names its agent: it sits in a queue. An Agent
 /// that was set by hand and has no signed message is not queued; `assign` repairs it.
 fn is_queued(t: &Ticket, status: Status, signed: bool) -> bool {
@@ -373,13 +390,24 @@ pub fn assign(
         copy_signed(&t.key(), &t.msgs, &t.info.body)
     } else {
         let assigned_on_board = status != Status::Backlog || t.agent().is_some();
-        first_from_body(
+        let mut lines = first_from_body(
             &t.key(),
             &t.info.body,
             Some(gate.clone()),
             assigned_on_board,
-        )
+        );
+        // A Backlog ticket without an Agent looks new on the board. Its log can still show that
+        // it was assigned: then the assignment message is gone, and the body may be edited.
+        if !assigned_on_board && assigned_before(&t.msgs) {
+            lines.notes = format!("{}{}", lost_assignment_warning(&t.key()), lines.notes);
+        }
+        lines
     };
+    // The unattended coordinator takes its message from the budget before the first board
+    // write, so a refusal leaves the board as it was.
+    if unattended {
+        crate::ops::unattended::reserve_message(ac, &t.tref())?;
+    }
     // The field holds what the message signs. A copy without a signed Gate signs none: the
     // field then shows the Gate lines of the body.
     let body_gate = crate::ticket::gate_line_of(&t.info.body).unwrap_or(gate);

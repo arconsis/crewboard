@@ -960,14 +960,48 @@ pub(super) fn verify_by_tick(
     verify_as(ac, Origin::Tick, issue_arg, &va)
 }
 
-/// Is this `verify` no judgment: a plain verify of a ticket whose signed Gate is the typed `ci`?
-/// It only reads the evidence and the CI again. A failed Gate check (`--fail`) and a run of
-/// checks by the command (`--run-check`) are judgments on every Gate.
+/// Is this `verify` no judgment: a plain verify of a ticket whose signed Gate is the typed `ci`
+/// and that does not declare `CI: none`? It only reads the evidence and the CI again. A failed
+/// Gate check (`--fail`) is a judgment on every Gate, and a ticket with `CI: none` has no CI
+/// that could decide.
 fn is_ci_only_verify(t: &Ticket, va: &VerifyArgs<'_>) -> bool {
     !va.gate_failed
-        && va.run.is_none()
         && crate::ticket::signed_gate(&t.msgs)
             .is_some_and(|g| crate::headless::Gate::parse(&g).is_ci_only())
+        && !ci_none_declared(&t.msgs, &t.info.body)
+}
+
+/// The checks of the command `verify` in a headless config dir
+/// (spec/agents#unattended-coordinator); an attended agent passes without a check.
+///
+/// - A verify that is no judgment ([`is_ci_only_verify`]) needs no mode. It takes no `--body`:
+///   a free text on such a verify would be a message of a model that nothing counts.
+/// - Any other verify is a judgment: the mode of AUTHORITY.md and a verdict of the day
+///   (`admit`), a `--body` that records what was judged, and the signed log of the ticket
+///   (`check_ticket`).
+fn check_headless_verify(ac: &AgentCtx, l: &VerifyLoad, va: &VerifyArgs<'_>) -> CbResult<()> {
+    crate::ops::unattended::check_no_stamp_line(ac, va.note)?;
+    if !ac.ctx.cd.is_headless()? {
+        return Ok(());
+    }
+    if is_ci_only_verify(&l.t, va) {
+        if !va.note.trim().is_empty() {
+            return Err(crate::headless::unattended_refusal(&format!(
+                "the Gate of {} is `ci`, and a verify of such a ticket takes no --body in a headless config dir: it only reads the evidence and the CI again",
+                l.t.key()
+            ))
+            .into());
+        }
+        return Ok(());
+    }
+    crate::ops::unattended::admit(ac, &l.world, UAct::Verdict)?;
+    if va.note.trim().is_empty() {
+        return Err(crate::headless::unattended_refusal(
+            "a verdict of the unattended coordinator needs --body \"<what you checked and what you found>\": the owner reads it as the reason",
+        )
+        .into());
+    }
+    crate::ops::unattended::check_ticket(ac, UAct::Verdict, &l.t, None)
 }
 
 fn verify_as(
@@ -977,20 +1011,10 @@ fn verify_as(
     va: &VerifyArgs<'_>,
 ) -> CbResult<String> {
     let l = load_verify(ac, issue_arg)?;
-    // The unattended coordinator (spec/agents#unattended-coordinator): in a headless config dir
-    // a `verify` that is a judgment needs the mode of AUTHORITY.md and a verdict of the day, and
-    // the signed log of the ticket decides. An attended agent passes without a check
-    // (`admit` returns false), and so does a verify that is no judgment. Before the stop below:
-    // a stopped ticket is for the owner, and the `tick` finishes its stop.
-    let mut unattended = false;
+    // Before the stop below: a stopped ticket is for the owner, and the `tick` finishes its
+    // stop.
     if origin == Origin::Command {
-        crate::ops::unattended::check_no_stamp_line(ac, va.note)?;
-        if !is_ci_only_verify(&l.t, va)
-            && crate::ops::unattended::admit(ac, &l.world, UAct::Verdict)?
-        {
-            crate::ops::unattended::check_ticket(ac, UAct::Verdict, &l.t, None)?;
-            unattended = true;
-        }
+        check_headless_verify(ac, &l, va)?;
     }
     // A stop at the round limit that is not finished comes first: before the check of an open
     // question to the owner (the question of the stop may be the open one) and before any read
@@ -998,20 +1022,7 @@ fn verify_as(
     if let Some(out) = finish_if_stopped(ac, &l)? {
         return Ok(out);
     }
-    // Nobody watches the checks that the unattended coordinator starts: they run as the checks
-    // of the `tick` do ([`RunArgs::unattended`]).
-    let alone = va.run.filter(|_| unattended).map(|r| RunArgs {
-        names: r.names,
-        repo_dir: r.repo_dir,
-        log_root: r.log_root,
-        unattended: true,
-        must_fail_at: r.must_fail_at,
-    });
-    let va = VerifyArgs {
-        run: alone.as_ref().or(va.run),
-        ..*va
-    };
-    let plan = plan_verify(ac, &l, &va)?;
+    let plan = plan_verify(ac, &l, va)?;
     act_verify(ac, &l, &plan, &SystemClock)
 }
 

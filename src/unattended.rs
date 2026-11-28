@@ -33,6 +33,9 @@ pub const MAX_VERDICTS_PER_TICKET: usize = 2;
 /// in one UTC day. Fixed: no key of AUTHORITY.md changes it.
 pub const MAX_MESSAGES_PER_DAY: u32 = 30;
 
+/// How many questions to the owner the unattended coordinator may post in one UTC day. Fixed.
+pub const MAX_ASKS_PER_DAY: u32 = 5;
+
 /// The start of a line of `tick` for a ticket on the list.
 pub const NEEDS_JUDGMENT: &str = "needs judgment";
 
@@ -199,7 +202,7 @@ fn never_in_any_status(f: &Facts<'_>) -> Option<Never> {
         if crate::ticket::log::agent_contradicts(log, f.item.get(Field::Agent)) {
             return Some(Never::AgentNotSigned);
         }
-        if crate::ticket::question_open(msgs, signed).is_some() {
+        if owner_question_open(msgs, signed) {
             return Some(Never::OwnerQuestion);
         }
         if crate::ticket::fold_rounds(msgs).stopped {
@@ -217,6 +220,34 @@ fn never_in_any_status(f: &Facts<'_>) -> Option<Never> {
         return Some(Never::VerdictCap);
     }
     None
+}
+
+/// Is a question to the owner open (N1)? For a ticket with a signed assignee: the question of
+/// that agent or of a coordinator ([`crate::ticket::question_open`]). For a ticket without one
+/// (a reassign returned it): also the question of ANY agent that no owner comment follows. The
+/// agent that asked can be gone, and its question still waits for the owner; only the owner
+/// ends that wait.
+fn owner_question_open(msgs: &[VMsg], signed: Option<&str>) -> bool {
+    if crate::ticket::question_open(msgs, signed).is_some() {
+        return true;
+    }
+    signed.is_none()
+        && msgs
+            .iter()
+            .rposition(|m| {
+                m.kind == Some(Kind::Question)
+                    && m.to == "owner"
+                    && matches!(m.sender, Sender::Agent { .. })
+            })
+            .is_some_and(|at| !msgs[at + 1..].iter().any(|m| m.sender == Sender::Owner))
+}
+
+/// Does the signed log hold an assignment of a coordinator with a `gate:` line? Then a new
+/// assignment copies the signed Gate, CI line and guard, and reads nothing from the issue body.
+/// The body is not signed: a ticket without such an assignment is for a person, who reads the
+/// body before the first assignment signs it.
+pub fn has_signed_assignment(msgs: &[VMsg]) -> bool {
+    crate::ticket::has_assignment(msgs) && crate::ticket::signed_gate(msgs).is_some()
 }
 
 /// The judgment that the ticket needs, or `None`. [`never`] is checked first, and no rule holds
@@ -245,15 +276,19 @@ pub fn need_of(f: &Facts<'_>) -> Option<Need> {
         // No agent on the board and no live assignment in the signed log: an `assign` of such a
         // ticket takes it from nobody. The signed log must allow Ready (a reassign, or a move of
         // the owner): a Status that somebody set on the board alone makes no ticket assignable.
+        // And the log must hold an earlier assignment with a Gate, so the new one copies signed
+        // lines: a ticket that was never assigned is for a person.
         Status::Ready => {
             let log = crate::ticket::log::fold_ticket(msgs);
             (assignee.is_none()
                 && log.agent.is_none()
+                && has_signed_assignment(msgs)
                 && !crate::ticket::log::status_contradicts(&log, f.item.get(Field::Status)))
             .then_some(Need::ReadyNoAgent)
         }
         Status::Backlog => {
-            (is_backlog_candidate(f.item) && returned(msgs)).then_some(Need::Returned)
+            (is_backlog_candidate(f.item) && returned(msgs) && has_signed_assignment(msgs))
+                .then_some(Need::Returned)
         }
         Status::InProgress | Status::Done | Status::Dropped => None,
     }
@@ -421,20 +456,26 @@ fn never_clause(key: &str, n: Never) -> Block {
 /// - An answer: `to` is the signed assignee.
 /// - `unblock`: the ticket is L2 or L3 in Blocked.
 /// - `assign`: the ticket is L4 or L5, a coordinator announced its board item in a signed
-///   message, and the signed log has no assignee.
-/// - `ask`: N4 only. A question to the owner takes the ticket from the unattended coordinator,
-///   so it is allowed where an owner decision is open already.
+///   message, the signed log has no assignee, and it has an earlier assignment with a Gate
+///   ([`has_signed_assignment`]).
+/// - `ask`: N4, and no question to the owner is open on the ticket already.
 pub fn check_act(act: UAct, key: &str, f: &Facts<'_>, to: Option<&str>) -> Result<(), Block> {
     let scope = |text: String| Err(Block::Scope(text));
-    if act == UAct::Ask {
-        return match f.closed || f.item.issue_closed() {
-            true => Err(never_clause(key, Never::Closed)),
-            false => Ok(()),
-        };
-    }
     let Some(msgs) = f.msgs else {
         return scope(format!("the messages of {key} were not read"));
     };
+    if act == UAct::Ask {
+        if f.closed || f.item.issue_closed() {
+            return Err(never_clause(key, Never::Closed));
+        }
+        let signed = crate::ticket::log::fold_ticket(msgs).agent;
+        if owner_question_open(msgs, signed.as_deref()) {
+            return scope(format!(
+                "{key} has an open question to the owner already: one question waits for one answer"
+            ));
+        }
+        return Ok(());
+    }
     let blocked_by = match act {
         UAct::Verdict => never(f),
         _ => never_in_any_status(f),
@@ -482,6 +523,11 @@ pub fn check_act(act: UAct, key: &str, f: &Facts<'_>, to: Option<&str>) -> Resul
                     "no signed message of a coordinator puts {key} on the board"
                 ));
             }
+            if !has_signed_assignment(msgs) {
+                return scope(format!(
+                    "the signed log of {key} has no assignment with a Gate to copy: the first assignment signs the Gate and the guard from the issue body, which a person reads first"
+                ));
+            }
             match need {
                 Some(Need::ReadyNoAgent | Need::Returned) => Ok(()),
                 _ => scope(format!(
@@ -502,6 +548,8 @@ pub struct DayCount {
     pub highest: u32,
     /// The coordinator messages with an `unattended:` line (verdicts and other messages).
     pub messages: u32,
+    /// The questions of a coordinator to the owner with an `unattended:` line.
+    pub asks: u32,
 }
 
 impl DayCount {
@@ -511,6 +559,7 @@ impl DayCount {
             verdicts: self.verdicts.saturating_add(other.verdicts),
             highest: self.highest.max(other.highest),
             messages: self.messages.saturating_add(other.messages),
+            asks: self.asks.saturating_add(other.asks),
         }
     }
 
@@ -521,6 +570,7 @@ impl DayCount {
             verdicts: self.verdicts.max(seen.verdicts),
             highest: self.highest.max(seen.highest),
             messages: self.messages.max(seen.messages),
+            asks: self.asks.max(seen.asks),
         }
     }
 }
@@ -543,6 +593,9 @@ pub fn verdicts_on_day(msgs: &[VMsg], day_start: i64) -> DayCount {
             continue;
         }
         c.messages = c.messages.saturating_add(1);
+        if m.kind == Some(Kind::Question) && m.to == "owner" {
+            c.asks = c.asks.saturating_add(1);
+        }
         if matches!(m.act(), Act::Verify { .. }) {
             c.verdicts = c.verdicts.saturating_add(1);
         }
@@ -884,14 +937,27 @@ mod tests {
 
     #[test]
     fn l4_a_ready_ticket_without_an_agent_on_the_board_and_in_the_signed_log() {
-        // never assigned, and returned by a reassign
-        assert_eq!(need("Ready", None, &[]), Some(Need::ReadyNoAgent));
+        // returned by a reassign: the log has the assignment whose signed Gate the next one
+        // copies
         let back = vec![
             assignment(1, PROSE),
             coord(2, DEV, Kind::Info, &reassigned_body("the agent is dead")),
         ];
         assert_eq!(need("Ready", None, &back), Some(Need::ReadyNoAgent));
         assert!(is_ready_candidate(&item("Ready", None)));
+        // not L4: a ticket that was never assigned, also after a move of the owner. Its first
+        // assignment signs the Gate from the body, and a person reads the body first
+        assert_eq!(need("Ready", None, &[]), None);
+        assert_eq!(need("Ready", None, &[owner(1, "/crew move Ready")]), None);
+        // not L4: the assignment of the returned ticket is gone (somebody deleted the comment),
+        // or it has no `gate:` line
+        assert_eq!(need("Ready", None, &back[1..]), None);
+        let no_gate = vec![
+            coord(1, DEV, Kind::Request, "Assigned to you: Fix it\n"),
+            back[1].clone(),
+        ];
+        assert_eq!(need("Ready", None, &no_gate), None);
+        assert!(!has_signed_assignment(&no_gate) && has_signed_assignment(&back));
         // the board fields alone do not put a ticket on the list
         let it = item("Ready", None);
         let board_only = Facts {
@@ -920,13 +986,35 @@ mod tests {
         asked.push(dev(3, "owner", Kind::Question, "may I delete it?"));
         assert_eq!(ready(&asked), Some(Never::OwnerQuestion));
         assert_eq!(need("Ready", None, &asked), None);
-        // the same after a reassign: the question of the earlier assignee has no asker that
-        // counts, and the ticket is free
+        // the same after a reassign (the agent that asked is dead, and the duty returned the
+        // ticket): the question still waits for the owner, whoever asked it
         asked.push(coord(4, DEV, Kind::Info, &reassigned_body("late")));
-        assert_eq!(need("Ready", None, &asked), Some(Need::ReadyNoAgent));
-        // a question of a coordinator to the owner counts whoever the assignee is
-        asked.push(coord(5, "owner", Kind::Question, "drop it?"));
         assert_eq!(ready(&asked), Some(Never::OwnerQuestion));
+        assert_eq!(need("Ready", None, &asked), None);
+        assert_eq!(need("Backlog", None, &asked), None);
+        // an answer of a coordinator that withdraws does not end that wait; the owner does
+        let mut withdrawn = asked.clone();
+        withdrawn.push(coord(5, DEV, Kind::Answer, &withdraw_body("solved")));
+        assert_eq!(ready(&withdrawn), Some(Never::OwnerQuestion));
+        let mut answered = asked.clone();
+        answered.push(owner(5, "yes, delete it"));
+        assert_eq!(need("Ready", None, &answered), Some(Need::ReadyNoAgent));
+        assert_eq!(need("Backlog", None, &answered), Some(Need::Returned));
+        // a question of an agent that never was the assignee counts too on a returned ticket
+        let mut stranger = blocked_log();
+        stranger.push(coord(3, DEV, Kind::Info, &reassigned_body("late")));
+        assert_eq!(need("Backlog", None, &stranger), Some(Need::Returned));
+        stranger.push(msg(
+            4,
+            agent(OTHER, Role::Dev),
+            "owner",
+            Some(Kind::Question),
+            "may I?",
+        ));
+        assert_eq!(need("Backlog", None, &stranger), None);
+        // a question of a coordinator to the owner counts whoever the assignee is
+        answered.push(coord(6, "owner", Kind::Question, "drop it?"));
+        assert_eq!(ready(&answered), Some(Never::OwnerQuestion));
 
         let mut stopped = review_log();
         stopped.push(verdict(
@@ -1438,10 +1526,24 @@ mod tests {
         // L5 and L4 after a reassign
         assert_eq!(act(UAct::Assign, "Backlog", None, &returned()), Ok(()));
         assert_eq!(act(UAct::Assign, "Ready", None, &returned()), Ok(()));
-        // L4 after a move of the owner
+        // never assigned, and the owner moved it to Ready: the first assignment would sign the
+        // Gate, the guard and the CI line from the issue body, which nobody signed
         let mut moved = announced();
         moved.push(owner(2, "/crew move Ready"));
-        assert_eq!(act(UAct::Assign, "Ready", None, &moved), Ok(()));
+        assert!(
+            scope_text(act(UAct::Assign, "Ready", None, &moved))
+                .contains("has no assignment with a Gate to copy")
+        );
+        // returned, and the assignment comment is gone
+        let mut lost = announced();
+        lost.push(coord(3, DEV, Kind::Info, &reassigned_body("late")));
+        for status in ["Backlog", "Ready"] {
+            assert!(
+                scope_text(act(UAct::Assign, status, None, &lost))
+                    .contains("has no assignment with a Gate to copy"),
+                "{status}"
+            );
+        }
         // a Status that somebody set on the board alone: the signed log says Backlog
         assert!(
             scope_text(act(UAct::Assign, "Ready", None, &announced()))
@@ -1451,7 +1553,7 @@ mod tests {
         // in Backlog and never assigned
         assert!(
             scope_text(act(UAct::Assign, "Backlog", None, &announced()))
-                .contains("no reassign returned it")
+                .contains("has no assignment with a Gate to copy")
         );
         // no signed message puts the ticket on the board
         let bare = vec![
@@ -1489,16 +1591,42 @@ mod tests {
     }
 
     #[test]
-    fn ask_is_allowed_on_every_open_ticket() {
-        let mut asked = blocked_log();
-        asked.push(dev(3, "owner", Kind::Question, "may I?"));
+    fn ask_is_for_an_open_ticket_without_an_open_question_to_the_owner() {
         for (status, log) in [
-            ("Blocked", asked),
+            ("Blocked", blocked_log()),
             ("Review", review_log()),
             ("Backlog", vec![]),
         ] {
             assert_eq!(act(UAct::Ask, status, Some(DEV), &log), Ok(()), "{status}");
         }
+        // one question waits for one answer: of the assignee, of a coordinator, and on a ticket
+        // without an assignee of any agent
+        let mut asked = blocked_log();
+        asked.push(dev(3, "owner", Kind::Question, "may I?"));
+        let mut by_coord = blocked_log();
+        by_coord.push(coord(3, "owner", Kind::Question, "drop it?"));
+        let mut returned = asked.clone();
+        returned.push(coord(4, DEV, Kind::Info, &reassigned_body("late")));
+        for (agent, log) in [
+            (Some(DEV), &asked),
+            (Some(DEV), &by_coord),
+            (None, &returned),
+        ] {
+            assert!(
+                scope_text(act(UAct::Ask, "Blocked", agent, log))
+                    .contains("has an open question to the owner already"),
+                "{agent:?}"
+            );
+        }
+        // the owner answered: a new question is allowed
+        asked.push(owner(4, "yes"));
+        assert_eq!(act(UAct::Ask, "Blocked", Some(DEV), &asked), Ok(()));
+        let it0 = item("Review", Some(DEV));
+        let unread = Facts {
+            msgs: None,
+            ..facts(&it0, &[])
+        };
+        assert!(scope_text(check_act(UAct::Ask, "a/b#5", &unread, None)).contains("not read"));
         let it = item("Review", Some(DEV));
         let closed = Facts {
             closed: true,
@@ -1676,6 +1804,22 @@ mod tests {
             at(owner(7, "unattended: 10/10"), day + 64),
             // a line that is not valid counts as a verdict and gives no `n`
             at(verdict(8, 9, true, "unattended: 99/10\n"), day + 65),
+            // a stamped question of the coordinator to the owner is an ask; one without the line
+            // and one to an agent are not
+            at(
+                coord(
+                    9,
+                    "owner",
+                    Kind::Question,
+                    &format!("drop it?\n{}", stamp(3)),
+                ),
+                day + 66,
+            ),
+            at(coord(10, "owner", Kind::Question, "drop it?"), day + 67),
+            at(
+                coord(11, DEV, Kind::Question, &format!("which?\n{}", stamp(3))),
+                day + 68,
+            ),
         ];
         let c = verdicts_on_day(&msgs, day);
         assert_eq!(
@@ -1683,8 +1827,10 @@ mod tests {
             DayCount {
                 verdicts: 3,
                 highest: 4,
-                // the two verdicts, the answer and the verdict with the line that is not valid
-                messages: 4,
+                // the two verdicts, the answer, the verdict with the line that is not valid and
+                // the two stamped questions
+                messages: 6,
+                asks: 1,
             }
         );
         assert_eq!(verdicts_on_day(&[], day), DayCount::default());
@@ -1693,13 +1839,15 @@ mod tests {
             verdicts: 2,
             highest: 3,
             messages: 2,
+            asks: 2,
         });
         assert_eq!(
             both,
             DayCount {
                 verdicts: 5,
                 highest: 4,
-                messages: 6,
+                messages: 8,
+                asks: 3,
             }
         );
     }
@@ -1710,6 +1858,7 @@ mod tests {
             verdicts,
             highest,
             messages: verdicts,
+            asks: 0,
         };
         assert_eq!(used(day(0, 0), 0), 0);
         assert_eq!(used(day(3, 3), 3), 3);
@@ -1728,6 +1877,7 @@ mod tests {
             verdicts,
             highest: 0,
             messages,
+            asks: 0,
         };
         assert_eq!(messages_used(msgs(2, 7), 0), 7);
         assert_eq!(messages_used(msgs(2, 7), 9), 9);

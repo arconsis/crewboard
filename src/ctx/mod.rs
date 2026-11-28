@@ -239,6 +239,15 @@ pub struct Stamp {
     pub budget: u32,
     /// The stamped messages of the day so far.
     pub messages: u32,
+    /// The stamped questions to the owner of the day so far.
+    pub asks: u32,
+    /// This command reserved a message already. Its first reservation is refused at a limit of
+    /// the day; a message that follows in the same command (the question of a round stop after
+    /// its verify result) is counted and not refused.
+    pub reserved: bool,
+    /// A reservation that no message used yet (`ops::unattended::reserve_message`): the next
+    /// message of the command takes it and reserves nothing.
+    pub pending: bool,
     /// For a verdict: the ticket (`<repo>#<issue>`), its unattended verdicts so far, and the
     /// highest comment id that the command read on it. The floor of the ticket is noted from
     /// these before the post.
