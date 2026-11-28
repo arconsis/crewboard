@@ -402,6 +402,9 @@ pub(super) fn post_pull(st: &mut State, repo: &str, body: &str) -> Resp {
         base_ref: "main".to_string(),
         hidden_by_base: Vec::new(),
         head_after_files: None,
+        base_after_files: None,
+        omit_default: false,
+        past_heads: Vec::new(),
     });
     Resp::json(
         201,

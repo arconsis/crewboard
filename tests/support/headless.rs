@@ -43,6 +43,9 @@ struct Pr {
     files: Vec<(String, Option<String>)>,
     /// More front matter lines of AUTHORITY.md (each ends in a newline).
     authority_extra: String,
+    /// The base branch of the PR, when it is not `main`, and the files that this branch hides:
+    /// the comparison of `main` with the head names them, and the file list of the PR does not.
+    base: Option<(String, Vec<String>)>,
 }
 
 pub struct Hub {
@@ -113,12 +116,34 @@ fn route(s: &Scenario<'_>, pr: &Mutex<Pr>, base: &str, r: &Req) -> Option<Resp> 
         })),
         ("GET", ["", "repos", _, _, "pulls", num]) if *num == PR.to_string() => {
             let merged = pr.lock().unwrap().merged;
+            let base_ref = pr
+                .lock()
+                .unwrap()
+                .base
+                .as_ref()
+                .map_or("main".to_string(), |(b, _)| b.clone());
             ok(json!({
                 "number": PR, "state": if merged { "closed" } else { "open" }, "merged": merged,
                 "mergeable_state": "clean", "body": format!("Closes #{TICKET}"),
                 "head": {"sha": SHA, "ref": HEAD_REF, "repo": {"full_name": REPO}},
-                "base": {"ref": "main", "repo": {"default_branch": "main"}},
+                "base": {"ref": base_ref, "repo": {"default_branch": "main"}},
             }))
+        }
+        // the comparison of the default branch with the head: only for a PR with another base
+        ("GET", ["", "repos", _, _, "compare", "heads", spec])
+            if spec.starts_with("main...") && pr.lock().unwrap().base.is_some() =>
+        {
+            let p = pr.lock().unwrap();
+            let own = p.files.iter().map(|(f, _)| f.clone());
+            let hidden = p.base.iter().flat_map(|(_, h)| h.iter().cloned());
+            let files: Vec<Value> = own
+                .chain(hidden)
+                .map(|f| json!({"filename": f, "status": "modified"}))
+                .collect();
+            ok(
+                json!({"status": "ahead", "ahead_by": 1, "behind_by": 0, "commits": [],
+                      "files": files}),
+            )
         }
         ("GET", ["", "repos", _, _, "pulls", num, "files"]) if *num == PR.to_string() => {
             // 100 per page, like GitHub
@@ -260,6 +285,14 @@ impl Hub {
     /// The files that the PR changes now.
     pub fn set_files(&self, files: &[&str]) {
         self.pr.lock().unwrap().files = files.iter().map(|f| (f.to_string(), None)).collect();
+    }
+
+    /// The PR goes onto the branch `base`, which holds the change of `hidden` already.
+    pub fn set_base(&self, base: &str, hidden: &[&str]) {
+        self.pr.lock().unwrap().base = Some((
+            base.to_string(),
+            hidden.iter().map(|f| f.to_string()).collect(),
+        ));
     }
 
     /// The same, with one file renamed from `old` to `new`.

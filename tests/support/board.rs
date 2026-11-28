@@ -106,6 +106,12 @@ struct Pr {
     hidden_by_base: Vec<String>,
     /// The head that the PR gets right after the next read of its file list.
     head_after_files: Option<String>,
+    /// The base branch that the PR gets right after the next read of its file list.
+    base_after_files: Option<String>,
+    /// The PR answer does not name the default branch of its repo.
+    omit_default: bool,
+    /// Heads that the PR had before a head move: their commits still exist.
+    past_heads: Vec<String>,
 }
 
 struct State {

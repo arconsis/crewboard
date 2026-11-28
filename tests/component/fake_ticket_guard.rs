@@ -587,7 +587,7 @@ fn a_base_branch_that_hides_a_guarded_file_does_not_hide_it_from_any_reader() {
     assert!(!merge_call(&fake));
 
     // a comparison that cannot be read is no pass
-    fake.fail_once("GET", "compare/main...", "");
+    fake.fail_once("GET", "compare/heads/main...", "");
     let v = run_refused(&fake, &c, &["verify", &ts], "protected-path-owner-merge");
     assert!(
         v.stderr.contains("the comparison with the default branch"),
@@ -611,7 +611,7 @@ fn the_comparison_with_the_default_branch_is_read_only_for_another_base() {
     let compares = |fake: &FakeBoard| {
         fake.requests()
             .iter()
-            .filter(|r| r.path.contains("/compare/main..."))
+            .filter(|r| r.path.contains("/compare/heads/main..."))
             // the file comparison; the "behind" hint of `done` reads the same path without `&page=1`
             .filter(|r| r.path.contains("&page=1"))
             .count()
@@ -771,4 +771,159 @@ fn done_of_a_guarded_ticket_with_a_cut_file_list_fails_closed() {
         o.all()
     );
     assert_eq!(writes(&fake), before, "a refusal wrote something");
+}
+
+/// GitHub lists at most 300 files of a comparison. A comparison with that many files may be
+/// cut, so it proves nothing: `done`, `verify` and `merge` refuse, and the text names the cause.
+#[test]
+fn a_comparison_with_300_files_or_more_is_refused_with_its_true_cause() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    let many: Vec<String> = (0..299).map(|i| format!("src/base/f{i}.rs")).collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    // 1 file of the PR and 299 files of the base: 300 files in the comparison
+    fake.set_pr_base(pr.number, "develop", &refs);
+    const CAUSE: &str = "goes onto the branch develop, not onto the default branch, and its head differs from the default branch in 300 files or more";
+    let before = writes(&fake);
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("protected-path-owner-merge") && o.stderr.contains(CAUSE),
+        "{}",
+        o.all()
+    );
+    assert!(!o.stderr.contains("1000 files"), "{}", o.all());
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    // 299 files in the comparison pass; then the base grows, and verify and merge refuse
+    fake.set_pr_base(pr.number, "develop", &refs[..298]);
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    let v = run_ok(&fake, &c, &["verify", &ts]);
+    assert!(v.stdout.contains("verify PASS"), "{}", v.stdout);
+    fake.set_pr_base(pr.number, "develop", &refs);
+    let before = writes(&fake);
+    for cmd in ["verify", "merge"] {
+        let o = run_refused(&fake, &c, &[cmd, &ts], "protected-path-owner-merge");
+        assert!(o.stderr.contains(CAUSE), "{cmd}: {}", o.stderr);
+        assert!(!o.stderr.contains("1000 files"), "{cmd}: {}", o.stderr);
+        assert!(o.stderr.contains("crewboard close"), "{cmd}: {}", o.stderr);
+    }
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    assert!(!merge_call(&fake));
+}
+
+/// A file that the base branch renamed out of the guard: the comparison names it with its old
+/// name, and the old name counts.
+#[test]
+fn a_rename_in_the_comparison_whose_old_name_is_guarded_is_refused() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    fake.set_pr_base(pr.number, "stage", &[]);
+    fake.hide_rename(pr.number, "src/moved.rs", "tests/a.rs");
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains(RULE) && o.stderr.contains("tests/a.rs (guard: tests/**)"),
+        "{}",
+        o.all()
+    );
+    let _ = c;
+}
+
+/// A PR answer that does not name the default branch: the repo is read (one request), and the
+/// base branch is judged as in the other case.
+#[test]
+fn the_default_branch_is_read_from_the_repo_when_the_pr_answer_has_none() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    fake.omit_default_branch_in_pr(pr.number);
+    let repo_reads = |fake: &FakeBoard| {
+        fake.requests()
+            .iter()
+            .filter(|r| r.method == "GET" && r.path == format!("/repos/{REPO}"))
+            .count()
+    };
+    let before = repo_reads(&fake);
+    // a PR onto the default branch: delivered, with one read of the repo
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    assert_eq!(repo_reads(&fake), before + 1);
+    // another base that hides a guarded file: seen
+    fake.set_pr_base(pr.number, "stage", &["tests/a.rs"]);
+    run_refused(&fake, &c, &["verify", &t.to_string()], RULE);
+}
+
+/// The base branch decides whether the comparison is read. A PR that is retargeted while the
+/// files are read is refused: the list may be the diff against the other branch.
+#[test]
+fn a_base_branch_that_changes_while_the_files_are_read_is_refused() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    // done: the base is read again after the CI facts
+    fake.move_base_after_files(pr.number, "stage");
+    let before = writes(&fake);
+    let o = done(&fake, &b, t, &pr);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(
+        o.stderr.contains("evidence-head-moved")
+            && o.stderr.contains("the base branch of PR")
+            && o.stderr.contains("changed from main to stage"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    // verify and merge
+    fake.set_pr_base(pr.number, "main", &[]);
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    fake.move_base_after_files(pr.number, "stage");
+    let before = writes(&fake);
+    let v = run_refused(&fake, &c, &["verify", &ts], "evidence-head-moved");
+    assert!(
+        v.stderr.contains("changed from main to stage"),
+        "{}",
+        v.stderr
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    fake.set_pr_base(pr.number, "main", &[]);
+    run_ok(&fake, &c, &["verify", &ts]);
+    fake.move_base_after_files(pr.number, "stage");
+    let before = writes(&fake);
+    run_refused(&fake, &c, &["merge", &ts], "evidence-head-moved");
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    assert!(!merge_call(&fake));
+    // a retarget from another base back to the default branch is a change too
+    fake.set_pr_base(pr.number, "stage", &["src/base.rs"]);
+    fake.move_base_after_files(pr.number, "main");
+    let m = run_refused(&fake, &c, &["merge", &ts], "evidence-head-moved");
+    assert!(
+        m.stderr.contains("changed from stage to main"),
+        "{}",
+        m.stderr
+    );
+}
+
+/// A stacked PR: the list of the PR belongs to the head at the time of its read, so the head is
+/// read again for this PR too.
+#[test]
+fn a_head_that_moves_while_the_files_of_a_stacked_pr_are_read_is_refused() {
+    let (fake, c, b) = crew();
+    let (t, pr) = taken(&fake, &c, &b, &["src/it.rs"]);
+    let ts = t.to_string();
+    fake.set_pr_base(pr.number, "stage", &["src/base.rs"]);
+    assert_eq!(done(&fake, &b, t, &pr).code, 0);
+    let moved = "e".repeat(40);
+    fake.move_head_after_files(pr.number, &moved);
+    let before = writes(&fake);
+    let v = run_refused(&fake, &c, &["verify", &ts], "evidence-head-moved");
+    assert!(
+        v.stderr.contains("while its files were read"),
+        "{}",
+        v.stderr
+    );
+    assert_eq!(writes(&fake), before, "a refusal wrote something");
+    fake.set_pr_head(pr.number, &pr.head);
+    run_ok(&fake, &c, &["verify", &ts]);
+    fake.move_head_after_files(pr.number, &moved);
+    run_refused(&fake, &c, &["merge", &ts], "evidence-head-moved");
+    assert!(!merge_call(&fake));
 }

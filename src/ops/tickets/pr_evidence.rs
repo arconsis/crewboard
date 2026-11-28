@@ -177,7 +177,8 @@ fn unreadable_files(repo: &str, number: u64, ticket: &str, why: &str) -> CbError
 /// the caller joins them with the list of the PR. `None`: the base is the default branch, and
 /// nothing is read. The list belongs to `sha`, whatever the head of the PR is now. A default
 /// branch that the PR answer does not name is read from the repo (one more request). A
-/// comparison that cannot be read is an error: the callers refuse.
+/// comparison that cannot be read is an error: the callers refuse. A list with `truncated` set
+/// may be cut: the callers refuse it with [`cut_comparison`].
 pub(super) fn files_hidden_by_base(
     ac: &AgentCtx,
     pr: &PrFacts,
@@ -202,11 +203,24 @@ pub(super) fn files_hidden_by_base(
     compare_files(&ac.ctx.client, &pr.repo, &default, sha).map(Some)
 }
 
+/// The refusal for a comparison with the default branch that may be cut: GitHub lists at most
+/// [`COMPARE_MAX_FILES`] files of a comparison. `way_out` is the next step of the caller.
+pub(super) fn cut_comparison(pr: &PrFacts, base: &PrBase, way_out: &str) -> Refusal {
+    Refusal::new(
+        ids::PROTECTED_PATH_OWNER_MERGE,
+        format!(
+            "PR {}#{} goes onto the branch {}, not onto the default branch, and its head differs from the default branch in {COMPARE_MAX_FILES} files or more. GitHub lists no more files of a comparison, so crewboard cannot prove that none is protected or guarded: {way_out}",
+            pr.repo, pr.number, base.branch
+        ),
+    )
+}
+
 /// The most files that GitHub lists for one comparison of two commits.
 const COMPARE_MAX_FILES: usize = 300;
 
-/// The files that differ between the merge base of `base` and `head` and the commit `head`
-/// (the three-dot comparison `base...head`), in the repo `repo`. `head` is a SHA, so the list
+/// The files that differ between the merge base of the branch `base` and `head` and the commit
+/// `head` (the three-dot comparison `heads/<base>...<head>`), in the repo `repo`. The branch is
+/// named as `heads/<base>`: a short name could mean a tag of the same name. `head` is a SHA, so the list
 /// belongs to exactly that commit, and a commit of a fork needs no `owner:` form: the repo of a
 /// PR holds the commits of its head. One request: GitHub gives the files of the whole
 /// comparison with the first page, at most [`COMPARE_MAX_FILES`], and has no further page of
@@ -219,7 +233,7 @@ fn compare_files(
 ) -> Result<PrFileList, GhError> {
     let enc = |s: &str| crate::rules::text::url_encode(s, true);
     let path = format!(
-        "repos/{repo}/compare/{}...{}?per_page=1&page=1",
+        "repos/{repo}/compare/heads/{}...{}?per_page=1&page=1",
         enc(base),
         enc(head)
     );
@@ -260,13 +274,15 @@ fn compare_files(
 /// - The list of the PR: up to one file more than [`crate::rules::protected::MAX_FILES`], so
 ///   that "more than that" is known.
 /// - A PR whose base is not the default branch: joined with [`files_hidden_by_base`] for the
-///   head `pr.head_sha`. That list belongs to the commit, so nothing more is read.
-/// - An open PR onto the default branch: the head of the PR is read again after the list (one
-///   request; none for a merged PR, whose head does not move). A head that is not `pr.head_sha` any more is `evidence-head-moved`: the list may
-///   be the one of another commit than the commit that the command judges.
+///   head `pr.head_sha`. A comparison that may be cut is refused here ([`cut_comparison`]).
+/// - An open PR: the PR is read again after the lists (one request; none for a merged PR, whose
+///   head and base do not change). The list of the PR is the diff of the head against the base
+///   branch at the time of its read, and the choice "no comparison" rests on the base branch.
+///   So a head or a base branch that is not the one of `pr` and `base` any more is
+///   `evidence-head-moved` ([`check_same_pr`]).
 ///
 /// A list that cannot be read is a refusal of the rule `protected-path-owner-merge`, not a pass
-/// (fail closed). A cut list has `truncated` set, and the rules refuse it.
+/// (fail closed). A cut list of the PR has `truncated` set, and the rules refuse it.
 pub(crate) fn pr_files_for_protection(
     ac: &AgentCtx,
     pr: &PrFacts,
@@ -283,15 +299,18 @@ pub(crate) fn pr_files_for_protection(
         Err(e) => return Err(unreadable_files(repo, number, ticket, &e.to_string())),
     };
     match files_hidden_by_base(ac, pr, base, &pr.head_sha) {
-        Ok(Some(hidden)) => files.join(hidden),
-        // the head of a merged PR does not move any more
-        Ok(None) if pr.merged => {}
-        Ok(None) => {
-            let now = fetch_pr(ac, repo, number)
-                .map_err(|e| unreadable_files(repo, number, ticket, &e.to_string()))?
-                .0;
-            check_head_of_list(pr, &now.head_sha)?;
+        Ok(Some(hidden)) if hidden.truncated => {
+            return Err(cut_comparison(
+                pr,
+                base,
+                &format!(
+                    "the owner merges it by hand (its body closes the ticket), then run crewboard close {ticket}; without a closing line: crewboard close {ticket} --why \"<text>\""
+                ),
+            )
+            .into());
         }
+        Ok(Some(hidden)) => files.join(hidden),
+        Ok(None) => {}
         Err(e) => {
             return Err(unreadable_files(
                 repo,
@@ -301,22 +320,45 @@ pub(crate) fn pr_files_for_protection(
             ));
         }
     }
+    // the head and the base of a merged PR do not change any more
+    if !pr.merged {
+        let (now, base_now) = fetch_pr_based(ac, repo, number)
+            .map_err(|e| unreadable_files(repo, number, ticket, &e.to_string()))?;
+        check_same_pr(pr, &base.branch, &now.head_sha, &base_now.branch)?;
+    }
     Ok(files)
 }
 
-/// Rule `evidence-head-moved` for a file list: the head of the PR after the read of the list
-/// (`head_now`) is the head that the command read before it. Pure.
-fn check_head_of_list(pr: &PrFacts, head_now: &str) -> Result<(), Refusal> {
-    if head_now.eq_ignore_ascii_case(&pr.head_sha) {
-        return Ok(());
+/// Rule `evidence-head-moved` for the file lists of a PR: after the read of the lists, the head
+/// of the PR (`head_now`) and its base branch (`base_now`) are the ones that the command read
+/// before (`pr`, `base`). A moved head: the list of the PR may belong to another commit. A
+/// changed base branch: the list of the PR may be the diff against another branch, and the
+/// choice to read no comparison with the default branch may be wrong. Pure.
+pub(super) fn check_same_pr(
+    pr: &PrFacts,
+    base: &str,
+    head_now: &str,
+    base_now: &str,
+) -> Result<(), Refusal> {
+    if !head_now.eq_ignore_ascii_case(&pr.head_sha) {
+        return Err(Refusal::new(
+            ids::EVIDENCE_HEAD_MOVED,
+            format!(
+                "the head of PR {}#{} moved from {} to {head_now} while its files were read: the file list may belong to another commit. Nothing was written; run the command again",
+                pr.repo, pr.number, pr.head_sha
+            ),
+        ));
     }
-    Err(Refusal::new(
-        ids::EVIDENCE_HEAD_MOVED,
-        format!(
-            "the head of PR {}#{} moved from {} to {head_now} while its files were read: the file list may belong to another commit. Nothing was written; run the command again",
-            pr.repo, pr.number, pr.head_sha
-        ),
-    ))
+    if base_now != base {
+        return Err(Refusal::new(
+            ids::EVIDENCE_HEAD_MOVED,
+            format!(
+                "the base branch of PR {}#{} changed from {base} to {base_now} while its files were read: the file list may be the diff against another branch. Nothing was written; run the command again",
+                pr.repo, pr.number
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// spec/ci#files-that-every-workflow-ignores: the judgement for a head without any CI run, for
@@ -393,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_list_counts_only_for_the_head_that_the_command_read() {
+    fn a_file_list_counts_only_for_the_head_and_the_base_that_the_command_read() {
         let pr = PrFacts {
             repo: MAIN.to_string(),
             number: 7,
@@ -404,15 +446,27 @@ mod tests {
             title: String::new(),
             body: String::new(),
         };
-        assert!(check_head_of_list(&pr, "abc123").is_ok());
-        assert!(check_head_of_list(&pr, "ABC123").is_ok());
-        let r = check_head_of_list(&pr, "def456").unwrap_err();
+        assert!(check_same_pr(&pr, "main", "abc123", "main").is_ok());
+        assert!(check_same_pr(&pr, "main", "ABC123", "main").is_ok());
+        let r = check_same_pr(&pr, "main", "def456", "main").unwrap_err();
         assert_eq!(r.rule, ids::EVIDENCE_HEAD_MOVED);
         assert!(
             r.message.contains("moved from abc123 to def456"),
             "{}",
             r.message
         );
+        // a base branch that changed while the files were read
+        let r = check_same_pr(&pr, "main", "abc123", "stage").unwrap_err();
+        assert_eq!(r.rule, ids::EVIDENCE_HEAD_MOVED);
+        assert!(
+            r.message.contains(
+                "the base branch of PR example-org/example-repo#7 changed from main to stage"
+            ),
+            "{}",
+            r.message
+        );
+        // a branch name is compared as it is
+        assert!(check_same_pr(&pr, "main", "abc123", "Main").is_err());
     }
 
     #[test]
