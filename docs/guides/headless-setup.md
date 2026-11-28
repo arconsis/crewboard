@@ -198,8 +198,9 @@ things must be on before a model starts: the key in `AUTHORITY.md`, and a unit w
    see both parts: the tick, and the command of the model.
 
 Each run does the tick first. A model starts only when a ticket needs a judgment, the verdicts
-of the day are not used, the day has fewer than 6 model wakes, the last start of the day is 30
-minutes ago or more, and the list changed since the last model wake or 2 hours passed. The log
+of the day are not used, the day has fewer than 6 model wakes, the last start is 30 minutes ago
+or more (also across midnight), and the list changed since the last model wake or 2 hours
+passed. The log
 (`wake.log`) has one line for each start. The file `judgment.txt` in the state dir holds the
 list that the model got.
 
@@ -212,13 +213,15 @@ that in mind.
 most `--max-wake` later) no tick runs, so a `Gate: ci` merge waits that long.
 
 **A model setup that breaks** (a work dir that is gone, a runtime binary that moved) does not
-stop the tick. Each run writes one line about it to the log and to standard error, runs the
-tick and starts no model.
+stop the tick. Each run writes one line about it to the log, runs the tick and starts no
+model. Standard error gets the line once per error text, so a cron unit sends one mail and not
+one per run. `crewboard doctor --setup` shows the error as a fault of the model.
 
 `--work-dir` is the dir where the model starts. A checkout of the repo lets it read the code
 with `git`. In a unit with `--runtime`, `--work-dir` is for the model only: the tick of such a
 unit runs no checks of a `Gate: checks: ...` ticket (the section above), and you or the
-interactive coordinator verify such a ticket. Each run writes one log line that says so.
+interactive coordinator verify such a ticket. `wake install` and `--print-cmd` say so, and the
+log says so with each tick that is not quiet.
 `--host-lock` and `--shim-dir` are refused for such a unit.
 
 **Switch off.** Set `unattended_coordinator: off` (or remove the key) on the default branch.
@@ -232,8 +235,9 @@ ticket confuse the dev agents.
 **What the model may do.** Verify a Review ticket whose Gate is prose (pass or fail, with its
 reason in the message), answer and unblock an agent, assign a ticket that a reassign returned,
 and ask you a question. It reads a ticket with `crewboard mine <owner>/<repo>#<n>`, which
-prints only what passed the signature check: the Gate and the guard of the signed assignment,
-the latest `done`, and the signed messages. Each message has a last line
+prints only what passed the check of crewboard: the Gate and the guard of the signed
+assignment, the latest `done` with its PR and SHA, and the messages that count. Each line of a
+message text has the prefix `|`, so a text cannot look like a line of crewboard. Each message has a last line
 `unattended: <n>/<budget>`. It merges
 nothing: a headless config dir merges only a `Gate: ci` ticket, and that is the tick. The
 limits per UTC day: `unattended_budget` verdicts, 30 messages, 5 questions to you, 6 model
@@ -266,10 +270,14 @@ the flags that crewboard passes, when you want a stricter setting of your runtim
 
 **Inside a wake.** crewboard sets `CREWBOARD_WAKE` for the model. With it set, `crewboard wake`
 starts no second wake, and in the headless config dir `agent exec`, `agent with-env`,
-`heartbeat` and `start` are refused, and `poll` and `watch` write no heartbeat. For a runtime
-with a full shell (Codex, Hermes) this variable is a guardrail, not a boundary: the model can
-clear it. `--override-unread` is refused in a headless config dir. A `say`, `unblock` or `ask`
-that finds an unread message prints it and refuses once; the same command then passes.
+`heartbeat`, `start`, `wake install` and `wake uninstall` are refused, and `poll` and `watch`
+write no heartbeat. For a runtime with a full shell (Codex, Hermes) this variable is a
+guardrail, not a boundary: the model can clear it. Do not set the variable in the unit itself:
+each wake then ends with exit 2 (`doctor --setup` shows a warning `wake environment`).
+`--override-unread` is refused in a headless config dir. A `say`, `unblock` or `ask` that finds
+unread messages prints them (at most 5 per run) and refuses; the same command passes when it
+showed all of them. Each model run sees the messages again once: a model that stopped at the
+refusal does not let the next one pass.
 
 **When it fails.** A model that exits with an error is one line in the log. From the second
 failure in a row the model wakes pause (5 minutes, then longer, at most 1 hour); the tick goes
@@ -277,9 +285,9 @@ on. The third failure in a row also goes to standard error of the unit. After a 
 the next one waits for that pause, for the 30 minutes, and for a change of the list or 2
 hours. `crewboard doctor --setup` shows two checks for such a unit: `wake` is the state of the
 tick, and `unattended coordinator` is the state of the model (the mode, the runtime and the
-count of the last model wake; a fault after 2 failed model wakes in a row; a warning when the
-model ended at `--max-wake` several times in a row, or when the stored day is later than
-today).
+count of the last model wake; a fault for a model command that cannot be built and after 2
+failed model wakes in a row; a warning when the model ended at `--max-wake` several times in a
+row, or when the stored day or the last start is later than now).
 
 ## One digest per day
 

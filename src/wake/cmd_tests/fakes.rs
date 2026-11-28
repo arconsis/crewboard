@@ -23,6 +23,8 @@ pub(super) struct Scripted {
     pub(super) judgment: Option<Listed>,
     /// The checkout that each tick got.
     pub(super) tick_dirs: Vec<Option<PathBuf>>,
+    /// The start times of the model runs ([`Steps::model_run_starts`]).
+    pub(super) model_runs: Vec<i64>,
     /// The heads of PRs by `<repo>#<n>`, and the open PRs of every repo.
     pub(super) heads: std::collections::HashMap<String, PrHead>,
     pub(super) open: Vec<OpenPrRef>,
@@ -113,6 +115,13 @@ impl Steps for Scripted {
     fn judgment(&mut self) -> Option<Listed> {
         // no call to the board: the values of the tick that just ran
         self.judgment.clone()
+    }
+    fn model_run_starts(&mut self, now: i64) -> StepRc {
+        self.model_runs.push(now);
+        StepRc {
+            code: 0,
+            msg: String::new(),
+        }
     }
     fn acted_list(&mut self, events: &Path, out: &mut Vec<u8>) -> StepRc {
         self.acted_calls

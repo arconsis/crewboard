@@ -1059,3 +1059,72 @@ fn the_hidden_flags_are_hidden_and_the_listed_ones_are_not() {
     };
     assert!(hidden_of("initiative-file") && !hidden_of("initiative"));
 }
+
+#[test]
+fn the_wake_child_guard_names_the_commands_and_leaves_the_reading_forms() {
+    use crate::headless::{WakeChild, wake_child_refusal};
+    let what = |v: &[&str]| {
+        let mut argv = vec!["crewboard"];
+        argv.extend_from_slice(v);
+        let cli = Cli::try_parse_from(&argv).unwrap_or_else(|e| panic!("{v:?}: {e}"));
+        super::wake_child_command(&cli.command)
+    };
+    // the run form of `wake`, also with `--tick`
+    assert_eq!(what(&["wake", "--tick"]), Some(WakeChild::Wake));
+    assert_eq!(
+        what(&["wake", "--runtime", "claude", "--work-dir", "/w"]),
+        Some(WakeChild::Wake)
+    );
+    // the forms that start nothing stay
+    assert_eq!(what(&["wake", "--tick", "--print-cmd"]), None);
+    assert_eq!(what(&["wake", "--print-state-dir"]), None);
+    assert_eq!(what(&["wake", "status", "--agent-dir", "/a"]), None);
+    assert_eq!(what(&["status"]), None);
+    assert_eq!(what(&["mine", "o/r#1"]), None);
+    // the units of the scheduler
+    let install = what(&["wake", "install", "--tick", "--agent-dir", "/a"]);
+    assert_eq!(install, Some(WakeChild::Units));
+    assert_eq!(
+        what(&["wake", "uninstall", "--agent-dir", "/a"]),
+        Some(WakeChild::Units)
+    );
+    let cli = Cli::try_parse_from([
+        "crewboard",
+        "wake",
+        "install",
+        "--tick",
+        "--agent-dir",
+        "/a",
+    ])
+    .unwrap();
+    assert_eq!(
+        super::unit_agent_dir(&cli.command),
+        Some(std::path::Path::new("/a"))
+    );
+    let rule = |w, headless| wake_child_refusal(w, true, headless).map(|r| r.rule);
+    assert_eq!(
+        rule(WakeChild::Units, true),
+        Some(crate::base::ids::HEADLESS_SCOPE)
+    );
+    assert_eq!(rule(WakeChild::Units, false), None);
+    // a shell through crewboard and the heartbeat
+    let with_env = what(&["agent", "with-env", "--", "gh", "pr", "view"]);
+    assert_eq!(with_env, Some(WakeChild::Shell));
+    assert_eq!(
+        what(&["agent", "exec", "--", "true"]),
+        Some(WakeChild::Shell)
+    );
+    assert_eq!(what(&["heartbeat"]), Some(WakeChild::Heartbeat));
+    assert_eq!(what(&["start"]), Some(WakeChild::Heartbeat));
+    // the wake of a dev agent (no headless config dir) keeps `agent with-env`: the gh shim
+    // runs it; a headless config dir does not
+    assert_eq!(rule(WakeChild::Shell, false), None);
+    assert_eq!(
+        rule(WakeChild::Shell, true),
+        Some(crate::base::ids::HEADLESS_SCOPE)
+    );
+    assert_eq!(
+        rule(WakeChild::Wake, false),
+        Some(crate::base::ids::WAKE_INSIDE_WAKE)
+    );
+}

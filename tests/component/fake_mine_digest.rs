@@ -150,11 +150,11 @@ fn mine_n_shows_the_signed_thread_since_the_assignment_newest_first_and_writes_n
     );
     assert!(
         text.contains(
-            "    failed: Gate check by the coordinator: the test of the old API is missing\n"
+            "    | failed: Gate check by the coordinator: the test of the old API is missing\n"
         ),
         "{text}"
     );
-    assert!(text.contains("    Yes, keep the old API.\n"), "{text}");
+    assert!(text.contains("    | Yes, keep the old API.\n"), "{text}");
     // the earlier span of the first agent, the forged pass, the stranger and the edited owner
     // comment are not shown; the three that do not count are counted
     for hidden in ["Old question", "all good", "Ship it", "Taken."] {
@@ -205,7 +205,7 @@ fn mine_n_refuses_the_ticket_of_another_agent_and_plain_mine_is_unchanged() {
     let o = fake.run(&c.dir, &["mine", &ts]);
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(
-        o.stdout.starts_with(&format!("{}#{t}: the signed log. Every line below comes from a message that passed the signature check", crate::support::board::REPO)),
+        o.stdout.starts_with(&format!("{}#{t}: the signed log. Every line below comes from a message of an agent that passed the signature check, or from a comment of the owner account", crate::support::board::REPO)),
         "{}",
         o.all()
     );
@@ -222,6 +222,14 @@ fn mine_n_refuses_the_ticket_of_another_agent_and_plain_mine_is_unchanged() {
     );
     assert!(
         o.stdout.contains("signed: latest done of the assignee: "),
+        "{}",
+        o.all()
+    );
+    // the PR and the head SHA of the evidence that `verify` reads, in the fact line
+    assert!(
+        o.stdout.contains(
+            "/pull/11 sha=00000000000000000000000000c0ffee00000002; verify result: fail\n"
+        ) && o.stdout.contains("; pr="),
         "{}",
         o.all()
     );

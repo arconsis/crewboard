@@ -101,6 +101,34 @@ fn make_steps(s: &Settings, global: &crate::ctx::Global) -> Box<dyn Steps> {
 /// Run `crewboard wake`. The result is the exit code. A build without Unix process control
 /// refuses in `cli::run` before it gets here.
 #[cfg(unix)]
+/// A `wake` call was refused because `CREWBOARD_WAKE` is set: note the time in the state dir
+/// of the call, for `doctor --setup`. A unit whose own environment has the variable never
+/// runs, and nothing else would say so. Best effort: a state dir that cannot be named or
+/// written leaves no note. The next run of the unit removes the note.
+pub fn note_refused_inside_wake(a: &WakeArgs, g: &GlobalFlags) {
+    let env = |k: &str| std::env::var(k).ok();
+    let agent = a.agent_dir.as_ref().and_then(|d| {
+        ConfigDir::resolve(Some(d))
+            .and_then(|cd| cd.load_agent_auto(a.initiative.as_deref()))
+            .ok()
+    });
+    let ask = WakeArgs {
+        print_state_dir: true,
+        ..a.clone()
+    };
+    if let Ok(Plan::PrintStateDir(dir)) = resolve(&ask, g, &env, agent.as_ref())
+        && dir.is_dir()
+    {
+        let paths = crate::wake::state::Paths::new(dir, None, None);
+        let text = format!("{}\n", crate::clock::now_ts());
+        crate::base::ignore::best_effort_cleanup(crate::fsutil::write_atomic(
+            &paths.inside_wake,
+            text.as_bytes(),
+            crate::fsutil::Mode::Default,
+        ));
+    }
+}
+
 pub fn run(a: &WakeArgs, g: &GlobalFlags) -> u8 {
     let clock = SystemClock;
     // A scheduler starts a program with a minimal PATH: add the install dirs of crewboard at the
@@ -150,6 +178,10 @@ pub fn run(a: &WakeArgs, g: &GlobalFlags) -> u8 {
     s.env_load_failed = crate::agent_env::failure().is_some();
     let s = s;
     std::fs::create_dir_all(&s.paths.dir).ok(); // a missing dir shows as an error at the next write
+    // this run is no wake child: a note of a call that was refused inside a wake is over
+    if s.paths.inside_wake.exists() {
+        crate::base::ignore::best_effort_cleanup(std::fs::remove_file(&s.paths.inside_wake));
+    }
     crate::lock::sys::catch_term_int_hup_restart();
     let log = Log::new(s.paths.log.clone(), &clock);
     let global = crate::ctx::Global {

@@ -397,6 +397,7 @@ impl LateBoard {
     /// Run a command with another config dir against the front server.
     pub fn run_dir(&self, dir: &std::path::Path, args: &[&str]) -> Out {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(dir)
             .args(args)
@@ -512,6 +513,7 @@ impl LateBoard {
     /// Run any command of the CLI against the front server (the markers and CI are the scene).
     pub fn run(&self, who: &Agent, args: &[&str]) -> Out {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(&who.dir)
             .args(args)
@@ -536,6 +538,7 @@ impl LateBoard {
     /// [`LateBoard::poll`] with extra environment variables.
     pub fn poll_env(&self, who: &Agent, env: &[(&str, &str)]) -> (Value, Out) {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(&who.dir)
             .args(["poll", "--json"])

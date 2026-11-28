@@ -84,6 +84,15 @@ impl Flow<'_, '_> {
         let Some(listed) = listed else {
             return 0;
         };
+        // a new run of the unread check: this model sees each unread message once
+        let rc = self.steps.model_run_starts(now);
+        if rc.code != 0 {
+            self.log.say(&format!(
+                "cannot start a run of the unread check in the state of the config dir: {}; no model starts",
+                rc.msg
+            ));
+            return 0;
+        }
         if !self.write_before_start(listed, &next, now) {
             return 0;
         }

@@ -57,6 +57,7 @@ impl Rig {
 
     fn cmd(&self, args: &[&str]) -> Command {
         let mut c = Command::new(BIN);
+        c.env_remove("CREWBOARD_WAKE");
         c.args(["wake", "--crewboard"])
             .arg(self.p("stub"))
             .args(["--retry-delays", ""])

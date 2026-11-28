@@ -475,6 +475,7 @@ mod unix {
         // G10e
         let o = out_of(
             Command::new(BIN)
+                .env_remove("CREWBOARD_WAKE")
                 .args(["repeat", "--help"])
                 .output()
                 .unwrap(),
@@ -1193,6 +1194,7 @@ fn under_a_wake_repeat_without_the_grant_of_lock_run_is_refused_before_a_run() {
     let d = tempfile::tempdir().unwrap();
     let marker = d.path().join("ran");
     let o = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .args(["repeat", "--times", "1", "--no-ci-check", "--work-dir"])
         .arg(d.path())
         .args(["--", "touch"])

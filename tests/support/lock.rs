@@ -91,6 +91,7 @@ impl Rig {
     /// `crewboard lock <args>` with a clean environment for the lock.
     pub fn cmd(&self, args: &[&str]) -> Command {
         let mut c = Command::new(BIN);
+        c.env_remove("CREWBOARD_WAKE");
         c.arg("lock")
             .args(args)
             .env("HOST_LOCK_HOST", HOST)

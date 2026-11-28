@@ -7,6 +7,7 @@ use std::process::{Command, Output};
 
 fn cb(args: &[&str], env: &[(&str, &str)]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .args(args)
         .env_remove("GH_TOKEN")
         .env_remove("GITHUB_TOKEN")

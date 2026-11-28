@@ -128,6 +128,7 @@ fn r4_an_ancestor_holder_without_a_grant_is_77_at_once_take_and_run_and_the_mess
     c.args(["-c", &script, "sh", BIN, &l, &l])
         .env("HOST_LOCK_HOST", HOST)
         .env("HOST_LOCK_PS_CMD", format!("cat {}", r.s("ps.txt")))
+        .env_remove("CREWBOARD_WAKE")
         .env_remove("CREWBOARD_HOST_LOCK")
         .env_remove("CREWBOARD_HOST_LOCK_PID");
     assert!(c.status().unwrap().success());

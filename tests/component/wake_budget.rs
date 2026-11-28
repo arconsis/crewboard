@@ -45,6 +45,7 @@ fn working(fake: &FakeBoard, c: &Agent, b: &Agent) -> u64 {
 
 fn wake_cmd(fake: &FakeBoard, who: &Agent, state: &Path, extra: &[&str]) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_crewboard"));
+    c.env_remove("CREWBOARD_WAKE");
     c.arg("--config-dir")
         .arg(&who.dir)
         .arg("wake")
@@ -256,6 +257,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_crewboard");
 /// `crewboard lock take` of `dir` for `holder`, as a job without a pid (`--pid 0 --expect 600`).
 fn take_host_lock(dir: &Path, holder: &str) {
     let o = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .args(["lock", "take"])
         .arg(dir)
         .args([

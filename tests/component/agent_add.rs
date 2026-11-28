@@ -168,6 +168,7 @@ impl Setup {
     pub fn run_stdin(&self, args: &[String], env: &[(&str, &str)], input: Option<&str>) -> Out {
         let t = self.tmp.path();
         let mut c = Command::new(env!("CARGO_BIN_EXE_crewboard"));
+        c.env_remove("CREWBOARD_WAKE");
         c.args(args)
             .current_dir(t)
             .env_clear()

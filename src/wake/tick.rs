@@ -10,14 +10,14 @@ impl Flow<'_, '_> {
     ///
     /// A unit with `--runtime` then asks whether a model starts (`Flow::coordinator`). It
     /// gives the tick no checkout: `--work-dir` is the start dir of the model there, and the
-    /// tick of such a unit runs no checks of a `checks:` Gate. Each run says so in the log.
+    /// tick of such a unit runs no checks of a `checks:` Gate. A tick that is not quiet says
+    /// so in the log, with its lines; a quiet tick writes nothing, as in a `--tick` unit.
     /// The tick does not depend on the model: a model command that could not be built is one
-    /// line, and the exit code is the one of the tick.
+    /// log line per run, and the exit code is the one of the tick. Standard error gets that
+    /// line once per error text: a scheduler that mails what a unit writes there must not mail
+    /// at each run.
     pub(super) fn tick(&mut self) -> u8 {
         let model = self.s.model_unit;
-        if model {
-            self.log.line(super::job::NO_CHECKS);
-        }
         let wd = self.s.work_dir.clone().filter(|_| !model);
         let (rc, out) = self.call("tick", &mut |s, o| s.tick(wd.as_deref(), o));
         if let Some(code) = self.signalled() {
@@ -39,15 +39,30 @@ impl Flow<'_, '_> {
             for l in policy::tick_log_lines(&text) {
                 self.log.line(&l);
             }
+            if model {
+                self.log.line(super::job::NO_CHECKS);
+            }
         }
         if !model {
             return 0;
         }
+        let told = &self.s.paths.model_error;
         if let Some(e) = &self.s.model_error {
-            self.log.say(&format!(
+            let line = format!(
                 "the model of this unit cannot start: {e}. The tick ran; repair the unit (crewboard wake install)"
-            ));
+            );
+            // the file holds the error that standard error got: `doctor --setup` shows it
+            let known = crate::wake::state::read_text(told);
+            if known.as_deref() == Some(e.trim_end_matches('\n')) {
+                self.log.line(&line);
+            } else {
+                self.put(told, e.as_bytes());
+                self.log.say(&line);
+            }
             return 0;
+        }
+        if told.exists() {
+            crate::base::ignore::best_effort_cleanup(std::fs::remove_file(told));
         }
         let listed = self.steps.judgment();
         self.coordinator(listed.as_ref(), quiet)

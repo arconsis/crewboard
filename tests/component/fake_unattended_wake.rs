@@ -178,10 +178,11 @@ fn with_the_key_off_the_unit_with_a_runtime_does_what_a_tick_unit_does_and_start
             assert_eq!((a.stdout.as_str(), b.stdout.as_str()), ("", ""));
             assert_eq!((a.stderr.as_str(), b.stderr.as_str()), ("", ""));
         }
-        // the unit with a runtime says in each run that its tick runs no checks; no other line
+        // the unit with a runtime says with a tick that is not quiet that its tick runs no
+        // checks (the first run here); no other line, and a quiet tick adds none
         let note = "its tick runs no checks of a `checks:` Gate";
         let b_lines = log_lines(&state_b);
-        assert_eq!(b_lines.iter().filter(|l| l.contains(note)).count(), 2);
+        assert_eq!(b_lines.iter().filter(|l| l.contains(note)).count(), 1);
         let b_tick: Vec<String> = b_lines.into_iter().filter(|l| !l.contains(note)).collect();
         assert_eq!(log_lines(&state_a), b_tick, "{extra:?}");
         assert!(!log_lines(&state_a).is_empty());
@@ -309,8 +310,13 @@ fn the_model_reads_the_signed_log_and_unblocks_after_the_unread_check_showed_the
         log.contains(&format!("signed: assignee (signed log): {}\n", h.dev.name)),
         "{log}"
     );
-    assert!(log.contains("the API key is missing"), "{log}");
+    assert!(log.contains("    | the API key is missing\n"), "{log}");
     assert!(!log.contains("anything goes"), "{log}");
+    // the wake started a run of the unread check before the model: a mark of an earlier model
+    // run does not count in this one
+    let cache = crewboard::state::StateCache::load(&crate::fake_unattended::state_path(&h));
+    assert!(cache.poll.unread_run >= now, "{}", cache.poll.unread_run);
+    assert_eq!(cache.poll.unread_shown[&k].run, cache.poll.unread_run);
     assert!(
         log.contains("1 comment is not shown: not signed by the crew"),
         "{log}"
@@ -361,6 +367,17 @@ fn a_model_of_a_wake_starts_no_second_wake_gets_no_shell_and_writes_no_heartbeat
             "heartbeat".to_string(),
             "start".to_string(),
             "poll".to_string(),
+            // the units of the scheduler, for the headless dir
+            format!(
+                "wake install --tick --agent-dir '{}' --dry-run",
+                h.headless_dir.path().display()
+            ),
+            format!(
+                "wake uninstall --agent-dir '{}'",
+                h.headless_dir.path().display()
+            ),
+            // a wake for the state dir of the unit itself
+            format!("wake --tick --state-dir '{}'", state.display()),
         ],
     );
     let o = unit(&h, &state, Some((&rt, &wd)));
@@ -389,6 +406,20 @@ fn a_model_of_a_wake_starts_no_second_wake_gets_no_shell_and_writes_no_heartbeat
         );
     }
     assert!(!out(tmp.path(), 4).contains("shell\n"));
+    for i in [8, 9] {
+        assert_eq!(rc(tmp.path(), i), "2", "{i}: {}", out(tmp.path(), i));
+        assert!(
+            out(tmp.path(), i).contains("[rule=headless-scope]"),
+            "{i}: {}",
+            out(tmp.path(), i)
+        );
+    }
+    // the refused wake left a note in its state dir, and the next run of the unit removes it
+    assert_eq!(rc(tmp.path(), 10), "2", "{}", out(tmp.path(), 10));
+    assert!(state.join("inside-wake").exists());
+    let o = unit(&h, &state, Some((&rt, &wd)));
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert!(!state.join("inside-wake").exists());
     // `poll` ran, and wrote no heartbeat
     assert!(
         ["0", "1"].contains(&rc(tmp.path(), 7).as_str()),

@@ -20,6 +20,7 @@ fn write(path: &Path, text: &str, mode: u32) {
 /// of the machine. `env` adds variables.
 fn cb(fake: &FakeBoard, dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Out {
     let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(dir)
         .args(args)
@@ -379,6 +380,7 @@ fn a_config_dir_that_cannot_be_found_fails_closed() {
     // no --config-dir, no CREWBOARD_CONFIG_DIR, no HOME: nothing may fall back to another token
     let (fake, _c, _b) = crew();
     let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("status")
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -567,6 +569,7 @@ fn the_lock_probe_child_gets_the_file_token_and_loses_the_caller_variables() {
     );
     let live = r.live().to_string();
     let o = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&b.dir)
         .args([
@@ -607,6 +610,7 @@ fn lock_run_in_an_agent_dir_gives_the_job_no_token_variable() {
     let d = tempfile::tempdir().unwrap();
     let run = |cfg: &Path| {
         let o = Command::new(BIN)
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(cfg)
             .args([
@@ -653,6 +657,7 @@ fn a_lock_without_a_token_works_with_a_broken_agent_env() {
     write(&b.dir.join("agent.env"), "GH_TOKEN=ghp_test_file\n", 0o644);
     let d = tempfile::tempdir().unwrap();
     let o = Command::new(BIN)
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&b.dir)
         .args([

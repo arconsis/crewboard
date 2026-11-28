@@ -115,7 +115,7 @@ fn done_with_an_unread_coordinator_message_refuses_and_writes_nothing() {
     assert!(text.contains(&format!("issuecomment-{id}")), "{text}");
     // the refusal shows the text of the message: no extra watch call to see it
     assert!(
-        text.contains("    do not change file X, run done now"),
+        text.contains("    | do not change file X, run done now"),
         "{text}"
     );
     assert!(text.contains("crewboard watch --timeout 1m"), "{text}");

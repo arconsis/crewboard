@@ -17,6 +17,7 @@ use std::process::Command;
 /// machine. `env` adds variables.
 fn cb(fake: &FakeBoard, dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Out {
     let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(dir)
         .args(args)

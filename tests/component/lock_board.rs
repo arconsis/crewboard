@@ -19,6 +19,7 @@ fn take_with_board(
     let l = r.s("l");
     let live = r.live().to_string();
     let mut c = std::process::Command::new(BIN);
+    c.env_remove("CREWBOARD_WAKE");
     c.arg("--config-dir")
         .arg(config_dir)
         .args(["lock", "take", &l, "--holder", owner, "--pid", &live])
@@ -122,6 +123,7 @@ fn e6f_e2e_with_a_config_dir_the_check_works_and_without_one_status_says_unavail
     let run = |sub: &str, extra: &[&str]| {
         let l = r.s("m");
         let mut cmd = std::process::Command::new(BIN);
+        cmd.env_remove("CREWBOARD_WAKE");
         cmd.args(["lock", sub, &l])
             .args(extra)
             .current_dir(empty.path())
@@ -179,6 +181,7 @@ fn take_with_env_dir(
     let l = r.s(name);
     let live = r.live().to_string();
     let mut c = std::process::Command::new(BIN);
+    c.env_remove("CREWBOARD_WAKE");
     c.args(["lock", "take", &l, "--holder", "new@x", "--pid", &live])
         .args(extra)
         .env("CREWBOARD_CONFIG_DIR", env_dir)

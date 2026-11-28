@@ -469,6 +469,7 @@ fn a_detached_job_that_ended_wakes_a_quiet_board_once() {
     let result = s.join("results/7.result");
     // the real writer: `lock run --detach --result` (an empty process table: no CI runner)
     let o = std::process::Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&b.dir)
         .args(["lock", "run"])
@@ -627,6 +628,7 @@ fn in12_print_cmd_needs_no_env_file_and_without_home_the_message_names_home() {
     }
     let run = |home: Option<&Path>, env_file: &Path| {
         let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_crewboard"));
+        c.env_remove("CREWBOARD_WAKE");
         c.args(["--config-dir", cfg.to_str().unwrap(), "wake"])
             .args(["--runtime", "codex", "--runtime-bin"])
             .arg(&fake_rt)
@@ -698,6 +700,7 @@ fn the_other_keys_of_the_env_file_reach_the_wake_command_only() {
     std::fs::set_permissions(&board, std::fs::Permissions::from_mode(0o755)).unwrap();
     let child = s.join("child.env");
     let o = std::process::Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&b.dir)
         .arg("wake")

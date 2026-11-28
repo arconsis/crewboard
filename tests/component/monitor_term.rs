@@ -15,6 +15,7 @@ fn term_ends_the_loop_at_once() {
     // a watch that would wait 30 minutes
     let before = fake.requests().len();
     let mut child = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(&b.dir)
         .args(["monitor", "--timeout", "30m", "--interval", "60s"])
@@ -84,6 +85,7 @@ fn spawn_with_path_dir(
         std::env::var("PATH").unwrap_or_default()
     );
     Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(cfg)
         .args([

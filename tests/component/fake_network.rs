@@ -58,6 +58,7 @@ fn poll(base: &str, token: &str) -> Out {
     let tmp = tempfile::tempdir().unwrap();
     agent_dir(tmp.path());
     let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(tmp.path())
         .arg("poll")

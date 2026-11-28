@@ -1165,6 +1165,7 @@ impl FakeBoard {
     /// Run the CLI against this fake. `dir` is the config dir.
     pub fn run(&self, dir: &Path, args: &[&str]) -> Out {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(dir)
             .args(args)
@@ -1185,6 +1186,7 @@ impl FakeBoard {
     /// [`FakeBoard::run`] with extra environment variables and a working directory.
     pub fn run_env(&self, dir: &Path, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Out {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(dir)
             .args(args)

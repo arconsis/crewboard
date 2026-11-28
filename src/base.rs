@@ -7,6 +7,7 @@
 
 pub mod fields;
 pub mod ids;
+pub mod quoted;
 pub mod shell;
 pub use host_lock::ignore;
 mod branch;

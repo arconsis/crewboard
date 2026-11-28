@@ -457,6 +457,7 @@ impl Hub {
     /// hook).
     pub fn run_env(&self, dir: &Path, args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Out {
         let o = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(dir)
             .args(args)
@@ -479,6 +480,7 @@ impl Hub {
     pub fn headless_stdin(&self, args: &[&str], input: &str) -> Out {
         use std::io::Write;
         let mut c = Command::new(env!("CARGO_BIN_EXE_crewboard"))
+            .env_remove("CREWBOARD_WAKE")
             .arg("--config-dir")
             .arg(self.headless_dir.path())
             .args(args)
@@ -518,6 +520,7 @@ impl Hub {
             .iter()
             .map(|args| {
                 Command::new(env!("CARGO_BIN_EXE_crewboard"))
+                    .env_remove("CREWBOARD_WAKE")
                     .arg("--config-dir")
                     .arg(self.headless_dir.path())
                     .args(args)

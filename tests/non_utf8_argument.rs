@@ -16,6 +16,7 @@ use std::process::Command;
 fn run(args: Vec<OsString>) -> std::process::Output {
     let dir = tempfile::tempdir().unwrap();
     Command::new(env!("CARGO_BIN_EXE_crewboard"))
+        .env_remove("CREWBOARD_WAKE")
         .arg("--config-dir")
         .arg(dir.path())
         .args(args)
