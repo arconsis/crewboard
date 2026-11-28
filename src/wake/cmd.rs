@@ -98,8 +98,6 @@ fn make_steps(s: &Settings, global: &crate::ctx::Global) -> Box<dyn Steps> {
     }
 }
 
-/// Run `crewboard wake`. The result is the exit code. A build without Unix process control
-/// refuses in `cli::run` before it gets here.
 #[cfg(unix)]
 /// A `wake` call was refused because `CREWBOARD_WAKE` is set: note the time in the state dir
 /// of the call, for `doctor --setup`. A unit whose own environment has the variable never
@@ -129,6 +127,9 @@ pub fn note_refused_inside_wake(a: &WakeArgs, g: &GlobalFlags) {
     }
 }
 
+/// Run `crewboard wake`. The result is the exit code. A build without Unix process control
+/// refuses in `cli::run` before it gets here.
+#[cfg(unix)]
 pub fn run(a: &WakeArgs, g: &GlobalFlags) -> u8 {
     let clock = SystemClock;
     // A scheduler starts a program with a minimal PATH: add the install dirs of crewboard at the
