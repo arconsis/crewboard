@@ -687,6 +687,13 @@ impl FakeBoard {
         });
     }
 
+    /// [`FakeBoard::issue`] with a body (for example with a `Gate:` line).
+    pub fn issue_with_body(&self, number: u64, labels: &[&str], body: &str) {
+        self.issue(number, labels);
+        let mut st = self.st.lock().unwrap();
+        st.issues.last_mut().expect("the issue").body = body.to_string();
+    }
+
     /// A joined and approved agent: a key, a board item, a signed join request and the
     /// owner's approval in the registry issue (both older than any cursor of the tests), and
     /// a config dir for the CLI. The item is `active`, with a fresh heartbeat and a cursor

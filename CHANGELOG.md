@@ -44,8 +44,46 @@ Added:
   agent, and of a Backlog ticket without an agent that has a Gate when its board item changed.
   Any other value of a key is `authority-bad-front-matter`. Spec:
   `docs/design/spec/agents.md#unattended-coordinator`.
+- Unattended coordinator, the second part: the scope, the budget and the stamp. With
+  `unattended_coordinator: verify` (or `verify-and-merge`, which does the same), a process in
+  a headless config dir may make five judgments: `verify` of a Review ticket whose signed Gate
+  is prose (also `--fail` and `--run-check`), `say --kind answer --to <the assignee>`,
+  `unblock` of a ticket that its agent blocked, `assign <n> --to <agent>` of a free ticket, and
+  `ask`. Each command reads the ticket again and decides from the signed log: it refuses a
+  ticket with an open question to the owner, a stop at the round limit, the label
+  `needs-owner`, a `done` on the owner route, and a board `Agent` or Status that the signed log
+  does not support (`headless-scope`). `unblock` and an answer never withdraw a question to the
+  owner and never release a stop. `assign` needs a ticket that a coordinator announced on the
+  board and that has no assignee in the signed log; `--order` and `--override-capabilities`
+  stay refused. Every signed message of such a command gets the last body line
+  `unattended: <n>/<budget>`; in a headless config dir a text with such a line is refused. The
+  budget: `unattended_budget` verdicts per UTC day, 2 unattended verdicts per ticket until an
+  owner comment or an attended assignment, and 30 stamped messages per day. The new id
+  `unattended-budget` refuses the next one, and also a command that cannot read the count of
+  the day. The counts are noted in the local state before each post, so a deleted or edited
+  comment does not lower them on that host. An answer from a headless config dir does not
+  refresh the coordinator heartbeat. The `tick`'s own `verify` and `merge` are not stamped and not counted.
+  An interactive config dir is not restricted, not stamped and not counted. This part starts no
+  model, and a headless config dir still merges only a ticket whose Gate is `ci`. On the
+  judgment list, a Ready ticket without an agent now needs a signed log that allows Ready (a
+  reassign, or `crewboard move <n> Ready` of the owner). Cost: each judgment makes one more
+  read, the comment feed of the day per repo. Spec:
+  `docs/design/spec/agents.md#the-scope-of-the-unattended-coordinator`.
 
 Changed:
+
+- A headless config dir verifies only a ticket whose signed Gate is `ci`, unless the owner
+  switches the unattended coordinator on. If a model or a script runs `crewboard verify <n>` in
+  a headless config dir (`headless = true`) for a ticket whose Gate is prose, a `checks:` list
+  or missing, that command now ends with the new id `unattended-off` and writes nothing. Until
+  now it passed such a ticket with no budget. To keep that behavior, set
+  `unattended_coordinator: verify` in `AUTHORITY.md` on the default branch: the verify is then
+  limited by the budget and stamped. Else run the verify from the interactive config dir. The
+  headless `tick`, `verify` of a `Gate: ci` ticket and `merge` are as they were. In a headless
+  config dir, `verify --fail`, `verify --run-check`, `unblock`, `ask`, `assign <n> --to <agent>`
+  and `say --kind answer --to <agent>` now end with `unattended-off` and not with
+  `headless-scope`; they load the config and read the ticket before they refuse, and they
+  still write nothing.
 
 - Protected paths and guarded paths: a base branch cannot hide a file. The file list of a PR
   is the diff against its base branch, and the author of the PR chooses that branch. For a PR

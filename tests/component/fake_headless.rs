@@ -64,8 +64,14 @@ fn headless_merge_is_refused_when_authority_does_not_allow_it() {
 #[test]
 fn headless_merge_is_refused_for_a_gate_that_is_not_ci_only() {
     let h = hub(BY_HAND, true);
+    // a verify of a Gate that is not `ci` is a judgment: with the unattended coordinator off, a
+    // headless dir leaves it for the interactive coordinator
     let v = h.headless(&["verify", &t()]);
-    assert_eq!(v.code, 0, "verify has no Gate limit: {}", v.all());
+    assert_eq!(v.code, 2, "{}", v.all());
+    assert!(v.stderr.contains("[rule=unattended-off]"), "{}", v.all());
+    assert!(h.writes().is_empty(), "the refused verify wrote something");
+    let v = h.interactive(&["verify", &t()]);
+    assert_eq!(v.code, 0, "{}", v.all());
     let writes = h.writes().len();
     let m = h.headless(&["merge", &t()]);
     assert_eq!(m.code, 2, "{}", m.all());
@@ -91,14 +97,38 @@ fn headless_refuses_every_out_of_scope_command_before_the_first_request() {
     std::fs::write(body.path(), "Goal: x\nGate: ci\n").unwrap();
     let body = body.path().to_str().unwrap().to_string();
     let cases: Vec<Vec<&str>> = vec![
-        vec!["assign", "5", "--to", "hermes@fake-b"],
+        // a position in a queue and a capability override are never for a headless dir; the
+        // plain `assign --to`, `ask`, `unblock` and an answer are judgments of the unattended
+        // coordinator (`fake_unattended_scope`)
+        vec!["assign", "5", "--to", "hermes@fake-b", "--order", "1"],
+        vec!["assign", "5", "--order", "1"],
+        vec![
+            "assign",
+            "5",
+            "--to",
+            "hermes@fake-b",
+            "--override-capabilities",
+            "--why",
+            "x",
+        ],
         vec!["reassign", "5", "--reason", "late", "--why", "x"],
         vec!["ticket", "new", "--title", "t", "--body-file", &body],
         vec!["ticket", "adopt", "5"],
         vec!["ticket", "split", "5", "--title", "t", "--body-file", &body],
         vec!["say", "5", "--to", "owner", "--kind", "info", "--body", "x"],
-        vec!["ask", "5", "--body", "x"],
-        vec!["unblock", "5"],
+        vec![
+            "say",
+            "5",
+            "--to",
+            "hermes@fake-b",
+            "--kind",
+            "info",
+            "--body",
+            "x",
+        ],
+        vec![
+            "say", "5", "--to", "owner", "--kind", "answer", "--body", "x",
+        ],
         vec!["close", "5", "--verified"],
         vec!["close", "5", "--why", "x"],
         vec!["verify", "5", "--run", "9002"],
@@ -568,7 +598,7 @@ fn the_signed_ci_line_decides_whether_a_ticket_declares_ci_none_and_an_old_ticke
 #[test]
 fn the_guard_refuses_a_write_command_in_a_headless_dir_and_lets_verify_pass() {
     let h = hub(CI_ONLY, true);
-    let o = h.headless(&["assign", "5", "--to", "hermes@fake-b"]);
+    let o = h.headless(&["reassign", "5", "--reason", "late", "--why", "x"]);
     assert_eq!(o.code, 2, "{}", o.all());
     assert!(
         o.stderr.contains("[rule=headless-scope]") && o.stderr.contains("this config is headless"),

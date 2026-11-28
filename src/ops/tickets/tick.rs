@@ -47,7 +47,7 @@
 //! latest `done`), and a refused merge writes nothing.
 
 use super::merge::merge_ticket;
-use super::verify::verify;
+use super::verify::verify_by_tick;
 use super::{Me, me_of, merged_pr, merged_unverified, owner_merge, owner_net};
 use crate::base::{TicketRef, ids};
 use crate::error::{CbError, CbResult};
@@ -382,7 +382,7 @@ fn handle_review(
         // ticket is then as it was loaded.
         if !s.coord.mode.is_off()
             && lines.lines().all(|l| l.starts_with(LEFT))
-            && let Some(n) = crate::ops::unattended::loaded_need(&t)
+            && let Some(n) = crate::ops::unattended::loaded_need(&t, &cache.tick)
         {
             needs.push((tref, n));
         }
@@ -443,7 +443,8 @@ fn judgment_lines(
         if backlog && cache.tick.unattended_not_returned.get(id) == Some(&item.updated_at) {
             continue;
         }
-        match crate::ops::unattended::board_need(ac, s.world, item, &tref) {
+        let floor = crate::ops::unattended::floor_of(&cache.tick, &tref.to_string());
+        match crate::ops::unattended::board_need(ac, s.world, item, &tref, floor) {
             Ok(r) => {
                 if r.not_returned {
                     cache
@@ -851,7 +852,7 @@ fn one_checks(
         must_fail_at: None,
     };
     let note = "tick: the Gate names checks only; the tool ran them on a clean checkout";
-    match verify(ac, key, note, &[], false, None, Some(&run)) {
+    match verify_by_tick(ac, key, note, Some(&run)) {
         Ok(v) => Ok(v),
         // a refusal before the run (the setup, the host, an unprotected file) takes the memo
         // back: nothing ran, so the next tick may try again
@@ -922,13 +923,10 @@ fn one_ci_only(ac: &mut AgentCtx, t: &Ticket, key: &str) -> CbResult<String> {
         Some(true) => {}
         Some(false) => return Ok(left(key, "the verify of the latest done failed")),
         None => {
-            let v = match verify(
+            let v = match verify_by_tick(
                 ac,
                 key,
                 "tick: Gate is CI only; evidence and CI checked by verify",
-                &[],
-                false,
-                None,
                 None,
             ) {
                 Ok(v) => v,

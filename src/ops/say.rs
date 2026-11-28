@@ -113,7 +113,13 @@ pub fn heartbeat_wanted(
 /// can run for a long time, and the scheduler does not tick while it runs: without this the
 /// agent turns stale in the middle of its work, and `reassign --to` refuses it. A failed write
 /// is only a warning: the command itself goes on. Returns true if a heartbeat was written.
+///
+/// In a headless config dir it writes none (spec/agents#unattended-coordinator): a heartbeat of
+/// the unattended coordinator would hide that the interactive coordinator is late.
 pub fn refresh_heartbeat(ac: &AgentCtx, world: &World) -> bool {
+    if ac.ctx.cd.is_headless().unwrap_or(true) {
+        return false;
+    }
     let item = world.items.get(&ac.agent.item_id);
     let now = crate::clock::now_epoch();
     if !heartbeat_wanted(
@@ -144,6 +150,11 @@ pub struct Posted {
 }
 
 /// Sign and post. The caller has checked approval.
+///
+/// The one place that sends a signed message, so it is the one place that writes the stamp of
+/// the unattended coordinator (`ops::unattended::stamp_body`): a command that `admit` let in gets
+/// the line `unattended: <n>/<budget>` as its last body line, and no other command gets it. In a
+/// headless config dir a body that has such a line already is refused.
 #[allow(clippy::too_many_arguments)]
 pub fn send_signed(
     ac: &AgentCtx,
@@ -155,6 +166,8 @@ pub fn send_signed(
     body: &str,
     ts: &str,
 ) -> CbResult<Posted> {
+    check_body_text(body)?;
+    let body = &super::unattended::stamp_body(ac, &TicketRef::new(repo, issue), kind, body)?;
     check_body_text(body)?;
     let issue_ref = crate::protocol::canonical::IssueRef::parse(&format!("{repo}#{issue}"))?;
     let msg = sign_message(
@@ -194,6 +207,7 @@ pub struct SayArgs<'a> {
 
 pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
     check_body_text(&a.body)?;
+    super::unattended::check_no_stamp_line(ac, &a.body)?;
     let re = match a.re {
         Some(r) => Re::parse(r)?,
         None => Re::None,
@@ -213,6 +227,7 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
     let world = load_world(&ac.ctx, std::slice::from_ref(&ac.agent.item_id), &mut cache)?;
     ac.save_cache(&mut cache);
     require_approved(&world, ac.name.as_str())?;
+    answer_unattended(ac, &world, &tref, &a)?;
     refresh_heartbeat(ac, &world);
     // spec/events#unread-messages-on-a-ticket: refuse while a message for the sender is unread on
     // this ticket.
@@ -248,6 +263,42 @@ pub fn run(ac: &AgentCtx, a: SayArgs<'_>) -> CbResult<String> {
         "posted {} -> {} ({}) as comment {} in {}#{}\nref: #{}/c-{}\n{}\n{note}",
         ac.name, a.to, a.kind, p.id, p.repo, p.issue, p.issue, p.id, p.url
     ))
+}
+
+/// In a headless config dir the only `say` is an answer of the unattended coordinator to the
+/// assignee (spec/agents#unattended-coordinator): its mode and its budget are asked, then the
+/// signed log of the ticket. An answer that withdraws a question to the owner is refused: the
+/// owner question stays for the owner. An attended agent passes without a check.
+fn answer_unattended(
+    ac: &AgentCtx,
+    world: &World,
+    tref: &TicketRef,
+    a: &SayArgs<'_>,
+) -> CbResult<()> {
+    use crate::headless::UAct;
+    if !super::unattended::admit(ac, world, UAct::Answer)? {
+        return Ok(());
+    }
+    let to = match &a.to {
+        To::Agent(name) if a.kind == Kind::Answer => name.to_string(),
+        _ => {
+            return Err(crate::headless::unattended_refusal(
+                "the only `say` of the unattended coordinator is `--kind answer --to <the assignee>`",
+            )
+            .into());
+        }
+    };
+    // the reader of the line decides, so the writer and the reader agree
+    if crate::protocol::acts::parse(Some(Kind::Answer), &a.body)
+        == crate::protocol::acts::Act::WithdrawsQuestion
+    {
+        return Err(crate::headless::unattended_refusal(
+            "the answer has the line `withdraws: question`; a question to the owner stays open until the owner answers or the interactive coordinator withdraws it",
+        )
+        .into());
+    }
+    let t = load_ticket(&ac.ctx.reader(), &world.trust, tref)?;
+    super::unattended::check_ticket(ac, UAct::Answer, &t, Some(&to))
 }
 
 /// The warning of `say`: a coordinator sends `kind=info` to the assignee of a Blocked

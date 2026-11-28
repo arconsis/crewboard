@@ -95,12 +95,17 @@ fn read_assignable_issue(ac: &AgentCtx, repo: &str, n: u64) -> CbResult<(IssueIn
 /// The ticket as a `Ticket` with its board item: it is put on the board if it is not there, and
 /// gets the Status Backlog if it has none. Returns the ticket, its status, and whether a signed
 /// info comment named the item.
+///
+/// `unattended`: the caller is the unattended coordinator. Then nothing is put on the board and
+/// no Status is set: the signed log of the ticket decides first
+/// (`ops::unattended::check_ticket`), and a ticket that no coordinator announced is refused.
 fn ticket_on_board(
     ac: &mut AgentCtx,
     world: &World,
     me: &Me,
     info: IssueInfo,
     (repo, n): (&str, u64),
+    unattended: bool,
     out: &mut String,
 ) -> CbResult<(Ticket, Status, bool)> {
     let (comments, msgs) = read_messages(&ac.ctx.reader(), &world.trust, repo, n)?;
@@ -115,6 +120,12 @@ fn ticket_on_board(
     let signed = find_item_id(&msgs);
     let item_id = match &signed {
         Some(id) => id.clone(),
+        None if unattended => {
+            return Err(crate::headless::unattended_refusal(&format!(
+                "no signed message of a coordinator puts {repo}#{n} on the board"
+            ))
+            .into());
+        }
         None => put_on_board(ac, me, &info, repo, None, out)?,
     };
     let item = ac.ctx.board.read_item(&ac.ctx.client, &item_id)?;
@@ -129,6 +140,9 @@ fn ticket_on_board(
         msgs,
         late,
     };
+    if unattended {
+        crate::ops::unattended::check_ticket(ac, crate::headless::UAct::Assign, &t, None)?;
+    }
     let status = match t.item.get(Field::Status) {
         None => {
             check_status_transition(None, Status::Backlog, me.actor, &Transition::Create)?;
@@ -304,6 +318,13 @@ pub fn assign(
             assignee_active_dev: true,
         },
     )?;
+    // The unattended coordinator (a headless config dir): its mode and its budget first. It
+    // assigns with `--to` alone; the scope refuses the other forms before any request, and this
+    // check holds when a caller comes another way.
+    let unattended = crate::ops::unattended::admit(ac, &world, crate::headless::UAct::Assign)?;
+    if unattended && (order.is_some() || ov.flag) {
+        return Err(crate::headless::refusal("assign", crate::headless::DENY_ASSIGN_ARGS).into());
+    }
     let (info, gate) = read_assignable_issue(ac, &tref.repo, tref.issue)?;
     check_assignable(ac, &world, to_name.as_str())?;
     // spec/profiles#requirements-and-matching: before anything is written to the board
@@ -314,8 +335,17 @@ pub fn assign(
     let override_lines = format!("{override_lines}{route_lines}");
     let mut out = format!("{cap_out}{route_out}");
 
-    let (t, status, signed) =
-        ticket_on_board(ac, &world, &me, info, (&tref.repo, tref.issue), &mut out)?;
+    let (t, status, signed) = ticket_on_board(
+        ac,
+        &world,
+        &me,
+        info,
+        (&tref.repo, tref.issue),
+        unattended,
+        &mut out,
+    )?;
+    // `check_ticket` refused a ticket with an assignee in the signed log, so a queued ticket
+    // does not get here for the unattended coordinator.
     if is_queued(&t, status, signed) {
         let q = Queued {
             to: &to_name,

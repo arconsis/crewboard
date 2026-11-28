@@ -9,12 +9,13 @@ use super::{
     TicketAction, WatchCmd,
 };
 use crate::error::CbResult;
-use crate::headless::{self, ScopeVerdict};
+use crate::headless::{self, ScopeVerdict, UAct};
+use crate::protocol::names::{Kind, To};
 
 /// The verdict of a command for a headless coordinator. There is no catch-all arm: a new
 /// command does not compile until someone decides its verdict.
 pub(super) fn verdict(c: &Command) -> ScopeVerdict {
-    use ScopeVerdict::{Allow, Deny};
+    use ScopeVerdict::{Allow, Deny, Unattended};
     match c {
         // read-only, or the liveness of the agent itself
         Command::Watch(WatchCmd::Watch { .. })
@@ -101,25 +102,23 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         Command::Review(ReviewCmd::Tick { .. }) => Allow,
         Command::Crew(CrewCmd::Resume { agent: None, .. }) => Allow,
         Command::Crew(CrewCmd::Resume { agent: Some(_), .. }) => Deny(headless::DENY_OWNER),
-        // `verify --fail` records the coordinator's own Gate check, a judgment
-        Command::Review(ReviewCmd::Verify { fail: true, .. }) => Deny(headless::DENY_GATE_FAIL),
         // `verify --local-run` records the coordinator's own local run (`ci_mode: local`)
         Command::Review(ReviewCmd::Verify {
             local_run: Some(_), ..
         }) => Deny(headless::DENY_LOCAL_GATE),
-        // `verify --run-check` passes a ticket whose Gate is more than CI: not in the scope yet
-        Command::Review(ReviewCmd::Verify { run_check, .. }) if !run_check.is_empty() => {
-            Deny(headless::DENY_RUN_CHECK)
-        }
-        // the two actions of the scope
+        // a run that is named by hand: the Gate is not CI only, and the unattended coordinator
+        // names no run either
         Command::Review(ReviewCmd::Verify { runs, .. })
-        | Command::Review(ReviewCmd::Merge { runs, .. }) => {
-            if runs.is_empty() {
-                Allow
-            } else {
-                Deny(headless::DENY_RUN)
-            }
+        | Command::Review(ReviewCmd::Merge { runs, .. })
+            if !runs.is_empty() =>
+        {
+            Deny(headless::DENY_RUN)
         }
+        // `verify` of a ticket whose signed Gate is `ci` is no judgment. Any other `verify`
+        // (another Gate, `--fail`, `--run-check`) is one: the command asks the mode of the
+        // unattended coordinator, after it read the signed Gate
+        Command::Review(ReviewCmd::Verify { .. }) => Unattended(UAct::Verdict),
+        Command::Review(ReviewCmd::Merge { .. }) => Allow,
         // a bare `close` ends a ticket whose PR the owner merged by hand. It is no
         // judgment (the owner's merge is the fact), so `tick` does it too. `close --why` and
         // `close --verified` are judgments of the coordinator, so `tick` never does them.
@@ -132,12 +131,27 @@ pub(super) fn verdict(c: &Command) -> ScopeVerdict {
         | Command::Crew(CrewCmd::Join { .. })
         | Command::Crew(CrewCmd::Approve { .. })
         | Command::Crew(CrewCmd::Move { .. }) => Deny(headless::DENY_OWNER),
+        // the judgments of the unattended coordinator: the command asks its mode, its budget
+        // and the signed log of the ticket (spec/agents#unattended-coordinator)
+        Command::Dev(DevCmd::Say {
+            kind: Kind::Answer,
+            to: To::Agent(_),
+            ..
+        }) => Unattended(UAct::Answer),
+        Command::Dev(DevCmd::Ask { .. }) => Unattended(UAct::Ask),
+        Command::Plan(PlanCmd::Unblock { .. }) => Unattended(UAct::Unblock),
+        Command::Plan(PlanCmd::Assign {
+            to: Some(_),
+            order: None,
+            override_capabilities: false,
+            ..
+        }) => Unattended(UAct::Assign),
+        // a position in a queue and a capability override are decisions about the plan
+        Command::Plan(PlanCmd::Assign { to: Some(_), .. }) => Deny(headless::DENY_ASSIGN_ARGS),
         Command::Dev(DevCmd::Say { .. })
         | Command::Dev(DevCmd::Take { .. })
         | Command::Dev(DevCmd::Done { .. })
         | Command::Dev(DevCmd::Block { .. })
-        | Command::Dev(DevCmd::Ask { .. })
-        | Command::Plan(PlanCmd::Unblock { .. })
         | Command::Plan(PlanCmd::Assign { .. })
         | Command::Plan(PlanCmd::Reassign { .. })
         | Command::Review(ReviewCmd::ReportStatus { .. })
@@ -181,109 +195,156 @@ mod tests {
         Cli::try_parse_from(v).unwrap().command
     }
 
-    /// Every command with its verdict. `None` means allowed.
-    const TABLE: &[(&[&str], bool)] = &[
-        (&["init", "--initiative", "d", "--repo", "a/b"], false),
+    /// The verdict of a command in the table, in its three states.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum V {
+        /// Allowed in a headless dir.
+        Allow,
+        /// Refused in a headless dir with `headless-scope`, before any request.
+        Deny,
+        /// The command asks the mode of the unattended coordinator: `unattended-off` with the
+        /// mode `off`, and the checks of the act with any other mode.
+        Mode(UAct),
+    }
+    use V::{Allow as A, Deny as D};
+
+    fn state(v: &ScopeVerdict) -> V {
+        match v {
+            ScopeVerdict::Allow => V::Allow,
+            ScopeVerdict::Deny(_) => V::Deny,
+            ScopeVerdict::Unattended(a) => V::Mode(*a),
+        }
+    }
+
+    /// Every command with its verdict.
+    const TABLE: &[(&[&str], V)] = &[
+        (&["init", "--initiative", "d", "--repo", "a/b"], D),
         (
             &["join", "--agent", "claude@host-a", "--runtime", "claude"],
-            false,
+            D,
         ),
-        (&["approve", "hermes@host-b"], false),
-        (&["start"], true),
-        (&["watch"], true),
-        (&["monitor"], true),
-        (&["poll", "--quiet"], true),
-        (&["say", "1", "--to", "owner", "--kind", "info"], false),
-        (&["take", "1"], false),
+        (&["approve", "hermes@host-b"], D),
+        (&["start"], A),
+        (&["watch"], A),
+        (&["monitor"], A),
+        (&["poll", "--quiet"], A),
+        (&["say", "1", "--to", "owner", "--kind", "info"], D),
+        // an answer to an agent is a judgment of the unattended coordinator; no other `say` is
         (
-            &["done", "1", "--pr", "https://github.com/a/b/pull/1"],
-            false,
+            &["say", "1", "--to", "hermes@host-b", "--kind", "answer"],
+            V::Mode(UAct::Answer),
         ),
-        (&["block", "1", "--why", "x"], false),
-        (&["ask", "1", "--body", "x"], false),
-        (&["unblock", "1"], false),
-        (&["assign", "1", "--to", "hermes@host-b"], false),
+        (&["say", "1", "--to", "owner", "--kind", "answer"], D),
+        (&["say", "1", "--to", "coordinator", "--kind", "answer"], D),
+        (&["say", "1", "--to", "hermes@host-b", "--kind", "info"], D),
         (
-            &["ticket", "new", "--title", "t", "--body-file", "f"],
-            false,
+            &["say", "1", "--to", "hermes@host-b", "--kind", "request"],
+            D,
         ),
-        (&["ticket", "adopt", "1"], false),
+        (&["take", "1"], D),
+        (&["done", "1", "--pr", "https://github.com/a/b/pull/1"], D),
+        (&["block", "1", "--why", "x"], D),
+        (&["ask", "1", "--body", "x"], V::Mode(UAct::Ask)),
+        (&["unblock", "1"], V::Mode(UAct::Unblock)),
+        (&["unblock", "1", "--body", "x"], V::Mode(UAct::Unblock)),
+        (
+            &["assign", "1", "--to", "hermes@host-b"],
+            V::Mode(UAct::Assign),
+        ),
+        // a queue position and a capability override are for the interactive coordinator
+        (&["assign", "1", "--to", "hermes@host-b", "--order", "3"], D),
+        (&["assign", "1", "--order", "3"], D),
+        (
+            &[
+                "assign",
+                "1",
+                "--to",
+                "hermes@host-b",
+                "--override-capabilities",
+                "--why",
+                "x",
+            ],
+            D,
+        ),
+        (&["ticket", "new", "--title", "t", "--body-file", "f"], D),
+        (&["ticket", "adopt", "1"], D),
         (
             &["ticket", "split", "1", "--title", "t", "--body-file", "f"],
-            false,
+            D,
         ),
-        (&["verify", "1"], true),
-        (&["verify", "1", "--run", "9"], false),
-        (&["verify", "1", "--fail", "--body", "x"], false),
-        (&["verify", "1", "--body", "x"], true),
-        // a run of checks by the command is not in the scope, with or without a red run
-        (&["verify", "1", "--run-check", "a"], false),
+        // `verify` reads the signed Gate first: a `ci` Gate needs no mode, any other does
+        (&["verify", "1"], V::Mode(UAct::Verdict)),
+        (&["verify", "1", "--run", "9"], D),
+        (
+            &["verify", "1", "--fail", "--body", "x"],
+            V::Mode(UAct::Verdict),
+        ),
+        (&["verify", "1", "--fail", "--body", "x", "--run", "9"], D),
+        (&["verify", "1", "--body", "x"], V::Mode(UAct::Verdict)),
+        (&["verify", "1", "--run-check", "a"], V::Mode(UAct::Verdict)),
         (
             &["verify", "1", "--run-check", "a", "--must-fail-at", "abc"],
-            false,
+            V::Mode(UAct::Verdict),
         ),
-        (
-            &["verify", "1", "--local-run", "host-a: make test rc=0"],
-            false,
-        ),
-        (&["merge", "1"], true),
-        (&["merge", "1", "--run", "9"], false),
-        (&["close", "1"], true),
-        (&["close", "1", "--why", "x"], false),
-        (&["close", "1", "--verified"], false),
-        (&["reassign", "1", "--reason", "dead"], false),
-        (&["report-status", "--health", "on-track"], false),
-        (&["prune"], false),
-        (&["pause"], false),
-        (&["pause", "--agent", "hermes@host-b"], false),
-        (&["resume"], true),
-        (&["resume", "--agent", "hermes@host-b"], false),
-        (&["stop"], false),
-        (&["status"], true),
-        (&["mine", "--quiet"], true),
-        (&["acted", "--events-file", "/x/events.txt"], true),
-        (&["heartbeat"], true),
-        (&["tick"], true),
-        (&["audit"], true),
-        (&["retro", "--since", "24h"], true),
+        (&["verify", "1", "--local-run", "host-a: make test rc=0"], D),
+        (&["merge", "1"], A),
+        (&["merge", "1", "--run", "9"], D),
+        (&["close", "1"], A),
+        (&["close", "1", "--why", "x"], D),
+        (&["close", "1", "--verified"], D),
+        (&["reassign", "1", "--reason", "dead"], D),
+        (&["report-status", "--health", "on-track"], D),
+        (&["prune"], D),
+        (&["pause"], D),
+        (&["pause", "--agent", "hermes@host-b"], D),
+        (&["resume"], A),
+        (&["resume", "--agent", "hermes@host-b"], D),
+        (&["stop"], D),
+        (&["status"], A),
+        (&["mine", "--quiet"], A),
+        (&["acted", "--events-file", "/x/events.txt"], A),
+        (&["heartbeat"], A),
+        (&["tick"], A),
+        (&["audit"], A),
+        (&["retro", "--since", "24h"], A),
         // the owner moves a ticket by hand; a model must not write the owner's word
-        (&["move", "7", "Ready"], false),
-        (&["doctor"], true),
+        (&["move", "7", "Ready"], D),
+        (&["doctor"], A),
         // the host lock changes files of the host, not the board
-        (&["lock", "status", "/x/lock.d"], true),
+        (&["lock", "status", "/x/lock.d"], A),
         (
             &["lock", "run", "/x/lock.d", "--holder", "a@x", "--", "true"],
-            true,
+            A,
         ),
-        (&["skill", "install"], false),
-        (&["skill", "path"], true),
-        (&["update", "--check"], false),
+        (&["skill", "install"], D),
+        (&["skill", "path"], A),
+        (&["update", "--check"], D),
         // the wake polls the board and runs the wake command of the agent's scheduler
-        (&["wake", "--wake-cmd", "true"], true),
-        (&["wake", "--tick"], true),
+        (&["wake", "--wake-cmd", "true"], A),
+        (&["wake", "--tick"], A),
         // the events hook of a wake reads the board and appends to the events file of the wake
-        (&["hook", "post-tool-use", "--every", "0"], true),
+        (&["hook", "post-tool-use", "--every", "0"], A),
         // the gate runs a command of the repo and writes no board field
-        (&["repeat", "--times", "1", "--", "true"], true),
+        (&["repeat", "--times", "1", "--", "true"], A),
         // it runs commands of AUTHORITY.md, as `tick` does, and writes nothing
-        (&["check", "fmt"], true),
-        (&["check", "fmt", "--must-fail-at", "abc"], true),
+        (&["check", "fmt"], A),
+        (&["check", "fmt", "--must-fail-at", "abc"], A),
         // the command lines of a local file: owner work
-        (&["check", "--authority-file", "draft.md"], false),
+        (&["check", "--authority-file", "draft.md"], D),
         // local work: a shell setup, or a command that its own guard judges
-        (&["agent", "env"], true),
+        (&["agent", "env"], A),
         // it writes the env file of the agent account: a model must not change it
-        (&["agent", "token", "--initiative", "x"], false),
+        (&["agent", "token", "--initiative", "x"], D),
         // the moved commands keep the verdict of their old names
-        (&["agent", "selftest"], true),
-        (&["agent", "profile", "show"], true),
-        (&["agent", "profile", "set", "--tag", "x"], false),
-        (&["status", "--agents", "--can", "x86_64"], true),
-        (&["monitor", "--max-cycles", "1"], true),
-        (&["agent", "exec", "--", "true"], true),
+        (&["agent", "selftest"], A),
+        (&["agent", "profile", "show"], A),
+        (&["agent", "profile", "set", "--tag", "x"], D),
+        (&["status", "--agents", "--can", "x86_64"], A),
+        (&["monitor", "--max-cycles", "1"], A),
+        (&["agent", "exec", "--", "true"], A),
         (
             &["agent", "with-env", "--env-file", "/x/a.env", "--", "true"],
-            true,
+            A,
         ),
     ];
 
@@ -291,7 +352,7 @@ mod tests {
     fn the_verdict_of_every_command_is_the_table() {
         for (argv, allowed) in TABLE {
             let v = verdict(&cmd(argv));
-            assert_eq!(v == ScopeVerdict::Allow, *allowed, "{argv:?}: {v:?}");
+            assert_eq!(state(&v), *allowed, "{argv:?}: {v:?}");
         }
         // every subcommand of the command tree is in the table
         use clap::CommandFactory;
@@ -306,13 +367,13 @@ mod tests {
 
     #[test]
     fn the_refusal_names_the_rule_the_command_and_what_to_do() {
-        let c = cmd(&["assign", "1", "--to", "hermes@host-b"]);
+        let c = cmd(&["reassign", "1", "--reason", "dead"]);
         let ScopeVerdict::Deny(why) = verdict(&c) else {
-            panic!("assign must be refused")
+            panic!("reassign must be refused")
         };
         let r = headless::refusal(c.name(), why);
         assert_eq!(r.rule, "headless-scope");
-        assert!(r.message.contains("`assign`") && r.message.contains("interactive"));
+        assert!(r.message.contains("`reassign`") && r.message.contains("interactive"));
         assert_eq!(
             r.to_string().split(']').next().unwrap(),
             "refused [rule=headless-scope"
@@ -333,10 +394,12 @@ mod tests {
         let headless = dir_with_agent_config("headless = true");
         let interactive = dir_with_agent_config("# interactive");
         let denied = [
-            vec!["assign", "1", "--to", "hermes@host-b"],
+            vec!["assign", "1", "--to", "hermes@host-b", "--order", "3"],
+            vec!["assign", "1", "--order", "3"],
             vec!["reassign", "1", "--reason", "dead"],
             vec!["ticket", "adopt", "1"],
             vec!["say", "1", "--to", "owner", "--kind", "info"],
+            vec!["verify", "1", "--run", "9"],
         ];
         for argv in &denied {
             let c = cmd(argv);
@@ -350,17 +413,34 @@ mod tests {
             assert!(guard(&c, Some(interactive.path())).is_ok(), "{argv:?}");
         }
         // the allowed commands pass in the headless dir, too
-        for argv in [vec!["verify", "1"], vec!["merge", "1"], vec!["status"]] {
+        for argv in [vec!["merge", "1"], vec!["status"]] {
             assert!(
                 guard(&cmd(&argv), Some(headless.path())).is_ok(),
                 "{argv:?}"
             );
         }
+        // the guard lets a judgment of the unattended coordinator pass: the command decides
+        // after it loaded its context (the mode, the budget, the signed log of the ticket)
+        for argv in [
+            vec!["verify", "1"],
+            vec!["verify", "1", "--fail", "--body", "x"],
+            vec!["say", "1", "--to", "hermes@host-b", "--kind", "answer"],
+            vec!["unblock", "1"],
+            vec!["ask", "1", "--body", "x"],
+            vec!["assign", "1", "--to", "hermes@host-b"],
+        ] {
+            let c = cmd(&argv);
+            assert!(
+                matches!(verdict(&c), ScopeVerdict::Unattended(_)),
+                "{argv:?}"
+            );
+            assert!(guard(&c, Some(headless.path())).is_ok(), "{argv:?}");
+        }
         // a config dir without any agent config is not headless
         let empty = tempfile::tempdir().unwrap();
         assert!(
             guard(
-                &cmd(&["assign", "1", "--to", "hermes@host-b"]),
+                &cmd(&["reassign", "1", "--reason", "dead"]),
                 Some(empty.path())
             )
             .is_ok()
@@ -371,7 +451,7 @@ mod tests {
     fn a_headless_value_that_is_not_a_boolean_refuses_with_a_config_error_not_silence() {
         let bad = dir_with_agent_config("headless = \"yes\"");
         let e = guard(
-            &cmd(&["assign", "1", "--to", "hermes@host-b"]),
+            &cmd(&["reassign", "1", "--reason", "dead"]),
             Some(bad.path()),
         )
         .unwrap_err();

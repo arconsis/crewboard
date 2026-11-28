@@ -651,7 +651,7 @@ pub enum ReviewCmd {
         #[arg(long)]
         body: Option<String>,
         /// Your own Gate check failed although the evidence holds: record a failed verify with
-        /// the body as the failure (needs --body; not for a headless coordinator).
+        /// the body as the failure (needs --body).
         #[arg(long)]
         fail: bool,
         /// A CI run that is part of the evidence (spec/ci#which-ci-runs-count); see `done --run`.

@@ -19,25 +19,25 @@ use crewboard::rules::Role;
 use crewboard::state::StateCache;
 use std::path::PathBuf;
 
-const BY_HAND: &str = "Goal: fix it\nGate: the demo runs\n";
-const GATE: &str = "the demo runs";
+pub(crate) const BY_HAND: &str = "Goal: fix it\nGate: the demo runs\n";
+pub(crate) const GATE: &str = "the demo runs";
 const NEEDS: &str = "needs judgment: ";
-const VERIFY: &str = "unattended_coordinator: verify\n";
+pub(crate) const VERIFY: &str = "unattended_coordinator: verify\n";
 /// The start of the line of the tick with the mode and the verdicts.
 const COUNT: &str = "unattended coordinator: mode ";
 /// The second dev agent of these tests.
-const OTHER: &str = "codex@fake-c";
+pub(crate) const OTHER: &str = "codex@fake-c";
 
-fn key(n: u64) -> String {
+pub(crate) fn key(n: u64) -> String {
     format!("{REPO}#{n}")
 }
 
-fn item_of(n: u64) -> String {
+pub(crate) fn item_of(n: u64) -> String {
     format!("PVTI_issue_{n}")
 }
 
 /// One more ticket: the issue `n`, its board item and the signed info comment that names it.
-fn ticket(h: &Hub, n: u64, status: &str, agent: bool) {
+pub(crate) fn ticket(h: &Hub, n: u64, status: &str, agent: bool) {
     h.board.issue(n, &["crew:work"]);
     let mut fields = vec![("Status", status), ("Gate", "from the body")];
     if agent {
@@ -54,20 +54,20 @@ fn ticket(h: &Hub, n: u64, status: &str, agent: bool) {
 }
 
 /// A message of the coordinator on the ticket `n`. Returns the comment id.
-fn coord(h: &Hub, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
+pub(crate) fn coord(h: &Hub, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
     h.board
         .signed_now(&h.coord.key, &h.coord.name, to, kind, n, body)
         .0
 }
 
 /// A message of the dev agent on the ticket `n`. Returns the comment id.
-fn dev(h: &Hub, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
+pub(crate) fn dev(h: &Hub, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
     h.board
         .signed_now(&h.dev.key, &h.dev.name, to, kind, n, body)
         .0
 }
 
-fn assign(h: &Hub, n: u64) {
+pub(crate) fn assign(h: &Hub, n: u64) {
     let body = format!(
         "Assigned to you: Fix it\nticket: {}\nitem={}\ngate: {GATE}\n",
         key(n),
@@ -77,7 +77,7 @@ fn assign(h: &Hub, n: u64) {
 }
 
 /// A `done` of the dev agent with the evidence of the fake PR, and `extra` lines after it.
-fn done(h: &Hub, n: u64, extra: &str) -> u64 {
+pub(crate) fn done(h: &Hub, n: u64, extra: &str) -> u64 {
     let body = format!(
         "Done. Evidence follows.\npr: https://github.com/{REPO}/pull/{PR}\nsha: {SHA}\nci: https://github.com/{REPO}/actions/runs/9002\n{extra}"
     );
@@ -85,18 +85,18 @@ fn done(h: &Hub, n: u64, extra: &str) -> u64 {
 }
 
 /// A message of the agent `a` on the ticket `n`.
-fn by(h: &Hub, a: &Agent, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
+pub(crate) fn by(h: &Hub, a: &Agent, n: u64, to: &str, kind: Kind, body: &str) -> u64 {
     h.board.signed_now(&a.key, &a.name, to, kind, n, body).0
 }
 
 /// A verify result of the coordinator for the `done` in the comment `done`, with `extra` lines
 /// after it, created now. Returns the comment id.
-fn verdict(h: &Hub, n: u64, done: u64, extra: &str) -> u64 {
+pub(crate) fn verdict(h: &Hub, n: u64, done: u64, extra: &str) -> u64 {
     verdict_ago(h, n, done, extra, 0)
 }
 
 /// [`verdict`], created `ago` seconds ago.
-fn verdict_ago(h: &Hub, n: u64, done: u64, extra: &str, ago: i64) -> u64 {
+pub(crate) fn verdict_ago(h: &Hub, n: u64, done: u64, extra: &str, ago: i64) -> u64 {
     h.board.signed_re_ago(
         &h.coord.key,
         &h.coord.name,
@@ -109,11 +109,11 @@ fn verdict_ago(h: &Hub, n: u64, done: u64, extra: &str, ago: i64) -> u64 {
     )
 }
 
-fn stamp(n: u32) -> String {
+pub(crate) fn stamp(n: u32) -> String {
     format!("{}\n", unattended_line(n, 10))
 }
 
-fn hub() -> Hub {
+pub(crate) fn hub() -> Hub {
     Hub::new(Scenario {
         body: BY_HAND,
         may_merge: true,
@@ -129,7 +129,7 @@ fn hub() -> Hub {
 /// - 8: Blocked, stopped at the round limit: not on the list.
 /// - 9: Review, the `done` names a protected path: not on the list.
 /// - 10: Review, two unattended verdicts and a new `done`: not on the list.
-/// - 11: Ready without an agent, never assigned: on the list.
+/// - 11: Ready without an agent, never assigned; the owner moved it to Ready: on the list.
 /// - 12: Backlog, returned by a reassign: on the list.
 /// - 13: Backlog, never assigned: not on the list.
 /// - 14: Ready with an agent: not on the list.
@@ -190,6 +190,8 @@ fn board() -> Hub {
     done(&h, 10, "");
 
     ticket(&h, 11, "Ready", false);
+    // the owner moved it to Ready: the signed log allows the Status
+    h.board.owner_comment(11, "/crew move Ready");
 
     ticket(&h, 12, "Backlog", false);
     assign(&h, 12);
@@ -266,7 +268,7 @@ fn listed() -> Vec<String> {
     ]
 }
 
-fn tick(h: &Hub) -> Out {
+pub(crate) fn tick(h: &Hub) -> Out {
     let o = h.headless(&["tick"]);
     assert_eq!(o.code, 0, "{}", o.all());
     o
@@ -298,14 +300,14 @@ fn needs(o: &Out) -> Vec<&str> {
 }
 
 /// The lines of the tick about the unattended coordinator.
-fn coord_lines(o: &Out) -> Vec<&str> {
+pub(crate) fn coord_lines(o: &Out) -> Vec<&str> {
     o.stdout
         .lines()
         .filter(|l| l.starts_with("unattended"))
         .collect()
 }
 
-fn count_text(mode: &str, n: u32, b: u32) -> String {
+pub(crate) fn count_text(mode: &str, n: u32, b: u32) -> String {
     format!("{COUNT}{mode}; verdicts {n}/{b} today")
 }
 
@@ -324,7 +326,7 @@ fn lefts() -> String {
 
 /// Wait when the UTC day ends within the next 30 seconds, so the messages and the ticks of one
 /// test are of one day.
-fn settle_day() {
+pub(crate) fn settle_day() {
     let left = 86_400 - now_epoch().rem_euclid(86_400);
     if left <= 30 {
         std::thread::sleep(std::time::Duration::from_secs(left as u64 + 1));
@@ -332,7 +334,7 @@ fn settle_day() {
 }
 
 /// The state file of the headless config dir.
-fn state_path(h: &Hub) -> PathBuf {
+pub(crate) fn state_path(h: &Hub) -> PathBuf {
     let name = AgentName::parse(&h.coord.name).unwrap();
     ConfigDir(h.headless_dir.path().to_path_buf()).state_path("fake", &name)
 }
@@ -535,6 +537,8 @@ fn the_cost_of_the_key_verify_per_tick() {
         ticket(&h, n, "Backlog", false);
     }
     ticket(&h, 14, "Ready", false);
+    // the owner moved it to Ready: the signed log allows the Status
+    h.board.owner_comment(14, "/crew move Ready");
     tick(&h);
     let (_, off) = tick_requests(&h);
     h.set_authority_extra(VERIFY);

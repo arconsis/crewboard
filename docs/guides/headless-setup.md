@@ -115,7 +115,7 @@ The output must have `per-dir key: headless = true in <config dir>` and
 `headless scope: per-dir key only (guardrail)`. Then check that an out-of-scope command is refused:
 
 ```
-sudo -u cb-headless -H /usr/local/bin/crewboard assign 1 --to <agent>
+sudo -u cb-headless -H /usr/local/bin/crewboard reassign 1 --reason late --why test
 ```
 
 It must print `refused [rule=headless-scope]` and exit 2, with no request to GitHub.

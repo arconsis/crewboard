@@ -203,10 +203,18 @@ pub struct TickState {
     pub digest_day: Option<String>,
     /// A floor of the verdict count of the unattended coordinator
     /// (spec/agents#unattended-coordinator): a UTC day (`YYYY-MM-DD`) and a count of that day.
-    /// It is for a command that posts a verdict and notes the count first. No command of this
-    /// version writes it; the tick reads it and never takes a count below it.
+    /// A command of the unattended coordinator notes the count here before it posts a verdict,
+    /// so a comment that is deleted or edited later does not lower the count of this host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattended_floor: Option<(String, u32)>,
+    /// The same floor for the stamped messages of the day (verdicts and other messages).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended_messages_floor: Option<(String, u32)>,
+    /// `<repo>#<issue>` -> a floor of the unattended verdicts on that ticket, noted before the
+    /// post of a verdict. A deleted or edited verdict does not lower the count of the ticket on
+    /// this host.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unattended_tickets: BTreeMap<String, TicketFloor>,
     /// The board items of the judgment list whose ticket a scan of the issues did not find.
     /// The tick scans again only when an item that is not in this list appears.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -223,6 +231,19 @@ pub struct TickState {
     pub unattended_not_returned: BTreeMap<String, String>,
 }
 
+/// A floor of the unattended verdicts on one ticket ([`TickState::unattended_tickets`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TicketFloor {
+    /// The verdicts on the ticket with the one that the command was about to post.
+    pub count: u32,
+    /// The highest comment id of the ticket when the floor was noted. A message that starts the
+    /// count again (an owner comment, an assignment without the `unattended:` line) and has a
+    /// higher id ends the floor.
+    pub after: u64,
+    /// When the floor was noted (Unix seconds). An old floor is forgotten.
+    pub at: i64,
+}
+
 /// One read of the comment feed of a repo for the verdict count ([`TickState::unattended_feed`]).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UnattendedFeed {
@@ -235,6 +256,9 @@ pub struct UnattendedFeed {
     pub verdicts: u32,
     /// The highest `n` of a valid `unattended:` line, never below an earlier read of the day.
     pub highest: u32,
+    /// The stamped messages that the read counted, never below an earlier read of the day.
+    #[serde(default)]
+    pub messages: u32,
 }
 
 /// The owner-route safety net.

@@ -377,6 +377,18 @@ fn a_headless_coordinator_never_acts_on_a_ticket_with_an_open_question() {
     run_ok(&fake, &b, &["ask", &k.ts, "--body", "And the docs?"]);
     let headless = tempfile::tempdir().unwrap();
     crate::support::headless::copy_headless(&c, headless.path());
+    // the Gate of this ticket is prose: with the unattended coordinator off, a headless verify
+    // is refused whatever the ticket is
+    let before = writes(&fake);
+    let o = fake.run(headless.path(), &["verify", k.ts.as_str()]);
+    assert_eq!(o.code, 2, "{}", o.all());
+    assert!(o.stderr.contains("[rule=unattended-off]"), "{}", o.all());
+    assert_eq!(writes(&fake), before, "{}", o.all());
+    // with the unattended coordinator on, the open question refuses the verify
+    fake.file(
+        "AUTHORITY.md",
+        &AUTHORITY.replacen("---\n", "---\nunattended_coordinator: verify\n", 1),
+    );
     for args in [vec!["verify", k.ts.as_str()], vec!["merge", k.ts.as_str()]] {
         let before = writes(&fake);
         let o = fake.run(headless.path(), &args);

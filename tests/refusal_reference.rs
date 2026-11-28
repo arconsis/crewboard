@@ -56,6 +56,10 @@ const NOT_REFUSALS: &[(&str, &str)] = &[
     ("ssh-keygen", "a program"),
     ("tags-ignore", "a workflow trigger key of GitHub Actions"),
     ("unknown-sender", "an event reason"),
+    (
+        "verify-and-merge",
+        "a value of `unattended_coordinator` in AUTHORITY.md",
+    ),
     ("you-agents", "an example account name"),
 ];
 
