@@ -2,7 +2,14 @@
 
 This file lists the changes of crewboard, one section for each release.
 
-## Unreleased
+## v0.13.0 (2026-11-28)
+
+Upgrade: run `crewboard update` on each host. Nothing changes on the board. Two behaviours
+change (see "Changed"). A scheduled agent that runs `repeat` needs its wake installed with
+`--host-lock <dir>` and `repeat --lock <dir>`. An `assign` after a `reassign` no longer signs an
+edited Gate of the issue body: a ticket that needs another Gate is a new ticket. The other
+parts are off until the owner sets a key (`max_rounds`) or someone uses a new command or flag
+(`check`, `done --run-check`, `--must-fail-at`).
 
 Added:
 
