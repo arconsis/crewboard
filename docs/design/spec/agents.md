@@ -625,9 +625,11 @@ is a verify result. One place sends every signed message, and that place writes 
 headless config dir, a text with a line that starts with `unattended:` is refused with
 `headless-scope`: the body of `say`, `unblock`, `ask` and `verify`, and every message before it
 is signed. Only crewboard writes that line and the line `verified-by:` of a merge notice. So
-the body of `say`, `unblock`, `ask` and `verify` with a line of one of these two keys is
-refused in every config dir: `headless-scope` in a headless one, `text-reads-as-act` in an
-interactive one.
+a text that a person or a model passes in with a line of one of these two keys is refused with
+`text-reads-as-act` in every config dir, before any request: the text of `say`, `unblock`,
+`ask`, `verify --body`, `verify --local-run`, `block --why`, `take --interrupt --why`, `close --why`, `reassign --why`,
+the reason of `assign --override-capabilities`, `report-status --body`, the owner's `move --why`, and
+the body file of `ticket new` and `ticket split`. `done` takes no free text.
 
 **The budget.** The refusal is `unattended-budget`, and nothing is written.
 
@@ -703,8 +705,8 @@ late interactive coordinator from the owner alert (item 8 of the headless coordi
 signed Gate is prose. The owner writes this value; the default is `off`, and `verify` never
 merges such a ticket.
 
-**Who merges.** The `tick` does, in the run after the verify result. It is the same code that
-merges a `Gate: ci` ticket, and no model takes part in the decision. The command `merge` in a
+**Who merges.** The `tick` does, at the second tick that sees the verify result (item 9 below).
+It is the same code that merges a `Gate: ci` ticket, and no model takes part in the decision. The command `merge` in a
 headless config dir follows the same rule, because the rule is inside the merge operation: a
 model that runs `merge` gets the answer that the tick gets. The tick writes no verify result
 for a Gate in prose: that judgment comes from the unattended coordinator.
@@ -732,31 +734,78 @@ holds:
    message. Such a comment can be a failed result or a stop that somebody edited: the signed
    log then shows the older pass as the latest result. The refusal names the comment and sends
    the ticket to the interactive coordinator. It costs no request: the command has the
-   comments.
+   comments. The check also holds a ticket for comments that are harmless: a signed message
+   of an agent that is valid but outside the replay window (its signed time and the time of
+   GitHub are too far apart), a message that was signed under a former name of an agent or by
+   an agent that the registry does not trust at that comment, a copy of a message, and any
+   comment that its author edited (also a plain comment of a person who is not the owner).
+   The interactive coordinator merges such a ticket.
 8. No verify result of a coordinator that an earlier tick of this config dir saw on the ticket
-   is gone. In this mode the tick notes the ids of these results for each Review ticket with a
-   Gate in prose (`review_results` in the state cache, at most 20 per ticket, left out when
-   empty, forgotten 90 days after the tick last saw the ticket in Review; a save of an older
-   copy of the state takes no id away). When one of them is not among the verified messages
-   any more, the merge is refused, and the tick prints `left for the interactive coordinator:
-   <key>, merge refused: ... (comment <id>) is gone or was edited`. A deleted message of this
-   coordinator is also reported to the owner by the note check of the tick.
+   is gone (deleted or edited), unless a release came after the tick noticed it. The tick
+   notes the time when it notices a gone result. From then on the ticket is held, also for a
+   new `done` with a new stamped pass: a new verify result alone releases nothing. The release
+   is a comment of the owner on the ticket, or an assignment of an attended coordinator (one
+   without the line `unattended:`), that GitHub created after that time. A deleted message of
+   this coordinator is also reported to the owner by the note check of the tick.
+9. The tick of this config dir saw this pass at two runs, and the ticket was in Review all the
+   time between them and since:
+   - A pass that the tick sees for the first time is noted with the `updatedAt` of the board
+     item. It merges at a later tick at the earliest, never in the run that first sees it. The
+     command `merge` waits in the same way (`headless-scope`, "the tick merges the ticket at a
+     later run").
+   - When a ticket that the tick noted is not among the Review tickets of a later tick (another
+     Status, or gone from the board), every result that the tick noted for it "left Review".
+     Such a pass never gives a headless merge, also when the ticket is in Review again later.
+   - When the `updatedAt` of the board item differs from the noted one, the same holds: a move
+     of the ticket between two ticks changes it. Any other write to the board item of a ticket
+     that waits for its merge has the same effect, and the interactive coordinator then merges.
+   - A new stamped pass (another comment: after a new `done`, or a new verify) is judged fresh.
+
+   This is what is left of a failed verify that somebody hid: `verify --fail` moves the ticket
+   out of Review in the same command, so the tick does not see the failed result in Review; it
+   sees that the ticket left.
+
+The tick keeps what it saw in the state cache of the config dir (`review_results`: per ticket
+the result ids, at most 20; the pass that waits; the ids that left Review; the gone results
+with the time of the note). It notes in every mode that is not `off`, so a switch from `verify`
+to `verify-and-merge` knows what happened before. With the mode `off` the tick notes nothing
+new; it still marks the noted tickets that left Review. The entry is left out of the file when
+empty, and it is forgotten 90 days after the tick last saw the ticket in Review. Every part of
+an entry only grows, so a save of an older copy of the state takes nothing away. The tick
+prints one line for a held ticket, and makes no merge call for it: `left for the interactive
+coordinator: <key>, held: <reason>` for 7, 8 and a pass that left Review, and `... not merged
+yet: ...` for a pass that it sees for the first time.
 
 Only a verified message of a coordinator is a verify result. A dev agent cannot write one, with
 or without the line.
 
-**The limit of 7 and 8.** GitHub lets every account with write access to a repo delete and edit
-the comments of others. The agent accounts have that access. A failed result or a stop that is
-deleted before a tick of the headless config dir saw it leaves no trace: nothing detects it,
-and an older stamped pass for the same `done` merges. So the sentences "a failed result after a
-pass decides" and "a stop at the round limit ends the pass" hold for a message that still
-exists, and for a deleted one that the headless config dir saw. A person or a coordinator who
-disagrees with an unattended pass should not rely on a failed result alone: `ask` (a question
-to the owner) or a block stops the merge through the open question, and a new `done` ends the
-pass. The token rights are the boundary for the rest. One more case is not held: a comment of
-the owner account that only the owner account edited is the word of the owner, also when it
-was a signed message before the edit. That matters only for a trial with one account
-(`insecure_one_account`), where every agent posts as the owner.
+**What the tick can detect, and what it cannot.** GitHub lets every account with write access
+to a repo delete and edit the comments of others, and write the board fields. The agent
+accounts have that access. So a failed result can be deleted, and the board can be set back to
+Review. The tick detects:
+
+- a comment that was edited, or that has a crew header and does not verify (7);
+- a result that a tick saw in Review and that is gone later (8);
+- a pass whose ticket was not in Review at a tick, or whose board item changed after the tick
+  first saw the pass (9).
+
+It cannot detect one case. The pass is posted; a failed result moves the ticket out of Review;
+somebody deletes that result and sets the board back to Review; and all of this happens before
+the first tick after the pass. No tick saw the pass before, the signed log shows only the pass,
+and the board item has no earlier value to compare with. That pass merges at the second tick.
+The window is the time from the pass to the next tick of the unit: one tick interval at most,
+and the time that a model wake holds the lock in addition. The same holds for a host that lost
+the state of its config dir: it starts again with what the signed log shows.
+
+So the sentences "a failed result after a pass decides" and "a stop at the round limit ends the
+pass" hold for a message that still exists; for a hidden one they hold through 7, 8 and 9,
+outside that window. A person or a coordinator who disagrees with an unattended pass should not
+rely on a failed result alone. The reliable way to stop the merge is a question to the owner on
+the ticket (`ask`) or a block: `merge` refuses a ticket with an open question to the owner, and
+the question is ended by the owner only. The token rights are the boundary for the rest. One
+more case is not held: a comment of the owner account that only the owner account edited is the
+word of the owner, also when it was a signed message before the edit. That matters only for a
+trial with one account (`insecure_one_account`), where every agent posts as the owner.
 
 **What stays.** The mode widens one check: the kind of the Gate. Every other check of the
 headless `merge` is as it is for a `Gate: ci` ticket, and each refuses before the merge call:
@@ -780,9 +829,11 @@ such a result gets the same line. So the signed log says which merges followed a
 no person gave.
 
 **Requests.** In the mode `verify-and-merge` the tick makes no request more than in `verify`
-for a ticket without a passing verify result of the unattended coordinator. For a ticket with one it makes the requests of
-one `merge`, as for a `Gate: ci` ticket, at each tick until the ticket is merged or a new
-`done` arrives. A merge that asked the dev agent for a rebase is not tried again for that
+for a ticket without a passing verify result of the unattended coordinator, and none for a
+ticket that is held or whose pass it sees for the first time. For a ticket that may merge it
+makes the requests of one `merge`, as for a `Gate: ci` ticket, at each tick until the ticket is
+merged or a new `done` arrives. The notes of the tick cost no request, and a write of the state
+file only when they change. A merge that asked the dev agent for a rebase is not tried again for that
 `done`.
 
 ### What the owner sees
@@ -817,7 +868,11 @@ of a model.
   and print no such line.
 - The Review tickets of this tick whose latest `done` has a passing verify result of the
   unattended coordinator and that are not merged: in the mode `verify` they wait for a person,
-  and in the mode `verify-and-merge` a check of the merge refused them.
+  and in the mode `verify-and-merge` a check of the merge refused them or the tick saw the pass
+  for the first time. A ticket that is held (items 7, 8 and a pass that left Review of
+  [The merge mode](#the-merge-mode)) has the word `held` after its key. The reason of the hold
+  is in the line of that ticket among the Review tickets that wait for a person, in the words
+  of the tool.
 
 The part costs one read of the comment feed per repo, from 00:00 UTC of the day before, once
 per day. With the mode `off` and no stamped message in the state, the tick makes no such read

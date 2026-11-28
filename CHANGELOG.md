@@ -114,13 +114,21 @@ Added:
   result has a valid line `unattended: <n>/<budget>`: only the verdict of the unattended
   coordinator leads to a headless merge, and after the `verify` of an attended coordinator
   that coordinator merges as before. A newer `done`, a failed result, a stop at the round
-  limit, a `done` on the owner route and `CI: none` leave no pass. The merge is also held when
-  a comment of the ticket has a crew header or was edited and is no verified message, and when
-  a verify result that an earlier tick saw is gone (the tick notes the result ids of such a
-  ticket in its state, `review_results`, in this mode only). The limit: every account with
-  write access can delete a comment, and a failed result that is deleted before the headless
-  config dir saw it cannot be detected; the older pass then merges. Use `ask` or a block to
-  stop a merge, not a failed verify alone. The mode widens only the check of the kind
+  limit, a `done` on the owner route and `CI: none` leave no pass. A pass merges at
+  the second tick that sees it, never in the run that first sees it, and the command `merge`
+  waits in the same way. The tick notes what it sees on such a ticket in its state
+  (`review_results`), in every mode that is not `off`. The merge is held (`left for the
+  interactive coordinator: <ticket>, held: ...`, and the word `held` in the digest) in three
+  cases: the ticket was not in Review at a tick, or its board item changed, after the tick
+  first saw the pass (that pass never merges; a new verdict is judged fresh); a verify result
+  that a tick saw is gone (until an owner comment or an attended assignment after that; a new
+  verdict alone does not release it); a comment of the ticket was edited, or has a crew header
+  and is no verified message (this also holds for a valid message outside the replay window
+  and for any comment that its author edited). The limit: every account with write access can
+  delete a comment and write the board. A failed result that is posted, deleted and followed
+  by a move back to Review before the first tick after the pass is not detected: at most one
+  tick interval, plus the time of a model wake. Use `ask` or a block to stop a merge, not a
+  failed verify alone. The mode widens only the check of the kind
   of Gate. Every other check of a headless merge stays: `coordinator_may_merge`, a counted CI
   run that is green for the SHA, no protected path and no guarded path (also behind another
   base branch), no open question to the owner, and a PR head that still is the SHA of the
@@ -146,10 +154,13 @@ Added:
   is the start dir of the model, the tick of that unit runs no checks of a `checks:` Gate
   (`wake install` prints a `note:` line for it), and `--host-lock` and `--shim-dir` are
   refused.
-  Changed: the body of `say`, `unblock`, `ask` and `verify` with a line that starts with
-  `unattended:` or `verified-by:` is refused in every config dir, because only crewboard
-  writes these lines: `text-reads-as-act` in an interactive config dir, `headless-scope` in a
-  headless one. An attended coordinator that typed such a line gets a refusal now.
+  Changed: a text that a person or a model passes in with a line that starts with
+  `unattended:` or `verified-by:` is refused with `text-reads-as-act` in every config dir,
+  because only crewboard writes these lines: `say`, `unblock`, `ask`, `verify --body`,
+  `verify --local-run`, `block --why`, `take --interrupt --why`, `close --why`, `reassign --why`, the reason of
+  `assign --override-capabilities`, `report-status`, the owner's `move --why`, and the body
+  file of `ticket new` and `ticket split`. An agent that typed such a line gets a refusal
+  now.
   Changed: `crewboard wake` in its run form is refused inside a wake (`CREWBOARD_WAKE` is set
   and not empty) with the new id `wake-inside-wake`, exit 2, in every config dir.
   `--print-cmd`, `--print-state-dir` and `wake status` are unchanged.

@@ -45,7 +45,7 @@ fn check_assign(
         return Some(refused(r));
     }
     if let Some(r) = why
-        && let Err(e) = ops::say::check_body_text(r)
+        && let Err(e) = ops::say::check_person_text(r)
     {
         return Some(fail(e));
     }
@@ -152,7 +152,7 @@ pub(super) fn dispatch(cli: &Cli, c: &PlanCmd) -> Outcome {
             sel,
         } => {
             if let Some(r) = why
-                && let Err(e) = ops::say::check_body_text(r)
+                && let Err(e) = ops::say::check_person_text(r)
             {
                 return fail(e);
             }

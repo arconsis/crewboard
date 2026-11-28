@@ -67,6 +67,47 @@ fn stamped_pass(h: &Hub) -> u64 {
     )
 }
 
+/// Two ticks: the first one sees a new pass, the second one may merge it. The output of the
+/// second one.
+fn tick2(h: &Hub) -> Out {
+    tick(h);
+    tick(h)
+}
+
+/// The state of the headless dir as it is after two ticks saw the stamped pass `pass` on the
+/// ticket of the hub, with the board item as it is now: the pass may give a merge. It lets a
+/// test ask the command `merge` for its other refusals without a tick that writes.
+fn seen_twice(h: &Hub, pass: u64) {
+    use crewboard::state::{SeenPass, SeenResults};
+    let path = state_path(h);
+    let mut state = StateCache::load(&path);
+    state.tick.review_results.insert(
+        key(TICKET),
+        SeenResults {
+            ids: vec![pass],
+            at: now_epoch(),
+            pass: Some(SeenPass {
+                id: pass,
+                item_updated: h.board.item_updated_at("PVTI_ticket"),
+                first: now_epoch(),
+                confirmed: Some(now_epoch()),
+            }),
+            ..SeenResults::default()
+        },
+    );
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    state.save(&path).unwrap();
+}
+
+/// The left line of a tick for the ticket of the hub.
+fn left_line(t: &Out) -> String {
+    t.stdout
+        .lines()
+        .find(|l| l.starts_with("left for the interactive coordinator: "))
+        .unwrap_or_else(|| panic!("no left line: {}", t.all()))
+        .to_string()
+}
+
 fn refused(o: &Out, rule: &str) {
     assert_eq!(o.code, 2, "{}", o.all());
     assert!(o.stderr.contains(rule), "wanted {rule}: {}", o.all());
@@ -102,7 +143,24 @@ fn in_the_merge_mode_the_tick_merges_after_a_stamped_pass_and_the_merge_counts_f
     assert_eq!(stamps_in(&last_comment(&h)), [unattended_line(1, 10)]);
     assert!(!h.merged());
     let before = StateCache::load(&state_path(&h)).tick;
-    // the next tick merges: no model takes part
+    // the first tick sees the pass and merges nothing yet; the command `merge` neither
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert!(
+        left_line(&t).contains("not merged yet: the tick of this config dir did not see"),
+        "{}",
+        t.all()
+    );
+    let o = h.headless_read(&["merge", "5"]);
+    refused(&o, SCOPE);
+    assert!(
+        o.stderr
+            .contains("the tick merges the ticket at a later run"),
+        "{}",
+        o.all()
+    );
+    assert_eq!(merge_calls(&h), 0);
+    // the second tick merges: no model takes part
     let t = tick(&h);
     assert!(h.merged(), "{}", t.all());
     assert_eq!(merge_calls(&h), 1);
@@ -147,7 +205,18 @@ fn the_command_merge_of_a_headless_dir_follows_the_same_rule_as_the_tick() {
         o.all()
     );
     assert!(h.writes().is_empty());
+    // a pass that no tick saw: the command waits for the tick, as the tick itself does
     stamped_pass(&h);
+    let o = h.headless_read(&["merge", "5"]);
+    refused(&o, SCOPE);
+    assert!(o.stderr.contains("did not see"), "{}", o.all());
+    assert!(h.writes().is_empty());
+    // two ticks saw it, and the merge of the second one was refused for CI that still ran
+    h.set_ci_pending(true);
+    let t = tick2(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert!(left_line(&t).contains("merge refused: "), "{}", t.all());
+    h.set_ci_pending(false);
     let o = h.headless_read(&["merge", "5"]);
     assert_eq!(o.code, 0, "{}", o.all());
     assert!(h.merged());
@@ -166,7 +235,7 @@ fn the_mode_verify_and_the_mode_off_merge_no_prose_gate() {
         let o = h.headless_read(&["merge", "5"]);
         refused(&o, SCOPE);
         assert!(o.stderr.contains("it is not CI only"), "{}", o.all());
-        let t = tick(&h);
+        let t = tick2(&h);
         assert!(!h.merged(), "{extra:?}: {}", t.all());
         assert_eq!(merge_calls(&h), 0, "{extra:?}");
         assert!(h.writes().is_empty(), "{extra:?}: {:?}", h.writes().len());
@@ -186,9 +255,14 @@ fn the_mode_verify_and_the_mode_off_merge_no_prose_gate() {
     let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
     assert_eq!(o.code, 0, "{}", o.all());
     refused(&h.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
     assert_eq!(merge_calls(&h), 0);
+    // the switch to the merge mode: the ticks of the mode `verify` saw the pass, so the next
+    // tick merges
+    h.set_authority_extra(MERGE);
+    let t = tick(&h);
+    assert!(h.merged(), "{}", t.all());
 }
 
 #[test]
@@ -211,7 +285,7 @@ fn an_attended_pass_is_merged_by_no_headless_dir_in_any_mode() {
                 o.all()
             );
         }
-        let t = tick(&h);
+        let t = tick2(&h);
         assert!(!h.merged(), "{extra:?}: {}", t.all());
         assert_eq!(merge_calls(&h), 0, "{extra:?}");
         assert_eq!(h.writes().len(), from, "{extra:?}");
@@ -233,9 +307,122 @@ fn an_attended_pass_is_merged_by_no_headless_dir_in_any_mode() {
     assert!(is_verified_by_unattended(&last_comment(&p)));
 }
 
-/// A failed verify result of the coordinator for the latest `done` of the ticket of the hub.
+/// A failed verify result of the coordinator for the latest `done` of the ticket of the hub,
+/// posted as a comment only: the board does not move.
 fn fail_after(h: &Hub) -> u64 {
     verdict(h, TICKET, latest_done(h, TICKET), "")
+}
+
+/// The interactive coordinator fails the latest `done` with the command: the result is posted
+/// and the ticket leaves Review. Returns the comment id of the result.
+fn real_fail(h: &Hub) -> u64 {
+    let o = h.interactive(&[
+        "verify",
+        "5",
+        "--fail",
+        "--body",
+        "[demo] the demo does not run",
+    ]);
+    assert_eq!(o.code, 0, "{}", o.all());
+    assert_ne!(
+        h.status_of_ticket().as_deref(),
+        Some("Review"),
+        "{}",
+        o.all()
+    );
+    h.board
+        .comments_of(TICKET)
+        .into_iter()
+        .rev()
+        .find(|(_, _, body)| body.contains("verify: fail"))
+        .expect("the failed result")
+        .0
+}
+
+/// What an account with write access can do after a fail: delete the result and set the board
+/// back to Review.
+fn hide_fail(h: &Hub, fail: u64) {
+    h.board.delete_comment(fail);
+    h.board.set_item("PVTI_ticket", "Status", "Review");
+}
+
+#[test]
+fn a_pass_whose_ticket_left_review_at_a_tick_never_merges() {
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    let p = stamped_pass(&h);
+    // CI still runs, so the two ticks see the pass and merge nothing
+    h.set_ci_pending(true);
+    let t = tick2(&h);
+    assert!(!h.merged(), "{}", t.all());
+    h.set_ci_pending(false);
+    // a person fails the ticket: it leaves Review, and a tick sees it gone from Review
+    let fail = real_fail(&h);
+    tick(&h);
+    let seen = StateCache::load(&state_path(&h)).tick.review_results;
+    assert!(seen[&key(TICKET)].left.contains(&p), "{seen:?}");
+    // the fail is deleted and the board is set back: the signed log shows the pass again
+    hide_fail(&h, fail);
+    for _ in 0..3 {
+        let t = tick(&h);
+        assert!(!h.merged(), "{}", t.all());
+        let line = left_line(&t);
+        assert!(line.contains("held: "), "{line}");
+        assert!(
+            line.contains(&format!("(comment {p}): that pass gives no headless merge")),
+            "{line}"
+        );
+    }
+    assert_eq!(merge_calls(&h), 0);
+    let o = h.headless_read(&["merge", "5"]);
+    refused(&o, SCOPE);
+    assert!(o.stderr.contains("left Review"), "{}", o.all());
+    // a new done with a new verdict is judged fresh
+    done(&h, TICKET, "round: 2\n");
+    stamped_pass(&h);
+    let t = tick2(&h);
+    assert!(h.merged(), "{}", t.all());
+}
+
+#[test]
+fn a_fail_that_is_hidden_between_two_ticks_is_seen_by_the_change_of_the_board_item() {
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    let p = stamped_pass(&h);
+    // the first tick sees the pass
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    // before the next tick: a fail, its deletion, and the board back to Review
+    let fail = real_fail(&h);
+    hide_fail(&h, fail);
+    let t = tick2(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(merge_calls(&h), 0);
+    assert!(
+        left_line(&t).contains(&format!(
+            "held: {} left Review, or its board item changed",
+            key(TICKET)
+        )),
+        "{}",
+        t.all()
+    );
+    let seen = StateCache::load(&state_path(&h)).tick.review_results;
+    assert!(seen[&key(TICKET)].left.contains(&p), "{seen:?}");
+}
+
+/// The window that stays, as the docs name it: the pass, a fail that moves the ticket, the
+/// deletion of the fail and the move back to Review all happen before the first tick after the
+/// pass. No tick saw the pass before, the signed log shows only the pass, and the board item
+/// has no earlier value to compare. The pass merges.
+#[test]
+fn a_fail_that_is_hidden_before_the_first_tick_after_the_pass_is_not_detected() {
+    let h = hub();
+    h.set_authority_extra(MERGE);
+    stamped_pass(&h);
+    let fail = real_fail(&h);
+    hide_fail(&h, fail);
+    let t = tick2(&h);
+    assert!(h.merged(), "{}", t.all());
 }
 
 #[test]
@@ -244,18 +431,20 @@ fn an_edited_fail_after_a_stamped_pass_holds_the_headless_merge() {
     // comment that is no verified message
     let plain = hub();
     plain.set_authority_extra(MERGE);
-    stamped_pass(&plain);
+    let p = stamped_pass(&plain);
+    seen_twice(&plain, p);
     let fail = fail_after(&plain);
     plain
         .board
         .edit_comment_by(fail, "nothing to see", "somebody-else");
     refused(&plain.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&plain);
+    let t = tick2(&plain);
     assert!(!plain.merged(), "{}", t.all());
 
     let h = hub();
     h.set_authority_extra(MERGE);
-    stamped_pass(&h);
+    let p = stamped_pass(&h);
+    seen_twice(&h, p);
     let fail = fail_after(&h);
     // somebody with write access edits the fail and keeps its header: it is no verified
     // message any more, and the signed log shows the pass as the latest result
@@ -270,14 +459,11 @@ fn an_edited_fail_after_a_stamped_pass_holds_the_headless_merge() {
         o.all()
     );
     assert!(o.stderr.contains("is no verified message"), "{}", o.all());
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
     assert_eq!(merge_calls(&h), 0);
     assert!(
-        t.stdout.contains(&format!(
-            "left for the interactive coordinator: {}, merge refused: ",
-            key(TICKET)
-        )),
+        left_line(&t).contains(&format!("held: comment {fail} of {}", key(TICKET))),
         "{}",
         t.all()
     );
@@ -286,61 +472,140 @@ fn an_edited_fail_after_a_stamped_pass_holds_the_headless_merge() {
     assert_eq!(o.code, 0, "{}", o.all());
 }
 
+/// A false positive of the check for unverified comments, which the spec names: a signed
+/// message of an agent that is valid in every way but its time (outside the replay window).
+/// It holds the merge, and the line names the comment.
 #[test]
-fn a_deleted_fail_that_the_tick_saw_holds_the_headless_merge() {
+fn a_valid_message_outside_the_replay_window_holds_the_merge_and_is_named() {
     let h = hub();
     h.set_authority_extra(MERGE);
     stamped_pass(&h);
-    let fail = fail_after(&h);
-    // the tick sees the fail: no merge, and it notes the results of the ticket
-    let t = tick(&h);
+    let odd = h.board.signed_with_ts(
+        &h.dev.key,
+        &h.dev.name,
+        &h.coord.name,
+        Kind::Info,
+        TICKET,
+        "a note with an old time",
+        now_epoch() - 3 * 86_400,
+    );
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
-    let seen = StateCache::load(&state_path(&h)).tick.review_results;
-    assert!(seen[&key(TICKET)].ids.contains(&fail), "{seen:?}");
-    h.board.delete_comment(fail);
-    let t = tick(&h);
-    assert!(!h.merged(), "{}", t.all());
-    assert_eq!(merge_calls(&h), 0);
-    let line = t
-        .stdout
-        .lines()
-        .find(|l| l.starts_with("left for the interactive coordinator: "))
-        .expect("a left line");
     assert!(
-        line.contains(&format!("(comment {fail}) is gone or was edited")),
+        left_line(&t).contains(&format!("held: comment {odd} of {}", key(TICKET))),
         "{}",
         t.all()
     );
-    // the command `merge` gets the same answer, and a later tick too
-    refused(&h.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&h);
-    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(merge_calls(&h), 0);
 }
 
-/// The residual risk that the docs name: a fail that is deleted before any tick of the headless
-/// dir saw it leaves no trace, and the older stamped pass merges.
 #[test]
-fn a_deleted_fail_that_no_tick_saw_is_not_detected() {
+fn a_result_that_the_tick_saw_and_that_is_gone_holds_the_ticket_until_a_release() {
+    settle_day();
     let h = hub();
     h.set_authority_extra(MERGE);
+    // two stamped passes for one done; CI still runs, so the ticks see both and merge nothing
+    let first = stamped_pass(&h);
+    let second = pass_ago(
+        &h,
+        TICKET,
+        latest_done(&h, TICKET),
+        &format!("checked again\n{}\n", unattended_line(2, 10)),
+        0,
+    );
+    h.set_ci_pending(true);
+    tick2(&h);
+    h.set_ci_pending(false);
+    // a deleted PASS: the older one is the latest result now
+    h.board.delete_comment(second);
+    let t = tick2(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert!(
+        left_line(&t).contains(&format!("(comment {second}) is gone or was edited")),
+        "{}",
+        t.all()
+    );
+    let noted = StateCache::load(&state_path(&h)).tick.review_results[&key(TICKET)].clone();
+    assert_eq!(noted.gone.len(), 1, "{noted:?}");
+    assert_eq!(noted.gone[0].0, second);
+    assert!(noted.ids.contains(&first));
+    refused(&h.headless_read(&["merge", "5"]), SCOPE);
+    // a new done with a new stamped pass does not end the hold
+    done(&h, TICKET, "round: 2\n");
     stamped_pass(&h);
-    let fail = fail_after(&h);
-    h.board.delete_comment(fail);
+    let t = tick2(&h);
+    assert!(!h.merged(), "{}", t.all());
+    assert!(
+        left_line(&t).contains("is gone or was edited"),
+        "{}",
+        t.all()
+    );
+    assert_eq!(merge_calls(&h), 0);
+    // a comment of the owner after the time of the note releases it; the ticks saw the new
+    // pass twice already, so the next one merges
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    h.board.owner_comment_now(TICKET, "I looked at it. Go on.");
     let t = tick(&h);
     assert!(h.merged(), "{}", t.all());
 }
 
 #[test]
-fn the_modes_off_and_verify_note_no_results_in_the_state() {
-    for extra in ["", VERIFY] {
+fn the_tick_notes_what_it_sees_in_every_mode_that_is_not_off() {
+    for (extra, notes) in [("", false), (VERIFY, true), (MERGE, true)] {
         let h = hub();
         h.set_authority_extra(extra);
-        stamped_pass(&h);
+        let p = stamped_pass(&h);
         fail_after(&h);
         tick(&h);
         let state = std::fs::read_to_string(state_path(&h)).unwrap_or_default();
-        assert!(!state.contains("review_results"), "{extra:?}: {state}");
+        assert_eq!(
+            state.contains("review_results"),
+            notes,
+            "{extra:?}: {state}"
+        );
+        if notes {
+            let seen = StateCache::load(&state_path(&h)).tick.review_results;
+            assert!(seen[&key(TICKET)].ids.contains(&p), "{extra:?}: {seen:?}");
+        }
     }
+}
+
+#[test]
+fn the_digest_marks_a_ticket_that_is_held() {
+    let h = hub();
+    h.set_authority_extra(&format!("{MERGE}daily_digest: true\n"));
+    let p = stamped_pass(&h);
+    seen_twice(&h, p);
+    // the ticket left Review at an earlier tick
+    let path = state_path(&h);
+    let mut state = StateCache::load(&path);
+    state
+        .tick
+        .review_results
+        .get_mut(&key(TICKET))
+        .unwrap()
+        .left = vec![p];
+    state.save(&path).unwrap();
+    let t = tick(&h);
+    assert!(!h.merged(), "{}", t.all());
+    let body = digest_body(&h);
+    assert!(
+        body.contains(&format!(
+            "Verified by the unattended coordinator, in Review and not merged: 1 ({} held)",
+            key(TICKET)
+        )),
+        "{body}"
+    );
+    // the list has the key and the word; the reason of the hold is in the line of the ticket
+    // among those that wait for a person, in the words of the tool
+    assert!(
+        body.contains(&format!(
+            "- {}: held: {} left Review",
+            key(TICKET),
+            key(TICKET)
+        )),
+        "{body}"
+    );
 }
 
 /// One reason that must still refuse the merge in the mode `verify-and-merge`.
@@ -513,8 +778,15 @@ fn every_other_refusal_of_the_merge_still_fires_in_the_merge_mode() {
     let ok = Hub::new(plain());
     ok.set_authority_extra(MERGE);
     stamped_pass(&ok);
-    let t = tick(&ok);
+    let t = tick2(&ok);
     assert!(ok.merged(), "{}", t.all());
+    // and the command `merge` passes with the state that these cases give it
+    let ok = Hub::new(plain());
+    ok.set_authority_extra(MERGE);
+    let p = stamped_pass(&ok);
+    seen_twice(&ok, p);
+    let o = ok.headless_read(&["merge", "5"]);
+    assert_eq!(o.code, 0, "{}", o.all());
 
     for c in cases() {
         // the command `merge`, and the tick, each on a board of its own
@@ -522,10 +794,13 @@ fn every_other_refusal_of_the_merge_still_fires_in_the_merge_mode() {
             let h = Hub::new((c.scenario)());
             h.set_authority_extra(MERGE);
             (c.before)(&h);
-            stamped_pass(&h);
+            let p = stamped_pass(&h);
+            if !by_tick {
+                seen_twice(&h, p);
+            }
             (c.after)(&h);
             if by_tick {
-                let t = tick(&h);
+                let t = tick2(&h);
                 assert!(!h.merged(), "{}: {}", c.name, t.all());
                 assert_eq!(merge_calls(&h), 0, "{}", c.name);
                 assert_ne!(
@@ -575,7 +850,7 @@ fn a_dev_agent_cannot_make_a_pass_and_a_result_for_another_head_is_none() {
         0,
     );
     refused(&h.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
     assert_eq!(merge_calls(&h), 0);
 
@@ -597,7 +872,7 @@ fn a_dev_agent_cannot_make_a_pass_and_a_result_for_another_head_is_none() {
         0,
     );
     refused(&h.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
 
     // a line with the key that is not valid is no stamp and no attended result
@@ -606,7 +881,7 @@ fn a_dev_agent_cannot_make_a_pass_and_a_result_for_another_head_is_none() {
     let d = latest_done(&h, TICKET);
     pass_ago(&h, TICKET, d, "unattended: many\n", 0);
     refused(&h.headless_read(&["merge", "5"]), SCOPE);
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
 
     // an old pass does not count for a new done, and the new verdict does
@@ -614,10 +889,10 @@ fn a_dev_agent_cannot_make_a_pass_and_a_result_for_another_head_is_none() {
     h.set_authority_extra(MERGE);
     stamped_pass(&h);
     done(&h, TICKET, "round: 2\n");
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
     stamped_pass(&h);
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(h.merged(), "{}", t.all());
 }
 
@@ -634,7 +909,7 @@ fn a_gate_of_checks_is_not_merged_in_the_merge_mode() {
     let o = h.headless_read(&["merge", "5"]);
     refused(&o, SCOPE);
     assert!(o.stderr.contains("it is not CI only"), "{}", o.all());
-    let t = tick(&h);
+    let t = tick2(&h);
     assert!(!h.merged(), "{}", t.all());
     assert_eq!(merge_calls(&h), 0);
 }
@@ -720,7 +995,8 @@ fn a_dev_agent_that_posts_the_key_does_not_keep_the_note_from_the_owner() {
 }
 
 #[test]
-fn a_line_that_only_crewboard_writes_is_refused_in_an_interactive_dir_too() {
+fn a_line_that_only_crewboard_writes_is_refused_in_every_config_dir() {
+    const RULE: &str = "[rule=text-reads-as-act]";
     let h = hub();
     h.set_authority_extra(VERIFY);
     let dev_name = h.dev.name.clone();
@@ -735,17 +1011,32 @@ fn a_line_that_only_crewboard_writes_is_refused_in_an_interactive_dir_too() {
                 "say", "5", "--to", &dev_name, "--kind", "answer", "--body", text,
             ],
             vec!["ask", "5", "--body", text],
+            vec!["unblock", "5", "--body", text],
+            vec!["close", "5", "--why", text],
         ] {
-            let o = h.interactive(&argv);
-            refused(&o, "[rule=text-reads-as-act]");
-            assert!(
-                o.stderr.contains("only crewboard writes that line"),
-                "{argv:?}: {}",
-                o.all()
-            );
+            // the coordinator, in its interactive dir and in the headless one
+            for o in [h.interactive(&argv), h.headless(&argv)] {
+                assert_eq!(o.code, 2, "{argv:?}: {}", o.all());
+                // `close --why` is outside the headless scope before any text is read
+                let scope = argv[0] == "close" && o.stderr.contains(SCOPE);
+                assert!(scope || o.stderr.contains(RULE), "{argv:?}: {}", o.all());
+                assert!(
+                    scope || o.stderr.contains("only crewboard writes that line"),
+                    "{argv:?}: {}",
+                    o.all()
+                );
+            }
         }
-        // a headless dir refuses the same text with the rule of its scope
-        let o = h.headless_read(&["verify", "5", "--body", text]);
+        // `block --why` of a dev agent, in its interactive dir
+        let o = h.run(&h.dev.dir, &["block", "5", "--why", text]);
+        refused(&o, RULE);
+        assert!(
+            o.stderr.contains("only crewboard writes that line"),
+            "{}",
+            o.all()
+        );
+        // `block` is outside the scope of a headless dir, with any text
+        let o = h.headless(&["block", "5", "--why", text]);
         refused(&o, SCOPE);
     }
     assert!(h.writes().is_empty(), "{:?}", h.writes().len());

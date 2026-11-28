@@ -104,7 +104,7 @@ pub fn check_local_gate_text(text: &str) -> CbResult<String> {
         )
         .into());
     }
-    crate::ops::say::check_body_text(t)?;
+    crate::ops::say::check_person_text(t)?;
     Ok(t.to_string())
 }
 

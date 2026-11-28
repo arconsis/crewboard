@@ -174,6 +174,28 @@ pub(crate) fn load_day_report(
     Ok(report)
 }
 
+/// Is the headless merge of a prose Gate held ([`crate::unattended::held`])? `pass` is the
+/// comment id of the stamped pass of the latest `done`. The decision comes from the comments
+/// and the board item that the command just read, and from what the tick of this config dir
+/// noted for the ticket (`TickState::review_results`). It makes no request.
+pub(crate) fn merge_hold(ac: &AgentCtx, t: &Ticket, pass: u64) -> Option<crate::unattended::Held> {
+    let unverified = crate::ticket::unverified_comments(&t.comments, &t.msgs);
+    let cache = ac.load_cache();
+    let entry = cache.tick.review_results.get(&floor_key(&t.tref()));
+    let seen = entry.map_or(crate::unattended::Seen::default(), |e| {
+        crate::unattended::Seen {
+            ids: &e.ids,
+            left: &e.left,
+            gone: &e.gone,
+            pass: e
+                .pass
+                .as_ref()
+                .map(|p| (p.id, p.item_updated.as_str(), p.confirmed.is_some())),
+        }
+    });
+    crate::unattended::held(&t.msgs, &unverified, &seen, pass, &t.item.updated_at)
+}
+
 /// The key (`event=` line) of the note to the owner that the verdicts of the UTC day `day` are
 /// used. It has no `#`, so no reader takes a part of it for a repo.
 pub(crate) fn budget_spent_key(day: &str) -> String {
@@ -383,19 +405,15 @@ pub(crate) fn check_ticket(ac: &AgentCtx, act: UAct, t: &Ticket, to: Option<&str
     Ok(())
 }
 
-/// A text that a person or a model passes in must not have a line with the key `unattended`:
-/// only crewboard writes the stamp. In a headless config dir such a text is refused with
-/// `headless-scope`; an attended agent is not restricted.
-pub(crate) fn check_no_stamp_line(ac: &AgentCtx, text: &str) -> CbResult<()> {
+/// A text that a person or a model passes in must not have a line that only crewboard writes:
+/// the stamp `unattended:` and the line `verified-by:` of a merge notice. The readers of these
+/// lines (the counts of the day, the digest) take them from verified messages of coordinators,
+/// so a coordinator that types one would be counted. Refused with `text-reads-as-act` in every
+/// config dir, before any request. A text that crewboard builds does not pass here.
+pub(crate) fn check_person_lines(text: &str) -> CbResult<()> {
     let Some(key) = written_by_crewboard_only(text) else {
         return Ok(());
     };
-    if ac.ctx.cd.is_headless()? {
-        return Err(crate::headless::unattended_refusal(&format!(
-            "the text has a line that starts with `{key}:`; only crewboard writes that line"
-        ))
-        .into());
-    }
     Err(Refusal::new(
         ids::TEXT_READS_AS_ACT,
         format!(
@@ -403,6 +421,12 @@ pub(crate) fn check_no_stamp_line(ac: &AgentCtx, text: &str) -> CbResult<()> {
         ),
     )
     .into())
+}
+
+/// [`check_person_lines`] for a command that has its context. The entry points of the CLI ran
+/// the check before; this call is for a caller that did not pass one of them.
+pub(crate) fn check_no_stamp_line(_ac: &AgentCtx, text: &str) -> CbResult<()> {
+    check_person_lines(text)
 }
 
 /// The key of a line of `text` that only crewboard writes: `unattended` (the stamp) or

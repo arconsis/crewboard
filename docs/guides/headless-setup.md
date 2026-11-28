@@ -261,13 +261,30 @@ here: after a `verify` of your interactive coordinator nothing is merged by the 
 coordinator runs `merge` itself. A ticket with `CI: none`, a local gate or a
 `Gate: checks: ...` is not merged this way.
 
-One limit of "a failed result ends the pass": GitHub lets every account with write access
-delete or edit the comments of others, and the agent accounts have write access. The tick
-holds the merge when a comment of the ticket was edited, and when a verify result that it saw
-is gone. A failed result that is deleted before the tick saw it cannot be detected, and the
-older pass then merges. So when you or your interactive coordinator disagree with a pass of
-the model, do not only post a failed verify: run `crewboard ask <ticket> --body "..."` or block
-the ticket. A question to the owner stops the merge until you answer.
+The merge is not in the run that first sees the pass. The tick notes a new pass, and it
+merges at a later tick when the ticket was in Review all the time and its board item did not
+change. So a merge comes one tick interval after the verdict at the earliest.
+
+What a failed verify is worth after a pass: GitHub lets every account with write access delete
+or edit the comments of others and write the board, and the agent accounts have write access.
+A failed verify moves the ticket out of Review; somebody can delete it and set the board back.
+The tick detects this in three ways, and then prints `left for the interactive coordinator:
+<ticket>, held: ...` and merges nothing:
+
+- the ticket was not in Review at a tick, or its board item changed, after the tick first saw
+  the pass. That pass never merges; a new `done` with a new verdict does;
+- a verify result that the tick saw is gone. The ticket is held until you comment on it, or
+  your interactive coordinator assigns it again; a new verdict alone does not end this;
+- a comment of the ticket was edited, or has a crew header and does not verify. Your
+  interactive coordinator reads the ticket and merges it.
+
+One case is not detected: the fail, its deletion and the move back all happen before the first
+tick after the pass (one tick interval at most, plus the time of a model wake). So when you or
+your interactive coordinator disagree with a pass of the model, do not only post a failed
+verify: run `crewboard ask <ticket> --body "..."` or block the ticket. A question to the owner
+stops the merge until you answer, and only you end it.
+
+The digest marks a held ticket with the word `held`.
 
 What stays with you: every PR that changes a protected path, every ticket with a question to
 you or a stop at the round limit, the first assignment of a ticket, and the key itself. No

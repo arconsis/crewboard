@@ -260,7 +260,7 @@ impl Gate {
 
 /// What the merge mode of the unattended coordinator says about one ticket
 /// (spec/agents#unattended-coordinator). The caller decides it from AUTHORITY.md and the signed
-/// log at merge time (`unattended::pass_on_head`), never from a list or a board field.
+/// log at merge time (`unattended::pass_message`, `unattended::held`), never from a list or a board field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeJudged {
     /// `unattended_coordinator` is not `verify-and-merge`: only a Gate `ci` is merged.
@@ -272,6 +272,9 @@ pub enum MergeJudged {
     /// The mode is `verify-and-merge` and the signed log has such a result, but the log may miss
     /// a message that ends it. The clause says why (`unattended::Held`).
     Held(String),
+    /// The mode is `verify-and-merge` and the signed log has such a result, and the tick did
+    /// not see it at two runs yet. The clause says so; the merge waits for the next tick.
+    Wait(String),
     /// The mode is `verify-and-merge`, and the latest `done` has such a result.
     Pass,
 }
@@ -318,6 +321,12 @@ pub fn check_merge_ticket(
                 ids::HEADLESS_SCOPE,
                 format!(
                     "this config is headless: the Gate of {key} is not CI only, and {why}. The interactive coordinator reads the ticket and merges it; leave the merge and note it"
+                ),
+            )),
+            MergeJudged::Wait(why) => Err(Refusal::new(
+                ids::HEADLESS_SCOPE,
+                format!(
+                    "this config is headless: the Gate of {key} is not CI only, and {why}. Nothing was merged; the tick merges the ticket at a later run"
                 ),
             )),
             _ => Err(Refusal::new(
@@ -551,6 +560,18 @@ mod tests {
             "{e}"
         );
         assert!(rule(Some("checks: ara"), false, MergeJudged::Held("x".into())).is_err());
+        // a pass that the tick did not see twice: no merge yet, and no call for a person
+        let e = rule(
+            Some("the demo runs"),
+            false,
+            MergeJudged::Wait("the tick did not see it".into()),
+        )
+        .unwrap_err();
+        assert!(e.contains("the tick did not see it"), "{e}");
+        assert!(
+            e.contains("the tick merges the ticket at a later run"),
+            "{e}"
+        );
         let e = rule(Some("the demo runs"), false, OFF).unwrap_err();
         assert!(e.contains("it is not CI only"), "{e}");
         // `CI: none`, a Gate of checks and no signed gate stay refused with a pass

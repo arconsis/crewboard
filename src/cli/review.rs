@@ -33,7 +33,7 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
             if let Err(r) = ops::tickets::check_verify_fail_note(*gate_failed, &note) {
                 return fail(r.into());
             }
-            if let Err(e) = ops::say::check_body_text(&note) {
+            if let Err(e) = ops::say::check_person_text(&note) {
                 return fail(e);
             }
             if let Err(r) = ops::tickets::check_note_has_no_gate_line(&note) {

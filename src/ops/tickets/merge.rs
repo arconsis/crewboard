@@ -422,25 +422,11 @@ struct MergePre {
 }
 
 /// The passing verify result of the latest `done` of the signed assignee for the head of its
-/// evidence (spec/agents#unattended-coordinator, the merge mode), from the signed log that
-/// `merge` just read.
-fn pass_by(t: &Ticket) -> Option<crate::unattended::PassBy> {
+/// evidence, with its comment id (spec/agents#unattended-coordinator, the merge mode), from the
+/// signed log that `merge` just read.
+fn pass_by(t: &Ticket) -> Option<(crate::unattended::PassBy, u64)> {
     let (done, ev) = latest_done(&t.msgs, t.agent()?)?;
-    crate::unattended::pass_on_head(&t.msgs, done, &ev, t.issue)
-}
-
-/// Is the headless merge of a prose Gate held (`unattended::held`)? From the comments that
-/// `merge` just read and the verify results that the tick of this config dir noted for the
-/// ticket: no request.
-fn held_by(ac: &AgentCtx, t: &Ticket) -> Option<crate::unattended::Held> {
-    let unverified = crate::ticket::unverified_comments(&t.comments, &t.msgs);
-    let cache = ac.load_cache();
-    let seen = cache
-        .tick
-        .review_results
-        .get(&crate::ops::unattended::floor_key(&t.tref()))
-        .map_or(&[][..], |r| r.ids.as_slice());
-    crate::unattended::held(&t.msgs, &unverified, seen)
+    crate::unattended::pass_message(&t.msgs, done, &ev, t.issue)
 }
 
 fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<MergePre> {
@@ -465,11 +451,16 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
             (false, _) => MergeJudged::ModeOff,
             // only the judgment of the unattended coordinator: an attended coordinator that
             // verified merges itself
-            (true, None | Some(PassBy::Attended)) => MergeJudged::NoPass,
-            (true, Some(PassBy::Unattended)) => match held_by(ac, t) {
-                Some(h) => MergeJudged::Held(h.clause(&t.key())),
-                None => MergeJudged::Pass,
-            },
+            (true, None | Some((PassBy::Attended, _))) => MergeJudged::NoPass,
+            // from the comments that `merge` just read and from what the tick of this config
+            // dir noted for the ticket: no request
+            (true, Some((PassBy::Unattended, id))) => {
+                match crate::ops::unattended::merge_hold(ac, t, id) {
+                    Some(h) if h.needs_a_person() => MergeJudged::Held(h.clause(&t.key())),
+                    Some(h) => MergeJudged::Wait(h.clause(&t.key())),
+                    None => MergeJudged::Pass,
+                }
+            }
         };
         crate::headless::check_merge_ticket(
             &t.key(),
@@ -520,7 +511,7 @@ fn precheck_merge(ac: &AgentCtx, l: &MergeLoad, runs: &[String]) -> CbResult<Mer
         coordinator_gate,
         pr_url,
         named,
-        unattended_pass: pass == Some(crate::unattended::PassBy::Unattended),
+        unattended_pass: pass.map(|(by, _)| by) == Some(crate::unattended::PassBy::Unattended),
     })
 }
 

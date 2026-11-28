@@ -877,7 +877,7 @@ fn a_text_with_an_unattended_line_is_refused_in_a_headless_dir() {
             vec!["ask", "6", "--body", text],
         ] {
             let o = h.headless_read(&argv);
-            refused(&o, SCOPE);
+            refused(&o, "[rule=text-reads-as-act]");
             assert!(
                 o.stderr.contains("only crewboard writes that line"),
                 "{argv:?}: {}",
@@ -900,7 +900,7 @@ fn a_text_with_an_unattended_line_is_refused_in_a_headless_dir() {
         ci_green: true,
     });
     let o = ci.headless_read(&["verify", "5", "--body", "fine\nunattended: 0/10"]);
-    refused(&o, SCOPE);
+    refused(&o, "[rule=text-reads-as-act]");
     assert!(ci.writes().is_empty());
 }
 
@@ -1550,7 +1550,7 @@ fn a_text_on_standard_input_is_taken_and_stamped() {
         &["ask", "7", "--body-file", "-"],
         "May it go?\nunattended: 0/10\n",
     );
-    refused(&o, SCOPE);
+    refused(&o, "[rule=text-reads-as-act]");
 }
 
 #[test]

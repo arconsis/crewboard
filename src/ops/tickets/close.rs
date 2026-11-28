@@ -38,6 +38,9 @@ pub struct CloseHow<'a> {
 
 /// `close <issue> [--verified | --why <text>]` (coordinator).
 pub fn close(ac: &AgentCtx, issue_arg: &str, how: CloseHow<'_>) -> CbResult<String> {
+    if let Some(reason) = how.reason {
+        crate::ops::unattended::check_person_lines(reason)?;
+    }
     if how.verified {
         close_verified(ac, issue_arg)
     } else {

@@ -43,7 +43,9 @@
 //! tick goes on. With the key off the tick reads and prints nothing of this.
 //!
 //! With `unattended_coordinator: verify-and-merge` the tick also merges a Review ticket whose
-//! Gate is prose, when the latest `done` has a passing verify result (`one_judged`). The tick
+//! Gate is prose, when the latest `done` has a passing verify result of the unattended
+//! coordinator and the tick saw that pass at an earlier run, with the ticket in Review all the
+//! time (`one_judged`, `note_results`, `mark_left_review`). The tick
 //! has no rule of its own for that either: `merge_ticket` decides from AUTHORITY.md and the
 //! signed log, as it does for the command `merge`. No model takes part in the merge. When the
 //! verdicts of the day are used, the tick tells the owner once per UTC day (`judgment_lines`).
@@ -644,8 +646,10 @@ pub fn tick(
     let mut needs = Vec::new();
     if buckets.review.is_empty() {
         out = format!("tick: no ticket in Review\n{out}");
+        mark_left_review(ac, &[])?;
     } else {
         let review = review_tickets(&buckets.review, &cache, &mut out);
+        mark_left_review(ac, &review)?;
         handle_review(ac, &scan, review, &cache, &mut out, &mut needs)?;
     }
     let (lines, judgment) = judgment_lines(ac, &scan, &buckets, scan_failed.as_deref(), needs);
@@ -924,76 +928,170 @@ fn one(ac: &mut AgentCtx, s: &Scan<'_>, t: &Ticket, key: &str) -> CbResult<Strin
 /// (spec/agents#unattended-coordinator). `None`: the tick has nothing to do, and the caller
 /// writes the line of a Gate that is not CI only.
 ///
-/// The latest `done` of the signed assignee has a passing verify result of the unattended
-/// coordinator for the head of its evidence ([`crate::unattended::pass_on_head`]). With the mode `verify-and-merge` the tick
-/// then calls `merge_ticket`, which reads the ticket and AUTHORITY.md again and decides alone:
-/// this function is a filter that saves the reads of a merge that cannot pass, and gives no
-/// right. With the mode `verify` the tick merges nothing. A ticket that stays in Review after a
-/// pass of the unattended coordinator is noted for the daily digest.
+/// The tick first notes what it sees on the ticket ([`note_results`]), in every mode that is
+/// not `off`. Then, for a latest `done` with a passing verify result of the unattended
+/// coordinator ([`crate::unattended::pass_message`]):
+///
+/// - a hold ([`crate::ops::unattended::merge_hold`]) gives one `left` line and no merge call;
+/// - with the mode `verify-and-merge` and no hold, the tick calls `merge_ticket`, which reads
+///   the ticket and AUTHORITY.md again and decides alone: this function is a filter and gives no
+///   right;
+/// - with the mode `verify` the tick merges nothing.
+///
+/// A ticket that stays in Review after such a pass is noted for the daily digest, with the word
+/// `held` when a person must look at it.
 fn one_judged(ac: &mut AgentCtx, s: &Scan<'_>, t: &Ticket, key: &str) -> CbResult<Option<String>> {
     if s.coord.mode.is_off() {
         return Ok(None);
     }
-    if s.coord.mode.merges() {
-        note_results(ac, s, t)?;
-    }
-    let Some((done, ev)) = t.agent().and_then(|a| latest_done(&t.msgs, a)) else {
-        return Ok(None);
-    };
     // Only the judgment of the unattended coordinator leads to a merge by the tick. After the
     // verify of an attended coordinator, that coordinator merges.
-    if crate::unattended::pass_on_head(&t.msgs, done, &ev, t.issue)
-        != Some(crate::unattended::PassBy::Unattended)
-    {
+    let pass = t
+        .agent()
+        .and_then(|a| latest_done(&t.msgs, a))
+        .and_then(|(done, ev)| {
+            match crate::unattended::pass_message(&t.msgs, done, &ev, t.issue) {
+                Some((crate::unattended::PassBy::Unattended, id)) => Some((done.comment_id, id)),
+                _ => None,
+            }
+        });
+    note_results(ac, s, t, pass.map(|(_, id)| id))?;
+    let Some((done, pass)) = pass else {
+        return Ok(None);
+    };
+    let hold = crate::ops::unattended::merge_hold(ac, t, pass);
+    let waits = |held: bool| {
+        s.judged.borrow_mut().push(if held {
+            format!("{key} held")
+        } else {
+            key.to_string()
+        })
+    };
+    if !s.coord.mode.merges() {
+        waits(hold.as_ref().is_some_and(|h| h.needs_a_person()));
         return Ok(None);
     }
-    let waits = |s: &Scan<'_>| s.judged.borrow_mut().push(key.to_string());
-    if !s.coord.mode.merges() {
-        waits(s);
-        return Ok(None);
+    match hold {
+        Some(h) if h.needs_a_person() => {
+            waits(true);
+            return Ok(Some(left(key, &format!("held: {}", h.clause(key)))));
+        }
+        Some(h) => {
+            waits(false);
+            return Ok(Some(left(
+                key,
+                &format!("not merged yet: {}", h.clause(key)),
+            )));
+        }
+        None => {}
     }
     let mut cache = ac.load_cache();
-    if cache.tick.tick_requested.get(key) == Some(&done.comment_id) {
-        waits(s);
+    if cache.tick.tick_requested.get(key) == Some(&done) {
+        waits(false);
         return Ok(Some(left(
             key,
             "a merge attempt asked the dev for a change; waiting for a new done",
         )));
     }
     let mut out = String::new();
-    let merged = merge_step(ac, &mut cache, key, done.comment_id, &mut out)?;
+    let merged = merge_step(ac, &mut cache, key, done, &mut out)?;
     if !merged {
-        waits(s);
+        waits(false);
     }
     Ok(Some(out))
 }
 
-/// Note the verify results of coordinators that this tick sees on a Review ticket with a Gate in
-/// prose (`TickState::review_results`), in the mode `verify-and-merge`. `merge` holds the ticket
-/// when one of them is gone at a later run: a failed result or a stop that somebody deleted or
-/// edited must not let an older pass merge. The state is written before the merge of this run,
-/// and only when it changes: a new id, or a last look that is a day old. An entry of a ticket
-/// that left Review long ago is forgotten.
-fn note_results(ac: &AgentCtx, s: &Scan<'_>, t: &Ticket) -> CbResult<()> {
-    use crate::state::NOTE_KEEP_SECS;
+/// Note what this tick sees on a Review ticket with a Gate in prose
+/// (`TickState::review_results`), in every mode that is not `off`: a later switch to
+/// `verify-and-merge` then knows what happened before. `pass`: the comment id of the stamped
+/// pass of the latest `done`, if it has one.
+///
+/// - The verify results of coordinators. One that a tick saw and that is gone now (deleted or
+///   edited) is noted with the time of this tick; it holds the merge until a release.
+/// - The pass: at the first sight its id and the `updatedAt` of the board item; at a later tick
+///   with the same pass and an unchanged item, the time of that tick. Only then the pass can
+///   give a merge. A changed item puts the pass among those that left Review.
+///
+/// The state is written before the merge of this run, and only when it changes or when the
+/// last look is a day old. An entry of a ticket that left Review long ago is forgotten.
+fn note_results(ac: &AgentCtx, s: &Scan<'_>, t: &Ticket, pass: Option<u64>) -> CbResult<()> {
+    use crate::state::{NOTE_KEEP_SECS, SeenPass};
     let key = crate::ops::unattended::floor_key(&t.tref());
-    let ids = crate::unattended::result_ids(&t.msgs);
+    let now_ids = crate::unattended::result_ids(&t.msgs);
     let mut cache = ac.load_cache();
     let before = cache.tick.review_results.clone();
     let old = cache.tick.review_results.get(&key).cloned();
+    let mut e = old.clone().unwrap_or_default();
+    for id in e.ids.clone() {
+        if !now_ids.contains(&id) {
+            e.with_gone(id, s.now);
+        }
+    }
+    e = e.with(&now_ids, e.at);
+    if let Some(id) = pass {
+        // this function runs once per tick and ticket: a pass that the entry holds already was
+        // seen at an earlier run
+        let moved = match e.pass.as_mut().filter(|p| p.id == id) {
+            Some(p) if p.item_updated != t.item.updated_at => true,
+            Some(p) => {
+                p.confirmed.get_or_insert(s.now);
+                false
+            }
+            None => {
+                e.pass = Some(SeenPass {
+                    id,
+                    item_updated: t.item.updated_at.clone(),
+                    first: s.now,
+                    confirmed: None,
+                });
+                false
+            }
+        };
+        if moved {
+            e.with_left(&[id]);
+        }
+    }
     let fresh = old.as_ref().is_some_and(|o| s.now - o.at < 86_400);
-    let next = old.clone().unwrap_or_default().with(&ids, s.now);
-    if old.as_ref().map(|o| &o.ids) != Some(&next.ids) || !fresh {
-        cache
-            .tick
-            .review_results
-            .insert(key, crate::state::SeenResults { at: s.now, ..next });
+    if old.as_ref() != Some(&e) || !fresh {
+        e.at = s.now;
+        cache.tick.review_results.insert(key, e);
     }
     cache
         .tick
         .review_results
         .retain(|_, r| s.now - r.at < NOTE_KEEP_SECS);
     if cache.tick.review_results != before {
+        ac.save_cache_required(&mut cache)?;
+    }
+    Ok(())
+}
+
+/// The tickets with a noted entry that are not among the Review tickets of this tick (`review`:
+/// their keys): every result that the tick noted for such a ticket left Review, and a pass
+/// among them never gives a headless merge (spec/agents#the-merge-mode). A failed verify moves
+/// a ticket out of Review; when somebody deletes that result and sets the board back to Review,
+/// the signed log shows the old pass again, and this note is what is left of the fail.
+fn mark_left_review(ac: &AgentCtx, review: &[TicketRef]) -> CbResult<()> {
+    let mut cache = ac.load_cache();
+    if cache.tick.review_results.is_empty() {
+        return Ok(());
+    }
+    let in_review: std::collections::BTreeSet<String> = review
+        .iter()
+        .map(crate::ops::unattended::floor_key)
+        .collect();
+    let mut changed = false;
+    for (key, e) in cache.tick.review_results.iter_mut() {
+        if in_review.contains(key) {
+            continue;
+        }
+        let mut ids = e.ids.clone();
+        ids.extend(e.pass.as_ref().map(|p| p.id));
+        let before = e.left.clone();
+        e.with_left(&ids);
+        changed |= e.left != before;
+    }
+    if changed {
         ac.save_cache_required(&mut cache)?;
     }
     Ok(())

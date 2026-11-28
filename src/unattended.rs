@@ -718,12 +718,12 @@ pub enum PassBy {
 /// A ticket that the round limit stopped has no pass: the owner decides there. A `done` on the
 /// owner route (a line `owner-route:` or `protected-paths:`) has none either: the owner merges
 /// that PR, whatever its files are now.
-pub fn pass_on_head(
+pub fn pass_message(
     msgs: &[VMsg],
     done: &VMsg,
     ev: &crate::protocol::acts::EvidenceMsg,
     issue: u64,
-) -> Option<PassBy> {
+) -> Option<(PassBy, u64)> {
     if crate::ticket::fold_rounds(msgs).stopped || crate::ticket::is_owner_route_done(done) {
         return None;
     }
@@ -735,9 +735,9 @@ pub fn pass_on_head(
         return None;
     }
     if !has_unattended_line(&m.body) {
-        return Some(PassBy::Attended);
+        return Some((PassBy::Attended, m.comment_id));
     }
-    unattended_of(&m.body).map(|_| PassBy::Unattended)
+    unattended_of(&m.body).map(|_| (PassBy::Unattended, m.comment_id))
 }
 
 /// Why a headless merge of a prose Gate is held although the signed log has a pass: the log
@@ -748,11 +748,24 @@ pub enum Held {
     /// failed verify result or a stop that somebody edited looks like this.
     Unverified(u64),
     /// A verify result of a coordinator that an earlier tick of this config dir saw is not
-    /// among the verified messages any more: it was deleted or edited.
+    /// among the verified messages any more: it was deleted or edited. It holds the ticket
+    /// until a release ([`released_after`]).
     Gone(u64),
+    /// The ticket was not in Review at a tick after the tick noted this pass, or its board item
+    /// changed after the tick first saw the pass: something happened to the ticket that the
+    /// signed log may not show any more (a failed result that moved it and was deleted).
+    LeftReview(u64),
+    /// The tick of this config dir did not see this pass at two runs yet. No fault: the merge
+    /// waits for the next tick.
+    NotSeen(u64),
 }
 
 impl Held {
+    /// Is this a hold that a person must look at ([`Held::NotSeen`] ends by itself)?
+    pub fn needs_a_person(&self) -> bool {
+        !matches!(self, Held::NotSeen(_))
+    }
+
     /// The clause of the refusal.
     pub fn clause(&self, key: &str) -> String {
         match self {
@@ -760,7 +773,13 @@ impl Held {
                 "comment {id} of {key} has a crew header or was edited, and it is no verified message: it can be a failed verify result or a stop that somebody changed, so the signed log proves no pass"
             ),
             Held::Gone(id) => format!(
-                "a verify result of a coordinator on {key} that an earlier tick saw (comment {id}) is gone or was edited, so the signed log proves no pass"
+                "a verify result of a coordinator on {key} that an earlier tick saw (comment {id}) is gone or was edited, so the signed log proves no pass; a comment of the owner on the ticket, or a new assignment by an attended coordinator, ends this hold"
+            ),
+            Held::LeftReview(id) => format!(
+                "{key} left Review, or its board item changed, after the tick saw the passing verify result (comment {id}): that pass gives no headless merge any more; a new done with a new verify result does"
+            ),
+            Held::NotSeen(id) => format!(
+                "the tick of this config dir did not see the passing verify result of {key} (comment {id}) at two runs yet: it merges at the second tick that sees the pass, while the ticket stays in Review and its board item is unchanged"
             ),
         }
     }
@@ -780,17 +799,66 @@ pub fn result_ids(msgs: &[VMsg]) -> Vec<u64> {
         .collect()
 }
 
-/// Is the headless merge of a prose Gate held? `unverified`: [`crate::ticket::unverified_comments`]
-/// of the comments that the command read. `seen`: the result ids that the tick of this config
-/// dir noted for the ticket at earlier runs.
-pub fn held(msgs: &[VMsg], unverified: &[u64], seen: &[u64]) -> Option<Held> {
+/// Does the signed log release a hold that was noted at `at` (Unix seconds): an owner comment,
+/// or an assignment of a coordinator without an `unattended:` line, that GitHub created after
+/// that time? A person or an attended coordinator looked at the ticket then. A new verify
+/// result alone releases nothing.
+pub fn released_after(msgs: &[VMsg], at: i64) -> bool {
+    msgs.iter()
+        .any(|m| m.created > at && starts_verdicts_again(m))
+}
+
+/// What the tick of this config dir noted for one ticket (the state cache, as plain values).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Seen<'a> {
+    /// The result ids that the tick saw.
+    pub ids: &'a [u64],
+    /// The result ids that were noted when the ticket left Review.
+    pub left: &'a [u64],
+    /// The results that were gone at a tick: the id and the time of that tick.
+    pub gone: &'a [(u64, i64)],
+    /// The pass that the tick saw last: its id, the `updatedAt` of the board item at the first
+    /// sight, and whether a later tick saw it again.
+    pub pass: Option<(u64, &'a str, bool)>,
+}
+
+/// Is the headless merge of a prose Gate held? `pass` is the comment id of the stamped pass of
+/// the latest `done`, `item_updated` the `updatedAt` of the board item as the command read it.
+/// `unverified`: [`crate::ticket::unverified_comments`] of the comments that the command read.
+/// The first reason that holds, in the order of [`Held`].
+pub fn held(
+    msgs: &[VMsg],
+    unverified: &[u64],
+    seen: &Seen<'_>,
+    pass: u64,
+    item_updated: &str,
+) -> Option<Held> {
     if let Some(id) = unverified.first() {
         return Some(Held::Unverified(*id));
     }
+    // a gone result that a tick noted holds until a release after that time
+    if let Some((id, _)) = seen.gone.iter().find(|(_, at)| !released_after(msgs, *at)) {
+        return Some(Held::Gone(*id));
+    }
+    // a result that is gone and that no tick noted yet
     let now = result_ids(msgs);
-    seen.iter()
-        .find(|id| !now.contains(id))
-        .map(|id| Held::Gone(*id))
+    if let Some(id) = seen
+        .ids
+        .iter()
+        .find(|id| !now.contains(id) && !seen.gone.iter().any(|(g, _)| g == *id))
+    {
+        return Some(Held::Gone(*id));
+    }
+    if seen.left.contains(&pass) {
+        return Some(Held::LeftReview(pass));
+    }
+    match seen.pass {
+        Some((id, updated, _)) if id == pass && updated != item_updated => {
+            Some(Held::LeftReview(pass))
+        }
+        Some((id, _, true)) if id == pass => None,
+        _ => Some(Held::NotSeen(pass)),
+    }
 }
 
 /// What the stamped messages of one UTC day say, for the daily digest
@@ -1026,7 +1094,7 @@ mod tests {
 
     fn pass_of(msgs: &[VMsg]) -> Option<PassBy> {
         let (d, ev) = crate::ticket::latest_done(msgs, DEV)?;
-        pass_on_head(msgs, d, &ev, ISSUE)
+        pass_message(msgs, d, &ev, ISSUE).map(|(by, _)| by)
     }
 
     #[test]
@@ -1103,27 +1171,95 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_is_held_for_an_unverified_comment_and_for_a_result_that_is_gone() {
+    fn a_merge_is_held_until_the_tick_saw_the_pass_twice_and_for_every_doubt_about_the_log() {
         let log = vec![
             assignment(1, PROSE),
             done(2, ""),
             pass_on(3, 2, "abc", &stamp(1)),
-            verdict(4, 2, false, ""),
             // a report of the dev agent is no result
             dev(5, COORD, Kind::Report, "verify: fail\n"),
         ];
-        assert_eq!(result_ids(&log), [3, 4]);
-        assert_eq!(held(&log, &[], &[]), None);
-        assert_eq!(held(&log, &[], &[3, 4]), None);
-        assert_eq!(held(&log, &[9, 12], &[3, 4]), Some(Held::Unverified(9)));
-        // the fail that a tick saw is not in the log any more
-        assert_eq!(held(&log[..3], &[], &[3, 4]), Some(Held::Gone(4)));
-        assert!(Held::Gone(4).clause("a/b#5").contains("comment 4"));
-        assert!(
-            Held::Unverified(9)
-                .clause("a/b#5")
-                .contains("comment 9 of a/b#5")
+        assert_eq!(result_ids(&log), [3]);
+        let ready = Seen {
+            ids: &[3],
+            pass: Some((3, "u1", true)),
+            ..Seen::default()
+        };
+        // the one state that merges: seen twice, the item unchanged, nothing gone
+        assert_eq!(held(&log, &[], &ready, 3, "u1"), None);
+        // no state, a first sight only, and the pass of another comment
+        assert_eq!(
+            held(&log, &[], &Seen::default(), 3, "u1"),
+            Some(Held::NotSeen(3))
         );
+        let first = Seen {
+            pass: Some((3, "u1", false)),
+            ..ready
+        };
+        assert_eq!(held(&log, &[], &first, 3, "u1"), Some(Held::NotSeen(3)));
+        assert_eq!(held(&log, &[], &ready, 9, "u1"), Some(Held::NotSeen(9)));
+        assert!(!Held::NotSeen(3).needs_a_person());
+        // the board item changed since the first sight, or a tick noted that the ticket left
+        assert_eq!(held(&log, &[], &ready, 3, "u2"), Some(Held::LeftReview(3)));
+        let left = Seen {
+            left: &[3],
+            ..ready
+        };
+        assert_eq!(held(&log, &[], &left, 3, "u1"), Some(Held::LeftReview(3)));
+        // a new pass of such a ticket is judged fresh
+        assert_eq!(held(&log, &[], &left, 9, "u1"), Some(Held::NotSeen(9)));
+        // an unverified comment comes first
+        assert_eq!(
+            held(&log, &[9, 12], &ready, 3, "u1"),
+            Some(Held::Unverified(9))
+        );
+        // a result that a tick saw is gone: not noted yet, and noted
+        let saw_more = Seen {
+            ids: &[3, 4],
+            ..ready
+        };
+        assert_eq!(held(&log, &[], &saw_more, 3, "u1"), Some(Held::Gone(4)));
+        let noted = Seen {
+            gone: &[(4, 100)],
+            ..saw_more
+        };
+        assert_eq!(held(&log, &[], &noted, 3, "u1"), Some(Held::Gone(4)));
+        // a release: an owner comment or an attended assignment after the time of the note
+        let at = |m: VMsg, created: i64| VMsg { created, ..m };
+        let with = |m: VMsg| -> Vec<VMsg> { log.iter().cloned().chain([m]).collect() };
+        assert_eq!(
+            held(&with(at(owner(6, "go on"), 101)), &[], &noted, 3, "u1"),
+            None
+        );
+        assert_eq!(
+            held(&with(at(assignment(6, PROSE), 101)), &[], &noted, 3, "u1"),
+            None
+        );
+        // not a release: the same before the note, a new stamped result, an unattended
+        // assignment, a message of the dev agent
+        for m in [
+            at(owner(6, "go on"), 100),
+            at(pass_on(6, 2, "abc", &stamp(2)), 200),
+            at(
+                coord(
+                    6,
+                    DEV,
+                    Kind::Request,
+                    &format!(
+                        "Assigned to you: Fix it\nticket: a/b#5\nitem=PVTI_5\ngate: g\n{}",
+                        stamp(2)
+                    ),
+                ),
+                200,
+            ),
+            at(dev(6, COORD, Kind::Info, "fine"), 200),
+        ] {
+            assert_eq!(held(&with(m), &[], &noted, 3, "u1"), Some(Held::Gone(4)));
+        }
+        for h in [Held::Gone(4), Held::Unverified(9), Held::LeftReview(3)] {
+            assert!(h.needs_a_person());
+            assert!(h.clause("a/b#5").contains("a/b#5"));
+        }
     }
 
     #[test]

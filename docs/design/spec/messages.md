@@ -105,8 +105,9 @@ message of a coordinator.
 A merge notice (`Merged by the coordinator.`) ends with the line `verified-by: unattended` when
 the passing verify result that the merge relied on has the line `unattended:`
 ([The merge mode](agents.md#the-merge-mode)). Its key is not `unattended`: the notice is no
-stamped message and counts for no budget. A text of `say`, `unblock`, `ask` or `verify` with a
-line that starts with `unattended:` or `verified-by:` is refused in every config dir. The daily digest reads the line from verified merge
+stamped message and counts for no budget. A text that a person or a model passes in with a line that starts with `unattended:` or
+`verified-by:` is refused with `text-reads-as-act` in every config dir
+([the stamp](agents.md#the-scope-of-the-unattended-coordinator) lists the commands). The daily digest reads the line from verified merge
 notices of coordinators (`verified_by_unattended_line`, `is_verified_by_unattended`).
 
 Because the act is only text, a writer of free text must not produce it by accident. `say` and
