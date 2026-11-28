@@ -100,6 +100,8 @@ A refused command exits 2 and prints `refused [rule=<id>]: <message>`. The messa
 | `unread-message-on-ticket` | The ticket has a message to this agent that it has not read. |
 | `unread-events` | There are events that this agent has not read. |
 | `headless-scope` | A headless coordinator does not do this; the interactive coordinator does. |
+| `unattended-off` | The unattended coordinator is off (`unattended_coordinator` of AUTHORITY.md); the interactive coordinator does this. |
+| `unattended-budget` | The unattended coordinator has no verdict or message left for the day or for the ticket, or the count could not be read. |
 | `owner-command-malformed` | An owner command (`/crew ...`) cannot be read. |
 | `owner-command-bad-role` | The role in an owner command is not `coordinator` or `dev`. |
 

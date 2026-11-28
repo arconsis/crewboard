@@ -4,7 +4,7 @@
 //! The case: the evidence of a `done` holds (PR head unchanged, CI accepted), but the
 //! coordinator's own Gate check fails. `verify --fail` records that as a failed verify, with the
 //! writes of any failed verify. It is refused without a note, for a dev agent, for a
-//! headless coordinator and outside Review (or with an open question to the owner). A plain
+//! headless coordinator whose unattended mode is off and outside Review (or with an open question to the owner). A plain
 //! `verify` does not change.
 
 use crate::support::board::{Agent, FakeBoard, Out, REPO};
@@ -85,14 +85,15 @@ fn verify_fail_with_a_note_fails_green_evidence_and_moves_the_ticket_to_in_progr
         &["verify", &ts, "--fail", "--body", NOTE],
         "verify-coordinator-only",
     );
-    // refused: a headless coordinator (the Gate check is a judgment)
+    // refused: a headless coordinator (the Gate check is a judgment, and the unattended
+    // coordinator is off)
     let headless = tempfile::tempdir().unwrap();
     crate::support::headless::copy_headless(&c, headless.path());
     refused_no_write(
         &fake,
         headless.path(),
         &["verify", &ts, "--fail", "--body", NOTE],
-        "headless-scope",
+        "unattended-off",
     );
     assert_eq!(status(&fake, &item).as_deref(), Some("Review"));
 

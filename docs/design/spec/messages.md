@@ -87,9 +87,11 @@ after the `failed:` lines, each failure text from CI or from the PR is one line,
 `verify` with a `case:` line is not accepted.
 
 One more line is no act: `unattended: <n>/<budget>`, the last body line of a message of the
-[unattended coordinator](agents.md#unattended-coordinator). No command of this version writes
-the line: the format and its readers are fixed here, and the headless `tick` counts the
-messages that have it. `n` is the number of the verdicts of the UTC day, up to and with this
+[unattended coordinator](agents.md#unattended-coordinator). crewboard writes the line itself,
+in the one place that sends a signed message, and only for a judgment of the unattended
+coordinator. In a headless config dir a text that has such a line is refused
+(`headless-scope`). The headless `tick` and each judgment count the messages that have it. `n`
+is the number of the verdicts of the UTC day, up to and with this
 message. `budget` is `unattended_budget` of `AUTHORITY.md` at that time. The message keeps the
 act of its first line. One module has the writer and the readers of the line
 (`unattended_line`, `unattended_of`, `has_unattended_line`). The lines of `tick` about the

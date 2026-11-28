@@ -197,7 +197,10 @@ limits it. The prompt does not.
    headless OS user (mode 700, owned by the interactive user), because it holds a signing key.
 3. **Verdicts.** The first thing `crewboard` does, before it loads a config or sends a
    request, is to check the command. A refused command prints `refused [rule=headless-scope]`,
-   exits 2 and sends no request at all.
+   exits 2 and sends no request at all. A judgment of the unattended coordinator is the one
+   exception: such a command loads its context and reads `AUTHORITY.md` and the ticket, then it
+   decides. With the mode `off` it prints `refused [rule=unattended-off]`, exits 2 and writes
+   nothing.
 
    | Command | Headless |
    |---|---|
@@ -205,13 +208,15 @@ limits it. The prompt does not.
    | `watch`, `poll` | allowed. They are not read-only: each cycle, also with `--quiet`, runs the coordinator duties (item 6) |
    | `start`, `resume` (own), `agent selftest`, `heartbeat` | allowed (liveness of the agent itself) |
    | `tick` | allowed (it only runs `verify` and `merge`, closes owner-merged tickets and notes a PR merged without a verify; see 8). With `daily_digest` it posts one status update per day (see 8a). With `--work-dir` it also runs the checks of a ticket whose Gate is `checks: ...` (see 5a) |
-   | `verify` | allowed (no `--run`; it counts the named runs of the evidence, [ci](ci.md#which-ci-runs-count) point 10); a ticket with an open question to the owner is refused, also after the owner answered in a chat ([Verify after the owner's go](tickets.md#verify-after-the-owners-go)) |
+   | `verify` of a ticket whose signed Gate is `ci` | allowed (no `--run`; it counts the named runs of the evidence, [ci](ci.md#which-ci-runs-count) point 10); a ticket with an open question to the owner is refused, also after the owner answered in a chat ([Verify after the owner's go](tickets.md#verify-after-the-owners-go)) |
+   | `verify` of a ticket with any other signed Gate or with none, `verify --fail`, `verify --run-check` | a judgment of the [unattended coordinator](#unattended-coordinator): refused with `unattended-off` unless `AUTHORITY.md` allows it. The command reads the ticket first, because the signed Gate decides |
    | `merge` | allowed, with the checks of 4 (no `--run`); a ticket with an open question to the owner is refused, as for `verify` |
    | `close` (bare) | allowed (the owner merged the PR by hand: a fact, not a judgment; [Close after an owner merge](tickets.md#close-after-an-owner-merge)); a ticket with an open question is allowed too |
    | `close --verified`, `close --why` | refused (a judgment of the interactive coordinator; [Close without a PR](tickets.md#close-without-a-pr)) |
-   | `assign`, `reassign` | refused |
+   | `assign <n> --to <agent>`, `unblock`, `ask`, `say --kind answer --to <agent>` | a judgment of the [unattended coordinator](#unattended-coordinator): refused with `unattended-off` unless `AUTHORITY.md` allows it |
+   | `assign` with `--order` or `--override-capabilities`, `assign <n> --order <number>`, `reassign` | refused |
    | `ticket new`, `ticket adopt`, `ticket split` | refused |
-   | `say`, `ask`, `take`, `done`, `block` | refused |
+   | any other `say`, `take`, `done`, `block` | refused |
    | `report-status`, `prune`, `agent profile set`, `agent token` | refused |
    | `pause`, `stop` (own or `--agent`), `resume --agent` | refused |
    | `init`, `join`, `approve` | refused (owner and setup) |
@@ -221,9 +226,7 @@ limits it. The prompt does not.
    | `check --authority-file` | refused (the command lines of a local file; a draft of `AUTHORITY.md` is owner work) |
    | `repeat` | allowed only with `--lock <dir>` for a lock dir that the wake names with `--host-lock`, as `lock run`; else refused with `lock-run-not-granted` |
    | `verify --run`, `merge --run` | refused (a named run belongs to a Gate that is not CI only) |
-   | `verify --fail` | refused (a failed Gate check is a judgment of the interactive coordinator) |
    | `verify --local-run` | refused (a local run is a judgment of the interactive coordinator, [Local run](ci.md#local-run-ci_mode-local)) |
-   | `verify --run-check` | refused as a command. `tick` runs the checks itself, and only for a Gate that names nothing but checks (see 5a) |
    | `merge` of a local-run ticket | refused (the evidence is `ci: local-gate`, so the Gate is not CI only) |
 
    A new command has no verdict until someone writes one: the match has no catch-all arm.
@@ -399,10 +402,17 @@ The key `unattended_coordinator` in `AUTHORITY.md` has the values `off` (default
 (1 to 50, default 10). crewboard reads both keys from the default branch only. The keys are
 reserved for a coordinator that judges with nobody watching.
 
-This version only shows what such a coordinator has to do, and it counts. It starts no model.
-The keys give no command a new right: the [verdict table](#headless-coordinator) of the headless
-scope is as it is without the keys. The two values that are not `off` do the same. The budget
-limits nothing; the tick prints it.
+The unattended coordinator is every `crewboard` command that runs in a headless config dir
+(`headless = true`, [Headless coordinator](#headless-coordinator) item 1), except the `tick`
+itself. No flag and no environment variable makes a process the unattended coordinator or
+frees it: the key of the config dir decides. crewboard starts no model; the owner decides what
+runs in the headless config dir.
+
+With the mode `off`, a headless config dir makes no judgment. With `verify`, it may make the
+judgments of [the scope](#the-scope-of-the-unattended-coordinator) below, inside a budget. The
+value `verify-and-merge` does what `verify` does: the `merge` of a headless config dir is for a
+ticket whose Gate is `ci` only, in every mode. An interactive config dir is not restricted and
+not counted, whatever the keys say.
 
 With a value that is not `off`, the headless `tick` prints two more kinds of line after its
 other lines:
@@ -416,8 +426,9 @@ for them and keeps nothing about them in its state. When `AUTHORITY.md` cannot b
 front matter does not parse, the tick takes the mode as `off`; `verify` and `merge` refuse such
 a file themselves.
 
-**The list gives no right.** It is a view for a reader. A command that writes checks the signed
-log itself, and a ticket on the list can be refused there.
+**The list gives no right.** It is a view for a reader. A command that writes reads the ticket
+again and decides from the signed log, so a ticket on the list can be refused there
+([the scope](#the-scope-of-the-unattended-coordinator)).
 
 **What the tick reads for a ticket.** The Status of the board says which rule to try; a board
 field is not signed. Everything else comes from the verified messages of the ticket:
@@ -459,16 +470,19 @@ rules holds. The reason of the line is the name in quotes.
 3. "blocked": the ticket is Blocked, and the latest block is a plain `blocked` message of its
    assignee: no park, no question to the owner. No answer came after it.
 4. "ready, no agent": the ticket is in Ready, the board has no Agent, and the signed log has no
-   assignee: the ticket was never assigned, or a reassign came after the last assignment.
+   assignee: the ticket was never assigned, or a reassign came after the last assignment. The
+   signed log must allow the Status Ready: a reassign returned the ticket, or the owner moved
+   it (`crewboard move <n> Ready`). A Status that somebody set on the board alone puts no
+   ticket on the list.
 5. "returned": the ticket is in Backlog, has no Agent and has a Gate, and the last assignment
    or reassign of a coordinator in its signed log is a reassign.
 
 A Review ticket is on the list only when the tick wrote nothing for it in this run.
 
 **The verdict count.** An unattended verdict is a verify result of a coordinator that has the
-line `unattended: <n>/<budget>` ([Acts](messages.md#acts)). No command of this version writes
-that line, so the count is 0 on a board that only this version worked on. The count of the day
-comes from the signed messages:
+line `unattended: <n>/<budget>` ([Acts](messages.md#acts)). Only a judgment of the unattended
+coordinator gets that line ([the stamp](#the-scope-of-the-unattended-coordinator)). The count of
+the day comes from the signed messages:
 
 - The tick reads the comment feed of each repo of the initiative from 00:00 UTC, and it takes
   the verified messages of coordinators that GitHub created at or after that time. A message
@@ -478,9 +492,10 @@ comes from the signed messages:
   of a stamped message does not lower the count while a later stamped message is left.
 - The signed log alone does not protect the count when the latest stamped message is deleted
   or edited. Two values of the local state of the config dir do, on the host that has them.
-  The tick remembers the count of each repo for the day and never goes below what it read
-  before. A second value is a floor for a command that posts a verdict; no command of this
-  version writes it. A host without that state counts what the log has left.
+  The tick and each judgment remember the count of each repo for the day and never go below
+  what they read before. A second value is a floor: a judgment notes the count with its own
+  message in the state before it posts. A host without that state counts what the log has
+  left.
 - A comment of the owner or a message of a dev agent with such a line counts for nothing.
 
 When the tick cannot read the feed, it does not print a count of 0. It prints one line
@@ -490,7 +505,10 @@ listed: ...`, it lists no ticket, and it reads no ticket for the list.
 The count of one ticket is the number of unattended verdicts in its signed log. It starts
 again after an owner comment, and after an assignment of a coordinator that has no
 `unattended:` line. A reassign does not start it again: the duty for a dead agent posts one
-with nobody watching. At 2 the ticket is off the list.
+with nobody watching. At 2 the ticket is off the list. The local state holds a floor for this
+count too: a judgment notes the count of the ticket before it posts a verdict, with the highest
+comment id of the ticket at that time. A verdict that somebody deletes or edits later stays in
+the floor. The floor ends when a comment with a higher id starts the count again.
 
 **Read cost.** With a mode that is not `off`, a tick makes these requests in addition:
 
@@ -510,6 +528,86 @@ with nobody watching. At 2 the ticket is off the list.
 A read for the list that fails does not fail the tick. The tick prints one line
 `unattended coordinator: <what> could not be read for the list: ...`, leaves that ticket off
 the list of this run, prints its other lines and ends as it would without the failure.
+
+### The scope of the unattended coordinator
+
+A judgment is one of the commands of this table, in a headless config dir. Any other command
+has the verdict of the [headless scope](#headless-coordinator).
+
+| Command in a headless config dir | Mode `off` | Mode `verify` or `verify-and-merge` |
+|---|---|---|
+| `verify` or `verify --body` of a ticket whose signed Gate is `ci` | allowed, not stamped, not counted | the same |
+| `verify` or `verify --body` of a ticket with another signed Gate or with none; `verify --fail --body`; `verify --run-check` | `unattended-off` | allowed for a ticket that is "prose Gate" on the judgment list; a verdict |
+| `verify --run`, `verify --local-run` | `headless-scope`, no request | the same |
+| `merge` | a ticket whose Gate is `ci` only | the same |
+| `say --kind answer --to <agent>` | `unattended-off` | allowed when `<agent>` is the signed assignee |
+| `unblock` | `unattended-off` | allowed for a Blocked ticket that is "blocked" or "question" on the judgment list |
+| `assign <n> --to <agent>` | `unattended-off` | allowed for a ticket that is "ready, no agent" or "returned" on the judgment list |
+| `assign` with `--order` or `--override-capabilities` | `headless-scope`, no request | the same |
+| `ask` | `unattended-off` | allowed for an open ticket |
+
+The tick's own `verify` of a `ci` Gate or a `checks:` Gate, and its `merge`, are no judgments:
+they are not stamped and not counted.
+
+**Each judgment decides again.** The command reads the ticket and its comments, and it does not
+use the list of a tick. These checks come first, and they refuse before any write:
+
+1. The mode. With `off`, or with an `AUTHORITY.md` that cannot be read, the refusal is
+   `unattended-off`. The command reads no count.
+2. The budget of the day (below). A count that cannot be read refuses the command with
+   `unattended-budget`: the command never takes the count as 0.
+3. The ticket. The facts under "Never on the list" hold for `verify`, the answer, `unblock`
+   and `assign`: an open question to the owner, a stop at the round limit, the label
+   `needs-owner`, a `done` on the owner route, a closed issue, and a board `Agent` that is not
+   the agent of the signed log. The refusal is `headless-scope`. A ticket with 2 unattended
+   verdicts is refused with `unattended-budget`.
+4. The board Status. When it contradicts the signed log, the refusal is `headless-scope`. The
+   signed log allows Review after a `done` with evidence of the assignee, Blocked after its
+   `blocked` message, and Ready or Backlog after a reassign.
+5. The rule of the command, from the table. For `assign`, the signed log has no assignee
+   (whatever the board `Agent` says), and a signed message of a coordinator names the board
+   item of the ticket. The command puts no issue on the board.
+
+`verify` keeps every check of an attended `verify`. It reads the files of the PR again, so a PR
+that changes a protected path is refused with `protected-path-owner-merge`, also when the
+`done` names no such path. The checks of `verify --run-check` run as the checks of the tick
+run: no check whose command line names a file outside `protected_paths`.
+
+**The owner keeps its questions.** `unblock` never withdraws a question to the owner and never
+releases a stop at the round limit: such a ticket is refused (check 3). An answer whose body
+has the line `withdraws: question` is refused with `headless-scope` on every ticket.
+
+**The stamp.** Every signed message of a judgment gets a last body line
+`unattended: <n>/<budget>`. `n` is the number of verdicts of the day, with this message when it
+is a verify result. One place sends every signed message, and that place writes the line. In a
+headless config dir, a text with a line that starts with `unattended:` is refused with
+`headless-scope`: the body of `say`, `unblock`, `ask` and `verify`, and every message before it
+is signed.
+
+**The budget.** The refusal is `unattended-budget`, and nothing is written.
+
+- A verdict is refused when the count of the day is `unattended_budget` or more.
+- Every judgment is refused when the day has 30 stamped messages of coordinators. This number
+  is fixed. It is the limit for the messages that are no verdicts.
+- A verdict, an answer, `unblock` and `assign` are refused for a ticket that has 2 unattended
+  verdicts.
+- Before a judgment posts a message, it writes the new counts to the local state: the verdicts
+  and the stamped messages of the day, and for a verdict the count of the ticket. When that
+  write fails, the message is not posted.
+
+Each judgment makes one more request than the attended command: the read of the comment feed of
+the day, per repo (a conditional request when the feed did not change; one request per page).
+The answer also reads the issue and the comments of its ticket. Two judgments that run at the
+same time can pass the budget by one.
+
+**No heartbeat.** An attended `say` refreshes the heartbeat of its agent when one is due. In a
+headless config dir it does not, so an answer of the unattended coordinator does not hide a
+late interactive coordinator from the owner alert (item 8 of the headless coordinator).
+
+**Limits.** The scope limits what a process does through crewboard. The headless OS user holds
+the token and the signing key of the coordinator. Outside crewboard it can call the GitHub API
+and sign a message without the line. The token rights and the branch protection are the
+boundary, as for the headless scope (item 9).
 
 ## Board config refresh
 

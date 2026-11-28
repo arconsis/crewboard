@@ -7,6 +7,7 @@ use super::{
 };
 use crate::base::ids;
 use crate::error::{CbError, CbResult};
+use crate::headless::UAct;
 use crate::ops::{AgentCtx, parse_issue_arg};
 use crate::protocol::acts::withdraw_body;
 use crate::protocol::names::{Kind, Re, To};
@@ -119,16 +120,32 @@ pub fn unblock(
     anyway: bool,
 ) -> CbResult<String> {
     let tref = parse_issue_arg(issue_arg, ac.ctx.main_repo())?;
+    if let Some(b) = &body {
+        crate::ops::unattended::check_no_stamp_line(ac, b)?;
+    }
     let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
+    // The unattended coordinator (a headless config dir): its mode and its budget, then the
+    // signed log of the ticket. It never releases a ticket that waits for the owner.
+    let unattended = crate::ops::unattended::admit(ac, &world, UAct::Unblock)?;
     let assignee = t.agent().map(str::to_string);
     crate::rules::status::check_unblock(from, me.actor, assignee.is_some())?;
     let assignee = assignee.unwrap_or_default();
+    if unattended {
+        crate::ops::unattended::check_ticket(ac, UAct::Unblock, &t, None)?;
+    }
     let unread_line = unread_guard(ac, &world, &t, anyway)?;
     let unread_note = crate::unread::note(unread_line.as_deref());
     let text = body
         .filter(|b| !b.trim().is_empty())
         .unwrap_or_else(|| format!("resume allowed: run take {}", tref.issue));
     let plan = plan_unblock(&t.msgs, &assignee, &text, unread_line.as_deref());
+    if unattended && plan.withdraws {
+        return Err(crate::headless::unattended_refusal(&format!(
+            "this unblock of {} would withdraw a question to the owner or release a stop at the round limit",
+            t.key()
+        ))
+        .into());
+    }
     if !plan_unblocks(&t.msgs, &me.name, me.role, &assignee, &plan.body) {
         return Err(CbError::refused(
             ids::UNBLOCK_NOT_EFFECTIVE,
@@ -174,9 +191,15 @@ pub fn ask(ac: &AgentCtx, issue_arg: &str, question: &str, anyway: bool) -> CbRe
             "ask needs the question (--body or --body-file)",
         ));
     }
+    crate::ops::unattended::check_no_stamp_line(ac, question)?;
     let Loaded { world, me, t, from } = load_signed(ac, &tref)?;
+    // The unattended coordinator may ask the owner: the question takes the ticket from it.
+    let unattended = crate::ops::unattended::admit(ac, &world, UAct::Ask)?;
     let is_assignee = t.agent() == Some(me.name.as_str());
     check_ask(&t.key(), me.actor, is_assignee, from)?;
+    if unattended {
+        crate::ops::unattended::check_ticket(ac, UAct::Ask, &t, None)?;
+    }
     let unread_line = unread_guard(ac, &world, &t, anyway)?;
     let unread_note = crate::unread::note(unread_line.as_deref());
     let moves_to = ask_moves_to(from, is_assignee);

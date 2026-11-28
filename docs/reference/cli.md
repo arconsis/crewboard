@@ -1210,7 +1210,7 @@ Options:
           What you found when you checked the Gate yourself (recorded in the result)
 
       --fail
-          Your own Gate check failed although the evidence holds: record a failed verify with the body as the failure (needs --body; not for a headless coordinator)
+          Your own Gate check failed although the evidence holds: record a failed verify with the body as the failure (needs --body)
 
       --run <RUNS>
           A CI run that is part of the evidence (spec/ci#which-ci-runs-count); see `done --run`

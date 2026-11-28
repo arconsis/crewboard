@@ -273,6 +273,7 @@ pub fn run(g: &Global, a: JoinArgs<'_>) -> CbResult<String> {
         name: name.clone(),
         key,
         consent_flag: g.insecure_one_account,
+        stamp: crate::ctx::StampCell::default(),
     };
     let posted = if already {
         None

@@ -9,15 +9,17 @@
 //! - [`ticket_verdicts`], [`verdicts_on_day`] and [`used`] count the verdicts from the signed
 //!   messages that carry the line `unattended: <n>/<budget>`.
 //!
+//! - [`check_act`] decides whether the unattended coordinator may run one command on one ticket.
+//!
 //! A board field is not signed. The Status of the board says which rule to try. The assignee
 //! is the agent of the signed log ([`crate::ticket::log::fold_ticket`]): a board `Agent` that
 //! the log does not support keeps the ticket off the list, and an empty board `Agent` does not
 //! hide a question or a `done` of the signed assignee. The list is a view and gives no right:
-//! every command that writes checks the signed log on its own.
+//! every command that writes reads the ticket again and decides with [`check_act`].
 
 use crate::authority::CoordMode;
 use crate::base::fields::Field;
-use crate::headless::Gate;
+use crate::headless::{Gate, UAct};
 use crate::items::ItemSnapshot;
 use crate::protocol::acts::{has_unattended_line, is_local_gate, unattended_of};
 use crate::protocol::names::Kind;
@@ -26,6 +28,10 @@ use crate::ticket::{Act, Sender, VMsg};
 
 /// How many unattended verdicts one ticket may get before a person looks at it.
 pub const MAX_VERDICTS_PER_TICKET: usize = 2;
+
+/// How many stamped messages (verdicts and other messages) the unattended coordinator may post
+/// in one UTC day. Fixed: no key of AUTHORITY.md changes it.
+pub const MAX_MESSAGES_PER_DAY: u32 = 30;
 
 /// The start of a line of `tick` for a ticket on the list.
 pub const NEEDS_JUDGMENT: &str = "needs judgment";
@@ -47,6 +53,10 @@ pub struct Facts<'a> {
     pub closed: bool,
     /// The issue has the label `needs-owner`, when the caller read the labels.
     pub needs_owner_label: bool,
+    /// The floor of the unattended verdicts of the ticket that the local state holds
+    /// ([`ticket_verdicts_at_least`]): the count, and the highest comment id of the ticket when
+    /// it was noted.
+    pub verdict_floor: Option<(u32, u64)>,
 }
 
 /// Why a ticket is never on the list.
@@ -137,45 +147,23 @@ fn ci_none(msgs: &[VMsg], body: Option<&str>) -> bool {
     }
 }
 
-/// Is the ticket never on the list? The first rule that holds, in the order N4, the label of N1,
-/// the board `Agent` against the signed log, the rest of N1, N2, N3, and for a ticket in Review
-/// N5, N6, N7. The rules N5 to N7 are about the verdict on a `done`, so they apply in Review
+/// Is the ticket never on the list? The first rule that holds, in the order N4, the board
+/// `Agent` against the signed log, N1 (the open question, the stop, then the label), N2, N3, and
+/// for a ticket in Review N5, N6, N7. The rules N5 to N7 are about the verdict on a `done`, so they apply in Review
 /// only: a ticket that went back to its agent after a failed verify, and is Blocked now, still
 /// has the result of that verify.
 ///
 /// `None` without the messages means "not judged", not "passed": [`need_of`] lists no ticket
 /// whose messages were not read.
 pub fn never(f: &Facts<'_>) -> Option<Never> {
-    if f.closed || f.item.issue_closed() {
-        return Some(Never::Closed);
-    }
-    if f.needs_owner_label {
-        return Some(Never::NeedsOwnerLabel);
+    if let Some(n) = never_in_any_status(f) {
+        return Some(n);
     }
     let msgs = f.msgs?;
-    let log = crate::ticket::log::fold_ticket(msgs);
-    let assignee = f.item.get(Field::Agent);
-    if crate::ticket::log::agent_contradicts(&log, assignee) {
-        return Some(Never::AgentNotSigned);
-    }
-    // The signed assignee, also when the board `Agent` is empty: a cleared field does not hide
-    // the question or the `done` of the agent that the log names.
-    let signed = log.agent.as_deref();
-    if crate::ticket::question_open(msgs, signed).is_some() {
-        return Some(Never::OwnerQuestion);
-    }
-    if crate::ticket::fold_rounds(msgs).stopped {
-        return Some(Never::RoundStop);
-    }
-    if latest_done_message(msgs, signed).is_some_and(crate::ticket::is_owner_route_done) {
-        return Some(Never::OwnerRoute);
-    }
-    if ticket_verdicts(msgs) >= MAX_VERDICTS_PER_TICKET {
-        return Some(Never::VerdictCap);
-    }
     if status_of(f.item) != Some(Status::Review) {
         return None;
     }
+    let assignee = f.item.get(Field::Agent);
     let Some(gate) = crate::ticket::signed_gate(msgs) else {
         return Some(Never::NoGate);
     };
@@ -193,6 +181,40 @@ pub fn never(f: &Facts<'_>) -> Option<Never> {
     }
     if crate::ticket::verify_result(msgs, done, f.issue).is_some() {
         return Some(Never::Verified);
+    }
+    None
+}
+
+/// The rules of [`never`] that hold in every Status: N4, the board `Agent` against the signed
+/// log, N1 (the facts of the signed log before the label, which is not signed), N2 and N3.
+fn never_in_any_status(f: &Facts<'_>) -> Option<Never> {
+    if f.closed || f.item.issue_closed() {
+        return Some(Never::Closed);
+    }
+    let log = f.msgs.map(crate::ticket::log::fold_ticket);
+    // The signed assignee, also when the board `Agent` is empty: a cleared field does not hide
+    // the question or the `done` of the agent that the log names.
+    let signed = log.as_ref().and_then(|l| l.agent.as_deref());
+    if let (Some(msgs), Some(log)) = (f.msgs, &log) {
+        if crate::ticket::log::agent_contradicts(log, f.item.get(Field::Agent)) {
+            return Some(Never::AgentNotSigned);
+        }
+        if crate::ticket::question_open(msgs, signed).is_some() {
+            return Some(Never::OwnerQuestion);
+        }
+        if crate::ticket::fold_rounds(msgs).stopped {
+            return Some(Never::RoundStop);
+        }
+    }
+    if f.needs_owner_label {
+        return Some(Never::NeedsOwnerLabel);
+    }
+    let msgs = f.msgs?;
+    if latest_done_message(msgs, signed).is_some_and(crate::ticket::is_owner_route_done) {
+        return Some(Never::OwnerRoute);
+    }
+    if ticket_verdicts_at_least(msgs, f.verdict_floor) >= MAX_VERDICTS_PER_TICKET {
+        return Some(Never::VerdictCap);
     }
     None
 }
@@ -221,10 +243,15 @@ pub fn need_of(f: &Facts<'_>) -> Option<Need> {
             plain_block_open(msgs, assignee).then_some(Need::Blocked)
         }
         // No agent on the board and no live assignment in the signed log: an `assign` of such a
-        // ticket takes it from nobody.
-        Status::Ready => (assignee.is_none()
-            && crate::ticket::log::fold_ticket(msgs).agent.is_none())
-        .then_some(Need::ReadyNoAgent),
+        // ticket takes it from nobody. The signed log must allow Ready (a reassign, or a move of
+        // the owner): a Status that somebody set on the board alone makes no ticket assignable.
+        Status::Ready => {
+            let log = crate::ticket::log::fold_ticket(msgs);
+            (assignee.is_none()
+                && log.agent.is_none()
+                && !crate::ticket::log::status_contradicts(&log, f.item.get(Field::Status)))
+            .then_some(Need::ReadyNoAgent)
+        }
         Status::Backlog => {
             (is_backlog_candidate(f.item) && returned(msgs)).then_some(Need::Returned)
         }
@@ -310,21 +337,160 @@ pub fn returned(msgs: &[VMsg]) -> bool {
 pub fn ticket_verdicts(msgs: &[VMsg]) -> usize {
     let mut n = 0;
     for m in msgs {
-        if m.sender == Sender::Owner {
+        if starts_verdicts_again(m) {
             n = 0;
-            continue;
-        }
-        if !is_coordinator(m) {
-            continue;
-        }
-        let stamped = has_unattended_line(&m.body);
-        match m.act() {
-            Act::Assignment { .. } if !stamped => n = 0,
-            Act::Verify { .. } if stamped => n += 1,
-            _ => {}
+        } else if is_coordinator(m)
+            && matches!(m.act(), Act::Verify { .. })
+            && has_unattended_line(&m.body)
+        {
+            n += 1;
         }
     }
     n
+}
+
+/// Does `m` start the count of [`ticket_verdicts`] again: an owner comment, or an assignment of
+/// a coordinator without an `unattended:` line?
+fn starts_verdicts_again(m: &VMsg) -> bool {
+    m.sender == Sender::Owner
+        || (is_coordinator(m)
+            && matches!(m.act(), Act::Assignment { .. })
+            && !has_unattended_line(&m.body))
+}
+
+/// [`ticket_verdicts`], never below the floor of the local state. `floor` is `(count, after)`:
+/// a command noted `count` before it posted a verdict, when the highest comment id of the
+/// ticket was `after`. A stamped verdict that somebody deleted or edited later is gone from the
+/// messages and still in the floor. The floor ends when a message with a higher id starts the
+/// count again; no agent token can write such a message.
+pub fn ticket_verdicts_at_least(msgs: &[VMsg], floor: Option<(u32, u64)>) -> usize {
+    let counted = ticket_verdicts(msgs);
+    match floor {
+        Some((count, after))
+            if !msgs
+                .iter()
+                .any(|m| m.comment_id > after && starts_verdicts_again(m)) =>
+        {
+            counted.max(count as usize)
+        }
+        _ => counted,
+    }
+}
+
+/// Why the unattended coordinator must not run a command on a ticket.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Block {
+    /// N3: the ticket has its unattended verdicts (refusal `unattended-budget`).
+    Cap,
+    /// Any other reason, as a clause for the refusal `headless-scope`.
+    Scope(String),
+}
+
+fn never_clause(key: &str, n: Never) -> Block {
+    Block::Scope(match n {
+        Never::VerdictCap => return Block::Cap,
+        Never::Closed => format!("{key} is closed"),
+        Never::NeedsOwnerLabel => {
+            format!("{key} has the label `needs-owner`: the owner decides")
+        }
+        Never::AgentNotSigned => {
+            format!("the board Agent of {key} is not the agent of the signed log")
+        }
+        Never::OwnerQuestion => format!("{key} has an open question to the owner"),
+        Never::RoundStop => format!("{key} is stopped at the round limit: the owner decides"),
+        Never::OwnerRoute => {
+            format!("the latest done of {key} is on the owner route: the owner merges it")
+        }
+        Never::NoGate => format!("{key} has no signed gate line"),
+        Never::NoAssignee => format!("{key} has no assignee"),
+        Never::NoDone => format!("{key} has no signed done with evidence"),
+        Never::LocalGate => {
+            format!("the evidence of {key} is a local gate, and its Gate names no checks")
+        }
+        Never::CiNone => format!("{key} declares `CI: none`"),
+        Never::Verified => format!("the latest done of {key} has a verify result"),
+    })
+}
+
+/// May the unattended coordinator run `act` on the ticket `key`? The decision comes from the
+/// facts that the command just read, never from the list of an earlier tick: the rules N1 to N4
+/// for every act, the board `Agent` and the board Status against the signed log, and the rule of
+/// the act. `to` is the agent that an answer names.
+///
+/// - A verdict: the ticket is L1 (and so passed N5 to N7).
+/// - An answer: `to` is the signed assignee.
+/// - `unblock`: the ticket is L2 or L3 in Blocked.
+/// - `assign`: the ticket is L4 or L5, a coordinator announced its board item in a signed
+///   message, and the signed log has no assignee.
+/// - `ask`: N4 only. A question to the owner takes the ticket from the unattended coordinator,
+///   so it is allowed where an owner decision is open already.
+pub fn check_act(act: UAct, key: &str, f: &Facts<'_>, to: Option<&str>) -> Result<(), Block> {
+    let scope = |text: String| Err(Block::Scope(text));
+    if act == UAct::Ask {
+        return match f.closed || f.item.issue_closed() {
+            true => Err(never_clause(key, Never::Closed)),
+            false => Ok(()),
+        };
+    }
+    let Some(msgs) = f.msgs else {
+        return scope(format!("the messages of {key} were not read"));
+    };
+    let blocked_by = match act {
+        UAct::Verdict => never(f),
+        _ => never_in_any_status(f),
+    };
+    if let Some(n) = blocked_by {
+        return Err(never_clause(key, n));
+    }
+    let log = crate::ticket::log::fold_ticket(msgs);
+    let board_status = f.item.get(Field::Status);
+    if crate::ticket::log::status_contradicts(&log, board_status) {
+        return scope(format!(
+            "the board Status of {key} is {}, and the signed log says {}",
+            board_status.unwrap_or("empty"),
+            log.status.describe()
+        ));
+    }
+    let need = need_of(f);
+    match act {
+        UAct::Verdict if need == Some(Need::ProseGate) => Ok(()),
+        UAct::Verdict => scope(format!(
+            "{key} is not a ticket in Review with a Gate in prose, CI evidence and no verify result"
+        )),
+        UAct::Answer => match (log.agent.as_deref(), to) {
+            (Some(a), Some(t)) if a == t => Ok(()),
+            (Some(a), _) => scope(format!(
+                "the signed log assigns {key} to {a}: an answer goes to the assignee only"
+            )),
+            (None, _) => scope(format!("{key} has no assignee in the signed log")),
+        },
+        UAct::Unblock
+            if status_of(f.item) == Some(Status::Blocked)
+                && matches!(need, Some(Need::Blocked | Need::Question)) =>
+        {
+            Ok(())
+        }
+        UAct::Unblock => scope(format!(
+            "{key} is not a ticket that its assignee blocked and that waits for an answer of the coordinator"
+        )),
+        UAct::Assign => {
+            if log.agent.is_some() {
+                return scope(format!("{key} has an assignee in the signed log"));
+            }
+            if crate::ticket::find_item_id(msgs).is_none() {
+                return scope(format!(
+                    "no signed message of a coordinator puts {key} on the board"
+                ));
+            }
+            match need {
+                Some(Need::ReadyNoAgent | Need::Returned) => Ok(()),
+                _ => scope(format!(
+                    "{key} is not a Ready ticket without an agent, and no reassign returned it to Backlog"
+                )),
+            }
+        }
+        UAct::Ask => Ok(()),
+    }
 }
 
 /// What the messages of one UTC day say about the verdict count.
@@ -334,6 +500,8 @@ pub struct DayCount {
     pub verdicts: u32,
     /// The highest `n` of a valid `unattended: <n>/<budget>` line of a coordinator message.
     pub highest: u32,
+    /// The coordinator messages with an `unattended:` line (verdicts and other messages).
+    pub messages: u32,
 }
 
 impl DayCount {
@@ -342,6 +510,7 @@ impl DayCount {
         DayCount {
             verdicts: self.verdicts.saturating_add(other.verdicts),
             highest: self.highest.max(other.highest),
+            messages: self.messages.saturating_add(other.messages),
         }
     }
 
@@ -351,6 +520,7 @@ impl DayCount {
         DayCount {
             verdicts: self.verdicts.max(seen.verdicts),
             highest: self.highest.max(seen.highest),
+            messages: self.messages.max(seen.messages),
         }
     }
 }
@@ -372,6 +542,7 @@ pub fn verdicts_on_day(msgs: &[VMsg], day_start: i64) -> DayCount {
         if !has_unattended_line(&m.body) {
             continue;
         }
+        c.messages = c.messages.saturating_add(1);
         if matches!(m.act(), Act::Verify { .. }) {
             c.verdicts = c.verdicts.saturating_add(1);
         }
@@ -395,6 +566,12 @@ pub fn floor_on(stored: Option<&(String, u32)>, today: &str) -> u32 {
 /// message that stayed, and not the floor of the local state.
 pub fn used(day: DayCount, floor: u32) -> u32 {
     day.verdicts.max(day.highest).max(floor)
+}
+
+/// The stamped messages that are used today: the count of the signed messages, never below the
+/// floor of the local state and never below the verdicts.
+pub fn messages_used(day: DayCount, floor: u32) -> u32 {
+    day.messages.max(day.verdicts).max(floor)
 }
 
 /// The line of `tick` for one ticket on the list.
@@ -474,6 +651,7 @@ mod tests {
             body: None,
             closed: false,
             needs_owner_label: false,
+            verdict_floor: None,
         }
     }
 
@@ -1033,6 +1211,303 @@ mod tests {
     }
 
     #[test]
+    fn the_floor_of_a_ticket_holds_until_a_message_starts_the_count_again() {
+        // two stamped verdicts were posted when the highest comment id was 4; both are gone
+        let floor = Some((2, 4));
+        let mut log = vec![assignment(1, PROSE), done(2, ""), done(4, ""), done(6, "")];
+        assert_eq!(ticket_verdicts(&log), 0);
+        assert_eq!(ticket_verdicts_at_least(&log, floor), 2);
+        assert_eq!(ticket_verdicts_at_least(&log, None), 0);
+        // the log knows more than the floor
+        assert_eq!(ticket_verdicts_at_least(&log, Some((1, 4))), 1);
+        let mut more = log.clone();
+        more.push(verdict(7, 6, false, &stamp(1)));
+        more.push(verdict(8, 6, false, &stamp(2)));
+        more.push(verdict(9, 6, false, &stamp(3)));
+        assert_eq!(ticket_verdicts_at_least(&more, floor), 3);
+        // these do not end the floor: a dev message, a reassign, a stamped assignment, an info
+        // of a coordinator, and an owner comment or an assignment from before the floor
+        log.push(dev(7, "coordinator", Kind::Question, "why?"));
+        log.push(coord(8, DEV, Kind::Info, &reassigned_body("late")));
+        log.push(coord(
+            9,
+            DEV,
+            Kind::Request,
+            &format!("Assigned to you: Fix it\ngate: {PROSE}\n{}", stamp(2)),
+        ));
+        log.push(coord(10, DEV, Kind::Info, "noted"));
+        assert_eq!(ticket_verdicts_at_least(&log, floor), 2);
+        let mut early = vec![owner(3, "go on")];
+        early.extend(log.iter().cloned());
+        assert_eq!(ticket_verdicts_at_least(&early, floor), 2);
+        let it = item("Blocked", None);
+        let f = facts(&it, &log);
+        let with_floor = Facts {
+            verdict_floor: floor,
+            ..f
+        };
+        assert_eq!(never(&with_floor), Some(Never::VerdictCap));
+        assert_eq!(never(&f), None);
+        // these end it: an owner comment, and an assignment without the line
+        let mut by_owner = log.clone();
+        by_owner.push(owner(11, "go on"));
+        assert_eq!(ticket_verdicts_at_least(&by_owner, floor), 0);
+        let mut assigned = log.clone();
+        assigned.push(assignment(11, PROSE));
+        assert_eq!(ticket_verdicts_at_least(&assigned, floor), 0);
+        // and a verdict after that counts from the log
+        assigned.push(done(12, ""));
+        assigned.push(verdict(13, 12, false, &stamp(3)));
+        assert_eq!(ticket_verdicts_at_least(&assigned, floor), 1);
+    }
+
+    fn act(a: UAct, status: &str, agent: Option<&str>, msgs: &[VMsg]) -> Result<(), Block> {
+        check_act(a, "a/b#5", &facts(&item(status, agent), msgs), Some(DEV))
+    }
+
+    fn scope_text(r: Result<(), Block>) -> String {
+        match r {
+            Err(Block::Scope(t)) => t,
+            other => panic!("wanted a scope refusal, got {other:?}"),
+        }
+    }
+
+    const ANNOUNCE: &str = "Ticket is on the board.\nitem=PVTI_5\nproject=15\n";
+
+    #[test]
+    fn a_verdict_is_for_a_prose_gate_ticket_in_review_that_the_signed_log_supports() {
+        assert_eq!(
+            act(UAct::Verdict, "Review", Some(DEV), &review_log()),
+            Ok(())
+        );
+        // a typed Gate, another Status, no messages
+        for typed in ["ci", "checks: tests"] {
+            let log = vec![assignment(1, typed), done(2, "")];
+            assert!(
+                scope_text(act(UAct::Verdict, "Review", Some(DEV), &log))
+                    .contains("is not a ticket in Review with a Gate in prose"),
+                "{typed}"
+            );
+        }
+        // the board says Review, and the signed log says In Progress or Ready (a failed verify)
+        let mut failed = review_log();
+        failed.push(verdict(3, 2, false, ""));
+        assert!(
+            scope_text(act(UAct::Verdict, "Review", Some(DEV), &failed))
+                .contains("has a verify result")
+        );
+        let acked = vec![
+            assignment(1, PROSE),
+            dev(2, COORD, Kind::Ack, "I start now."),
+        ];
+        assert!(
+            scope_text(act(UAct::Verdict, "Review", Some(DEV), &acked))
+                .contains("has no signed done")
+        );
+        let it = item("Review", Some(DEV));
+        let unread = Facts {
+            msgs: None,
+            ..facts(&it, &[])
+        };
+        assert!(
+            scope_text(check_act(UAct::Verdict, "a/b#5", &unread, None)).contains("were not read")
+        );
+        // N1 to N3
+        let mut asked = review_log();
+        asked.push(dev(3, "owner", Kind::Question, "may I?"));
+        assert!(
+            scope_text(act(UAct::Verdict, "Review", Some(DEV), &asked))
+                .contains("open question to the owner")
+        );
+        let mut capped = vec![assignment(1, PROSE), done(2, "")];
+        capped.push(verdict(3, 2, false, &stamp(1)));
+        capped.push(done(4, ""));
+        capped.push(verdict(5, 4, false, &stamp(2)));
+        capped.push(done(6, ""));
+        assert_eq!(
+            act(UAct::Verdict, "Review", Some(DEV), &capped),
+            Err(Block::Cap)
+        );
+        // the board Agent is not the signed assignee
+        assert!(
+            scope_text(act(UAct::Verdict, "Review", Some(OTHER), &review_log()))
+                .contains("is not the agent of the signed log")
+        );
+    }
+
+    #[test]
+    fn an_answer_and_unblock_are_for_a_ticket_that_does_not_wait_for_the_owner() {
+        let log = blocked_log();
+        assert_eq!(act(UAct::Answer, "Blocked", Some(DEV), &log), Ok(()));
+        assert_eq!(act(UAct::Unblock, "Blocked", Some(DEV), &log), Ok(()));
+        // an answer names the signed assignee
+        let f_item = item("Blocked", Some(DEV));
+        let f = facts(&f_item, &log);
+        assert!(
+            scope_text(check_act(UAct::Answer, "a/b#5", &f, Some(OTHER)))
+                .contains("goes to the assignee only")
+        );
+        assert!(
+            scope_text(check_act(UAct::Answer, "a/b#5", &f, None))
+                .contains("goes to the assignee only")
+        );
+        // an answer needs no block: the agent works and asked nothing
+        let working = vec![
+            assignment(1, PROSE),
+            dev(2, COORD, Kind::Ack, "I start now."),
+        ];
+        assert_eq!(
+            act(UAct::Answer, "In Progress", Some(DEV), &working),
+            Ok(())
+        );
+        // `unblock` needs a ticket that its agent blocked or asked about, in Blocked
+        assert!(
+            scope_text(act(UAct::Unblock, "In Progress", Some(DEV), &working))
+                .contains("is not a ticket that its assignee blocked")
+        );
+        let mut answered = log.clone();
+        answered.push(coord(3, DEV, Kind::Answer, "use the test key"));
+        assert!(
+            scope_text(act(UAct::Unblock, "Blocked", Some(DEV), &answered))
+                .contains("is not a ticket that its assignee blocked")
+        );
+        // N1: an open question to the owner, a round stop, the label; and N3, N4
+        let mut asked = log.clone();
+        asked.push(dev(3, "owner", Kind::Question, "may I?"));
+        let mut stopped = vec![assignment(1, PROSE), done(2, "")];
+        stopped.push(verdict(
+            3,
+            2,
+            false,
+            "case: round limit 2 of 2; the owner decides\n",
+        ));
+        for a in [UAct::Answer, UAct::Unblock] {
+            assert!(
+                scope_text(act(a, "Blocked", Some(DEV), &asked))
+                    .contains("open question to the owner"),
+                "{a:?}"
+            );
+            assert!(
+                scope_text(act(a, "Blocked", Some(DEV), &stopped))
+                    .contains("stopped at the round limit"),
+                "{a:?}"
+            );
+            let labelled = Facts {
+                needs_owner_label: true,
+                ..facts(&f_item, &log)
+            };
+            assert!(
+                scope_text(check_act(a, "a/b#5", &labelled, Some(DEV))).contains("needs-owner"),
+                "{a:?}"
+            );
+            let closed = Facts {
+                closed: true,
+                ..facts(&f_item, &log)
+            };
+            assert!(
+                scope_text(check_act(a, "a/b#5", &closed, Some(DEV))).contains("is closed"),
+                "{a:?}"
+            );
+            let capped = Facts {
+                verdict_floor: Some((2, 2)),
+                ..facts(&f_item, &log)
+            };
+            assert_eq!(
+                check_act(a, "a/b#5", &capped, Some(DEV)),
+                Err(Block::Cap),
+                "{a:?}"
+            );
+            // the board Status against the signed log (the log says Review)
+            assert!(
+                scope_text(act(a, "Blocked", Some(DEV), &review_log()))
+                    .contains("the signed log says Review"),
+                "{a:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn assign_is_for_a_free_ticket_that_a_coordinator_announced() {
+        let announced = || vec![coord(1, "owner", Kind::Info, ANNOUNCE)];
+        let returned = || {
+            let mut l = announced();
+            l.push(assignment(2, PROSE));
+            l.push(coord(3, DEV, Kind::Info, &reassigned_body("late")));
+            l
+        };
+        // L5 and L4 after a reassign
+        assert_eq!(act(UAct::Assign, "Backlog", None, &returned()), Ok(()));
+        assert_eq!(act(UAct::Assign, "Ready", None, &returned()), Ok(()));
+        // L4 after a move of the owner
+        let mut moved = announced();
+        moved.push(owner(2, "/crew move Ready"));
+        assert_eq!(act(UAct::Assign, "Ready", None, &moved), Ok(()));
+        // a Status that somebody set on the board alone: the signed log says Backlog
+        assert!(
+            scope_text(act(UAct::Assign, "Ready", None, &announced()))
+                .contains("the signed log says Backlog")
+        );
+        assert_eq!(need("Ready", None, &announced()), None);
+        // in Backlog and never assigned
+        assert!(
+            scope_text(act(UAct::Assign, "Backlog", None, &announced()))
+                .contains("no reassign returned it")
+        );
+        // no signed message puts the ticket on the board
+        let bare = vec![
+            assignment(1, PROSE),
+            coord(2, DEV, Kind::Info, &reassigned_body("late")),
+        ];
+        assert!(scope_text(act(UAct::Assign, "Backlog", None, &bare)).contains("on the board"));
+        // a live assignment in the signed log, whatever the board Agent says
+        let mut live = announced();
+        live.push(assignment(2, PROSE));
+        for agent in [None, Some(DEV)] {
+            assert!(
+                scope_text(act(UAct::Assign, "Ready", agent, &live))
+                    .contains("has an assignee in the signed log"),
+                "{agent:?}"
+            );
+        }
+        // N1 and N3 hold for a returned ticket too
+        let mut asked = returned();
+        asked.push(coord(4, "owner", Kind::Question, "drop it?"));
+        assert!(
+            scope_text(act(UAct::Assign, "Backlog", None, &asked))
+                .contains("open question to the owner")
+        );
+        let it = item("Backlog", None);
+        let log = returned();
+        let capped = Facts {
+            verdict_floor: Some((2, 3)),
+            ..facts(&it, &log)
+        };
+        assert_eq!(
+            check_act(UAct::Assign, "a/b#5", &capped, None),
+            Err(Block::Cap)
+        );
+    }
+
+    #[test]
+    fn ask_is_allowed_on_every_open_ticket() {
+        let mut asked = blocked_log();
+        asked.push(dev(3, "owner", Kind::Question, "may I?"));
+        for (status, log) in [
+            ("Blocked", asked),
+            ("Review", review_log()),
+            ("Backlog", vec![]),
+        ] {
+            assert_eq!(act(UAct::Ask, status, Some(DEV), &log), Ok(()), "{status}");
+        }
+        let it = item("Review", Some(DEV));
+        let closed = Facts {
+            closed: true,
+            ..facts(&it, &[])
+        };
+        assert!(scope_text(check_act(UAct::Ask, "a/b#5", &closed, None)).contains("is closed"));
+    }
+
+    #[test]
     fn n4_a_closed_issue_keeps_a_ticket_off_the_list() {
         let log = review_log();
         let it = item("Review", Some(DEV));
@@ -1207,7 +1682,9 @@ mod tests {
             c,
             DayCount {
                 verdicts: 3,
-                highest: 4
+                highest: 4,
+                // the two verdicts, the answer and the verdict with the line that is not valid
+                messages: 4,
             }
         );
         assert_eq!(verdicts_on_day(&[], day), DayCount::default());
@@ -1215,19 +1692,25 @@ mod tests {
         let both = c.with(DayCount {
             verdicts: 2,
             highest: 3,
+            messages: 2,
         });
         assert_eq!(
             both,
             DayCount {
                 verdicts: 5,
-                highest: 4
+                highest: 4,
+                messages: 6,
             }
         );
     }
 
     #[test]
     fn the_used_count_never_goes_below_a_floor() {
-        let day = |verdicts, highest| DayCount { verdicts, highest };
+        let day = |verdicts, highest| DayCount {
+            verdicts,
+            highest,
+            messages: verdicts,
+        };
         assert_eq!(used(day(0, 0), 0), 0);
         assert_eq!(used(day(3, 3), 3), 3);
         // a deleted verdict: the count of the messages is lower than the `n` of one that stayed
@@ -1240,6 +1723,20 @@ mod tests {
         assert_eq!(day(3, 3).at_least(DayCount::default()), day(3, 3));
         // the log knows more than this host (a verdict from another host)
         assert_eq!(used(day(5, 4), 3), 5);
+        // the stamped messages: the count, never below the verdicts and the floor
+        let msgs = |verdicts, messages| DayCount {
+            verdicts,
+            highest: 0,
+            messages,
+        };
+        assert_eq!(messages_used(msgs(2, 7), 0), 7);
+        assert_eq!(messages_used(msgs(2, 7), 9), 9);
+        assert_eq!(messages_used(msgs(3, 1), 0), 3);
+        assert_eq!(
+            msgs(1, 2).at_least(msgs(1, 5)),
+            msgs(1, 5),
+            "an earlier read of the day is a floor for the messages too"
+        );
         // the floor is of one day
         let stored = ("2026-11-28".to_string(), 4);
         assert_eq!(floor_on(Some(&stored), "2026-11-28"), 4);

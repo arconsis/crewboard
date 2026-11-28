@@ -420,9 +420,13 @@ A failed `verify` moves an idle agent's ticket to In Progress. A busy agent's ti
 Ready at the front of its queue, and the report has a `case:` line. At the
 [round limit](#round-limit) the ticket goes to Blocked for the owner.
 
-Of the ticket commands, a headless coordinator runs only `verify`, `merge` of a CI-only ticket,
-and `close` after an owner merge. It refuses the others with `headless-scope`, and it never acts
-on a ticket with an open question ([Headless coordinator](agents.md#headless-coordinator)).
+Of the ticket commands, a headless coordinator runs only `verify` and `merge` of a CI-only
+ticket, and `close` after an owner merge. It refuses the others with `headless-scope`, and it
+never acts on a ticket with an open question
+([Headless coordinator](agents.md#headless-coordinator)). A few more commands are judgments
+that it makes only when the owner switches the
+[unattended coordinator](agents.md#unattended-coordinator) on; else they end with
+`unattended-off`.
 
 ### Failed Gate check
 
@@ -498,6 +502,15 @@ only while the stop is on:
 - A signed `answer` of the coordinator that takes the question back. `unblock` posts it for
   every stopped ticket, also when a `blocked` message of the agent is the latest blocking
   message.
+
+The [unattended coordinator](agents.md#unattended-coordinator) releases no stop: in a headless
+config dir, `unblock`, an answer and `assign` of a stopped ticket are refused with
+`headless-scope`, and so is an answer with the line `withdraws: question`. Its own
+`verify --fail` counts as a round like any failed `verify`, and it can spend the last round:
+the stop then goes to the owner as above, and the report and the question have the line
+`unattended: <n>/<budget>`. Apart from the round limit, one ticket gets at most 2 unattended
+verdicts; the third is refused with `unattended-budget` until an owner comment or an
+assignment by the interactive coordinator.
 
 After the release of a stop the count starts at zero, and the ticket has N new rounds. The same
 messages while no stop is on release nothing and keep the count: an owner comment during normal

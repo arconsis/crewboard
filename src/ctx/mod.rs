@@ -226,6 +226,44 @@ impl Ctx {
     }
 }
 
+/// What the unattended coordinator may still post in this command
+/// (spec/agents#unattended-coordinator): the counts of the UTC day when the command was let in.
+/// `say::send_signed` writes the line `unattended: <n>/<budget>` from it and counts on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp {
+    /// The UTC day (`YYYY-MM-DD`) of the counts.
+    pub day: String,
+    /// The verdicts of the day so far.
+    pub used: u32,
+    /// `unattended_budget` of AUTHORITY.md.
+    pub budget: u32,
+    /// The stamped messages of the day so far.
+    pub messages: u32,
+    /// For a verdict: the ticket (`<repo>#<issue>`), its unattended verdicts so far, and the
+    /// highest comment id that the command read on it. The floor of the ticket is noted from
+    /// these before the post.
+    pub ticket: Option<(String, u32, u64)>,
+}
+
+/// The place of the [`Stamp`] in an [`AgentCtx`]. Empty for every command but a judgment of the
+/// unattended coordinator: only `ops::unattended::admit` fills it, and only in a headless
+/// config dir. No flag and no environment variable does.
+#[derive(Debug, Default)]
+pub struct StampCell(std::sync::Mutex<Option<Stamp>>);
+
+impl StampCell {
+    /// The stamp, when this command is a judgment of the unattended coordinator.
+    pub(crate) fn get(&self) -> Option<Stamp> {
+        self.0.lock().ok().and_then(|g| g.clone())
+    }
+
+    pub(crate) fn set(&self, s: Stamp) {
+        if let Ok(mut g) = self.0.lock() {
+            *g = Some(s);
+        }
+    }
+}
+
 /// An agent's own context: config, key, and the board.
 pub struct AgentCtx {
     pub ctx: Ctx,
@@ -234,6 +272,8 @@ pub struct AgentCtx {
     pub key: PrivateKey,
     /// `--insecure-one-account` of this run (`Global.insecure_one_account`).
     pub consent_flag: bool,
+    /// The stamp of the unattended coordinator; empty for every other command.
+    pub stamp: StampCell,
 }
 
 impl AgentCtx {
@@ -251,6 +291,7 @@ impl AgentCtx {
             name,
             key,
             consent_flag: g.insecure_one_account,
+            stamp: StampCell::default(),
         })
     }
 

@@ -22,6 +22,7 @@ use crate::base::ids;
 use crate::clock::{Clock, SystemClock};
 use crate::domain::ci::evaluate::CiRuns;
 use crate::error::{CbError, CbResult};
+use crate::headless::UAct;
 use crate::ops::{AgentCtx, World, parse_issue_arg};
 use crate::protocol::acts::{
     EvidenceMsg, FailClass, VerifyFailure, counts_as_round, failed_line, is_local_gate,
@@ -77,6 +78,7 @@ fn load_verify(ac: &AgentCtx, issue_arg: &str) -> CbResult<VerifyLoad> {
 }
 
 /// The arguments of `verify` that the checks need.
+#[derive(Clone, Copy)]
 struct VerifyArgs<'a> {
     note: &'a str,
     runs: &'a [String],
@@ -909,6 +911,16 @@ fn act_verify(
     Ok(out)
 }
 
+/// Who runs `verify`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// The command `verify` of a person or a model.
+    Command,
+    /// The headless `tick`, in its own process: its work on a typed Gate is no judgment of a
+    /// model, so it is not a verdict of the unattended coordinator (no stamp, no count).
+    Tick,
+}
+
 /// `verify <issue> [--body ...] [--run <id>] [--fail]` (coordinator). `gate_failed` (`--fail`): the coordinator's own Gate check failed. The note is then a failure, so the
 /// verify fails with the writes of any failed verify, also when the evidence holds.
 pub fn verify(
@@ -920,19 +932,84 @@ pub fn verify(
     local_gate: Option<&str>,
     run: Option<&RunArgs<'_>>,
 ) -> CbResult<String> {
-    let l = load_verify(ac, issue_arg)?;
-    // A stop at the round limit that is not finished comes first: before the check of an open
-    // question to the owner (the question of the stop may be the open one) and before any read
-    // of the PR. It writes no judgment, so a headless coordinator does it too.
-    if let Some(out) = finish_if_stopped(ac, &l)? {
-        return Ok(out);
-    }
     let va = VerifyArgs {
         note,
         runs,
         gate_failed,
         local_gate,
         run,
+    };
+    verify_as(ac, Origin::Command, issue_arg, &va)
+}
+
+/// The `verify` of the headless `tick`: a passing verify of a ticket whose Gate is `ci`, or the
+/// checks of a `checks:` Gate that the tool ran (`run`).
+pub(super) fn verify_by_tick(
+    ac: &mut AgentCtx,
+    issue_arg: &str,
+    note: &str,
+    run: Option<&RunArgs<'_>>,
+) -> CbResult<String> {
+    let va = VerifyArgs {
+        note,
+        runs: &[],
+        gate_failed: false,
+        local_gate: None,
+        run,
+    };
+    verify_as(ac, Origin::Tick, issue_arg, &va)
+}
+
+/// Is this `verify` no judgment: a plain verify of a ticket whose signed Gate is the typed `ci`?
+/// It only reads the evidence and the CI again. A failed Gate check (`--fail`) and a run of
+/// checks by the command (`--run-check`) are judgments on every Gate.
+fn is_ci_only_verify(t: &Ticket, va: &VerifyArgs<'_>) -> bool {
+    !va.gate_failed
+        && va.run.is_none()
+        && crate::ticket::signed_gate(&t.msgs)
+            .is_some_and(|g| crate::headless::Gate::parse(&g).is_ci_only())
+}
+
+fn verify_as(
+    ac: &mut AgentCtx,
+    origin: Origin,
+    issue_arg: &str,
+    va: &VerifyArgs<'_>,
+) -> CbResult<String> {
+    let l = load_verify(ac, issue_arg)?;
+    // The unattended coordinator (spec/agents#unattended-coordinator): in a headless config dir
+    // a `verify` that is a judgment needs the mode of AUTHORITY.md and a verdict of the day, and
+    // the signed log of the ticket decides. An attended agent passes without a check
+    // (`admit` returns false), and so does a verify that is no judgment. Before the stop below:
+    // a stopped ticket is for the owner, and the `tick` finishes its stop.
+    let mut unattended = false;
+    if origin == Origin::Command {
+        crate::ops::unattended::check_no_stamp_line(ac, va.note)?;
+        if !is_ci_only_verify(&l.t, va)
+            && crate::ops::unattended::admit(ac, &l.world, UAct::Verdict)?
+        {
+            crate::ops::unattended::check_ticket(ac, UAct::Verdict, &l.t, None)?;
+            unattended = true;
+        }
+    }
+    // A stop at the round limit that is not finished comes first: before the check of an open
+    // question to the owner (the question of the stop may be the open one) and before any read
+    // of the PR. It writes no judgment, so a headless coordinator does it too.
+    if let Some(out) = finish_if_stopped(ac, &l)? {
+        return Ok(out);
+    }
+    // Nobody watches the checks that the unattended coordinator starts: they run as the checks
+    // of the `tick` do ([`RunArgs::unattended`]).
+    let alone = va.run.filter(|_| unattended).map(|r| RunArgs {
+        names: r.names,
+        repo_dir: r.repo_dir,
+        log_root: r.log_root,
+        unattended: true,
+        must_fail_at: r.must_fail_at,
+    });
+    let va = VerifyArgs {
+        run: alone.as_ref().or(va.run),
+        ..*va
     };
     let plan = plan_verify(ac, &l, &va)?;
     act_verify(ac, &l, &plan, &SystemClock)

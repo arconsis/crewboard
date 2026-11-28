@@ -373,7 +373,10 @@ protected_paths: [Makefile]
      the checkout and that no protected path covers. A file that a command reads without a
      word for it (a `Makefile`) gets no warning. `doctor --setup` prints the same warning from
      the command lines alone, before any run.
-7. **Headless coordinator.** `verify --run-check` is refused with `headless-scope`. `tick
+7. **Headless coordinator.** `verify --run-check` is a judgment of the
+   [unattended coordinator](agents.md#unattended-coordinator): in a headless config dir it is
+   refused with `unattended-off` unless `AUTHORITY.md` allows it, and its checks then run as
+   the checks of the `tick` run. `tick
    --work-dir` runs the checks itself for a ticket whose signed Gate is `checks: <name>, ...`
    and nothing else; it verifies, and it never merges such a ticket
    ([Headless coordinator](agents.md#headless-coordinator), 5a).

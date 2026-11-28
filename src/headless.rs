@@ -6,6 +6,12 @@
 //! a ticket is refused with the rule `headless-scope` (exit 2) before any config is loaded
 //! and before any request is sent.
 //!
+//! A few commands are judgments that the unattended coordinator may make when AUTHORITY.md
+//! allows it (spec/agents#unattended-coordinator): [`ScopeVerdict::Unattended`]. The scope lets
+//! such a command pass, and the command decides after it loaded its context: the mode, the
+//! budget of the day and the signed log of the ticket. With the mode `off` it is refused with
+//! `unattended-off`, before any write.
+//!
 //! The `watch` and `poll` cycle is allowed too. It is not read-only: it runs the coordinator
 //! duties, which return the tickets of a dead agent to Backlog and post signed `info` notes.
 //!
@@ -30,6 +36,41 @@ pub enum ScopeVerdict {
     Allow,
     /// Refused, with the reason.
     Deny(&'static str),
+    /// A judgment of the unattended coordinator (spec/agents#unattended-coordinator). The scope
+    /// lets it pass; the command itself decides after it loaded its context: the mode of
+    /// AUTHORITY.md, the budget of the day and the signed log of the ticket
+    /// (`ops::unattended::admit` and `check_ticket`).
+    Unattended(UAct),
+}
+
+/// What the unattended coordinator may do with one command, when its mode allows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UAct {
+    /// `verify`: a verify result on a ticket whose Gate is not the typed `ci`, `verify --fail`
+    /// and `verify --run-check`. The command decides which of them counts: a plain `verify` of a
+    /// ticket whose signed Gate is `ci` is no judgment and needs no mode.
+    Verdict,
+    /// `say --kind answer --to <agent>`.
+    Answer,
+    /// `unblock`.
+    Unblock,
+    /// `assign --to <agent>`.
+    Assign,
+    /// `ask`.
+    Ask,
+}
+
+impl UAct {
+    /// The words of the act in a refusal.
+    pub fn words(self) -> &'static str {
+        match self {
+            UAct::Verdict => "a verify result on a Gate that is not `ci`",
+            UAct::Answer => "an answer to the assignee",
+            UAct::Unblock => "unblock",
+            UAct::Assign => "assign",
+            UAct::Ask => "ask",
+        }
+    }
 }
 
 pub(crate) const DENY_WRITE: &str =
@@ -37,14 +78,23 @@ pub(crate) const DENY_WRITE: &str =
 pub(crate) const DENY_OWNER: &str = "it is an owner or setup command";
 pub(crate) const DENY_LIFECYCLE: &str =
     "it changes the availability of the agent; the interactive coordinator or the owner does it";
-pub(crate) const DENY_GATE_FAIL: &str =
-    "--fail records a failed Gate check, which is a judgment of the interactive coordinator";
-pub(crate) const DENY_RUN_CHECK: &str = "--run-check passes a ticket whose Gate is more than CI; the interactive coordinator reads the rest of the Gate";
 pub(crate) const DENY_LOCAL_GATE: &str = "--local-run records the coordinator's own local run, which is a judgment of the interactive coordinator";
 pub(crate) const DENY_CLOSE_JUDGMENT: &str =
     "close --why and close --verified are judgments of the interactive coordinator";
 pub(crate) const DENY_RUN: &str =
     "--run names a CI run for a Gate that needs a by-hand run; such a Gate is not CI only";
+pub(crate) const DENY_ASSIGN_ARGS: &str = "the unattended coordinator assigns with `assign <n> --to <agent>` only; `--order` and `--override-capabilities` are for the interactive coordinator";
+
+/// The refusal for a ticket or a text that the unattended coordinator must leave alone. `what`
+/// is a full clause, for example "o/r#5 has an open question to the owner".
+pub fn unattended_refusal(what: &str) -> Refusal {
+    Refusal::new(
+        ids::HEADLESS_SCOPE,
+        format!(
+            "this config is headless: {what}. Leave this for the interactive coordinator and note it; nothing was written"
+        ),
+    )
+}
 
 /// The refusal for a command that the scope does not allow. `command` is the name as typed.
 pub fn refusal(command: &str, why: &str) -> Refusal {
@@ -64,6 +114,7 @@ pub(crate) fn enforce(
     verdict: ScopeVerdict,
     config_dir: Option<&std::path::Path>,
 ) -> CbResult<()> {
+    // `Allow` passes, and so does `Unattended`: the command decides after its context load.
     let ScopeVerdict::Deny(why) = verdict else {
         return Ok(());
     };
