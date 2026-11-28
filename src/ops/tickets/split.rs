@@ -39,13 +39,25 @@ fn earlier_split(old_body: &str, title: &str) -> Option<String> {
 }
 
 /// The text of the new ticket: the body file, a `Gate:` line copied from the old ticket unless
-/// the file has its own, and the link to the old ticket.
-fn new_body(file_body: &str, old_gate: Option<&str>, old_key: &str) -> String {
+/// the file has its own, the signed guard of the old ticket as `Guard:` lines unless the file
+/// has its own, and the link to the old ticket. So a split does not drop the guard of the work
+/// that it moves; the assignment of the new ticket signs these lines.
+fn new_body(
+    file_body: &str,
+    old_gate: Option<&str>,
+    old_guard: &[String],
+    old_key: &str,
+) -> String {
     let mut b = file_body.trim_end().to_string();
     if body_field(&b, "Gate").is_none()
         && let Some(g) = old_gate
     {
         b.push_str(&format!("\n\nGate: {g}"));
+    }
+    if crate::rules::guard::of_body(&b).is_empty() {
+        b = crate::rules::guard::add_to_body(&b, old_guard)
+            .trim_end()
+            .to_string();
     }
     b.push_str(&format!("\n\nSplit from: {old_key}\n"));
     b
@@ -159,7 +171,9 @@ fn plan_split(
     if existing.is_none() && agent.is_none() {
         return Err(no_agent(&old_key));
     }
-    let body = new_body(&file_body, old_gate(&old).as_deref(), &old_key);
+    // The guard of the old ticket: its signed lines only (the body is not signed).
+    let old_guard = crate::ticket::signed_guard(&old.msgs);
+    let body = new_body(&file_body, old_gate(&old).as_deref(), &old_guard, &old_key);
     check_new_ticket(title, &body)?;
     if let Some(a) = &agent {
         precheck_assign(ac, &world, a, title, &body)?;
@@ -358,11 +372,39 @@ mod tests {
 
     #[test]
     fn the_new_body_keeps_its_own_gate_or_copies_the_old_one_and_links_back() {
-        let copied = new_body("Open part.\n", Some("CI green"), "a/b#3");
+        let copied = new_body("Open part.\n", Some("CI green"), &[], "a/b#3");
+        assert!(!copied.contains("Guard"), "{copied}");
         assert_eq!(body_field(&copied, "Gate").as_deref(), Some("CI green"));
         assert!(copied.ends_with("Split from: a/b#3\n"), "{copied}");
-        let own = new_body("Open part.\n**Gate:** demo\n", Some("CI green"), "a/b#3");
+        let own = new_body(
+            "Open part.\n**Gate:** demo\n",
+            Some("CI green"),
+            &[],
+            "a/b#3",
+        );
         assert_eq!(body_field(&own, "Gate").as_deref(), Some("demo"));
         assert!(!own.contains("CI green"), "{own}");
+    }
+
+    #[test]
+    fn the_new_body_takes_the_signed_guard_of_the_old_ticket_unless_the_file_has_its_own() {
+        let old = vec!["tests/**".to_string(), "ci/check.sh".to_string()];
+        let taken = new_body("Open part.\n", Some("ci"), &old, "a/b#3");
+        assert_eq!(
+            taken,
+            "Open part.\n\nGate: ci\n\nGuard: tests/**\nGuard: ci/check.sh\n\nSplit from: a/b#3\n"
+        );
+        assert_eq!(crate::rules::guard::of_body(&taken), old);
+        // the file has its own Guard lines: they stay, and the old guard is not added
+        let own = new_body(
+            "Open part.\nGate: ci\nGuard: golden/\n",
+            Some("ci"),
+            &old,
+            "a/b#3",
+        );
+        assert_eq!(
+            crate::rules::guard::of_body(&own),
+            vec!["golden/".to_string()]
+        );
     }
 }

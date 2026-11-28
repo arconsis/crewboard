@@ -69,10 +69,12 @@ pub enum Act {
     /// `request`: the ticket is assigned (`assign`, and `reassign` to a new agent). The signed
     /// `gate:` line and the signed `ci:` line (`Some(true)` for `ci: none`, `Some(false)` for
     /// `ci: required`) are what the assignment carries; a line that is missing or unreadable is
-    /// `None`.
+    /// `None`. `guard` holds the value of every signed `guard:` line, in the order of the
+    /// message: the path globs that the change of the ticket must not touch (empty: no guard).
     Assignment {
         gate: Option<String>,
         ci_none: Option<bool>,
+        guard: Vec<String>,
     },
     /// `info`: the ticket went back to Ready (`reassign`).
     Reassigned,
@@ -112,6 +114,7 @@ pub fn parse(kind: Option<Kind>, body: &str) -> Act {
                 Some("required") => Some(false),
                 _ => None,
             },
+            guard: kv_all(body, GUARD_KEY),
         },
         Kind::Info if first.starts_with(BOARD_ANNOUNCE_PREFIX) => Act::BoardAnnounce,
         Kind::Info if first.starts_with(REASSIGNED_PREFIX) => Act::Reassigned,
@@ -175,9 +178,22 @@ pub fn kv(body: &str, key: &str) -> Option<String> {
     })
 }
 
+/// Every `key: value` of the message body lines, in their order (a line with an empty value is
+/// skipped). Used for `guard`, the one key that an assignment may carry more than once.
+pub fn kv_all(body: &str, key: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            (k.trim() == key && !v.trim().is_empty()).then(|| v.trim().to_string())
+        })
+        .collect()
+}
+
 // ---- the texts that the writers post and the parser reads ------------------------------------
 
 const ASSIGNED_PREFIX: &str = "Assigned to you";
+/// The key of a signed guard line of the assignment: `guard: <glob>`, one line per glob.
+const GUARD_KEY: &str = "guard";
 const BOARD_ANNOUNCE_PREFIX: &str = "Ticket is on the board";
 const REASSIGNED_PREFIX: &str = "Reassigned.";
 const CLOSED_VERIFIED: &str = "Closed after a passed verify";

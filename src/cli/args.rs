@@ -1537,6 +1537,14 @@ pub enum TicketAction {
         /// Leave the `Gate:` line out of the body (a body with another Gate is refused).
         #[arg(long, conflicts_with = "template")]
         gate_ci: bool,
+        /// A path that the change of this ticket must not touch: a path glob as in
+        /// `protected_paths` (`tests/**`, `scripts/ci-*.sh`, `golden/`). Repeat the flag for more
+        /// paths. Each one becomes a `Guard:` line of the body, and the assignment signs them.
+        /// `done`, a verify pass and `merge` then refuse a PR that changes such a file
+        /// (`guarded-path-changed`); no flag overrides that. Use it for the test, the fixture or
+        /// the check script of a ticket that says "make this pass".
+        #[arg(long, value_name = "GLOB", conflicts_with = "template")]
+        guard: Vec<String>,
         #[command(flatten)]
         sel: Sel,
     },

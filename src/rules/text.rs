@@ -56,6 +56,14 @@ pub fn branch_agent_ok(agent: &str) -> bool {
 /// Text after `Name:` on every ticket body line that has it, in order. Accepts `Gate: x`,
 /// `**Gate:** x`, `**Gate**: x` and list markers. An empty value is skipped.
 pub fn body_fields(body: &str, name: &str) -> Vec<String> {
+    let mut out = body_field_lines(body, name);
+    out.retain(|v| !v.is_empty());
+    out
+}
+
+/// [`body_fields`] with the lines that have no value: such a line gives an empty text. For a
+/// field whose empty line is a fault that the writer must see (`Guard`).
+pub fn body_field_lines(body: &str, name: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in body.lines() {
         let t = line
@@ -71,10 +79,7 @@ pub fn body_fields(body: &str, name: &str) -> Vec<String> {
         let Some(value) = rest.strip_prefix(':') else {
             continue;
         };
-        let value = value.trim_start_matches('*').trim();
-        if !value.is_empty() {
-            out.push(value.to_string());
-        }
+        out.push(value.trim_start_matches('*').trim().to_string());
     }
     out
 }

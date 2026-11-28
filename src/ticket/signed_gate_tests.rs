@@ -116,3 +116,44 @@ fn the_ci_line_is_what_assign_and_reassign_write() {
     let w = [assigned_ci(1, ci_line(true))];
     assert_eq!(signed_ci_none(&w), Some(true));
 }
+
+#[test]
+fn the_signed_guard_comes_from_the_latest_coordinator_assignment_and_never_from_another_message() {
+    let with = |id: u64, lines: &str| {
+        msg(
+            id,
+            coordinator(),
+            Kind::Request,
+            &format!("Assigned to you: T\nticket: o/r#1\nitem=x\ngate: ci\nci: required\n{lines}"),
+        )
+    };
+    let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+    // one line per glob, in the order of the message
+    let msgs = [with(1, "guard: tests/**\nguard: ci/check.sh\norder: 1\n")];
+    assert_eq!(signed_guard(&msgs), v(&["tests/**", "ci/check.sh"]));
+    // no guard line, and no assignment: no guard
+    assert!(signed_guard(&[with(1, "order: 1\n")]).is_empty());
+    assert!(signed_guard(&[]).is_empty());
+    // the latest assignment decides: its copy keeps the guard, and one without lines has none
+    let later = [with(1, "guard: a\n"), with(2, "guard: a\nguard: b\n")];
+    assert_eq!(signed_guard(&later), v(&["a", "b"]));
+    // a `guard:` line of a dev, or in a message that is no assignment, signs nothing
+    let dev_line = [
+        with(1, "guard: tests/**\n"),
+        msg(
+            2,
+            dev(),
+            Kind::Request,
+            "Assigned to you: T\ngate: ci\nguard: nothing/**\n",
+        ),
+        msg(3, coordinator(), Kind::Info, "guard: other/**\n"),
+    ];
+    assert_eq!(signed_guard(&dev_line), v(&["tests/**"]));
+    let only_dev = [msg(
+        2,
+        dev(),
+        Kind::Request,
+        "Assigned to you: T\ngate: ci\nguard: x\n",
+    )];
+    assert!(signed_guard(&only_dev).is_empty());
+}

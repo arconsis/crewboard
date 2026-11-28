@@ -75,6 +75,8 @@ pub(super) struct Target<'a> {
     pub pr: u64,
     /// `protected_paths` of AUTHORITY.md.
     pub protected_paths: &'a [String],
+    /// The signed guard of the ticket ([`crate::ticket::signed_guard`]).
+    pub guard: &'a [String],
     /// `check_env` of AUTHORITY.md: more variables that a check gets.
     pub env: &'a [String],
     /// `check_timeout` of AUTHORITY.md, in seconds.
@@ -93,6 +95,9 @@ pub(super) struct Job<'a> {
     pub authority: &'a str,
     /// `protected_paths` of AUTHORITY.md.
     pub protected_paths: &'a [String],
+    /// The signed guard of the ticket: more paths that must be the same on the red commit and
+    /// on the tested one (`--must-fail-at`). Empty for a run without a ticket.
+    pub guard: &'a [String],
     /// `check_env` of AUTHORITY.md: more variables that a check gets.
     pub env: &'a [String],
     /// `check_timeout` of AUTHORITY.md, in seconds.
@@ -492,6 +497,7 @@ pub(super) fn run(
         sha: t.sha,
         authority: &ac.ctx.cfg.authority,
         protected_paths: t.protected_paths,
+        guard: t.guard,
         env: t.env,
         timeout: t.timeout,
         unattended: args.unattended,
@@ -576,8 +582,10 @@ pub(super) fn red_commit(top: &Path, rev: &str, tested: &str) -> CbResult<String
     Ok(red)
 }
 
-/// The refusal `check-not-run` when a protected file differs between the red commit and the
-/// tested one. The rule of `verify` for protected paths reads the diff of the whole PR: a
+/// The refusal `check-not-run` when a protected file, or a file of the signed guard of the
+/// ticket, differs between the red commit and the tested one. A guarded file is the test, the
+/// fixture or the check script of the ticket: a red run on another version of it proves nothing
+/// about the change, so a change of a guarded file can never be the red proof. The rule of `verify` for protected paths reads the diff of the whole PR: a
 /// commit in the middle can change a protected file that the head restores, and the red run
 /// would run that version. So the files of every check are the same on both commits, or no
 /// code of the red commit runs.
@@ -593,11 +601,23 @@ fn same_protected_files(top: &Path, job: &Job<'_>, red: &str) -> CbResult<()> {
         .filter(|n| !n.is_empty())
         .map(str::to_string)
         .collect();
-    let guard = crate::rules::protected::Protect::new(job.authority, job.protected_paths);
+    // one list: the globs of `protected_paths`, then the globs of the guard (the same matcher)
+    let globs: Vec<String> = job
+        .protected_paths
+        .iter()
+        .chain(job.guard)
+        .cloned()
+        .collect();
+    let guard = crate::rules::protected::Protect::new(job.authority, &globs);
     let hits = crate::rules::protected::protected_hits(&files, guard);
     if hits.is_empty() {
         return Ok(());
     }
+    let kind = if job.guard.is_empty() {
+        "a protected file differs"
+    } else {
+        "a protected file or a guarded file of the ticket differs"
+    };
     let shown: Vec<String> = hits
         .iter()
         .take(5)
@@ -613,7 +633,7 @@ fn same_protected_files(top: &Path, job: &Job<'_>, red: &str) -> CbResult<()> {
         String::new()
     };
     Err(not_run(format!(
-        "a protected file differs between {} and {} ({}{more}): the check itself is not the same on both commits; name a red commit after that change",
+        "{kind} between {} and {} ({}{more}): the check itself is not the same on both commits; name a red commit after that change",
         &red[..12],
         job.sha.chars().take(12).collect::<String>(),
         shown.join(", ")

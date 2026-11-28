@@ -55,7 +55,7 @@ the writer). Who may do an act is not part of the parse: the readers check the v
 
 | Act | Kind | Text |
 |---|---|---|
-| assignment | `request` | first line `Assigned to you: <title>`; the signed lines `gate: <text>` and `ci: none` or `ci: required` |
+| assignment | `request` | first line `Assigned to you: <title>`; the signed lines `gate: <text>` and `ci: none` or `ci: required`, then one line `guard: <glob>` for each [guarded path](tickets.md#guarded-paths) (none: no guard) |
 | reassigned | `info` | first line `Reassigned. Reason: <sentence of the reason word>[: <detail>]` (wire format unchanged; the word is `dead`, `stopping`, `late` or `blocked-too-long`, see [tickets](tickets.md#status-flow-and-writers)) |
 | on the board | `info` | first line `Ticket is on the board` |
 | closed | `info` | first line `Closed after a passed verify`, `Merged by the coordinator.` or `The ticket is closed: the owner merged ...`: Done. `closed: <reason>` (an older `close --why`, no longer written): Done |
@@ -66,9 +66,12 @@ the writer). Who may do an act is not part of the parse: the readers check the v
 | left | `info` | the line `lifecycle: left` |
 | late report | `info` | text starts `late: ` and has the line `late-key: <key>` |
 
-The first signed assignment of a ticket takes `gate:` and `ci:` from the issue body. Every
-later assignment copies them from the latest signed assignment
-([Ticket content](tickets.md#ticket-content)).
+The first signed assignment of a ticket takes `gate:`, `ci:` and the `guard:` lines from the
+issue body. Every later assignment copies them from the latest signed assignment
+([Ticket content](tickets.md#ticket-content)). `guard` is the one key that an assignment has
+more than once: a reader takes every `guard:` line, in the order of the message. A reader that
+does not know the key ignores the lines, and it reads `gate:` and `ci:` as it did: both come
+before the first `guard:` line, and a reader takes the first line of a key.
 An assignment is recognised by its first line, in the ticket log, the audit and the headless
 CI-only check alike. A coordinator `request` that only has a `gate:` line is no assignment.
 A later wire version may carry the act in a signed header field.

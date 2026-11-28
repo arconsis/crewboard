@@ -13,6 +13,20 @@ parts are off until the owner sets a key (`max_rounds`) or someone uses a new co
 
 Added:
 
+- Guarded paths per ticket: a ticket can name paths that its change must not touch, so an
+  agent that must make a test pass cannot edit the test, a fixture, a golden file or the check
+  script. The body has one line `Guard: <glob>` for each path, and `ticket new --guard <glob>`
+  (repeatable) writes them. The globs are the ones of `protected_paths`. The first assignment
+  signs them as `guard:` lines, and `reassign --to`, the move of a queued ticket and an `assign`
+  after a `reassign` copy the signed lines; `ticket split` hands them to the new ticket. `done`
+  refuses a PR that adds, changes, deletes or renames a guarded file with the new id
+  `guarded-path-changed`. A verify pass, `close --verified`, `merge` and the headless `tick`
+  refuse it too; `verify --fail` stays possible. No flag overrides a guard: the owner changes
+  the file in a separate change, or the work goes on in a new ticket. With `--must-fail-at`, a
+  guarded file must be the same on the red commit and on the tested one. A guard that is not
+  valid (more than 20 globs, a glob of more than 200 bytes, an empty one, an absolute path, a
+  `..` part) is refused with the new id `ticket-guard-invalid`. A ticket whose assignment has
+  no `guard:` line works as it did. Spec: `docs/design/spec/tickets.md#guarded-paths`.
 - `retro` has a section `Outcome`: the merged tickets, how many of them came back after the
   merge (an owner move, a new assignment, a reassign or a failed verify after the close), and
   how many a commit of the default branch reverts (`This reverts commit <sha>` or

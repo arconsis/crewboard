@@ -20,6 +20,7 @@ Pointers: <files, issues, earlier PRs>
 <!-- optional: Needs: x86_64, x86-builds -->
 <!-- optional: Route: owner-workflow -->
 <!-- optional: CI: none -->
+<!-- optional, one line per path that the change must not touch: Guard: tests/** -->
 ```
 
 - `Gate:` is required. The `Gate` field holds it too. `Gate: ci` (`ticket new --gate-ci`) is the typed CI-only Gate, the only Gate that the
@@ -28,16 +29,20 @@ Pointers: <files, issues, earlier PRs>
   ([Requirements and matching](profiles.md#requirements-and-matching)).
 - `Route: owner-workflow` marks the [owner route](#workflow-files-the-owner-route).
 - `CI: none` declares a ticket without CI ([CI proof](ci.md#ci-proof)).
+- `Guard:` names a path that the change of the ticket must not touch
+  ([Guarded paths](#guarded-paths)).
 
 The issue body is not signed. So the signed assignment carries `gate: <text>` (all `Gate:`
-lines, joined with ` | `) and `ci: none` or `ci: required`. `done`, `verify`, `merge` and the
-headless "CI only" check read these lines, not the body; without a `ci:` line the body decides.
+lines, joined with ` | `), `ci: none` or `ci: required`, and one `guard: <glob>` line for each
+`Guard:` line. `done`, `verify`, `merge` and the headless "CI only" check read these lines, not
+the body; without a `ci:` line the body decides.
 Only the first assignment of a ticket reads the body, and `assign` prints what it signs
-(`signed from the body: gate '<text>'; ci: required`). Every later assignment message copies
+(`signed from the body: gate '<text>'; ci: required`, with `guard '<glob>, <glob>';` before the
+CI part when the ticket has a guard). Every later assignment message copies
 the signed lines forward: `reassign --to`, the move of a queued ticket, and an `assign` after a
 `reassign`. A line that the earlier assignment does not have is not added from the body. If the
-body then has another Gate or CI line, the command prints a warning and the signed lines stay.
-`ticket split` gives the new ticket the signed Gate of the old one.
+body then has another Gate, CI or Guard line, the command prints a warning and the signed lines
+stay. `ticket split` gives the new ticket the signed Gate and the signed guard of the old one.
 
 The `Gate` field holds the Gate as the assignment signs it: every Gate line, joined. `assign`,
 `reassign --to` and `ticket adopt` write the signed Gate into the field when the field has
@@ -51,6 +56,43 @@ ticket (`close --why`, then `ticket new`). One exception stays: when the log of 
 valid assignment message (never posted, deleted, edited or not valid), an `assign` signs the
 body. It prints a warning when the ticket has an Agent or a Status past Backlog, and the
 coordinator checks the Gate that it prints.
+
+### Guarded paths
+
+A ticket can name paths that its change must not touch. Use it for a ticket that says "make
+this test pass": the guard names the test, its fixtures, the golden files and the check script,
+so the agent cannot pass the Gate by a change of the check. It is the per-ticket form of
+`protected_paths` ([Authority](board.md#authority)): the same globs and the same matcher. The
+difference: a protected path sends the PR to the owner, and a guarded path refuses the
+delivery.
+
+- **The body.** One line `Guard: <glob>` for each path. `ticket new --guard <glob>`
+  (repeatable) writes the lines at the end of the body.
+- **The limits.** At most 20 globs. Each glob is one line of at most 200 bytes, not empty, and
+  a relative path glob: no leading `/`, no `\`, no `..` part. `*` matches inside a name, `**`
+  across directories, `?` one character; a trailing `/` means the directory and all below it.
+  The match ignores ASCII letter case. `ticket new`, `ticket adopt`, `ticket split` and the
+  first `assign` refuse another guard with `ticket-guard-invalid`, before the first write.
+- **The signed lines.** The first assignment signs the globs as `guard:` lines, and every
+  later assignment copies the signed lines ([Ticket content](#ticket-content)). The readers
+  below take the signed lines only. A `Guard:` line that the body gets after the assignment
+  guards nothing, and a line that the body loses stays signed. An assignment without a
+  `guard:` line means no guard. No command changes the signed guard of a ticket.
+- **`done`.** It reads the file list of the PR. A file that a signed glob covers is
+  `guarded-path-changed`: added, modified or deleted, and both names of a renamed file. The
+  text names up to 5 files, each with its glob. Nothing is written, and no check of
+  `--run-check` runs.
+- **The backstops.** A `verify` without `--fail`, `close --verified` and `merge` read the file
+  list again and refuse in the same way, so a PR that changed after its `done` does not pass.
+  The headless `tick` verifies and merges through these commands, so it leaves such a ticket.
+  `verify --fail` stays possible. A file list of more than 1000 files proves nothing and is
+  refused.
+- **No override.** No flag lets a guarded file through. The owner changes the file in a
+  separate change, or the work goes on in a new ticket without that guard (`close --why`, then
+  `ticket new`). A PR that the owner merged by hand is closed with `close <n>`
+  ([Close after an owner merge](#close-after-an-owner-merge)).
+- **The red run.** For `--must-fail-at`, the signed globs join the protected paths of the rule
+  "the same check on both commits" ([A check that must be red first](ci.md#a-check-that-must-be-red-first)).
 
 ## Status flow and writers
 
@@ -223,7 +265,7 @@ agent than the log. An empty `Agent` passes. `assign` on a Ready ticket, or `rea
 it.
 
 `assign <issue> --to <agent> [--order N]` (coordinator) moves a ticket to Ready. It posts the
-signed assignment (`gate:`, `ci:`, `order:`) and sets `Agent`, `Order` and the agent label. The agent
+signed assignment (`gate:`, `ci:`, `guard:`, `order:`) and sets `Agent`, `Order` and the agent label. The agent
 must be an active dev agent. A busy agent gets the ticket in its queue. A late or dead agent is `status-agent-not-alive`. Missing
 capabilities are `capability-mismatch`; `--override-capabilities` with a reason passes.
 
@@ -247,7 +289,7 @@ creates it.
   `ticket-already-assigned`. Neither flag is `assign-needs-to`.
 - `assign <n> --to <other>` on a Ready ticket moves it to another queue, with one assignment
   message that has `moved-from: <old agent>` (`rebalance-not-ready`, `rebalance-no-agent`,
-  `rebalance-same-agent`). The message keeps the signed `gate:` and `ci:` lines
+  `rebalance-same-agent`). The message keeps the signed `gate:`, `ci:` and `guard:` lines
   ([Ticket content](#ticket-content)); the move does not sign the body.
 - `status --queue` shows the queues, and a note when one agent has at least 3 more Ready
   tickets than a live agent that can take the same work.
@@ -264,7 +306,8 @@ warning.
 ## Ticket creation
 
 `crewboard ticket new --title T --body-file F [--repo R] [--backlog | --assign <agent>]
-[--continue-pr <url>]` (coordinator) checks the `Gate:` line, the size, the secret scan and
+[--continue-pr <url>] [--guard <glob>]...` (coordinator) checks the `Gate:` line, the `Guard:`
+lines ([Guarded paths](#guarded-paths)), the size, the secret scan and
 `coordinator_may_create_tickets` (`authority-no-ticket-creation`). With `--assign` it runs the
 checks of `assign` first, so a refusal creates nothing. Then it creates the issue with the label
 `crew:work`, adds the board item, posts the signed creation `info` with the item id
@@ -281,6 +324,9 @@ A `kind=done` message has the lines `pr` (a PR in a repo of the initiative), `sh
 `ci` (a [CI proof](ci.md#ci-proof) for that SHA). crewboard checks the PR, its head and the CI
 proof against GitHub, and refuses `done` otherwise. A claim such as "pass" is never evidence.
 
+A PR that changes a file of the signed guard of the ticket is `guarded-path-changed`
+([Guarded paths](#guarded-paths)).
+
 A re-delivery from Review needs a new head SHA. The checks are the same, and the Status stays
 Review.
 
@@ -296,7 +342,9 @@ A `verify` without `--fail` reads the file list of the PR before the CI. A chang
 ([Authority](board.md#authority)), a rename out of one, or more than 1000 files, is
 `protected-path-owner-merge`. `close --verified` and `merge` apply the same rule. The refusal
 posts nothing. The owner merges by hand, then `close <n>`
-([Close after an owner merge](#close-after-an-owner-merge)).
+([Close after an owner merge](#close-after-an-owner-merge)). The same three commands then read
+the same file list against the signed guard of the ticket (`guarded-path-changed`,
+[Guarded paths](#guarded-paths)).
 
 With `ci_mode: local`, a local-run `done` needs `verify --local-run "<what you checked>"`
 ([Local run](ci.md#local-run-ci_mode-local)).
@@ -575,7 +623,8 @@ says "Closes #<n>" or the cross-repo form. No agent pushes to a protected branch
    `coordinator_may_merge: false` is `authority-merge-not-allowed`
    ([Contradicting keys](board.md#contradicting-keys-in-authoritymd)).
 3. The protected paths, after the PR read and before any CI read. The refusal names
-   `crewboard close <n>`.
+   `crewboard close <n>`. Then the signed guard of the ticket, against the same file list
+   (`guarded-path-changed`, [Guarded paths](#guarded-paths)).
 4. The evidence: a passed `verify` of the latest `done` (`merge-verify-required`); the PR of
    that `done`, open (`merge-pr-not-open`), in a repo of the initiative, and closing the ticket;
    its head at the evidence SHA (`evidence-head-moved`); green CI, or `CI: none`. A local-run
@@ -604,7 +653,8 @@ an Agent (`split-no-agent`). `coordinator_may_split_tickets: false` refuses it
 A refusal writes nothing. Then:
 
 1. The new ticket gets the file text and `Split from: <repo>#<n>`, and the signed Gate of the
-   old ticket if the file has none.
+   old ticket if the file has none. It also gets the signed guard of the old ticket as `Guard:`
+   lines, unless the file has `Guard:` lines of its own.
 2. The old body gets one line `Split off: <repo>#<new> - <title>`.
 3. The new ticket goes into the queue of the same agent.
 4. A signed note on the old ticket says where the open part went and to run `done` on the old

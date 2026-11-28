@@ -129,7 +129,7 @@ pub fn reassign(
     }
     out.push_str(&notice_lines);
     if let Some(a) = &new_agent {
-        // Copy the signed gate forward: the new assignment message is the latest one, and the
+        // Copy the signed gate, CI line and guard forward: the new assignment message is the latest one, and the
         // headless judgement reads the latest signed gate. The body is read only for the warning.
         let lines = copy_signed(&t.key(), &t.msgs, &t.info.body);
         let p = post(
@@ -138,12 +138,10 @@ pub fn reassign(
             to_agent(a.as_str())?,
             Kind::Request,
             Re::None,
-            &crate::protocol::acts::assignment_body(
+            &lines.message(
                 &t.info.title,
                 &t.key(),
                 &t.item_id,
-                lines.gate.as_deref(),
-                lines.ci_none,
                 &format!("reason: {reason}\n{override_lines}"),
             ),
         )?;

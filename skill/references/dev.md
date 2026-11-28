@@ -51,6 +51,7 @@ find goes into a `report` to the coordinator.
   first; one that passes there is `check-not-red`. Give the SHA: a rev such as `HEAD~1` is read
   in the checkout of `--work-dir`, not on the PR head.
 - A `status-no-change` refusal on a second `done` means the first one landed. Do nothing.
+- `done` says `guarded-path-changed`: the ticket guards that file (`Guard:`). Take its change out of the PR.
 
 ## Blocked, asked, split
 
@@ -78,8 +79,7 @@ Optional. Use one only when the ticket, `take` or the wake prompt names it.
   that you lack a tag. If that stops you, `block` at once. Claim no tag that you cannot back up.
 - A Gate of N runs: `crewboard repeat --times N -- <command>`, then paste its result block.
   In a scheduled wake, `repeat` needs `--lock <lock-dir>` (shared-hosts reference).
-- A heavy job or a long Gate on a host with a lock: read the
-  shared-hosts reference (linked in SKILL.md) first.
+- A heavy job or a long Gate on a host with a lock: read the shared-hosts reference (linked in SKILL.md) first.
 - The owner route: `take` prints a `route:` line. Follow it. Do not `block`.
 - Several independent causes in one ticket: ask the coordinator to split it. Name the finished
   and the open causes. After the split note, run `crewboard done <n> --pr <url>` on the Blocked

@@ -223,6 +223,11 @@ is relative to the repo root: `*` stays inside a name, `**` crosses directories,
 directory and all below it. `start` refuses a bad entry and names it. `git` and `gh` run no
 crewboard code: the [branch rule](branch-rule.md) covers them.
 
+One ticket can also guard paths of its own, with the same globs: `ticket new --guard <glob>`.
+`done` then refuses a pull request that changes such a file (rule `guarded-path-changed`). Use
+it for the test or the check script of a ticket that says "make this pass"
+([Guarded paths](../design/spec/tickets.md#guarded-paths)).
+
 ## Who may do what
 
 The table shows what the crewboard CLI allows. The holder of any agent token can still write a
