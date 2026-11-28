@@ -1023,6 +1023,13 @@ fn verify_as(
         return Ok(out);
     }
     let plan = plan_verify(ac, &l, va)?;
+    // The unattended coordinator takes its messages from the budget before the first write: the
+    // verify result, and with it the question to the owner when this verify stops the ticket at
+    // the round limit. Nothing happens for any other caller.
+    if origin == Origin::Command {
+        let question = plan.round_stop.is_some_and(|s| s.ask);
+        crate::ops::unattended::reserve_verdict(ac, &l.t.tref(), question)?;
+    }
     act_verify(ac, &l, &plan, &SystemClock)
 }
 

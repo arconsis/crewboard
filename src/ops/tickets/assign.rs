@@ -170,7 +170,7 @@ fn assigned_before(msgs: &[crate::ticket::VMsg]) -> bool {
 /// earlier assignment that is gone ([`assigned_before`]).
 fn lost_assignment_warning(key: &str) -> String {
     format!(
-        "warning: {key} was assigned before (its log has a reassign notice or a verify result), but its log has no valid signed assignment (deleted, edited or not valid). The Gate and the guard now come from the unsigned body: check both\n"
+        "warning: {key} was assigned before (its log has a reassign notice or a verify result), but its log has no valid signed assignment (never posted, deleted, edited or not valid). The Gate and the guard now come from the unsigned body: check both\n"
     )
 }
 
@@ -372,11 +372,13 @@ pub fn assign(
         return assign_queued(ac, &world, &me, &t, &q);
     }
     let ready_unassigned = check_move_to_ready(&t, &me, status, signed, &mut out)?;
-    // a repair keeps the position that the ticket has; any other assign goes to the end
+    // a repair keeps the position that the ticket has; any other assign goes to the end. The
+    // unattended coordinator signs no position from the board field, which is not signed: its
+    // ticket goes to the end of the queue of the agent.
     let kept = t
         .item
         .get(Field::Order)
-        .filter(|_| ready_unassigned)
+        .filter(|_| ready_unassigned && !unattended)
         .and_then(|o| o.parse::<i64>().ok());
     let (order, order_is_default) = match order.or(kept) {
         Some(o) => (o, false),

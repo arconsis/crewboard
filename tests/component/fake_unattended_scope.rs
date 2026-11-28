@@ -669,6 +669,8 @@ fn assign_is_for_a_free_ticket_that_the_signed_log_knows() {
     free_ticket(&h, 13, "Ready");
     assign(&h, 13);
     coord(&h, 13, &h.dev.name, Kind::Info, &reassigned_body("late"));
+    // somebody wrote a position into the board field of #13, which is not signed
+    h.board.set_item(&item_of(13), "Order", "1");
     // 21: never assigned; the owner moved it to Ready
     free_ticket(&h, 21, "Ready");
     h.board.owner_comment(21, "/crew move Ready");
@@ -687,6 +689,7 @@ fn assign_is_for_a_free_ticket_that_the_signed_log_knows() {
     // 14: queued (Ready, with a signed assignment and its agent on the board)
     free_ticket(&h, 14, "Ready");
     h.board.set_item(&item_of(14), "Agent", &dev_name);
+    h.board.set_item(&item_of(14), "Order", "50");
     assign(&h, 14);
     // 15: assigned in the signed log; the board says Ready without an Agent
     free_ticket(&h, 15, "Ready");
@@ -762,6 +765,19 @@ fn assign_is_for_a_free_ticket_that_the_signed_log_knows() {
     // the copy keeps the signed Gate
     let (_, _, body) = h.board.comments_of(12).pop().unwrap();
     assert!(body.contains(&format!("gate: {GATE}\n")), "{body}");
+    // the position on the board is not signed: #13 went to the end of the queue, behind #14
+    let (_, _, body) = h.board.comments_of(13).pop().unwrap();
+    let order: i64 = body
+        .lines()
+        .find_map(|l| l.strip_prefix("order: "))
+        .expect("an order line")
+        .parse()
+        .unwrap();
+    assert!(order > 50, "{body}");
+    assert_ne!(
+        h.board.item_field(&item_of(13), "Order").as_deref(),
+        Some("1")
+    );
     // the ticket has an assignee now: a second assign is refused
     let o = h.headless(&["assign", "12", "--to", &dev_name]);
     refused(&o, SCOPE);
@@ -1060,6 +1076,13 @@ fn a_stale_save_of_another_process_does_not_lower_a_count() {
     assert!(o.stderr.contains("1 of its 1 verdicts"), "{}", o.all());
 }
 
+/// One more ticket in Review with a Gate in prose and a `done` with CI evidence.
+fn review_ticket(h: &Hub, n: u64) {
+    ticket(h, n, "Review", true);
+    assign(h, n);
+    done(h, n, "");
+}
+
 #[test]
 fn parallel_verdicts_at_the_last_verdict_of_the_day_give_one_post() {
     settle_day();
@@ -1071,20 +1094,25 @@ fn parallel_verdicts_at_the_last_verdict_of_the_day_give_one_post() {
     for n in 1..=9 {
         verdict(&h, 6, d, &stamp(n));
     }
-    let before = h.board.comments_of(TICKET).len();
-    let outs = h.headless_parallel(&["verify", "5", "--body", "I ran the demo"], 6);
-    let posted: Vec<String> = h.board.comments_of(TICKET)[before..]
+    // six tickets, one verdict left: no rule of a ticket tells the commands apart
+    let tickets = [5_u64, 21, 22, 23, 24, 25];
+    for n in &tickets[1..] {
+        review_ticket(&h, *n);
+    }
+    let names: Vec<String> = tickets.iter().map(u64::to_string).collect();
+    let runs: Vec<Vec<&str>> = names
         .iter()
-        .map(|(_, _, b)| b.clone())
+        .map(|n| vec!["verify", n.as_str(), "--body", "I ran the demo"])
         .collect();
+    let before: usize = tickets.iter().map(|n| h.board.comments_of(*n).len()).sum();
+    let outs = h.headless_each(&runs);
+    let after: usize = tickets.iter().map(|n| h.board.comments_of(*n).len()).sum();
     let all: String = outs.iter().map(Out::all).collect();
-    assert_eq!(posted.len(), 1, "{all}");
-    assert_eq!(stamps_in(&posted[0]), [unattended_line(10, 10)], "{all}");
+    assert_eq!(after, before + 1, "{all}");
     assert_eq!(outs.iter().filter(|o| o.code == 0).count(), 1, "{all}");
     for o in outs.iter().filter(|o| o.code != 0) {
-        // the budget of the day, or the verify result that the first one posted
         assert!(
-            o.stderr.contains(BUDGET) || o.stderr.contains(SCOPE),
+            o.stderr.contains(BUDGET) && o.stderr.contains("of its 10 verdicts"),
             "{all}"
         );
     }
@@ -1094,6 +1122,46 @@ fn parallel_verdicts_at_the_last_verdict_of_the_day_give_one_post() {
             .unattended_floor
             .map(|f| f.1),
         Some(10)
+    );
+}
+
+#[test]
+fn parallel_verdicts_on_one_ticket_at_its_last_verdict_give_one_post() {
+    settle_day();
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    passed(&h.headless(&["verify", "5", "--fail", "--body", "the demo does not run"]));
+    deliver_again(&h);
+    let before = h.board.comments_of(TICKET).len();
+    let outs = h.headless_parallel(&["verify", "5", "--body", "I ran the demo"], 6);
+    let all: String = outs.iter().map(Out::all).collect();
+    assert_eq!(h.board.comments_of(TICKET).len(), before + 1, "{all}");
+    assert_eq!(
+        stamps_of_last(&h, TICKET),
+        [unattended_line(2, 10)],
+        "{all}"
+    );
+    assert_eq!(outs.iter().filter(|o| o.code == 0).count(), 1, "{all}");
+    // The losers read the ticket with one verdict, as the winner did. The count of the ticket
+    // that the winner noted under the lock of the state refuses them. A loser that read the
+    // ticket after the post of the winner is refused by the verify result instead.
+    let by_lock = outs
+        .iter()
+        .filter(|o| o.stderr.contains(BUDGET) && o.stderr.contains("has its 2 unattended verdicts"))
+        .count();
+    let by_result = outs
+        .iter()
+        .filter(|o| o.stderr.contains(SCOPE) && o.stderr.contains("has a verify result"))
+        .count();
+    assert!(by_lock >= 1, "{all}");
+    assert_eq!(by_lock + by_result, 5, "{all}");
+    assert_eq!(
+        StateCache::load(&state_path(&h))
+            .tick
+            .unattended_tickets
+            .get(&key(TICKET))
+            .map(|f| f.count),
+        Some(2)
     );
 }
 
@@ -1154,7 +1222,11 @@ fn a_file_of_the_host_and_a_run_of_checks_are_refused_before_any_request() {
         ] {
             let o = h.headless(&argv);
             refused(&o, SCOPE);
-            assert!(o.stderr.contains("--body-file <path>"), "{}", o.all());
+            assert!(
+                o.stderr.contains("--body-file takes no file path"),
+                "{}",
+                o.all()
+            );
         }
         for argv in [
             vec!["verify", "5", "--run-check", "tests"],
@@ -1310,4 +1382,254 @@ fn a_state_that_cannot_be_saved_refuses_the_post() {
     // control: with a state that can be saved, the same command posts
     passed(&h.headless(&["verify", "5", "--body", "I ran the demo"]));
     assert_eq!(h.board.comments_of(TICKET).len(), before + 1);
+}
+
+#[test]
+fn a_repo_name_in_another_letter_case_keeps_the_count_of_a_ticket() {
+    settle_day();
+    let h = hub();
+    // the repo got upper-case letters in its name; the messages under the old name count
+    let mixed = h.repo_in_mixed_case();
+    h.set_authority_extra(&format!(
+        "{VERIFY}former_repos:\n  - {{ name: {}, until: {} }}\n",
+        mixed.to_lowercase(),
+        crewboard::clock::format_ts(crewboard::clock::now_epoch() + 3600)
+    ));
+    let fail = ["verify", "5", "--fail", "--body", "the demo does not run"];
+    for n in 1..=2 {
+        let o = h.headless(&fail);
+        passed(&o);
+        assert!(o.stdout.contains(&format!("{mixed}#5")), "{}", o.all());
+        assert_eq!(stamps_of_last(&h, TICKET), [unattended_line(n, 10)]);
+        // the floor has one key, whatever the case of the repo in the config is
+        let state = StateCache::load(&state_path(&h));
+        let floors: Vec<(&String, u32)> = state
+            .tick
+            .unattended_tickets
+            .iter()
+            .map(|(k, f)| (k, f.count))
+            .collect();
+        assert_eq!(floors, [(&key(TICKET), n)], "{floors:?}");
+        // a dev agent deletes the verdict
+        h.board.delete_comment(last_id(&h, TICKET));
+        deliver_again(&h);
+    }
+    // the signed log has no verdict left; the floor of the state refuses the third one
+    let o = h.headless(&["verify", "5", "--body", "I ran the demo"]);
+    refused(&o, BUDGET);
+    assert!(
+        o.stderr.contains("has its 2 unattended verdicts"),
+        "{}",
+        o.all()
+    );
+    // and the tick does not list the ticket
+    let t = tick(&h);
+    assert!(!t.stdout.contains("needs judgment"), "{}", t.all());
+}
+
+#[test]
+fn an_assign_at_the_limit_of_the_messages_leaves_the_board_as_it_was() {
+    settle_day();
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    free_ticket(&h, 12, "Backlog");
+    assign(&h, 12);
+    coord(&h, 12, &h.dev.name, Kind::Info, &reassigned_body("late"));
+    ticket(&h, 7, "In Progress", true);
+    assign(&h, 7);
+    for i in 0..30 {
+        coord(
+            &h,
+            7,
+            &h.dev.name,
+            Kind::Answer,
+            &format!("noted {i}\n{}", stamp(0)),
+        );
+    }
+    let dev_name = h.dev.name.clone();
+    let o = h.headless(&["assign", "12", "--to", &dev_name]);
+    refused(&o, BUDGET);
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
+    assert_eq!(h.board.item_field(&item_of(12), "Agent"), None);
+    assert_eq!(
+        h.board.item_field(&item_of(12), "Status").as_deref(),
+        Some("Backlog")
+    );
+}
+
+#[test]
+fn a_post_that_fails_after_the_reservation_keeps_the_count() {
+    settle_day();
+    let h = hub();
+    h.set_authority_extra("unattended_coordinator: verify\nunattended_budget: 1\n");
+    let before = h.board.comments_of(TICKET).len();
+    h.fail_write(&format!("/issues/{TICKET}/comments"), 500);
+    let o = h.headless(&["verify", "5", "--body", "I ran the demo"]);
+    assert_ne!(o.code, 0, "{}", o.all());
+    h.fail_nothing();
+    assert_eq!(h.board.comments_of(TICKET).len(), before, "{}", o.all());
+    // the verdict is counted although no comment has it: the command fails closed
+    let state = StateCache::load(&state_path(&h));
+    assert_eq!(state.tick.unattended_floor.map(|f| f.1), Some(1));
+    let t = tick(&h);
+    assert_eq!(coord_lines(&t), [count_text("verify", 1, 1)], "{}", t.all());
+    let o = h.headless(&["verify", "5", "--body", "I ran the demo"]);
+    refused(&o, BUDGET);
+    assert!(o.stderr.contains("1 of its 1 verdicts"), "{}", o.all());
+}
+
+#[test]
+fn a_count_of_a_later_day_in_the_state_refuses_the_command_and_empties_the_list() {
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    blocked_ticket(&h, 6);
+    // control: the list and the command work
+    let t = tick(&h);
+    assert!(t.stdout.contains("needs judgment"), "{}", t.all());
+    // the clock of the host was ahead when a count was noted (or it went back since)
+    let tomorrow = crewboard::clock::format_ts(crewboard::clock::now_epoch() + 86_400);
+    let day = tomorrow.split('T').next().unwrap().to_string();
+    StateCache::update_locked(&state_path(&h), |c| {
+        c.tick.unattended_floor = Some((day.clone(), 0));
+        Ok(())
+    })
+    .unwrap();
+    let dev_name = h.dev.name.clone();
+    for argv in [
+        vec!["verify", "5", "--body", "I ran the demo"],
+        vec!["unblock", "6", "--override-unread"],
+        answer("6", &dev_name, "Use the test key."),
+        vec!["ask", "6", "--body", "May it go?", "--override-unread"],
+    ] {
+        let o = h.headless(&argv);
+        refused(&o, BUDGET);
+        assert!(
+            o.stderr.contains("the clock went back, or it was ahead") && o.stderr.contains(&day),
+            "{}",
+            o.all()
+        );
+    }
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
+    // the tick prints one line for it and lists no ticket
+    let t = tick(&h);
+    assert!(!t.stdout.contains("needs judgment"), "{}", t.all());
+    let lines = coord_lines(&t);
+    assert_eq!(lines.len(), 1, "{}", t.all());
+    assert!(
+        lines[0].contains("could not be read, so no ticket is listed")
+            && lines[0].contains("the clock went back, or it was ahead"),
+        "{}",
+        t.all()
+    );
+    // the same for a memo of the feed of a later day
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    tick(&h);
+    StateCache::update_locked(&state_path(&h), |c| {
+        for f in c.tick.unattended_feed.values_mut() {
+            f.day = day.clone();
+        }
+        assert!(!c.tick.unattended_feed.is_empty());
+        Ok(())
+    })
+    .unwrap();
+    refused(
+        &h.headless(&["verify", "5", "--body", "I ran the demo"]),
+        BUDGET,
+    );
+}
+
+#[test]
+fn a_text_on_standard_input_is_taken_and_stamped() {
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    blocked_ticket(&h, 6);
+    let o = h.headless_stdin(
+        &["ask", "6", "--body-file", "-", "--override-unread"],
+        "May the old data go?\n",
+    );
+    passed(&o);
+    let (_, _, body) = h.board.comments_of(6).pop().unwrap();
+    assert!(body.contains("May the old data go?"), "{body}");
+    assert_eq!(stamps_in(&body), [unattended_line(0, 10)], "{body}");
+    // a text with the line of crewboard is refused on this way too
+    blocked_ticket(&h, 7);
+    let o = h.headless_stdin(
+        &["ask", "7", "--body-file", "-", "--override-unread"],
+        "May it go?\nunattended: 0/10\n",
+    );
+    refused(&o, SCOPE);
+}
+
+#[test]
+fn ask_is_refused_while_a_question_of_any_agent_waits_on_a_ticket_without_an_assignee() {
+    let h = hub();
+    h.set_authority_extra(VERIFY);
+    // the agent asked the owner and went dead; the duty returned the ticket
+    free_ticket(&h, 12, "Backlog");
+    assign(&h, 12);
+    dev(
+        &h,
+        12,
+        "owner",
+        Kind::Question,
+        "May I delete the old data?",
+    );
+    coord(&h, 12, &h.dev.name, Kind::Info, &reassigned_body("dead"));
+    let o = h.headless(&["ask", "12", "--body", "And the docs?", "--override-unread"]);
+    refused(&o, SCOPE);
+    assert!(
+        o.stderr
+            .contains("has an open question to the owner already"),
+        "{}",
+        o.all()
+    );
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
+    // the owner answered: a new question is allowed
+    h.board.owner_comment_now(12, "Yes, delete it.");
+    passed(&h.headless(&["ask", "12", "--body", "And the docs?", "--override-unread"]));
+}
+
+#[test]
+fn a_fail_at_the_round_limit_is_refused_when_the_day_has_no_question_left() {
+    settle_day();
+    let h = hub();
+    h.set_authority_extra("unattended_coordinator: verify\nmax_rounds: 1\n");
+    for n in 30..35 {
+        coord(
+            &h,
+            n,
+            "owner",
+            Kind::Question,
+            &format!("May #{n} go?\n{}", stamp(0)),
+        );
+    }
+    // this verify would post its result and the question of the stop: the 6th of the day
+    let o = h.headless(&["verify", "5", "--fail", "--body", "the demo does not run"]);
+    refused(&o, BUDGET);
+    assert!(o.stderr.contains("its limit is 5 per day"), "{}", o.all());
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
+    assert_eq!(h.status_of_ticket().as_deref(), Some("Review"));
+    // neither the verdict nor the question is counted
+    let state = StateCache::load(&state_path(&h));
+    assert_eq!(state.tick.unattended_floor, None);
+    assert_eq!(state.tick.unattended_messages_floor, None);
+    // a pass posts no question, so it has room
+    passed(&h.headless(&["verify", "5", "--body", "I ran the demo"]));
+    // the same at the limit of the messages: 29 of 30, and the stop needs two
+    let h = hub();
+    h.set_authority_extra("unattended_coordinator: verify\nmax_rounds: 1\n");
+    for i in 0..29 {
+        coord(
+            &h,
+            30,
+            &h.dev.name,
+            Kind::Answer,
+            &format!("noted {i}\n{}", stamp(0)),
+        );
+    }
+    let o = h.headless(&["verify", "5", "--fail", "--body", "the demo does not run"]);
+    refused(&o, BUDGET);
+    assert!(o.stderr.contains("its limit is 30 per day"), "{}", o.all());
+    assert!(h.writes().is_empty(), "{:?}", h.writes().len());
 }

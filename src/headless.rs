@@ -84,7 +84,7 @@ pub(crate) const DENY_CLOSE_JUDGMENT: &str =
 pub(crate) const DENY_RUN: &str =
     "--run names a CI run for a Gate that needs a by-hand run; such a Gate is not CI only";
 pub(crate) const DENY_RUN_CHECK: &str = "--run-check runs code of the PR on this host; the `tick` runs the checks of a ticket whose signed Gate is `checks: ...`, and the interactive coordinator runs any other";
-pub(crate) const DENY_BODY_FILE: &str = "--body-file <path> would publish a file of this host; in a headless config dir the text comes from --body or from standard input (--body-file -)";
+pub(crate) const DENY_BODY_FILE: &str = "--body-file takes no file path in a headless config dir; pass the text with --body, or on standard input with `--body-file -`";
 pub(crate) const DENY_ASSIGN_ARGS: &str = "the unattended coordinator assigns with `assign <n> --to <agent>` only; `--order` and `--override-capabilities` are for the interactive coordinator";
 
 /// The refusal for a ticket or a text that the unattended coordinator must leave alone. `what`
@@ -103,7 +103,7 @@ pub fn refusal(command: &str, why: &str) -> Refusal {
     Refusal::new(
         ids::HEADLESS_SCOPE,
         format!(
-            "this config is headless: `{command}` is not allowed ({why}). A headless coordinator may only run verify, and merge for a ticket whose Gate is CI only. Leave this for the interactive coordinator and note it"
+            "this config is headless: `{command}` is not allowed here ({why}). Leave this for the interactive coordinator and note it; nothing was written"
         ),
     )
 }
