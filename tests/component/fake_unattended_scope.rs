@@ -877,7 +877,7 @@ fn a_text_with_an_unattended_line_is_refused_in_a_headless_dir() {
             vec!["ask", "6", "--body", text],
         ] {
             let o = h.headless_read(&argv);
-            refused(&o, SCOPE);
+            refused(&o, "[rule=text-reads-as-act]");
             assert!(
                 o.stderr.contains("only crewboard writes that line"),
                 "{argv:?}: {}",
@@ -900,7 +900,7 @@ fn a_text_with_an_unattended_line_is_refused_in_a_headless_dir() {
         ci_green: true,
     });
     let o = ci.headless_read(&["verify", "5", "--body", "fine\nunattended: 0/10"]);
-    refused(&o, SCOPE);
+    refused(&o, "[rule=text-reads-as-act]");
     assert!(ci.writes().is_empty());
 }
 
@@ -975,10 +975,7 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
                 5,
                 vec!["verify", "5", "--fail", "--body", "the demo does not run"],
             ),
-            (
-                6,
-                answer("6", &dev_name, "Use the test key.\nunattended: 9/10"),
-            ),
+            (6, answer("6", &dev_name, "Use the test key.")),
             (6, vec!["unblock", "6"]),
             (6, vec!["ask", "6", "--body", "May it go?"]),
             // the interactive coordinator withdraws a question to the owner
@@ -997,15 +994,10 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
             let o = h.interactive(argv);
             assert_eq!(o.code, 0, "{extra:?} {argv:?}: {}", o.all());
             let (_, _, body) = h.board.comments_of(*n).pop().unwrap();
-            // no stamp of crewboard; the line that the person typed stays as typed
-            let typed = argv.iter().any(|a| a.contains("unattended: 9/10"));
+            // no stamp of crewboard
             assert_eq!(
                 stamps_in(&body),
-                if typed {
-                    vec!["unattended: 9/10".to_string()]
-                } else {
-                    Vec::new()
-                },
+                Vec::<String>::new(),
                 "{extra:?} {argv:?}: {body}"
             );
         }
@@ -1019,18 +1011,15 @@ fn an_interactive_dir_is_not_restricted_and_gets_no_stamp_and_no_budget() {
 }
 
 #[test]
-fn the_other_mode_acts_as_verify_and_merges_no_prose_gate() {
+fn the_other_mode_judges_as_verify_does() {
     let h = hub();
     h.set_authority_extra("unattended_coordinator: verify-and-merge\n");
     let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
     passed(&o);
     assert_eq!(stamps_of_last(&h, TICKET), [unattended_line(1, 10)]);
-    // the merge of a ticket whose Gate is not `ci` stays with the interactive coordinator
-    let o = h.headless_read(&["merge", "5"]);
-    refused(&o, SCOPE);
+    // the verdict itself merges nothing: the tick does, after it (`fake_unattended_merge`)
     assert!(!h.merged());
-    let t = tick(&h);
-    assert!(!h.merged(), "{}", t.all());
+    assert_eq!(h.status_of_ticket().as_deref(), Some("Review"));
 }
 
 #[test]
@@ -1468,7 +1457,13 @@ fn a_post_that_fails_after_the_reservation_keeps_the_count() {
     let state = StateCache::load(&state_path(&h));
     assert_eq!(state.tick.unattended_floor.map(|f| f.1), Some(1));
     let t = tick(&h);
-    assert_eq!(coord_lines(&t), [count_text("verify", 1, 1)], "{}", t.all());
+    // the count line, then the line of the note that tells the owner of the used budget
+    assert_eq!(
+        coord_lines(&t)[0],
+        count_text("verify", 1, 1),
+        "{}",
+        t.all()
+    );
     let o = h.headless_read(&["verify", "5", "--body", "I ran the demo"]);
     refused(&o, BUDGET);
     assert!(o.stderr.contains("1 of its 1 verdicts"), "{}", o.all());
@@ -1555,7 +1550,7 @@ fn a_text_on_standard_input_is_taken_and_stamped() {
         &["ask", "7", "--body-file", "-"],
         "May it go?\nunattended: 0/10\n",
     );
-    refused(&o, SCOPE);
+    refused(&o, "[rule=text-reads-as-act]");
 }
 
 #[test]

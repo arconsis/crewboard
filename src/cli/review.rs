@@ -33,7 +33,7 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
             if let Err(r) = ops::tickets::check_verify_fail_note(*gate_failed, &note) {
                 return fail(r.into());
             }
-            if let Err(e) = ops::say::check_body_text(&note) {
+            if let Err(e) = ops::say::check_person_text(&note) {
                 return fail(e);
             }
             if let Err(r) = ops::tickets::check_note_has_no_gate_line(&note) {
@@ -145,7 +145,8 @@ pub(super) fn dispatch(cli: &Cli, c: &ReviewCmd) -> Outcome {
                     }),
                     None => None,
                 };
-                ops::tickets::tick(&mut ac, checks.as_ref()).map(|t| (ac, t))
+                // a `tick` by hand is no unit that starts a model: it knows no model wakes
+                ops::tickets::tick(&mut ac, checks.as_ref(), None).map(|t| (ac, t))
             }) {
             Ok((ac, t)) => {
                 print!("{}", t.text);

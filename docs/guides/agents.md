@@ -103,7 +103,9 @@ crewboard wake install --runtime claude --agent-dir <agent-dir> \
 ```
 
 The headless coordinator runs `crewboard tick` and starts no model. It verifies and merges only
-tickets whose Gate is CI only. `crewboard agent add --role headless-coordinator --from <dir>
+tickets whose Gate is CI only (the optional unattended coordinator widens that:
+[Headless setup](headless-setup.md#a-model-for-the-tickets-that-need-a-judgment-optional)).
+`crewboard agent add --role headless-coordinator --from <dir>
 --agent-dir <dir>-headless --env-file <env>` makes its dir and prints the install command
 ([unattended-claude.md](runtimes/unattended-claude.md#headless-coordinator)).
 

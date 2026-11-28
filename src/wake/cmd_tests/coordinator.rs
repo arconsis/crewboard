@@ -298,6 +298,25 @@ fn uc3b_a_ticket_that_leaves_the_list_and_comes_back_starts_a_model_inside_the_b
     assert_eq!(wakes_file(&rig).unwrap().count, 2);
 }
 
+#[test]
+fn a_model_unit_hands_the_count_of_its_model_wakes_to_the_tick_and_a_tick_unit_does_not() {
+    let rig = Rig::new();
+    let rt = runtime(&rig, 0);
+    let flags = unit(&rig, &rt);
+    let mut st = steps(LIST6, 2, listed(&[6], 0));
+    // no count file yet: an empty day; the run then starts a model
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(rig.wakes(), 1);
+    // the next tick gets the count as the file has it
+    assert_eq!(run(&rig, &mut st, &flags), 0);
+    assert_eq!(st.wake_counts, [(String::new(), 0), (TODAY.to_string(), 1)]);
+    // a unit without a runtime knows no model wakes
+    let plain = Rig::new();
+    let mut st = steps(LIST6, 1, listed(&[6], 0));
+    assert_eq!(plain.run(&mut st, &["--tick", "--initiative", "demo"]), 0);
+    assert!(st.wake_counts.is_empty());
+}
+
 fn policy_distance() -> i64 {
     crate::wake::policy::COORD_MIN_DISTANCE_SECS
 }

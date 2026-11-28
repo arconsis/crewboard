@@ -19,6 +19,13 @@ impl Flow<'_, '_> {
     pub(super) fn tick(&mut self) -> u8 {
         let model = self.s.model_unit;
         let wd = self.s.work_dir.clone().filter(|_| !model);
+        if model {
+            // the count file is read ahead of the tick: at the first tick of a UTC day it
+            // holds the wakes of the day that ended, which the daily digest names
+            let w = crate::wake::state::read_coord_wakes(&self.s.paths.coord_wakes);
+            let (day, count) = w.as_ref().map_or(("", 0), |w| (w.day.as_str(), w.count));
+            self.steps.model_wakes(day, count);
+        }
         let (rc, out) = self.call("tick", &mut |s, o| s.tick(wd.as_deref(), o));
         if let Some(code) = self.signalled() {
             return code;

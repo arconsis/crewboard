@@ -63,6 +63,11 @@ pub trait Steps {
     fn judgment(&mut self) -> Option<Listed> {
         None
     }
+    /// The count of the model wakes that this unit holds (`coordinator-wakes`: a UTC day and
+    /// the wakes of that day; an empty day for a unit without a count yet), for the daily
+    /// digest of the next [`Steps::tick`]. Only a unit that starts a model calls it. Another
+    /// binary takes no such value: its digest names no model wakes.
+    fn model_wakes(&mut self, _day: &str, _count: u32) {}
     /// A model of the unattended coordinator starts at `now`: the unread check of the headless
     /// config dir starts a new run, so this model sees each unread message once
     /// ([`crate::state::PollState::start_unread_run`]). An error means: no model starts.
@@ -99,6 +104,8 @@ pub struct InProcess {
     hold_heartbeat: bool,
     /// The values of the last tick ([`Steps::judgment`]).
     judgment: Option<Listed>,
+    /// The count of the model wakes of the unit ([`Steps::model_wakes`]).
+    model_wakes: Option<ops::tickets::ModelWakes>,
 }
 
 impl InProcess {
@@ -108,6 +115,7 @@ impl InProcess {
             ac: None,
             hold_heartbeat: false,
             judgment: None,
+            model_wakes: None,
         }
     }
 
@@ -242,6 +250,7 @@ impl Steps for InProcess {
         // the output first, then the reported deleted notes are forgotten (`TickOut::settle`)
         self.judgment = None;
         let mut judgment = None;
+        let wakes = self.model_wakes.clone();
         let rc = match self.with(|ac| {
             let env = |k: &str| std::env::var(k).ok();
             let root = crate::wake::state::state_root(
@@ -252,7 +261,7 @@ impl Steps for InProcess {
                 repo_dir: d.to_path_buf(),
                 log_root: r.join("check-runs"),
             });
-            let t = plain(ops::tickets::tick(ac, checks.as_ref()))?;
+            let t = plain(ops::tickets::tick(ac, checks.as_ref(), wakes.as_ref()))?;
             out.extend_from_slice(t.text.as_bytes());
             plain(t.settle(ac))?;
             judgment = t.judgment;
@@ -268,6 +277,13 @@ impl Steps for InProcess {
 
     fn judgment(&mut self) -> Option<Listed> {
         self.judgment.take()
+    }
+
+    fn model_wakes(&mut self, day: &str, count: u32) {
+        self.model_wakes = Some(ops::tickets::ModelWakes {
+            day: day.to_string(),
+            count,
+        });
     }
 
     fn model_run_starts(&mut self, now: i64) -> StepRc {

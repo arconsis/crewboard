@@ -81,7 +81,7 @@ pub fn plan(
 pub fn run(g: &Global, issue: &str, status: &str, why: Option<&str>) -> CbResult<String> {
     let to = move_target(status)?;
     if let Some(w) = why {
-        super::say::check_body_text(w)?;
+        super::say::check_person_text(w)?;
     }
     let cfg = super::resolve_board_config(g)?;
     let client = new_owner_client()?;

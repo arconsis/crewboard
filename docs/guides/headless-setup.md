@@ -238,10 +238,69 @@ and ask you a question. It reads a ticket with `crewboard mine <owner>/<repo>#<n
 prints only what passed the check of crewboard: the Gate and the guard of the signed
 assignment, the latest `done` with its PR and SHA, and the messages that count. Each line of a
 message text has the prefix `|`, so a text cannot look like a line of crewboard. Each message has a last line
-`unattended: <n>/<budget>`. It merges
-nothing: a headless config dir merges only a `Gate: ci` ticket, and that is the tick. The
+`unattended: <n>/<budget>`. The model merges
+nothing: the tick merges. With `verify`, a headless config dir merges only a `Gate: ci`
+ticket. The
 limits per UTC day: `unattended_budget` verdicts, 30 messages, 5 questions to you, 6 model
 wakes; one ticket gets 2 verdicts until you comment on it.
+
+**The merge mode (optional).** With `unattended_coordinator: verify`, a ticket that the model
+verified waits in Review until you or the interactive coordinator merge it. To let the tick
+merge it, write the other value on the default branch:
+
+```
+unattended_coordinator: verify-and-merge
+```
+
+What it means: the tick after a passing verify result merges the PR of a ticket whose Gate is
+prose. The merge needs `coordinator_may_merge: true`, a counted CI run that is green for the
+SHA of the `done`, no protected path and no guarded path in the PR, no open question to you,
+and a PR head that is still that SHA. A push after the verdict, a new `done`, a failed result
+and a stop at the round limit all end the pass. Only the verify result of the model counts
+here: after a `verify` of your interactive coordinator nothing is merged by the tick, and that
+coordinator runs `merge` itself. A ticket with `CI: none`, a local gate or a
+`Gate: checks: ...` is not merged this way.
+
+The merge is not in the run that first sees the pass. The tick notes a new pass, and it
+merges at a later tick when the ticket was in Review all the time and its board item did not
+change. So a merge comes one tick interval after the verdict at the earliest.
+
+What a failed verify is worth after a pass: GitHub lets every account with write access delete
+or edit the comments of others and write the board, and the agent accounts have write access.
+A failed verify moves the ticket out of Review; somebody can delete it and set the board back.
+The tick detects this in three ways, and then prints `left for the interactive coordinator:
+<ticket>, held: ...` and merges nothing:
+
+- the ticket was not in Review at a tick, or its board item changed, after the tick first saw
+  the pass. That pass never merges; a new `done` with a new verdict does;
+- a verify result that the tick saw is gone. The ticket is held until you comment on it, or
+  your interactive coordinator assigns it again; a new verdict alone does not end this;
+- a comment of the ticket was edited, or has a crew header and does not verify. Your
+  interactive coordinator reads the ticket and merges it.
+
+One case is not detected: the fail, its deletion and the move back all happen before the first
+tick after the pass (one tick interval at most, plus the time of a model wake). So when you or
+your interactive coordinator disagree with a pass of the model, do not only post a failed
+verify: run `crewboard ask <ticket> --body "..."` or block the ticket. A question to the owner
+stops the merge until you answer, and only you end it.
+
+The digest marks a held ticket with the word `held`.
+
+What stays with you: every PR that changes a protected path, every ticket with a question to
+you or a stop at the round limit, the first assignment of a ticket, and the key itself. No
+person reads the diff of such a merge, so do two things first: list the files that define your
+CI and your tests in `protected_paths`, and require the CI checks in the branch protection.
+The merge notice of such a ticket ends with the line `verified-by: unattended`.
+
+To go back, write `verify` (the model still judges, nothing with a Gate in prose is merged) or
+`off`. The change holds from the next tick.
+
+**What you see.** `crewboard start` and `crewboard doctor --setup` print the mode and the
+budget that are live now. When the verdicts of a day are used, the tick posts one `info` to you
+in the registry issue, once per UTC day. With `daily_digest: true` the digest of the next day
+names the verdicts (pass and fail, by ticket key), the verdicts used of the budget, the counts
+of answers, assignments and questions, the merges after a verdict of the model, the model
+wakes, and the tickets that the model verified and that are not merged.
 
 **The runtimes.** All three work the same way: crewboard starts the runtime with one prompt and
 the runtime runs `crewboard` commands. The scope and the budget are in crewboard, so they hold
@@ -295,9 +354,14 @@ Set `daily_digest: true` in `AUTHORITY.md`, and the first tick of each UTC day p
 project status update: the tickets by Status, the agents that are late or dead, and the Review
 tickets that wait for a person, with the reason for each. GitHub sends it to the people who
 follow the project. The health value is `Off track` when an agent is dead and `At risk` when an
-agent is late or a ticket waits for you. No model writes the text.
+agent is late or a ticket waits for you. No model writes the text. With the unattended
+coordinator on, it also has the facts of the day before about it
+([above](#a-model-for-the-tickets-that-need-a-judgment-optional)).
 
 ## A `Gate: ci` merge has no human review
+
+The same holds for a ticket with a Gate in prose in the mode `verify-and-merge`: a model read
+the diff, and no person did.
 
 The headless coordinator merges a ticket whose Gate is `ci` when the evidence, the protected
 paths and a green CI run for the head SHA pass. No model and no person reads the diff. So a

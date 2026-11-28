@@ -138,12 +138,13 @@ impl CiMode {
     }
 }
 
-/// The value of `unattended_coordinator` (spec/agents#unattended-coordinator). The two values
-/// that are not `off` do the same: a headless config dir may make the judgments of the
-/// unattended scope inside the budget, and the headless `tick` lists the tickets that need a
-/// judgment and counts the verdicts of the day. No value alone starts a model: a unit with
-/// `wake --tick --runtime` does, and only for a value that is not `off`. No value lets a
-/// headless config dir merge a ticket whose Gate is not `ci`.
+/// The value of `unattended_coordinator` (spec/agents#unattended-coordinator). With a value
+/// that is not `off`, a headless config dir may make the judgments of the unattended scope
+/// inside the budget, and the headless `tick` lists the tickets that need a judgment and counts
+/// the verdicts of the day. No value alone starts a model: a unit with `wake --tick --runtime`
+/// does, and only for a value that is not `off`. Only `verify-and-merge` lets a headless config
+/// dir merge a ticket whose Gate is prose, and only after a passing verify result
+/// ([`CoordMode::merges`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CoordMode {
     /// The default: the `tick` lists nothing and reads nothing for a list.
@@ -151,7 +152,8 @@ pub enum CoordMode {
     Off,
     /// The `tick` shows the judgment list and the count.
     Verify,
-    /// The same as [`CoordMode::Verify`] in this version.
+    /// [`CoordMode::Verify`], and the headless `tick` and `merge` also merge a ticket whose Gate
+    /// is prose, after a passing verify result for the head of its latest `done`.
     VerifyAndMerge,
 }
 
@@ -177,6 +179,12 @@ impl CoordMode {
 
     pub fn is_off(self) -> bool {
         self == CoordMode::Off
+    }
+
+    /// May a headless config dir merge a ticket whose Gate is prose? Only the value
+    /// `verify-and-merge` says so; the owner writes it, and no default does.
+    pub fn merges(self) -> bool {
+        self == CoordMode::VerifyAndMerge
     }
 }
 
@@ -1074,7 +1082,13 @@ needs_owner: [release, credentials, delete, new-scope, new-repo]\n\
             let a = parsed(&format!("---\nunattended_coordinator: {v}\n---\n"));
             assert_eq!(a.unattended_coordinator, mode, "{v}");
             assert_eq!(a.unattended_coordinator.is_off(), mode == CoordMode::Off);
+            // only the one value that names the merge allows it
+            assert_eq!(
+                a.unattended_coordinator.merges(),
+                mode == CoordMode::VerifyAndMerge
+            );
         }
+        assert!(!Authority::default().unattended_coordinator.merges());
         for mode in [CoordMode::Off, CoordMode::Verify, CoordMode::VerifyAndMerge] {
             assert_eq!(CoordMode::parse(mode.as_str()), Some(mode));
         }

@@ -23,6 +23,8 @@ pub(super) struct Scripted {
     pub(super) judgment: Option<Listed>,
     /// The checkout that each tick got.
     pub(super) tick_dirs: Vec<Option<PathBuf>>,
+    /// The count of the model wakes that each run handed over ([`Steps::model_wakes`]).
+    pub(super) wake_counts: Vec<(String, u32)>,
     /// The start times of the model runs ([`Steps::model_run_starts`]).
     pub(super) model_runs: Vec<i64>,
     /// The heads of PRs by `<repo>#<n>`, and the open PRs of every repo.
@@ -115,6 +117,9 @@ impl Steps for Scripted {
     fn judgment(&mut self) -> Option<Listed> {
         // no call to the board: the values of the tick that just ran
         self.judgment.clone()
+    }
+    fn model_wakes(&mut self, day: &str, count: u32) {
+        self.wake_counts.push((day.to_string(), count));
     }
     fn model_run_starts(&mut self, now: i64) -> StepRc {
         self.model_runs.push(now);

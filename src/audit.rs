@@ -171,9 +171,22 @@ fn is_owner_info(m: &VMsg) -> bool {
 /// ([`crate::ticket::out_of_window_messages`]): a report with a wrong time still reported its
 /// keys, so they count too (spec/messages#signature).
 pub fn reported_events(msgs: &[VMsg], late: &[VMsg]) -> HashSet<String> {
+    reported_where(msgs, late, |_| true)
+}
+
+/// [`reported_events`] from the reports of coordinators only. The headless `tick` uses it: its
+/// reports come from a coordinator, so a dev agent that posts an `event=` line cannot make the
+/// tick take an event as reported. The cycle of `watch` keeps [`reported_events`]: on a board
+/// without a coordinator the dev agents report security events themselves, and each must see
+/// the report of the other.
+pub fn reported_by_coordinators(msgs: &[VMsg], late: &[VMsg]) -> HashSet<String> {
+    reported_where(msgs, late, |m| m.sender.actor().is_coordinator())
+}
+
+fn reported_where(msgs: &[VMsg], late: &[VMsg], keep: impl Fn(&VMsg) -> bool) -> HashSet<String> {
     msgs.iter()
         .chain(late)
-        .filter(|m| is_owner_info(m))
+        .filter(|m| is_owner_info(m) && keep(m))
         .flat_map(|m| {
             m.body
                 .lines()

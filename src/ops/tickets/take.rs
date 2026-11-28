@@ -303,6 +303,9 @@ pub fn take(
             "--interrupt needs a reason (--why)",
         ));
     }
+    if let Some(reason) = interrupt {
+        crate::ops::unattended::check_person_lines(reason)?;
+    }
     let world = load_world_cached(ac)?;
     let me = me_of(ac, &world)?;
     crate::ops::say::refresh_heartbeat(ac, &world);

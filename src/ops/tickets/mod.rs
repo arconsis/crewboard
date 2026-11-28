@@ -73,7 +73,7 @@ pub use reassign::{Why, reassign};
 pub use run_checks::RunArgs;
 pub use split::ticket_split;
 pub use take::take;
-pub use tick::{TickChecks, tick};
+pub use tick::{ModelWakes, TickChecks, tick};
 pub use verify::{check_verify_fail_note, verify};
 
 pub(crate) struct Me {

@@ -45,6 +45,21 @@ pub fn unattended_of(body: &str) -> Option<(u32, u32)> {
     ((1..=UNATTENDED_BUDGET_MAX).contains(&budget) && n <= budget).then_some((n, budget))
 }
 
+/// The key of the line that a merge notice carries when the passing verify that the merge relied
+/// on has the line `unattended: <n>/<budget>`.
+pub const VERIFIED_BY_KEY: &str = "verified-by";
+
+/// The line `verified-by: unattended`, without a newline. Its key is not [`UNATTENDED_KEY`]: a
+/// merge notice is no stamped message and counts for no budget.
+pub fn verified_by_unattended_line() -> String {
+    format!("{VERIFIED_BY_KEY}: {UNATTENDED_KEY}")
+}
+
+/// Does `body` have the line `verified-by: unattended` (the key at the start of a line)?
+pub fn is_verified_by_unattended(body: &str) -> bool {
+    body.lines().any(|l| l == verified_by_unattended_line())
+}
+
 /// A whole number in plain digits: no sign, no blank space, no leading zero (`0` itself is one).
 fn plain_number(s: &str) -> Option<u32> {
     let plain =
@@ -105,6 +120,25 @@ mod tests {
         ] {
             assert_eq!(unattended_of(bad), None, "{bad:?}");
             assert!(has_unattended_line(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_line_of_a_merge_notice_is_no_stamp() {
+        let line = verified_by_unattended_line();
+        assert_eq!(line, "verified-by: unattended");
+        let body = format!("Merged by the coordinator.\npr: p\n{line}");
+        assert!(is_verified_by_unattended(&body));
+        assert!(!has_unattended_line(&body));
+        assert_eq!(unattended_of(&body), None);
+        for other in [
+            "Merged by the coordinator.\npr: p",
+            "note: verified-by: unattended",
+            " verified-by: unattended",
+            "verified-by: unattended coordinator",
+            "unattended: 1/10",
+        ] {
+            assert!(!is_verified_by_unattended(other), "{other:?}");
         }
     }
 

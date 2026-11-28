@@ -157,6 +157,8 @@ mod fake_ticket_guard;
 mod fake_tickets;
 #[path = "component/fake_unattended.rs"]
 mod fake_unattended;
+#[path = "component/fake_unattended_merge.rs"]
+mod fake_unattended_merge;
 #[path = "component/fake_unattended_scope.rs"]
 mod fake_unattended_scope;
 #[cfg(unix)]

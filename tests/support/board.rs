@@ -622,6 +622,12 @@ impl FakeBoard {
         st.items.get_mut(id).expect("item").updated = now_epoch() - secs;
     }
 
+    /// The `updatedAt` of an item, as the API gives it.
+    pub fn item_updated_at(&self, id: &str) -> String {
+        let st = self.st.lock().unwrap();
+        format_ts(st.items.get(id).expect("item").updated)
+    }
+
     pub fn item_field(&self, id: &str, name: &str) -> Option<String> {
         let st = self.st.lock().unwrap();
         st.items.get(id)?.fields.get(name).cloned()

@@ -288,6 +288,122 @@ pub struct TickState {
     /// does not read the comments again while the item is unchanged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub unattended_not_returned: BTreeMap<String, String>,
+    /// The UTC day (`YYYY-MM-DD`) for which the tick told the owner that the verdicts of the
+    /// unattended coordinator are used. A memo only: the `event=` line of the note in the
+    /// registry issue is the truth, and a lost memo costs one look at the registry messages
+    /// that the tick has read anyway, not a second note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattended_spent_told: Option<String>,
+    /// `<repo>#<issue>` -> what the tick saw on a Review ticket with a Gate in prose, while the
+    /// unattended coordinator is on: the verify results of coordinators, the pass that waits for
+    /// a merge, the passes that were noted when the ticket left Review, and the results that
+    /// were gone at a later run (spec/agents#the-merge-mode). The headless merge of a prose Gate
+    /// decides from it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub review_results: BTreeMap<String, SeenResults>,
+}
+
+/// What the tick saw on one ticket ([`TickState::review_results`]). Every part only grows, so
+/// a save of an older copy of the state takes nothing away ([`SeenResults::merged`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SeenResults {
+    /// The comment ids of the verify results, at most [`MAX_SEEN_RESULTS`] (the newest).
+    pub ids: Vec<u64>,
+    /// When the tick last saw the ticket in Review (Unix seconds). An entry that is older than
+    /// [`NOTE_KEEP_SECS`] is forgotten: the ticket left Review long ago.
+    pub at: i64,
+    /// The stamped pass of the latest `done` that the tick saw last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pass: Option<SeenPass>,
+    /// The result ids that were noted when the ticket was not in Review at a tick, or when its
+    /// board item changed after the tick first saw the pass. A pass among them never gives a
+    /// headless merge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<u64>,
+    /// The results that a tick saw and that were gone at a later run: the comment id, and the
+    /// time when the tick noticed it (Unix seconds).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gone: Vec<(u64, i64)>,
+}
+
+/// A stamped pass as the tick saw it ([`SeenResults::pass`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SeenPass {
+    /// The comment id of the verify result.
+    pub id: u64,
+    /// `updatedAt` of the board item at the first sight. A move of the ticket changes it.
+    pub item_updated: String,
+    /// The time of the first sight (Unix seconds).
+    pub first: i64,
+    /// The time of a later tick that saw the same pass on an unchanged board item. Only then
+    /// the pass can give a headless merge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<i64>,
+}
+
+/// How many result ids the tick keeps per ticket.
+pub const MAX_SEEN_RESULTS: usize = 20;
+
+/// `a` and `b` without a value twice, in rising order, the newest `keep`.
+fn union_ids(a: &[u64], b: &[u64], keep: usize) -> Vec<u64> {
+    let mut ids: Vec<u64> = a.iter().chain(b).copied().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let cut = ids.len().saturating_sub(keep);
+    ids.split_off(cut)
+}
+
+impl SeenResults {
+    /// These ids with `more`: no id twice, in rising order, the newest [`MAX_SEEN_RESULTS`].
+    pub fn with(&self, more: &[u64], at: i64) -> SeenResults {
+        SeenResults {
+            ids: union_ids(&self.ids, more, MAX_SEEN_RESULTS),
+            at: self.at.max(at),
+            ..self.clone()
+        }
+    }
+
+    /// The ids of `more` join the ids that left Review.
+    pub fn with_left(&mut self, more: &[u64]) {
+        self.left = union_ids(&self.left, more, 4 * MAX_SEEN_RESULTS);
+    }
+
+    /// Note that the result `id` was gone at `at`, unless it is noted already.
+    pub fn with_gone(&mut self, id: u64, at: i64) {
+        if !self.gone.iter().any(|(g, _)| *g == id) {
+            self.gone.push((id, at));
+            self.gone.sort_unstable();
+        }
+    }
+
+    /// This entry with what a concurrent writer saved (`disk`): the union of the ids, of the
+    /// ids that left Review and of the gone results (the earlier time of one id); the later
+    /// look; and the pass with the higher comment id. For one pass: the earlier first sight and
+    /// a confirmation that either copy has.
+    pub fn merged(&self, disk: &SeenResults) -> SeenResults {
+        let mut out = self.with(&disk.ids, disk.at);
+        out.with_left(&disk.left);
+        for (id, at) in &disk.gone {
+            match out.gone.iter_mut().find(|(g, _)| g == id) {
+                Some(mine) => mine.1 = mine.1.min(*at),
+                None => out.gone.push((*id, *at)),
+            }
+        }
+        out.gone.sort_unstable();
+        out.pass = match (&self.pass, &disk.pass) {
+            (Some(m), Some(d)) if m.id == d.id => Some(SeenPass {
+                first: m.first.min(d.first),
+                confirmed: match (m.confirmed, d.confirmed) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                },
+                ..m.clone()
+            }),
+            (Some(m), Some(d)) => Some(if m.id > d.id { m.clone() } else { d.clone() }),
+            (m, d) => m.clone().or_else(|| d.clone()),
+        };
+        out
+    }
 }
 
 /// A floor of the unattended verdicts on one ticket ([`TickState::unattended_tickets`]).
@@ -340,6 +456,16 @@ impl TickState {
     /// the one that was noted at the higher comment id, and the higher count of one id. The memo
     /// of a feed: the later day, and the higher counts of one day.
     pub(crate) fn merge_unattended(&mut self, disk: &TickState) {
+        // the results that a concurrent writer noted stay: an id is never taken away by a save
+        // of an older copy. An entry that is too old is not taken from the file again.
+        let keep_from = crate::clock::now_epoch() - NOTE_KEEP_SECS;
+        for (key, d) in disk.review_results.iter().filter(|(_, d)| d.at > keep_from) {
+            let merged = match self.review_results.get(key) {
+                Some(mine) => mine.merged(d),
+                None => d.clone(),
+            };
+            self.review_results.insert(key.clone(), merged);
+        }
         for (mine, theirs) in [
             (&mut self.unattended_floor, &disk.unattended_floor),
             (
@@ -950,6 +1076,101 @@ mod tests {
             after,
             at: 1,
         }
+    }
+
+    #[test]
+    fn the_results_that_a_tick_saw_stay_through_a_stale_save_and_are_left_out_when_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.json");
+        let now = crate::clock::now_epoch();
+        let mut stale = StateCache::load(&p);
+        stale.save(&p).unwrap();
+        assert!(
+            !std::fs::read_to_string(&p)
+                .unwrap()
+                .contains("review_results"),
+            "an empty map is not written"
+        );
+        StateCache::update_locked(&p, |c| {
+            c.tick.review_results.insert(
+                "a/b#5".into(),
+                SeenResults {
+                    ids: vec![3, 4],
+                    at: now,
+                    pass: Some(SeenPass {
+                        id: 3,
+                        item_updated: "u".into(),
+                        first: 50,
+                        confirmed: Some(70),
+                    }),
+                    left: vec![2],
+                    gone: vec![(4, 90)],
+                },
+            );
+            c.tick.review_results.insert(
+                "a/b#6".into(),
+                SeenResults {
+                    ids: vec![9],
+                    at: now - NOTE_KEEP_SECS - 10,
+                    ..SeenResults::default()
+                },
+            );
+            Ok(())
+        })
+        .unwrap();
+        // a copy that knows one id of #5, and none of the other ticket
+        stale.tick.review_results.insert(
+            "a/b#5".into(),
+            SeenResults {
+                ids: vec![4, 7],
+                at: now - 5,
+                // the copy saw the pass first, did not see it confirmed, and noted the gone
+                // result later
+                pass: Some(SeenPass {
+                    id: 3,
+                    item_updated: "u".into(),
+                    first: 40,
+                    confirmed: None,
+                }),
+                left: vec![1],
+                gone: vec![(4, 95), (5, 99)],
+            },
+        );
+        stale.save(&p).unwrap();
+        let got = StateCache::load(&p).tick.review_results;
+        assert_eq!(
+            got["a/b#5"],
+            SeenResults {
+                ids: vec![3, 4, 7],
+                at: now,
+                pass: Some(SeenPass {
+                    id: 3,
+                    item_updated: "u".into(),
+                    first: 40,
+                    confirmed: Some(70),
+                }),
+                left: vec![1, 2],
+                gone: vec![(4, 90), (5, 99)],
+            }
+        );
+        // an entry that is too old is not taken from the file again
+        assert!(!got.contains_key("a/b#6"));
+        // the newest ids stay when a ticket has many
+        let many: Vec<u64> = (1..=30).collect();
+        let kept = SeenResults::default().with(&many, 1);
+        assert_eq!(kept.ids.len(), MAX_SEEN_RESULTS);
+        assert_eq!(kept.ids.first(), Some(&11));
+        // a newer pass wins over an older one, from either side
+        let pass = |id: u64| SeenResults {
+            pass: Some(SeenPass {
+                id,
+                ..SeenPass::default()
+            }),
+            ..SeenResults::default()
+        };
+        assert_eq!(pass(5).merged(&pass(8)).pass.unwrap().id, 8);
+        assert_eq!(pass(8).merged(&pass(5)).pass.unwrap().id, 8);
+        assert_eq!(pass(8).merged(&SeenResults::default()).pass.unwrap().id, 8);
     }
 
     #[test]

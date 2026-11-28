@@ -40,14 +40,23 @@ pub fn prepare_body(body_file: Option<&str>, body: Option<&str>) -> CbResult<Str
         (None, Some(b)) => b.to_string(),
         (None, None) => String::new(),
     };
-    check_body_text(&text)?;
+    check_person_text(&text)?;
     Ok(text)
+}
+
+/// [`check_body_text`] for a text that a person or a model passes in: it also has no line that
+/// only crewboard writes (`unattended:`, `verified-by:`). Every command that takes such a text
+/// calls this, or [`prepare_body`] or [`check_free_text`], which do.
+pub fn check_person_text(text: &str) -> CbResult<()> {
+    check_body_text(text)?;
+    super::unattended::check_person_lines(text)
 }
 
 /// A free text must not read as an act (spec/messages#acts): `closed: ...`, `verify: pass`,
 /// `Reassigned.` and the other act lines belong to one command each. Every writer of free text
 /// (`say`, `block --why`) calls this.
 pub fn check_free_text(kind: Kind, text: &str) -> CbResult<()> {
+    super::unattended::check_person_lines(text)?;
     match crate::protocol::acts::reserved_for(kind, text) {
         None => Ok(()),
         Some(cmd) => Err(Refusal::new(

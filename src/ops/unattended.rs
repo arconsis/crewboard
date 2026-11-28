@@ -145,6 +145,73 @@ fn load_day(ac: &AgentCtx, world: &World, now: i64, cache: &mut StateCache) -> C
     })
 }
 
+/// What the stamped messages of the UTC day `[start, end)` say, for the daily digest: one read
+/// of the comment feed per repo of the initiative, from `start`. The read has no memo: the
+/// digest asks once per day, for a day that is over. Only verified messages of a coordinator
+/// count.
+pub(crate) fn load_day_report(
+    ac: &AgentCtx,
+    world: &World,
+    start: i64,
+    end: i64,
+) -> CbResult<crate::unattended::DayReport> {
+    let cfg = &ac.ctx.cfg;
+    let mut report = crate::unattended::DayReport::default();
+    for repo in &cfg.repos {
+        let Some(feed) = crate::feed::feed_since_unresolved(&ac.ctx.client, repo, start, None)?
+        else {
+            continue;
+        };
+        let mut by_issue: BTreeMap<u64, Vec<Comment>> = BTreeMap::new();
+        for c in feed.comments {
+            by_issue.entry(c.issue).or_default().push(c);
+        }
+        for (issue, comments) in &by_issue {
+            let msgs = verified_messages(comments, cfg, &world.trust);
+            report.add(&TicketRef::new(repo, *issue).to_string(), &msgs, start, end);
+        }
+    }
+    Ok(report)
+}
+
+/// Is the headless merge of a prose Gate held ([`crate::unattended::held`])? `pass` is the
+/// comment id of the stamped pass of the latest `done`. The decision comes from the comments
+/// and the board item that the command just read, and from what the tick of this config dir
+/// noted for the ticket (`TickState::review_results`). It makes no request.
+pub(crate) fn merge_hold(ac: &AgentCtx, t: &Ticket, pass: u64) -> Option<crate::unattended::Held> {
+    let unverified = crate::ticket::unverified_comments(&t.comments, &t.msgs);
+    let cache = ac.load_cache();
+    let entry = cache.tick.review_results.get(&floor_key(&t.tref()));
+    let seen = entry.map_or(crate::unattended::Seen::default(), |e| {
+        crate::unattended::Seen {
+            ids: &e.ids,
+            left: &e.left,
+            gone: &e.gone,
+            pass: e
+                .pass
+                .as_ref()
+                .map(|p| (p.id, p.item_updated.as_str(), p.confirmed.is_some())),
+        }
+    });
+    crate::unattended::held(&t.msgs, &unverified, &seen, pass, &t.item.updated_at)
+}
+
+/// The key (`event=` line) of the note to the owner that the verdicts of the UTC day `day` are
+/// used. It has no `#`, so no reader takes a part of it for a repo.
+pub(crate) fn budget_spent_key(day: &str) -> String {
+    format!("unattended-budget:{day}")
+}
+
+/// The text of that note. No line of it starts with the key of the protocol line
+/// (`unattended:`): the note is a fact that the tick posts, no message of the unattended
+/// coordinator, and it counts for no budget.
+pub(crate) fn budget_spent_body(day: &str, used: u32, budget: u32, authority: &str) -> String {
+    format!(
+        "The unattended coordinator used its verdicts of {day} (UTC): {used} of {budget}.\nevent={}\nIt gives no verify result before 00:00 UTC. The tickets that still need a judgment are in the output of `crewboard tick`; the interactive coordinator can take them now. For more verdicts per day, raise `unattended_budget` in {authority} on the default branch.\n",
+        budget_spent_key(day)
+    )
+}
+
 /// A count of the state that is of a later day than `today` refuses the command: the clock of
 /// this host went back, or it was ahead when the count was noted. With such a clock a count of
 /// "today" would start at 0 again, so nothing is counted and nothing is posted until the day of
@@ -338,17 +405,44 @@ pub(crate) fn check_ticket(ac: &AgentCtx, act: UAct, t: &Ticket, to: Option<&str
     Ok(())
 }
 
-/// A text that a person or a model passes in must not have a line with the key `unattended`:
-/// only crewboard writes the stamp. In a headless config dir such a text is refused with
-/// `headless-scope`; an attended agent is not restricted.
-pub(crate) fn check_no_stamp_line(ac: &AgentCtx, text: &str) -> CbResult<()> {
-    if has_unattended_line(text) && ac.ctx.cd.is_headless()? {
-        return Err(crate::headless::unattended_refusal(
-            "the text has a line that starts with `unattended:`; only crewboard writes that line",
-        )
-        .into());
+/// A text that a person or a model passes in must not have a line that only crewboard writes:
+/// the stamp `unattended:` and the line `verified-by:` of a merge notice. The readers of these
+/// lines (the counts of the day, the digest) take them from verified messages of coordinators,
+/// so a coordinator that types one would be counted. Refused with `text-reads-as-act` in every
+/// config dir, before any request. A text that crewboard builds does not pass here.
+pub(crate) fn check_person_lines(text: &str) -> CbResult<()> {
+    let Some(key) = written_by_crewboard_only(text) else {
+        return Ok(());
+    };
+    Err(Refusal::new(
+        ids::TEXT_READS_AS_ACT,
+        format!(
+            "the text has a line that starts with `{key}:`; only crewboard writes that line (it marks a message of the unattended coordinator, or a merge after its verdict). Write the text without that line; nothing was written"
+        ),
+    )
+    .into())
+}
+
+/// [`check_person_lines`] for a command that has its context. The entry points of the CLI ran
+/// the check before; this call is for a caller that did not pass one of them.
+pub(crate) fn check_no_stamp_line(_ac: &AgentCtx, text: &str) -> CbResult<()> {
+    check_person_lines(text)
+}
+
+/// The key of a line of `text` that only crewboard writes: `unattended` (the stamp) or
+/// `verified-by` (the line of a merge notice). Blank space before the key does not hide it.
+fn written_by_crewboard_only(text: &str) -> Option<&'static str> {
+    use crate::protocol::acts::{UNATTENDED_KEY, VERIFIED_BY_KEY};
+    if has_unattended_line(text) {
+        return Some(UNATTENDED_KEY);
     }
-    Ok(())
+    text.lines()
+        .any(|l| {
+            l.trim_start()
+                .split_once(':')
+                .is_some_and(|(k, _)| k == VERIFIED_BY_KEY)
+        })
+        .then_some(VERIFIED_BY_KEY)
 }
 
 /// Take the messages `classes` of the budget, under the lock of the state file: read the counts
@@ -487,7 +581,15 @@ pub(crate) fn stamp_body(
     kind: Kind,
     body: &str,
 ) -> CbResult<String> {
-    check_no_stamp_line(ac, body)?;
+    // every signed message of a headless config dir; an attended command checks the text that
+    // a person passed in, and a message that crewboard builds (a merge notice) is not a text
+    // of a person
+    if has_unattended_line(body) && ac.ctx.cd.is_headless()? {
+        return Err(crate::headless::unattended_refusal(
+            "the text has a line that starts with `unattended:`; only crewboard writes that line",
+        )
+        .into());
+    }
     let Some(mut stamp) = ac.stamp.get() else {
         return Ok(body.to_string());
     };
@@ -587,6 +689,40 @@ mod tests {
         assert_eq!(floor_of(&tick, &typed), Some((2, 40)));
         assert_eq!(floor_of(&tick, &lower), Some((2, 40)));
         assert_eq!(floor_of(&tick, &TicketRef::new("acme/widgets", 8)), None);
+    }
+
+    #[test]
+    fn the_keys_that_only_crewboard_writes_are_found_in_a_text() {
+        for (text, key) in [
+            ("fine\nunattended: 1/10", Some("unattended")),
+            ("  unattended: x", Some("unattended")),
+            ("fine\nverified-by: unattended", Some("verified-by")),
+            (" verified-by: me", Some("verified-by")),
+            ("verified-by:", Some("verified-by")),
+            ("it was verified-by: me", None),
+            ("unattended coordinator: mode verify", None),
+            ("", None),
+        ] {
+            assert_eq!(written_by_crewboard_only(text), key, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_note_of_a_spent_budget_has_its_key_and_no_line_of_the_protocol_key() {
+        let body = budget_spent_body("2026-11-28", 10, 10, "AUTHORITY.md");
+        assert!(
+            body.lines()
+                .any(|l| l == "event=unattended-budget:2026-11-28"),
+            "{body}"
+        );
+        assert!(body.starts_with(
+            "The unattended coordinator used its verdicts of 2026-11-28 (UTC): 10 of 10.\n"
+        ));
+        assert!(!has_unattended_line(&body), "{body}");
+        assert_ne!(
+            budget_spent_key("2026-11-28"),
+            budget_spent_key("2026-11-29")
+        );
     }
 
     #[test]
